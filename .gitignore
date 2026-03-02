@@ -1,0 +1,9 @@
+node_modules
+out
+dist_electron
+.backend
+build/frontend-dist
+build/backend-venv
+build/backend-src
+vendor/frontend/node_modules
+vendor/frontend/dist

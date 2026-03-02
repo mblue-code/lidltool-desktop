@@ -1,0 +1,5 @@
+Alembic migration scripts.
+
+Current strategy:
+- Single baseline head (`0001_baseline_schema`) after reset on 2026-02-20.
+- Legacy pre-baseline revisions are archived under `archive/pre_baseline_2026_02_20/`.

@@ -1,0 +1,531 @@
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
+
+from lidltool.analytics.categorization import load_compiled_rules
+from lidltool.analytics.normalization import (
+    NormalizationBundle,
+    load_normalization_bundle,
+    normalize_item_category,
+    normalize_merchant_name,
+)
+from lidltool.analytics.observations import rebuild_item_observations
+from lidltool.analytics.product_matcher import auto_match_unmatched_items, resolve_product_for_item
+from lidltool.auth.users import ensure_service_user
+from lidltool.config import AppConfig
+from lidltool.connectors.base import Connector
+from lidltool.connectors.lidl_adapter import LidlConnectorAdapter
+from lidltool.db.engine import session_scope
+from lidltool.db.models import (
+    DiscountEvent,
+    Receipt,
+    ReceiptItem,
+    Source,
+    SourceAccount,
+    Store,
+    SyncState,
+    Transaction,
+    TransactionItem,
+)
+from lidltool.ingest.dedupe import (
+    build_discount_event_key,
+    canonical_discount_event_exists,
+    canonical_transaction_for_fingerprint,
+    canonical_transaction_for_source,
+    fingerprint_exists,
+    receipt_exists,
+)
+from lidltool.ingest.normalizer import normalize_receipt, parse_datetime, to_decimal
+from lidltool.lidl.client import LidlClient
+
+LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class SyncProgress:
+    pages: int = 0
+    receipts_seen: int = 0
+    new_receipts: int = 0
+    new_items: int = 0
+    skipped_existing: int = 0
+
+
+@dataclass(slots=True)
+class SyncResult:
+    ok: bool
+    full: bool
+    pages: int
+    receipts_seen: int
+    new_receipts: int
+    new_items: int
+    skipped_existing: int
+    cutoff_hit: bool
+    warnings: list[str] = field(default_factory=list)
+
+
+class SyncService:
+    def __init__(
+        self,
+        client: LidlClient | None,
+        session_factory: sessionmaker[Session],
+        config: AppConfig,
+        connector: Connector | None = None,
+    ) -> None:
+        self._client = client
+        self._session_factory = session_factory
+        self._config = config
+        if connector is not None:
+            self._connector = connector
+        else:
+            if client is None:
+                raise ValueError("client is required when connector is not provided")
+            self._connector = LidlConnectorAdapter(client=client, page_size=config.page_size)
+
+    def sync(
+        self,
+        *,
+        full: bool,
+        progress_cb: Callable[[SyncProgress], None] | None = None,
+    ) -> SyncResult:
+        state_warnings: list[str] = []
+        progress = SyncProgress()
+        cutoff_hit = False
+
+        with session_scope(self._session_factory) as session:
+            rules = load_compiled_rules(session)
+            normalization_bundle = load_normalization_bundle(session, source=self._config.source)
+            sync_state = session.get(SyncState, self._config.source)
+            if sync_state is None:
+                sync_state = SyncState(source=self._config.source)
+                session.add(sync_state)
+                session.flush()
+
+            newest_seen_at: datetime | None = sync_state.last_seen_receipt_at
+            if newest_seen_at is not None and newest_seen_at.tzinfo is None:
+                newest_seen_at = newest_seen_at.replace(tzinfo=UTC)
+            newest_seen_id: str | None = sync_state.last_seen_receipt_id
+
+            ingested_streak = 0
+            max_pages = self._config.full_sync_max_pages if full else None
+            cutoff = None
+            if self._config.receipt_cutoff_days is not None:
+                cutoff = datetime.now(tz=UTC) - timedelta(days=self._config.receipt_cutoff_days)
+
+            source, source_account = _ensure_source_account(session, source_id=self._config.source)
+            self._connector.authenticate()
+            self._connector.refresh_auth()
+            health = self._connector.healthcheck()
+            if not health.get("healthy", False):
+                raise RuntimeError(str(health.get("error", "connector healthcheck failed")))
+
+            record_refs = self._connector.discover_new_records()
+            if max_pages is not None:
+                max_records = max_pages * max(self._config.page_size, 1)
+                record_refs = record_refs[:max_records]
+                progress.pages = min(
+                    max_pages,
+                    max(
+                        1, (len(record_refs) + self._config.page_size - 1) // self._config.page_size
+                    ),
+                )
+            else:
+                progress.pages = max(
+                    1, (len(record_refs) + self._config.page_size - 1) // self._config.page_size
+                )
+
+            for receipt_id in record_refs:
+                progress.receipts_seen += 1
+                if not receipt_id:
+                    state_warnings.append("Encountered empty receipt reference; skipped")
+                    continue
+
+                if not full and receipt_exists(session, receipt_id):
+                    ingested_streak += 1
+                    progress.skipped_existing += 1
+                    if ingested_streak >= self._config.already_ingested_streak_threshold:
+                        break
+                    continue
+
+                detail = self._connector.fetch_record_detail(receipt_id)
+                normalized = normalize_receipt(detail, category_rules=rules)
+                canonical_normalized = self._connector.normalize(detail)
+                discounts = self._connector.extract_discounts(detail)
+
+                _upsert_canonical_transaction(
+                    session=session,
+                    source=source,
+                    source_account=source_account,
+                    source_record_ref=receipt_id,
+                    source_record_detail=detail,
+                    connector_normalized=canonical_normalized,
+                    fallback_normalized=normalized,
+                    extracted_discounts=discounts,
+                    normalization_bundle=normalization_bundle,
+                )
+
+                if receipt_exists(session, normalized.id):
+                    ingested_streak += 1
+                    progress.skipped_existing += 1
+                    if (
+                        not full
+                        and ingested_streak >= self._config.already_ingested_streak_threshold
+                    ):
+                        break
+                    continue
+
+                if fingerprint_exists(session, normalized.fingerprint):
+                    ingested_streak += 1
+                    progress.skipped_existing += 1
+                    continue
+
+                ingested_streak = 0
+                _upsert_store(
+                    session,
+                    normalized.store_id,
+                    normalized.store_name,
+                    normalized.store_address,
+                )
+                receipt_row = Receipt(
+                    id=normalized.id,
+                    purchased_at=normalized.purchased_at,
+                    store_id=normalized.store_id,
+                    store_name=normalized.store_name,
+                    store_address=normalized.store_address,
+                    total_gross=normalized.total_gross,
+                    currency=normalized.currency,
+                    discount_total=normalized.discount_total,
+                    fingerprint=normalized.fingerprint,
+                    raw_json=normalized.raw_json,
+                )
+                session.add(receipt_row)
+                session.flush()
+
+                for item in normalized.items:
+                    session.add(
+                        ReceiptItem(
+                            receipt_id=normalized.id,
+                            line_no=item.line_no,
+                            name=item.name,
+                            qty=item.qty,
+                            unit=item.unit,
+                            unit_price=item.unit_price,
+                            line_total=item.line_total,
+                            vat_rate=item.vat_rate,
+                            category=item.category,
+                            discounts=item.discounts,
+                        )
+                    )
+
+                progress.new_receipts += 1
+                progress.new_items += len(normalized.items)
+                if newest_seen_at is None or normalized.purchased_at > newest_seen_at:
+                    newest_seen_at = normalized.purchased_at
+                    newest_seen_id = normalized.id
+
+                if cutoff and normalized.purchased_at < cutoff:
+                    cutoff_hit = True
+                    break
+
+                if progress_cb:
+                    progress_cb(progress)
+
+            sync_state.last_success_at = datetime.now(tz=UTC)
+            sync_state.last_seen_receipt_at = newest_seen_at
+            sync_state.last_seen_receipt_id = newest_seen_id
+
+            try:
+                matched_count = auto_match_unmatched_items(session)
+                rebuilt_rows = rebuild_item_observations(session)
+                LOGGER.info(
+                    "analytics.rebuild.completed matched=%s rebuilt_rows=%s",
+                    matched_count,
+                    rebuilt_rows,
+                )
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning("analytics.rebuild.failed error=%s", exc)
+                state_warnings.append(f"analytics rebuild failed: {exc}")
+
+        return SyncResult(
+            ok=True,
+            full=full,
+            pages=progress.pages,
+            receipts_seen=progress.receipts_seen,
+            new_receipts=progress.new_receipts,
+            new_items=progress.new_items,
+            skipped_existing=progress.skipped_existing,
+            cutoff_hit=cutoff_hit,
+            warnings=state_warnings,
+        )
+
+
+def _extract_receipt_id(summary: dict[str, object]) -> str | None:
+    for key in ["id", "receiptId", "ticketId", "uuid"]:
+        value = summary.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _extract_summary_timestamp(summary: dict[str, object]) -> datetime | None:
+    for key in ["purchasedAt", "createdAt", "date", "timestamp"]:
+        value = summary.get(key)
+        if value is not None:
+            return parse_datetime(value)
+    return None
+
+
+def _upsert_store(
+    session: Session, store_id: str | None, name: str | None, address: str | None
+) -> None:
+    if not store_id:
+        return
+    existing = session.get(Store, store_id)
+    if existing is None:
+        session.add(Store(id=store_id, name=name, address=address))
+        return
+    if name and existing.name != name:
+        existing.name = name
+    if address and existing.address != address:
+        existing.address = address
+
+
+def _ensure_source_account(session: Session, *, source_id: str) -> tuple[Source, SourceAccount]:
+    service_user = ensure_service_user(session)
+    source = session.get(Source, source_id)
+    if source is None:
+        source = Source(
+            id=source_id,
+            user_id=service_user.user_id,
+            kind="connector",
+            display_name=source_id.replace("_", " ").title(),
+            status="healthy",
+            enabled=True,
+        )
+        session.add(source)
+        session.flush()
+    elif source.user_id is None:
+        source.user_id = service_user.user_id
+    account = session.execute(
+        select(SourceAccount).where(SourceAccount.source_id == source.id).limit(1)
+    ).scalar_one_or_none()
+    if account is None:
+        account = SourceAccount(source_id=source.id, account_ref="default", status="connected")
+        session.add(account)
+        session.flush()
+    return source, account
+
+
+def _upsert_canonical_transaction(
+    *,
+    session: Session,
+    source: Source,
+    source_account: SourceAccount | None,
+    source_record_ref: str,
+    source_record_detail: dict[str, Any],
+    connector_normalized: dict[str, Any],
+    fallback_normalized: Any,
+    extracted_discounts: list[dict[str, Any]],
+    normalization_bundle: NormalizationBundle,
+) -> None:
+    source_transaction_id = str(connector_normalized.get("id") or fallback_normalized.id).strip()
+    fingerprint = str(
+        connector_normalized.get("fingerprint") or fallback_normalized.fingerprint or ""
+    ).strip()
+    purchased_at_raw = connector_normalized.get("purchased_at")
+    purchased_at = parse_datetime(
+        purchased_at_raw if purchased_at_raw is not None else fallback_normalized.purchased_at
+    )
+    merchant_name_raw = (
+        str(connector_normalized.get("store_name"))
+        if connector_normalized.get("store_name")
+        else fallback_normalized.store_name
+    )
+    merchant_name = normalize_merchant_name(merchant_name_raw, normalization_bundle)
+    total_gross_cents = int(
+        connector_normalized.get("total_gross_cents", fallback_normalized.total_gross)
+    )
+    currency = str(connector_normalized.get("currency", fallback_normalized.currency) or "EUR")
+    discount_total_raw = connector_normalized.get(
+        "discount_total_cents", fallback_normalized.discount_total
+    )
+    discount_total_cents = int(discount_total_raw) if discount_total_raw is not None else None
+
+    existing = canonical_transaction_for_source(
+        session,
+        source_id=source.id,
+        source_transaction_id=source_transaction_id,
+    )
+    reason = "source_key"
+    if existing is None and fingerprint:
+        existing = canonical_transaction_for_fingerprint(
+            session,
+            source_id=source.id,
+            fingerprint=fingerprint,
+        )
+        reason = "fingerprint" if existing is not None else "insert"
+
+    payload: dict[str, object] = {
+        "source_record_ref": source_record_ref,
+        "source_record_detail": source_record_detail,
+        "connector_normalized": connector_normalized,
+    }
+
+    if existing is not None:
+        if existing.user_id is None:
+            existing.user_id = source.user_id
+        existing.purchased_at = purchased_at
+        existing.merchant_name = merchant_name
+        existing.total_gross_cents = total_gross_cents
+        existing.currency = currency
+        existing.discount_total_cents = discount_total_cents
+        existing.fingerprint = fingerprint or existing.fingerprint
+        existing.raw_payload = payload
+        if source_account is not None:
+            existing.source_account_id = source_account.id
+        LOGGER.info(
+            "ingest.canonical.transaction decision=update reason=%s source=%s source_transaction_id=%s transaction_id=%s",
+            reason,
+            source.id,
+            source_transaction_id,
+            existing.id,
+        )
+        return
+
+    transaction = Transaction(
+        source_id=source.id,
+        user_id=source.user_id,
+        source_account_id=source_account.id if source_account is not None else None,
+        source_transaction_id=source_transaction_id,
+        purchased_at=purchased_at,
+        merchant_name=merchant_name,
+        total_gross_cents=total_gross_cents,
+        currency=currency,
+        discount_total_cents=discount_total_cents,
+        fingerprint=fingerprint or None,
+        raw_payload=payload,
+    )
+    session.add(transaction)
+    session.flush()
+    LOGGER.info(
+        "ingest.canonical.transaction decision=insert source=%s source_transaction_id=%s transaction_id=%s",
+        source.id,
+        source_transaction_id,
+        transaction.id,
+    )
+
+    line_to_item: dict[int, TransactionItem] = {}
+    connector_items = connector_normalized.get("items")
+    items = connector_items if isinstance(connector_items, list) else []
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            continue
+        line_no = int(item.get("line_no", index))
+        source_item_id = item.get("source_item_id")
+        item_row = TransactionItem(
+            transaction_id=transaction.id,
+            source_item_id=(
+                str(source_item_id) if source_item_id else f"{source_transaction_id}:{line_no}"
+            ),
+            line_no=line_no,
+            name=str(item.get("name") or f"item_{line_no}"),
+            qty=to_decimal(item.get("qty"), default=to_decimal(1)),
+            unit=str(item.get("unit")) if item.get("unit") is not None else None,
+            unit_price_cents=(
+                int(item["unit_price_cents"]) if item.get("unit_price_cents") is not None else None
+            ),
+            line_total_cents=int(item.get("line_total_cents", 0)),
+            is_deposit=bool(item.get("is_deposit", False)),
+            category=normalize_item_category(
+                item_name=str(item.get("name") or f"item_{line_no}"),
+                current_category=(
+                    str(item.get("category")) if item.get("category") is not None else None
+                ),
+                bundle=normalization_bundle,
+            ),
+            raw_payload=item,
+        )
+        match = resolve_product_for_item(session, item=item_row, source=source)
+        if match is not None:
+            item_row.product_id = match.product_id
+        session.add(item_row)
+        session.flush()
+        line_to_item[line_no] = item_row
+
+    for discount in extracted_discounts:
+        if not isinstance(discount, dict):
+            continue
+        line_no_raw = discount.get("line_no")
+        discount_line_no = int(line_no_raw) if isinstance(line_no_raw, int) else None
+        discount_item_row = (
+            line_to_item.get(discount_line_no) if discount_line_no is not None else None
+        )
+        scope = str(
+            discount.get("scope") or ("item" if discount_item_row is not None else "transaction")
+        )
+        raw_amount = int(discount.get("amount_cents", 0))
+        amount_cents = abs(raw_amount)
+        if amount_cents == 0:
+            continue
+        source_discount_code = (
+            str(discount["promotion_id"]) if discount.get("promotion_id") is not None else None
+        )
+        source_label = str(discount.get("label") or discount.get("type") or "discount")
+        dedupe_key = build_discount_event_key(
+            source_id=source.id,
+            source_transaction_id=source_transaction_id,
+            source_discount_code=source_discount_code,
+            source_label=source_label,
+            amount_cents=amount_cents,
+            scope=scope,
+            source_item_ref=(
+                discount_item_row.source_item_id if discount_item_row is not None else None
+            ),
+        )
+        if canonical_discount_event_exists(
+            session,
+            transaction_id=transaction.id,
+            transaction_item_id=discount_item_row.id if discount_item_row is not None else None,
+            source=source.id,
+            source_discount_code=source_discount_code,
+            source_label=source_label,
+            scope=scope,
+            amount_cents=amount_cents,
+        ):
+            LOGGER.info(
+                "ingest.canonical.discount decision=skip reason=duplicate source=%s transaction_id=%s event_key=%s",
+                source.id,
+                transaction.id,
+                dedupe_key,
+            )
+            continue
+
+        discount_type = str(discount.get("type") or "unknown").lower()
+        event = DiscountEvent(
+            transaction_id=transaction.id,
+            transaction_item_id=discount_item_row.id if discount_item_row is not None else None,
+            source=source.id,
+            source_discount_code=source_discount_code,
+            source_label=source_label,
+            scope=scope,
+            amount_cents=amount_cents,
+            currency=currency,
+            kind=discount_type,
+            subkind=str(discount.get("subkind")) if discount.get("subkind") is not None else None,
+            funded_by=str(discount.get("funded_by") or "retailer"),
+            is_loyalty_program="loyal" in discount_type or "coupon" in discount_type,
+            raw_payload={"event_key": dedupe_key, "source_discount": discount},
+        )
+        session.add(event)
+        LOGGER.info(
+            "ingest.canonical.discount decision=insert source=%s transaction_id=%s event_key=%s",
+            source.id,
+            transaction.id,
+            dedupe_key,
+        )

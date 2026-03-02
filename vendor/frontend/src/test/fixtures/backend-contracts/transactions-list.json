@@ -1,0 +1,41 @@
+{
+  "count": 2,
+  "total": 2,
+  "limit": 25,
+  "offset": 0,
+  "query": "joghurt",
+  "filters": {
+    "year": 2026,
+    "month": 2,
+    "source_id": "lidl_plus_de",
+    "merchant_name": "Lidl Innenstadt",
+    "min_total_cents": null,
+    "max_total_cents": null,
+    "purchased_from": null,
+    "purchased_to": null,
+    "sort_by": "purchased_at",
+    "sort_dir": "desc"
+  },
+  "items": [
+    {
+      "id": "tx-1",
+      "purchased_at": "2026-02-19T09:00:00+00:00",
+      "source_id": "lidl_plus_de",
+      "store_name": "Lidl Innenstadt",
+      "total_gross_cents": 920,
+      "currency": "EUR",
+      "discount_total_cents": 120,
+      "source_transaction_id": "ledger-1"
+    },
+    {
+      "id": "tx-2",
+      "purchased_at": "2026-02-18T09:00:00+00:00",
+      "source_id": "dm_de",
+      "store_name": "DM Mitte",
+      "total_gross_cents": 1040,
+      "currency": "EUR",
+      "discount_total_cents": null,
+      "source_transaction_id": "ledger-2"
+    }
+  ]
+}

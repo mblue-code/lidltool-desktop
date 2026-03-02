@@ -1,0 +1,632 @@
+{
+  "canonical_transactions_source_field": "source_id",
+  "fixtures": {
+    "automations_executions": {
+      "method": "GET",
+      "path": "/api/v1/automations/executions",
+      "query": {
+        "limit": "25",
+        "offset": "0"
+      },
+      "response": {
+        "error": null,
+        "ok": true,
+        "result": {
+          "count": 1,
+          "items": [
+            {
+              "created_at": "2026-02-20T12:00:00",
+              "error": null,
+              "executed_at": "2026-02-20T12:00:00",
+              "id": "exec-contract-1",
+              "result": {
+                "summary": "ok"
+              },
+              "rule_id": "rule-contract-1",
+              "rule_name": "Fixture Rule",
+              "rule_type": "weekly_summary",
+              "status": "success",
+              "triggered_at": "2026-02-20T12:00:00"
+            }
+          ],
+          "limit": 25,
+          "offset": 0,
+          "total": 1
+        },
+        "warnings": []
+      },
+      "status_code": 200
+    },
+    "automations_list": {
+      "method": "GET",
+      "path": "/api/v1/automations",
+      "query": {
+        "limit": "25",
+        "offset": "0"
+      },
+      "response": {
+        "error": null,
+        "ok": true,
+        "result": {
+          "count": 1,
+          "items": [
+            {
+              "action_config": {
+                "months_back": 3
+              },
+              "created_at": "2026-02-20T12:00:00",
+              "enabled": true,
+              "id": "rule-contract-1",
+              "last_run_at": "2026-02-20T12:00:00",
+              "name": "Fixture Rule",
+              "next_run_at": null,
+              "rule_type": "weekly_summary",
+              "trigger_config": {
+                "schedule": {
+                  "interval_seconds": 3600
+                }
+              },
+              "updated_at": "2026-02-20T12:00:00"
+            }
+          ],
+          "limit": 25,
+          "offset": 0,
+          "total": 1
+        },
+        "warnings": []
+      },
+      "status_code": 200
+    },
+    "dashboard_cards": {
+      "method": "GET",
+      "path": "/api/v1/dashboard/cards",
+      "query": {
+        "month": "2",
+        "year": "2026"
+      },
+      "response": {
+        "error": null,
+        "ok": true,
+        "result": {
+          "period": {
+            "end": "2026-03-01T00:00:00+00:00",
+            "month": 2,
+            "start": "2026-02-01T00:00:00+00:00",
+            "year": 2026
+          },
+          "totals": {
+            "gross_cents": 1799,
+            "gross_currency": "17.99",
+            "paid_cents": 1599,
+            "paid_currency": "15.99",
+            "receipt_count": 1,
+            "saved_cents": 200,
+            "saved_currency": "2.00",
+            "savings_rate": 0.111173
+          }
+        },
+        "warnings": []
+      },
+      "status_code": 200
+    },
+    "dashboard_retailer_composition": {
+      "method": "GET",
+      "path": "/api/v1/dashboard/retailer-composition",
+      "query": {
+        "month": "2",
+        "year": "2026"
+      },
+      "response": {
+        "error": null,
+        "ok": true,
+        "result": {
+          "period": {
+            "month": 2,
+            "year": 2026
+          },
+          "retailers": [
+            {
+              "paid_cents": 1599,
+              "paid_currency": "15.99",
+              "paid_share": 1.0,
+              "receipt_count": 1,
+              "retailer": "Lidl",
+              "saved_cents": 200,
+              "saved_currency": "2.00",
+              "saved_share": 1.0,
+              "savings_rate": 0.111173,
+              "source_id": "lidl_plus_de"
+            }
+          ],
+          "totals": {
+            "paid_cents": 1599,
+            "paid_currency": "15.99",
+            "saved_cents": 200,
+            "saved_currency": "2.00",
+            "savings_rate": 0.111173
+          }
+        },
+        "warnings": []
+      },
+      "status_code": 200
+    },
+    "dashboard_savings_breakdown": {
+      "method": "GET",
+      "path": "/api/v1/dashboard/savings-breakdown",
+      "query": {
+        "month": "2",
+        "view": "native",
+        "year": "2026"
+      },
+      "response": {
+        "error": null,
+        "ok": true,
+        "result": {
+          "by_type": [
+            {
+              "discount_events": 1,
+              "saved_cents": 200,
+              "saved_currency": "2.00",
+              "type": "coupon"
+            }
+          ],
+          "period": {
+            "month": 2,
+            "year": 2026
+          },
+          "totals": {
+            "discount_events": 1,
+            "saved_cents": 200,
+            "saved_currency": "2.00"
+          },
+          "view": "native"
+        },
+        "warnings": []
+      },
+      "status_code": 200
+    },
+    "dashboard_trends": {
+      "method": "GET",
+      "path": "/api/v1/dashboard/trends",
+      "query": {
+        "end_month": "2",
+        "months_back": "2",
+        "year": "2026"
+      },
+      "response": {
+        "error": null,
+        "ok": true,
+        "result": {
+          "period": {
+            "end_month": 2,
+            "months_back": 2,
+            "start_month": 1,
+            "year": 2026
+          },
+          "points": [
+            {
+              "month": 1,
+              "paid_cents": 0,
+              "paid_currency": "0.00",
+              "period_key": "2026-01",
+              "saved_cents": 0,
+              "saved_currency": "0.00",
+              "savings_rate": 0.0,
+              "year": 2026
+            },
+            {
+              "month": 2,
+              "paid_cents": 1599,
+              "paid_currency": "15.99",
+              "period_key": "2026-02",
+              "saved_cents": 200,
+              "saved_currency": "2.00",
+              "savings_rate": 0.111173,
+              "year": 2026
+            }
+          ]
+        },
+        "warnings": []
+      },
+      "status_code": 200
+    },
+    "reliability_slo": {
+      "method": "GET",
+      "path": "/api/v1/reliability/slo",
+      "query": {
+        "window_hours": "24"
+      },
+      "response": {
+        "error": null,
+        "ok": true,
+        "result": {
+          "endpoints": [
+            {
+              "count": 1,
+              "error_rate": 0.0,
+              "p50_duration_ms": 100,
+              "p95_duration_ms": 100,
+              "p99_duration_ms": 100,
+              "route": "/api/v1/automations",
+              "success_rate": 1.0
+            },
+            {
+              "count": 1,
+              "error_rate": 0.0,
+              "p50_duration_ms": 100,
+              "p95_duration_ms": 100,
+              "p99_duration_ms": 100,
+              "route": "/api/v1/automations/executions",
+              "success_rate": 1.0
+            },
+            {
+              "count": 1,
+              "error_rate": 0.0,
+              "p50_duration_ms": 100,
+              "p95_duration_ms": 100,
+              "p99_duration_ms": 100,
+              "route": "/api/v1/dashboard/cards",
+              "success_rate": 1.0
+            },
+            {
+              "count": 1,
+              "error_rate": 0.0,
+              "p50_duration_ms": 100,
+              "p95_duration_ms": 100,
+              "p99_duration_ms": 100,
+              "route": "/api/v1/dashboard/retailer-composition",
+              "success_rate": 1.0
+            },
+            {
+              "count": 1,
+              "error_rate": 0.0,
+              "p50_duration_ms": 100,
+              "p95_duration_ms": 100,
+              "p99_duration_ms": 100,
+              "route": "/api/v1/dashboard/savings-breakdown",
+              "success_rate": 1.0
+            },
+            {
+              "count": 1,
+              "error_rate": 0.0,
+              "p50_duration_ms": 100,
+              "p95_duration_ms": 100,
+              "p99_duration_ms": 100,
+              "route": "/api/v1/dashboard/trends",
+              "success_rate": 1.0
+            },
+            {
+              "count": 1,
+              "error_rate": 0.0,
+              "p50_duration_ms": 100,
+              "p95_duration_ms": 100,
+              "p99_duration_ms": 100,
+              "route": "/api/v1/review-queue",
+              "success_rate": 1.0
+            },
+            {
+              "count": 1,
+              "error_rate": 0.0,
+              "p50_duration_ms": 100,
+              "p95_duration_ms": 100,
+              "p99_duration_ms": 100,
+              "route": "/api/v1/review-queue/{document_id}",
+              "success_rate": 1.0
+            },
+            {
+              "count": 2,
+              "error_rate": 0.0,
+              "p50_duration_ms": 100,
+              "p95_duration_ms": 100,
+              "p99_duration_ms": 100,
+              "route": "/api/v1/transactions",
+              "success_rate": 1.0
+            },
+            {
+              "count": 1,
+              "error_rate": 0.0,
+              "p50_duration_ms": 100,
+              "p95_duration_ms": 100,
+              "p99_duration_ms": 100,
+              "route": "/api/v1/transactions/{transaction_id}",
+              "success_rate": 1.0
+            },
+            {
+              "count": 1,
+              "error_rate": 0.0,
+              "p50_duration_ms": 100,
+              "p95_duration_ms": 100,
+              "p99_duration_ms": 100,
+              "route": "/api/v1/transactions/{transaction_id}/history",
+              "success_rate": 1.0
+            }
+          ],
+          "families": {
+            "analytics": {
+              "avg_success_rate": 1.0,
+              "p95_duration_ms": 100,
+              "p95_target_ms": 2000,
+              "routes": 4,
+              "slo_pass": true
+            },
+            "other": {
+              "avg_success_rate": 1.0,
+              "p95_duration_ms": 100,
+              "p95_target_ms": 2500,
+              "routes": 7,
+              "slo_pass": true
+            }
+          },
+          "generated_at": "<generated_at>",
+          "thresholds": {
+            "analytics_p95_target_ms": 2000,
+            "min_success_rate": 0.97,
+            "sync_p95_target_ms": 2500
+          },
+          "window_hours": 24
+        },
+        "warnings": []
+      },
+      "status_code": 200
+    },
+    "review_queue_detail": {
+      "method": "GET",
+      "path": "/api/v1/review-queue/doc-contract-review",
+      "query": {},
+      "response": {
+        "error": null,
+        "ok": true,
+        "result": {
+          "confidence": {
+            "item_confidence_scores": [
+              0.65
+            ],
+            "transaction_confidence": 0.7
+          },
+          "document": {
+            "created_at": "2026-02-20T12:00:00",
+            "file_name": "contract-review.png",
+            "id": "doc-contract-review",
+            "mime_type": "image/png",
+            "ocr_confidence": 0.82,
+            "ocr_fallback_used": false,
+            "ocr_latency_ms": 321,
+            "ocr_provider": "external_api",
+            "ocr_status": "completed",
+            "ocr_text": "Contract fixture OCR text",
+            "processed_at": "2026-02-20T12:00:00",
+            "review_status": "needs_review",
+            "source_id": "ocr_upload",
+            "storage_uri": "file:///tmp/contract-review.png",
+            "transaction_id": "tx-contract-1"
+          },
+          "items": [
+            {
+              "category": "grocery",
+              "confidence": null,
+              "id": "item-contract-1",
+              "line_no": 1,
+              "line_total_cents": 199,
+              "name": "Milk",
+              "qty": 1.0,
+              "raw_payload": {
+                "fixture": true
+              },
+              "unit": "pcs",
+              "unit_price_cents": 199
+            }
+          ],
+          "transaction": {
+            "confidence": null,
+            "currency": "EUR",
+            "discount_total_cents": 200,
+            "id": "tx-contract-1",
+            "merchant_name": "Lidl Berlin",
+            "purchased_at": "2026-02-05T09:00:00",
+            "raw_payload": {
+              "fixture": true
+            },
+            "source_id": "lidl_plus_de",
+            "source_transaction_id": "source-contract-1",
+            "total_gross_cents": 1599
+          }
+        },
+        "warnings": []
+      },
+      "status_code": 200
+    },
+    "review_queue_list": {
+      "method": "GET",
+      "path": "/api/v1/review-queue",
+      "query": {
+        "limit": "25",
+        "offset": "0"
+      },
+      "response": {
+        "error": null,
+        "ok": true,
+        "result": {
+          "count": 1,
+          "items": [
+            {
+              "created_at": "2026-02-20T12:00:00",
+              "currency": "EUR",
+              "document_id": "doc-contract-review",
+              "merchant_name": "Lidl Berlin",
+              "ocr_confidence": 0.82,
+              "ocr_status": "completed",
+              "purchased_at": "2026-02-05T09:00:00",
+              "review_status": "needs_review",
+              "source_id": "ocr_upload",
+              "total_gross_cents": 1599,
+              "transaction_confidence": null,
+              "transaction_id": "tx-contract-1"
+            }
+          ],
+          "limit": 25,
+          "offset": 0,
+          "total": 1
+        },
+        "warnings": []
+      },
+      "status_code": 200
+    },
+    "transaction_detail": {
+      "method": "GET",
+      "path": "/api/v1/transactions/tx-contract-1",
+      "query": {},
+      "response": {
+        "error": null,
+        "ok": true,
+        "result": {
+          "discounts": [
+            {
+              "amount_cents": 200,
+              "confidence": null,
+              "currency": "EUR",
+              "funded_by": "merchant",
+              "id": "discount-contract-1",
+              "is_loyalty_program": false,
+              "kind": "coupon",
+              "raw_payload": {
+                "fixture": true
+              },
+              "scope": "item",
+              "source": "lidl_plus_de",
+              "source_discount_code": "coupon-1",
+              "source_label": "Coupon",
+              "subkind": null,
+              "transaction_item_id": "item-contract-1"
+            }
+          ],
+          "documents": [
+            {
+              "created_at": "2026-02-20T12:00:00",
+              "file_name": "contract-review.png",
+              "id": "doc-contract-review",
+              "mime_type": "image/png",
+              "ocr_confidence": 0.82,
+              "ocr_status": "completed",
+              "review_status": "needs_review",
+              "source_id": "ocr_upload",
+              "storage_uri": "file:///tmp/contract-review.png"
+            }
+          ],
+          "items": [
+            {
+              "category": "grocery",
+              "confidence": null,
+              "id": "item-contract-1",
+              "line_no": 1,
+              "line_total_cents": 199,
+              "name": "Milk",
+              "qty": 1.0,
+              "raw_payload": {
+                "fixture": true
+              },
+              "source_item_id": "line-1",
+              "unit": "pcs",
+              "unit_price_cents": 199
+            }
+          ],
+          "transaction": {
+            "confidence": null,
+            "currency": "EUR",
+            "discount_total_cents": 200,
+            "id": "tx-contract-1",
+            "merchant_name": "Lidl Berlin",
+            "purchased_at": "2026-02-05T09:00:00",
+            "raw_payload": {
+              "fixture": true
+            },
+            "source_account_id": "acct-lidl-contract",
+            "source_id": "lidl_plus_de",
+            "source_transaction_id": "source-contract-1",
+            "total_gross_cents": 1599
+          }
+        },
+        "warnings": []
+      },
+      "status_code": 200
+    },
+    "transaction_history": {
+      "method": "GET",
+      "path": "/api/v1/transactions/tx-contract-1/history",
+      "query": {},
+      "response": {
+        "error": null,
+        "ok": true,
+        "result": {
+          "count": 1,
+          "events": [
+            {
+              "action": "review.transaction_corrected",
+              "actor_id": "contract-fixture",
+              "actor_type": "system",
+              "created_at": "2026-02-20T12:00:00",
+              "details": {
+                "field": "merchant_name"
+              },
+              "entity_id": "tx-contract-1",
+              "entity_type": "transaction",
+              "id": "audit-contract-1",
+              "source": "lidl_plus_de"
+            }
+          ],
+          "transaction_id": "tx-contract-1"
+        },
+        "warnings": []
+      },
+      "status_code": 200
+    },
+    "transactions_list": {
+      "method": "GET",
+      "path": "/api/v1/transactions",
+      "query": {
+        "limit": "25",
+        "month": "2",
+        "offset": "0",
+        "year": "2026"
+      },
+      "response": {
+        "error": null,
+        "ok": true,
+        "result": {
+          "count": 1,
+          "filters": {
+            "max_total_cents": null,
+            "merchant_name": null,
+            "min_total_cents": null,
+            "month": 2,
+            "purchased_from": null,
+            "purchased_to": null,
+            "sort_by": "purchased_at",
+            "sort_dir": "desc",
+            "source_id": null,
+            "year": 2026
+          },
+          "items": [
+            {
+              "currency": "EUR",
+              "discount_total_cents": 200,
+              "id": "tx-contract-1",
+              "purchased_at": "2026-02-05T09:00:00",
+              "source_id": "lidl_plus_de",
+              "source_transaction_id": "source-contract-1",
+              "store_name": "Lidl Berlin",
+              "total_gross_cents": 1599
+            }
+          ],
+          "limit": 25,
+          "offset": 0,
+          "query": null,
+          "total": 1
+        },
+        "warnings": []
+      },
+      "status_code": 200
+    }
+  },
+  "schema_version": 1,
+  "seed": "contract_fixture_seed_v1"
+}

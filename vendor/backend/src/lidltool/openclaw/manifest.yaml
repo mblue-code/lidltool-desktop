@@ -1,0 +1,70 @@
+name: lidl_receipts_tool
+description: Sync Lidl Plus receipts with async jobs, query monthly stats, and export normalized data.
+entrypoint: lidltool-openclaw
+supported_actions:
+  - health
+  - sync
+  - manual_ingest
+  - sync_status
+  - sources_list
+  - source_status
+  - source_auth_status
+  - source_auth_reauth_start
+  - source_auth_reauth_confirm
+  - connector_health_dashboard
+  - connector_cost_performance_review
+  - stats_month
+  - savings_breakdown
+  - dashboard_cards
+  - dashboard_trends
+  - dashboard_savings_breakdown
+  - dashboard_retailer_composition
+  - search_transactions
+  - endpoint_reliability_dashboard
+  - export
+input_schema:
+  type: object
+  required: [action]
+  properties:
+    action:
+      type: string
+      enum:
+        [
+          health,
+          sync,
+          manual_ingest,
+          sync_status,
+          sources_list,
+          source_status,
+          source_auth_status,
+          source_auth_reauth_start,
+          source_auth_reauth_confirm,
+          connector_health_dashboard,
+          connector_cost_performance_review,
+          stats_month,
+          savings_breakdown,
+          dashboard_cards,
+          dashboard_trends,
+          dashboard_savings_breakdown,
+          dashboard_retailer_composition,
+          search_transactions,
+          endpoint_reliability_dashboard,
+          export,
+        ]
+    params:
+      type: object
+      additionalProperties: true
+output_schema:
+  type: object
+  required: [ok, result, warnings, error]
+  properties:
+    ok:
+      type: boolean
+    result:
+      type: [object, "null"]
+    warnings:
+      type: array
+      items:
+        type: string
+    error:
+      type: [string, "null"]

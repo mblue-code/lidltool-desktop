@@ -1,0 +1,67 @@
+{
+  "transaction": {
+    "id": "tx-1",
+    "source_id": "lidl_plus_de",
+    "source_account_id": "acct-1",
+    "source_transaction_id": "ledger-1",
+    "purchased_at": "2026-02-19T09:00:00+00:00",
+    "merchant_name": "Lidl Innenstadt",
+    "total_gross_cents": 920,
+    "currency": "EUR",
+    "discount_total_cents": 120,
+    "confidence": 0.74,
+    "raw_payload": {
+      "connector": "lidl_plus"
+    }
+  },
+  "items": [
+    {
+      "id": "item-1",
+      "source_item_id": "line-1",
+      "line_no": 1,
+      "name": "Milk",
+      "qty": 1,
+      "unit": "pcs",
+      "unit_price_cents": 199,
+      "line_total_cents": 199,
+      "category": "grocery",
+      "confidence": 0.91,
+      "raw_payload": {
+        "raw_name": "Milk"
+      }
+    }
+  ],
+  "discounts": [
+    {
+      "id": "disc-1",
+      "transaction_item_id": "item-1",
+      "source": "lidl_plus",
+      "source_discount_code": "DISC10",
+      "source_label": "Coupon",
+      "scope": "item",
+      "amount_cents": 50,
+      "currency": "EUR",
+      "kind": "promotion",
+      "subkind": null,
+      "funded_by": null,
+      "is_loyalty_program": true,
+      "confidence": 0.93,
+      "raw_payload": {
+        "raw": true
+      }
+    }
+  ],
+  "documents": [
+    {
+      "id": "doc-1",
+      "source_id": "ocr_upload",
+      "storage_uri": "file:///tmp/doc-1.png",
+      "mime_type": "image/png",
+      "file_name": "receipt.png",
+      "ocr_status": "completed",
+      "review_status": "approved",
+      "ocr_confidence": 0.88,
+      "created_at": "2026-02-19T09:05:00+00:00"
+    }
+  ]
+}

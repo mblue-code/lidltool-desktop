@@ -1,0 +1,93 @@
+{
+  "name": "lidltool-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron side-app scaffold for one-time retailer scrapes and local analysis",
+  "main": "out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "vendor:sync": "node ./scripts/sync-vendor.mjs && npm run vendor:patch-frontend",
+    "vendor:patch-frontend": "node ./scripts/patch-vendored-frontend.mjs",
+    "frontend:install": "npm --prefix ./vendor/frontend install",
+    "frontend:build": "npm run vendor:patch-frontend && npm --prefix ./vendor/frontend run build",
+    "backend:prepare": "node ./scripts/prepare-backend.mjs",
+    "assets:sync": "node ./scripts/sync-assets.mjs",
+    "dev": "electron-vite dev",
+    "dev:full": "npm run vendor:sync && npm run frontend:install && npm run backend:prepare && npm run frontend:build && electron-vite dev",
+    "build": "npm run assets:sync && electron-vite build",
+    "build:full-ui": "npm run frontend:install && npm run frontend:build && npm run assets:sync && electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:with-backend": "npm run backend:prepare && npm run build && electron-builder",
+    "dist:full": "npm run vendor:sync && npm run backend:prepare && npm run build:full-ui && electron-builder"
+  },
+  "build": {
+    "appId": "com.lidltool.desktop",
+    "productName": "LidlTool Desktop",
+    "directories": {
+      "output": "dist_electron",
+      "buildResources": "build"
+    },
+    "asar": true,
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/frontend-dist",
+        "to": "frontend-dist",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "build/backend-venv",
+        "to": "backend-venv",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "build/backend-src",
+        "to": "backend-src",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.finance",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "extraMetadata": {
+      "main": "out/main/index.js"
+    }
+  },
+  "dependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.1.0",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.2"
+  }
+}
