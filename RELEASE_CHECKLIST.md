@@ -40,6 +40,10 @@ Run all commands from `apps/desktop`.
 
 - [ ] Success path: launch packaged app normally.
   - Expected: backend auto-starts and full app UI opens directly.
+  - Fresh install restore path: on `/setup`, run **Restore backup and sign in**, then sign in with restored user.
+  - Expected: restored DB/user data is usable immediately in full UI after restore.
+  - Verify full app backup flow: navigate to `System -> Users`, run **Create backup bundle**, and confirm result payload includes output directory + manifest path.
+  - Verify full app restore flow: navigate to `System -> Users`, run **Restore backup bundle**, and confirm result payload indicates restore success.
 - [ ] Failure fallback path: launch with bad executable override, e.g.:
   - macOS/Linux: `LIDLTOOL_EXECUTABLE=/does/not/exist <launch app>`
   - Windows (PowerShell): `$env:LIDLTOOL_EXECUTABLE='C:\\does\\not\\exist.exe'; <launch app>`
@@ -48,6 +52,9 @@ Run all commands from `apps/desktop`.
   - Start backend.
   - Open full app.
   - Run one one-time sync action (for example, Lidl or Amazon).
+  - Run one backup bundle action.
+  - Run one backup restore action.
+  - Run one data export action (optional quick check).
   - Expected: command logs stream in UI and command result shows exit status/output.
 
 ## 4. Final release outputs

@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { runSystemBackup, type SystemBackupResult } from "@/api/systemBackup";
 import {
   AgentKey,
   createAgentKey,
@@ -47,6 +48,33 @@ const EMPTY_EDITOR: UserEditorState = {
   isAdmin: false
 };
 
+type DesktopImportResult = {
+  ok: boolean;
+  command: string;
+  args: string[];
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+};
+
+type DesktopApiBridge = {
+  runImport: (payload: {
+    backupDir: string;
+    includeDocuments?: boolean;
+    includeToken?: boolean;
+    includeCredentialKey?: boolean;
+    restartBackend?: boolean;
+  }) => Promise<DesktopImportResult>;
+} | null;
+
+function getDesktopApiBridge(): DesktopApiBridge {
+  const desktopApi = (window as unknown as { desktopApi?: DesktopApiBridge }).desktopApi;
+  if (!desktopApi || typeof desktopApi.runImport !== "function") {
+    return null;
+  }
+  return desktopApi;
+}
+
 function toIsoOrUndefined(raw: string): string | undefined {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -66,6 +94,17 @@ export function UsersSettingsPage(): JSX.Element {
   const [newKeyLabel, setNewKeyLabel] = useState<string>("OpenClaw Agent");
   const [newKeyExpiresAt, setNewKeyExpiresAt] = useState<string>("");
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [backupOutputDir, setBackupOutputDir] = useState<string>("");
+  const [backupIncludeDocuments, setBackupIncludeDocuments] = useState<boolean>(true);
+  const [backupIncludeExport, setBackupIncludeExport] = useState<boolean>(true);
+  const [backupResult, setBackupResult] = useState<SystemBackupResult | null>(null);
+  const desktopApi = useMemo(() => getDesktopApiBridge(), []);
+  const [restoreBackupDir, setRestoreBackupDir] = useState<string>("");
+  const [restoreIncludeDocuments, setRestoreIncludeDocuments] = useState<boolean>(true);
+  const [restoreIncludeToken, setRestoreIncludeToken] = useState<boolean>(true);
+  const [restoreIncludeCredentialKey, setRestoreIncludeCredentialKey] = useState<boolean>(true);
+  const [restoreRestartBackend, setRestoreRestartBackend] = useState<boolean>(true);
+  const [restoreResult, setRestoreResult] = useState<DesktopImportResult | null>(null);
 
   const meQuery = useQuery({
     queryKey: ["auth-me"],
@@ -113,6 +152,28 @@ export function UsersSettingsPage(): JSX.Element {
   });
   const revokeKeyMutation = useMutation({
     mutationFn: (keyId: string) => revokeAgentKey(keyId)
+  });
+  const backupMutation = useMutation({
+    mutationFn: async () =>
+      runSystemBackup({
+        output_dir: backupOutputDir.trim() || undefined,
+        include_documents: backupIncludeDocuments,
+        include_export_json: backupIncludeExport
+      })
+  });
+  const restoreMutation = useMutation({
+    mutationFn: async () => {
+      if (!desktopApi) {
+        throw new Error("Desktop restore is only available inside the desktop app runtime.");
+      }
+      return await desktopApi.runImport({
+        backupDir: restoreBackupDir.trim(),
+        includeDocuments: restoreIncludeDocuments,
+        includeToken: restoreIncludeToken,
+        includeCredentialKey: restoreIncludeCredentialKey,
+        restartBackend: restoreRestartBackend
+      });
+    }
   });
 
   const me = meQuery.data ?? null;
@@ -219,6 +280,50 @@ export function UsersSettingsPage(): JSX.Element {
       setStatusMessage("Agent key revoked.");
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Failed to revoke key.");
+    }
+  }
+
+  async function submitBackup(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!isAdmin) {
+      setStatusMessage("Only admins can create system backups.");
+      return;
+    }
+    setStatusMessage(null);
+    setBackupResult(null);
+    try {
+      const result = await backupMutation.mutateAsync();
+      setBackupResult(result);
+      setStatusMessage(`Backup created at ${result.output_dir}`);
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Failed to create backup.");
+    }
+  }
+
+  async function submitRestore(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!isAdmin) {
+      setStatusMessage("Only admins can restore desktop backups.");
+      return;
+    }
+    if (!desktopApi) {
+      setStatusMessage("Desktop restore is only available inside the desktop app runtime.");
+      return;
+    }
+    if (!restoreBackupDir.trim()) {
+      setStatusMessage("Backup directory is required for restore.");
+      return;
+    }
+
+    setStatusMessage(null);
+    setRestoreResult(null);
+    try {
+      const result = await restoreMutation.mutateAsync();
+      setRestoreResult(result);
+      setStatusMessage("Backup restored. Refresh the app if data does not update immediately.");
+      await queryClient.invalidateQueries();
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Failed to restore backup.");
     }
   }
 
@@ -378,6 +483,127 @@ export function UsersSettingsPage(): JSX.Element {
               ) : null}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Desktop Backup</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form className="space-y-3" onSubmit={(event) => void submitBackup(event)}>
+            <div className="space-y-2">
+              <Label htmlFor="backup-output-dir">Output directory (optional)</Label>
+              <Input
+                id="backup-output-dir"
+                value={backupOutputDir}
+                onChange={(event) => setBackupOutputDir(event.target.value)}
+                placeholder="Defaults to ~/.config/lidltool/desktop-backups/backup-<timestamp>"
+              />
+              <p className="text-xs text-muted-foreground">
+                Uses an auto-generated backup folder if left empty.
+              </p>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={backupIncludeDocuments}
+                onChange={(event) => setBackupIncludeDocuments(event.target.checked)}
+              />
+              Include document storage
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={backupIncludeExport}
+                onChange={(event) => setBackupIncludeExport(event.target.checked)}
+              />
+              Include receipts JSON export
+            </label>
+            <Button type="submit" disabled={backupMutation.isPending || !isAdmin}>
+              {backupMutation.isPending ? "Creating backup..." : "Create backup bundle"}
+            </Button>
+          </form>
+
+          {!isAdmin ? (
+            <p className="text-sm text-muted-foreground">Only admins can create system backups.</p>
+          ) : null}
+
+          {backupResult ? (
+            <pre className="overflow-x-auto rounded border bg-muted/30 p-3 text-xs">
+              {JSON.stringify(backupResult, null, 2)}
+            </pre>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Desktop Restore</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form className="space-y-3" onSubmit={(event) => void submitRestore(event)}>
+            <div className="space-y-2">
+              <Label htmlFor="restore-backup-dir">Backup directory</Label>
+              <Input
+                id="restore-backup-dir"
+                value={restoreBackupDir}
+                onChange={(event) => setRestoreBackupDir(event.target.value)}
+                placeholder="/path/to/backup-folder"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={restoreIncludeCredentialKey}
+                onChange={(event) => setRestoreIncludeCredentialKey(event.target.checked)}
+              />
+              Restore credential key
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={restoreIncludeToken}
+                onChange={(event) => setRestoreIncludeToken(event.target.checked)}
+              />
+              Restore token file
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={restoreIncludeDocuments}
+                onChange={(event) => setRestoreIncludeDocuments(event.target.checked)}
+              />
+              Restore document storage
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={restoreRestartBackend}
+                onChange={(event) => setRestoreRestartBackend(event.target.checked)}
+              />
+              Restart backend after restore
+            </label>
+            <Button type="submit" disabled={restoreMutation.isPending || !isAdmin || !desktopApi}>
+              {restoreMutation.isPending ? "Restoring..." : "Restore backup bundle"}
+            </Button>
+          </form>
+
+          {!desktopApi ? (
+            <p className="text-sm text-muted-foreground">
+              Restore actions are available only in the packaged desktop app.
+            </p>
+          ) : null}
+
+          {!isAdmin ? (
+            <p className="text-sm text-muted-foreground">Only admins can restore desktop backups.</p>
+          ) : null}
+
+          {restoreResult ? (
+            <pre className="overflow-x-auto rounded border bg-muted/30 p-3 text-xs">
+              {JSON.stringify(restoreResult, null, 2)}
+            </pre>
+          ) : null}
         </CardContent>
       </Card>
 

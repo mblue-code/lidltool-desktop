@@ -71,7 +71,9 @@ def _sqlite_file_from_url(db_url: str) -> Path:
     return Path(db_url.replace("sqlite:///", "")).expanduser().resolve()
 
 
-def backup_database(config: AppConfig, output_dir: Path) -> BackupResult:
+def backup_database(
+    config: AppConfig, output_dir: Path, *, include_documents: bool = True
+) -> BackupResult:
     output_dir.mkdir(parents=True, exist_ok=True)
     db_url = database_url(config)
     provider = _provider_from_url(db_url)
@@ -91,7 +93,7 @@ def backup_database(config: AppConfig, output_dir: Path) -> BackupResult:
         shutil.copy2(config.token_file, token_artifact)
 
     documents_artifact: Path | None = None
-    if config.document_storage_path.exists():
+    if include_documents and config.document_storage_path.exists():
         documents_artifact = output_dir / f"documents-backup-{stamp}"
         if documents_artifact.exists():
             shutil.rmtree(documents_artifact)

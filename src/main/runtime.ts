@@ -1,14 +1,18 @@
 import { app, BrowserWindow } from "electron";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import type {
   BackendConfig,
   BackendStatus,
+  BackupRequest,
   CommandLogEvent,
   CommandResult,
   ConnectorSourceId,
+  ExportRequest,
+  ImportRequest,
   SyncRequest
 } from "@shared/contracts";
 
@@ -164,6 +168,222 @@ export class DesktopRuntime {
     return await this.runCommand(command, args, "sync");
   }
 
+  async runExportJob(payload: ExportRequest): Promise<CommandResult> {
+    const cfg = this.getConfig();
+    const outPath = payload.outPath.trim();
+    if (!outPath) {
+      throw new Error("Export output path is required.");
+    }
+    const command = this.resolveLidltoolExecutable(false);
+    const args = this.mapExportArgs(payload, cfg.dbPath);
+    return await this.runCommand(command, args, "export");
+  }
+
+  async runBackupJob(payload: BackupRequest): Promise<CommandResult> {
+    const cfg = this.getConfig();
+    const outDirRaw = payload.outDir.trim();
+    if (!outDirRaw) {
+      throw new Error("Backup output directory is required.");
+    }
+
+    const backupDir = this.resolveUserPath(outDirRaw);
+    mkdirSync(backupDir, { recursive: true });
+    if (readdirSync(backupDir).length > 0) {
+      throw new Error(`Backup output directory is not empty: ${backupDir}`);
+    }
+
+    const includeDocuments = payload.includeDocuments ?? true;
+    const includeExportJson = payload.includeExportJson ?? true;
+    const copied: string[] = [];
+    const skipped: string[] = [];
+    const now = nowIso();
+
+    if (!existsSync(cfg.dbPath)) {
+      throw new Error(`Database file was not found at ${cfg.dbPath}`);
+    }
+
+    const dbBackupPath = join(backupDir, "lidltool.sqlite");
+    copyFileSync(cfg.dbPath, dbBackupPath);
+    copied.push(dbBackupPath);
+    this.emitLog({ stream: "stdout", source: "backup", line: `Copied DB -> ${dbBackupPath}` });
+
+    const keyFile = join(cfg.userDataDir, "credential_encryption_key.txt");
+    if (existsSync(keyFile)) {
+      const keyBackupPath = join(backupDir, "credential_encryption_key.txt");
+      copyFileSync(keyFile, keyBackupPath);
+      copied.push(keyBackupPath);
+      this.emitLog({ stream: "stdout", source: "backup", line: `Copied credential key -> ${keyBackupPath}` });
+    } else {
+      skipped.push("credential_encryption_key.txt (not found)");
+    }
+
+    const tokenFile = this.resolveTokenFilePath();
+    if (existsSync(tokenFile)) {
+      const tokenBackupPath = join(backupDir, "token.json");
+      copyFileSync(tokenFile, tokenBackupPath);
+      copied.push(tokenBackupPath);
+      this.emitLog({ stream: "stdout", source: "backup", line: `Copied token file -> ${tokenBackupPath}` });
+    } else {
+      skipped.push(`token file (${tokenFile}) not found`);
+    }
+
+    if (includeDocuments) {
+      const documentsSource = this.resolveDocumentsPath();
+      if (existsSync(documentsSource)) {
+        const documentsBackupPath = join(backupDir, "documents");
+        cpSync(documentsSource, documentsBackupPath, { recursive: true });
+        copied.push(documentsBackupPath);
+        this.emitLog({ stream: "stdout", source: "backup", line: `Copied documents -> ${documentsBackupPath}` });
+      } else {
+        skipped.push(`documents (${documentsSource}) not found`);
+      }
+    }
+
+    let exportResult: CommandResult | null = null;
+    if (includeExportJson) {
+      const command = this.resolveLidltoolExecutable(false);
+      const exportPath = join(backupDir, "receipts-export.json");
+      const exportArgs = this.mapExportArgs({ outPath: exportPath, format: "json" }, cfg.dbPath);
+      exportResult = await this.runCommand(command, exportArgs, "backup");
+      if (exportResult.ok) {
+        copied.push(exportPath);
+      }
+    }
+
+    const manifestPath = join(backupDir, "backup-manifest.json");
+    const manifest = {
+      createdAt: now,
+      backupDir,
+      dbPath: cfg.dbPath,
+      includeDocuments,
+      includeExportJson,
+      copied,
+      skipped,
+      exportResult: exportResult
+        ? {
+            ok: exportResult.ok,
+            exitCode: exportResult.exitCode,
+            stdout: exportResult.stdout,
+            stderr: exportResult.stderr
+          }
+        : null
+    };
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
+    copied.push(manifestPath);
+    this.emitLog({ stream: "stdout", source: "backup", line: `Wrote backup manifest -> ${manifestPath}` });
+
+    return {
+      ok: exportResult ? exportResult.ok : true,
+      command: "desktop:backup",
+      args: [backupDir],
+      exitCode: exportResult?.exitCode ?? 0,
+      stdout: JSON.stringify({ backupDir, manifestPath, copied, skipped }, null, 2),
+      stderr: exportResult?.stderr ?? ""
+    };
+  }
+
+  async runImportJob(payload: ImportRequest): Promise<CommandResult> {
+    const cfg = this.getConfig();
+    const backupDirRaw = payload.backupDir.trim();
+    if (!backupDirRaw) {
+      throw new Error("Backup directory is required.");
+    }
+
+    const backupDir = this.resolveUserPath(backupDirRaw);
+    if (!existsSync(backupDir) || !statSync(backupDir).isDirectory()) {
+      throw new Error(`Backup directory was not found: ${backupDir}`);
+    }
+
+    const includeDocuments = payload.includeDocuments ?? true;
+    const includeToken = payload.includeToken ?? true;
+    const includeCredentialKey = payload.includeCredentialKey ?? true;
+    const restartBackend = payload.restartBackend ?? true;
+    const copied: string[] = [];
+    const skipped: string[] = [];
+    const wasRunning = this.backendProcess !== null;
+
+    if (wasRunning) {
+      this.emitLog({ stream: "stdout", source: "restore", line: "Stopping backend before restore." });
+      await this.stopBackend();
+    }
+
+    const dbSource = this.resolveDbArtifact(backupDir);
+    if (!dbSource) {
+      throw new Error(
+        `No database artifact found in backup directory '${backupDir}'. Expected 'lidltool.sqlite' or 'db-backup-*.sqlite'.`
+      );
+    }
+    mkdirSync(dirname(cfg.dbPath), { recursive: true });
+    copyFileSync(dbSource, cfg.dbPath);
+    copied.push(cfg.dbPath);
+    this.emitLog({ stream: "stdout", source: "restore", line: `Restored DB <- ${dbSource}` });
+
+    if (includeCredentialKey) {
+      const keySource = this.resolveCredentialKeyArtifact(backupDir);
+      const keyTarget = join(cfg.userDataDir, "credential_encryption_key.txt");
+      if (keySource) {
+        copyFileSync(keySource, keyTarget);
+        copied.push(keyTarget);
+        this.emitLog({ stream: "stdout", source: "restore", line: `Restored credential key <- ${keySource}` });
+      } else {
+        skipped.push("credential_encryption_key.txt not found in backup");
+      }
+    }
+
+    if (includeToken) {
+      const tokenSource = this.resolveTokenArtifact(backupDir);
+      const tokenTarget = this.resolveTokenFilePath();
+      if (tokenSource) {
+        mkdirSync(dirname(tokenTarget), { recursive: true });
+        copyFileSync(tokenSource, tokenTarget);
+        copied.push(tokenTarget);
+        this.emitLog({ stream: "stdout", source: "restore", line: `Restored token <- ${tokenSource}` });
+      } else {
+        skipped.push("token artifact not found in backup");
+      }
+    }
+
+    if (includeDocuments) {
+      const docsSource = this.resolveDocumentsArtifact(backupDir);
+      const docsTarget = this.resolveDocumentsPath();
+      if (docsSource) {
+        rmSync(docsTarget, { recursive: true, force: true });
+        mkdirSync(dirname(docsTarget), { recursive: true });
+        cpSync(docsSource, docsTarget, { recursive: true });
+        copied.push(docsTarget);
+        this.emitLog({ stream: "stdout", source: "restore", line: `Restored documents <- ${docsSource}` });
+      } else {
+        skipped.push("documents artifact not found in backup");
+      }
+    }
+
+    let backendStatus: BackendStatus | null = null;
+    if (restartBackend) {
+      backendStatus = await this.startBackend();
+      this.emitLog({ stream: "stdout", source: "restore", line: "Backend restarted after restore." });
+    }
+
+    return {
+      ok: true,
+      command: "desktop:import",
+      args: [backupDir],
+      exitCode: 0,
+      stdout: JSON.stringify(
+        {
+          backupDir,
+          dbSource,
+          copied,
+          skipped,
+          restartedBackend: restartBackend,
+          backendRunning: backendStatus?.running ?? false
+        },
+        null,
+        2
+      ),
+      stderr: ""
+    };
+  }
+
   async shutdown(): Promise<void> {
     await this.stopBackend();
   }
@@ -203,6 +423,165 @@ export class DesktopRuntime {
     }
 
     return args;
+  }
+
+  private mapExportArgs(payload: ExportRequest, dbPath: string): string[] {
+    const formatName = payload.format ?? "json";
+    return ["--db", dbPath, "--json", "export", "--out", payload.outPath.trim(), "--format", formatName];
+  }
+
+  private resolveTokenFilePath(): string {
+    const configDirRaw = process.env.LIDLTOOL_CONFIG_DIR?.trim();
+    if (configDirRaw) {
+      return join(this.resolveUserPath(configDirRaw), "token.json");
+    }
+    return join(homedir(), ".config", "lidltool", "token.json");
+  }
+
+  private resolveDocumentsPath(): string {
+    const documentsPathRaw = process.env.LIDLTOOL_DOCUMENT_STORAGE_PATH?.trim();
+    if (documentsPathRaw) {
+      return this.resolveUserPath(documentsPathRaw);
+    }
+    return join(homedir(), ".local", "share", "lidltool", "documents");
+  }
+
+  private resolveUserPath(value: string): string {
+    if (value === "~") {
+      return homedir();
+    }
+    if (value.startsWith("~/") || value.startsWith("~\\")) {
+      return resolve(homedir(), value.slice(2));
+    }
+    return resolve(value);
+  }
+
+  private resolveDbArtifact(backupDir: string): string | null {
+    const manifest = this.readBackupManifest(backupDir);
+    const manifestCandidate = this.resolveManifestArtifactCandidate(backupDir, manifest, [
+      "db_artifact",
+      "dbArtifact"
+    ]);
+    if (manifestCandidate) {
+      return manifestCandidate;
+    }
+    const direct = this.resolveBackupArtifact(backupDir, "lidltool.sqlite");
+    if (direct) {
+      return direct;
+    }
+    const timestamped = this.resolveLatestPatternMatch(backupDir, /^db-backup-.*\.sqlite$/);
+    if (timestamped) {
+      return timestamped;
+    }
+    return this.resolveLatestPatternMatch(backupDir, /\.sqlite$/);
+  }
+
+  private resolveTokenArtifact(backupDir: string): string | null {
+    const manifest = this.readBackupManifest(backupDir);
+    const manifestCandidate = this.resolveManifestArtifactCandidate(backupDir, manifest, [
+      "token_artifact",
+      "tokenArtifact"
+    ]);
+    if (manifestCandidate) {
+      return manifestCandidate;
+    }
+    const direct = this.resolveBackupArtifact(backupDir, "token.json");
+    if (direct) {
+      return direct;
+    }
+    return this.resolveLatestPatternMatch(backupDir, /^token-backup-.*\.json$/);
+  }
+
+  private resolveDocumentsArtifact(backupDir: string): string | null {
+    const manifest = this.readBackupManifest(backupDir);
+    const manifestCandidate = this.resolveManifestArtifactCandidate(backupDir, manifest, [
+      "documents_artifact",
+      "documentsArtifact"
+    ]);
+    if (manifestCandidate && statSync(manifestCandidate).isDirectory()) {
+      return manifestCandidate;
+    }
+    const direct = this.resolveBackupArtifact(backupDir, "documents");
+    if (direct && statSync(direct).isDirectory()) {
+      return direct;
+    }
+    const pattern = this.resolveLatestPatternMatch(backupDir, /^documents-backup-.*/);
+    if (pattern && statSync(pattern).isDirectory()) {
+      return pattern;
+    }
+    return null;
+  }
+
+  private resolveCredentialKeyArtifact(backupDir: string): string | null {
+    const manifest = this.readBackupManifest(backupDir);
+    const manifestCandidate = this.resolveManifestArtifactCandidate(backupDir, manifest, [
+      "credential_key_artifact",
+      "credentialKeyArtifact"
+    ]);
+    if (manifestCandidate) {
+      return manifestCandidate;
+    }
+    return this.resolveBackupArtifact(backupDir, "credential_encryption_key.txt");
+  }
+
+  private readBackupManifest(backupDir: string): Record<string, unknown> | null {
+    const manifestPath = join(backupDir, "backup-manifest.json");
+    if (!existsSync(manifestPath)) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(readFileSync(manifestPath, "utf-8"));
+      if (parsed && typeof parsed === "object") {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  private resolveManifestArtifactCandidate(
+    backupDir: string,
+    manifest: Record<string, unknown> | null,
+    keys: string[]
+  ): string | null {
+    if (!manifest) {
+      return null;
+    }
+    for (const key of keys) {
+      const value = manifest[key];
+      if (typeof value !== "string" || !value.trim()) {
+        continue;
+      }
+      const direct = this.resolveUserPath(value.trim());
+      if (existsSync(direct)) {
+        return direct;
+      }
+      const moved = join(backupDir, basename(value.trim()));
+      if (existsSync(moved)) {
+        return moved;
+      }
+    }
+    return null;
+  }
+
+  private resolveBackupArtifact(backupDir: string, fileName: string): string | null {
+    const candidate = join(backupDir, fileName);
+    return existsSync(candidate) ? candidate : null;
+  }
+
+  private resolveLatestPatternMatch(backupDir: string, pattern: RegExp): string | null {
+    const matches = readdirSync(backupDir)
+      .filter((entry) => pattern.test(entry))
+      .sort()
+      .reverse();
+    for (const entry of matches) {
+      const candidate = join(backupDir, entry);
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
   }
 
   private async runCommand(

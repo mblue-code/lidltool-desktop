@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { BackendConfig, BackendStatus, CommandLogEvent, CommandResult, SyncRequest } from "@shared/contracts";
+import type {
+  BackendConfig,
+  BackendStatus,
+  BackupRequest,
+  CommandLogEvent,
+  CommandResult,
+  ExportRequest,
+  ImportRequest,
+  SyncRequest
+} from "@shared/contracts";
 
 const api = {
   getConfig: async (): Promise<BackendConfig> => await ipcRenderer.invoke("desktop:get-config"),
@@ -9,6 +18,9 @@ const api = {
   stopBackend: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:stop"),
   openFullApp: async (): Promise<string> => await ipcRenderer.invoke("desktop:app:url"),
   runSync: async (payload: SyncRequest): Promise<CommandResult> => await ipcRenderer.invoke("desktop:sync:run", payload),
+  runExport: async (payload: ExportRequest): Promise<CommandResult> => await ipcRenderer.invoke("desktop:export:run", payload),
+  runBackup: async (payload: BackupRequest): Promise<CommandResult> => await ipcRenderer.invoke("desktop:backup:run", payload),
+  runImport: async (payload: ImportRequest): Promise<CommandResult> => await ipcRenderer.invoke("desktop:import:run", payload),
   onLog: (handler: (event: CommandLogEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: CommandLogEvent): void => {
       handler(payload);

@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import type { SyncRequest } from "@shared/contracts";
+import type { BackupRequest, ExportRequest, ImportRequest, SyncRequest } from "@shared/contracts";
 import { DesktopRuntime } from "./runtime";
 
 export function registerIpc(runtime: DesktopRuntime, getBootError: () => string | null): void {
@@ -13,4 +13,7 @@ export function registerIpc(runtime: DesktopRuntime, getBootError: () => string 
     return runtime.getFullAppUrl();
   });
   ipcMain.handle("desktop:sync:run", async (_event, payload: SyncRequest) => await runtime.runSyncJob(payload));
+  ipcMain.handle("desktop:export:run", async (_event, payload: ExportRequest) => await runtime.runExportJob(payload));
+  ipcMain.handle("desktop:backup:run", async (_event, payload: BackupRequest) => await runtime.runBackupJob(payload));
+  ipcMain.handle("desktop:import:run", async (_event, payload: ImportRequest) => await runtime.runImportJob(payload));
 }

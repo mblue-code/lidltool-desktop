@@ -6,6 +6,33 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+type DesktopImportResult = {
+  ok: boolean;
+  command: string;
+  args: string[];
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+};
+
+type DesktopApiBridge = {
+  runImport: (payload: {
+    backupDir: string;
+    includeDocuments?: boolean;
+    includeToken?: boolean;
+    includeCredentialKey?: boolean;
+    restartBackend?: boolean;
+  }) => Promise<DesktopImportResult>;
+} | null;
+
+function getDesktopApiBridge(): DesktopApiBridge {
+  const desktopApi = (window as unknown as { desktopApi?: DesktopApiBridge }).desktopApi;
+  if (!desktopApi || typeof desktopApi.runImport !== "function") {
+    return null;
+  }
+  return desktopApi;
+}
+
 export function SetupPage(): JSX.Element {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
@@ -13,6 +40,10 @@ export function SetupPage(): JSX.Element {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const desktopApi = getDesktopApiBridge();
+  const [restoreDir, setRestoreDir] = useState("");
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -39,6 +70,36 @@ export function SetupPage(): JSX.Element {
       setError(err instanceof Error ? err.message : "Setup failed. Please try again.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleRestoreBackup(e: React.FormEvent): Promise<void> {
+    e.preventDefault();
+    if (!desktopApi) {
+      setRestoreStatus("Desktop restore is only available in the desktop app runtime.");
+      return;
+    }
+    if (!restoreDir.trim()) {
+      setRestoreStatus("Backup directory is required.");
+      return;
+    }
+
+    setRestoreBusy(true);
+    setRestoreStatus(null);
+    try {
+      await desktopApi.runImport({
+        backupDir: restoreDir.trim(),
+        includeCredentialKey: true,
+        includeDocuments: true,
+        includeToken: true,
+        restartBackend: true
+      });
+      setRestoreStatus("Backup restored. Continue with Sign in.");
+      navigate("/login", { replace: true });
+    } catch (err) {
+      setRestoreStatus(err instanceof Error ? err.message : "Restore failed.");
+    } finally {
+      setRestoreBusy(false);
     }
   }
 
@@ -99,6 +160,35 @@ export function SetupPage(): JSX.Element {
             {busy ? "Creating account…" : "Create account"}
           </Button>
         </form>
+
+        <div className="rounded-md border border-border/60 p-4">
+          <p className="mb-2 text-sm font-medium">Restore From Backup</p>
+          <form className="space-y-3" onSubmit={(event) => void handleRestoreBackup(event)}>
+            <div className="space-y-1.5">
+              <Label htmlFor="restore-dir">Backup directory</Label>
+              <Input
+                id="restore-dir"
+                value={restoreDir}
+                onChange={(event) => setRestoreDir(event.target.value)}
+                placeholder="/path/to/backup-folder"
+                disabled={restoreBusy || !desktopApi}
+              />
+            </div>
+            {restoreStatus ? (
+              <p role="status" className="text-xs text-muted-foreground">
+                {restoreStatus}
+              </p>
+            ) : null}
+            <Button type="submit" className="w-full" disabled={restoreBusy || !desktopApi}>
+              {restoreBusy ? "Restoring…" : "Restore backup and sign in"}
+            </Button>
+          </form>
+          {!desktopApi ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Restore is available in the packaged desktop app.
+            </p>
+          ) : null}
+        </div>
       </div>
     </div>
   );

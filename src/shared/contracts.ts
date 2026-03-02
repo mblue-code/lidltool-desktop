@@ -33,9 +33,28 @@ export interface SyncRequest {
   domain?: string;
 }
 
+export interface ExportRequest {
+  outPath: string;
+  format?: "json";
+}
+
+export interface BackupRequest {
+  outDir: string;
+  includeExportJson?: boolean;
+  includeDocuments?: boolean;
+}
+
+export interface ImportRequest {
+  backupDir: string;
+  includeDocuments?: boolean;
+  includeToken?: boolean;
+  includeCredentialKey?: boolean;
+  restartBackend?: boolean;
+}
+
 export interface CommandLogEvent {
   timestamp: string;
   stream: "stdout" | "stderr";
   line: string;
-  source: "backend" | "sync";
+  source: "backend" | "sync" | "export" | "backup" | "restore";
 }

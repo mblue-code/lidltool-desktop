@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import type { BackendConfig, BackendStatus, CommandLogEvent, CommandResult, SyncRequest, SyncSourceId } from "@shared/contracts";
+import type {
+  BackupRequest,
+  BackendConfig,
+  BackendStatus,
+  CommandLogEvent,
+  CommandResult,
+  ExportRequest,
+  ImportRequest,
+  SyncRequest,
+  SyncSourceId
+} from "@shared/contracts";
 
 const SOURCE_OPTIONS: Array<{ id: SyncSourceId; label: string; defaultDomain?: string }> = [
   { id: "lidl", label: "Lidl" },
@@ -27,6 +37,26 @@ function prettyJson(value: unknown): string {
   }
 }
 
+function defaultExportPath(userDataDir: string): string {
+  const separator = userDataDir.includes("\\") ? "\\" : "/";
+  const trimmed = userDataDir.endsWith(separator) ? userDataDir.slice(0, -1) : userDataDir;
+  const stamp = new Date().toISOString().replaceAll(":", "-");
+  return `${trimmed}${separator}exports${separator}receipts-${stamp}.json`;
+}
+
+function defaultBackupDir(userDataDir: string): string {
+  const separator = userDataDir.includes("\\") ? "\\" : "/";
+  const trimmed = userDataDir.endsWith(separator) ? userDataDir.slice(0, -1) : userDataDir;
+  const stamp = new Date().toISOString().replaceAll(":", "-");
+  return `${trimmed}${separator}backups${separator}backup-${stamp}`;
+}
+
+function defaultImportDir(userDataDir: string): string {
+  const separator = userDataDir.includes("\\") ? "\\" : "/";
+  const trimmed = userDataDir.endsWith(separator) ? userDataDir.slice(0, -1) : userDataDir;
+  return `${trimmed}${separator}backups`;
+}
+
 export default function App(): JSX.Element {
   const [{ year, month }] = useState(defaultYearMonth);
   const [config, setConfig] = useState<BackendConfig | null>(null);
@@ -39,6 +69,18 @@ export default function App(): JSX.Element {
   const [maxPages, setMaxPages] = useState(8);
   const [busy, setBusy] = useState(false);
   const [syncResult, setSyncResult] = useState<CommandResult | null>(null);
+  const [exportResult, setExportResult] = useState<CommandResult | null>(null);
+  const [exportOutPath, setExportOutPath] = useState("");
+  const [backupResult, setBackupResult] = useState<CommandResult | null>(null);
+  const [backupOutDir, setBackupOutDir] = useState("");
+  const [backupIncludeExportJson, setBackupIncludeExportJson] = useState(true);
+  const [backupIncludeDocuments, setBackupIncludeDocuments] = useState(true);
+  const [importResult, setImportResult] = useState<CommandResult | null>(null);
+  const [importBackupDir, setImportBackupDir] = useState("");
+  const [importIncludeDocuments, setImportIncludeDocuments] = useState(true);
+  const [importIncludeToken, setImportIncludeToken] = useState(true);
+  const [importIncludeCredentialKey, setImportIncludeCredentialKey] = useState(true);
+  const [importRestartBackend, setImportRestartBackend] = useState(true);
   const [cardsResult, setCardsResult] = useState<unknown>(null);
   const [logs, setLogs] = useState<CommandLogEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +132,24 @@ export default function App(): JSX.Element {
     const nextDomain = selectedSourceMeta?.defaultDomain ?? "";
     setDomain(nextDomain);
   }, [source, selectedSourceMeta]);
+
+  useEffect(() => {
+    if (config && !exportOutPath) {
+      setExportOutPath(defaultExportPath(config.userDataDir));
+    }
+  }, [config, exportOutPath]);
+
+  useEffect(() => {
+    if (config && !backupOutDir) {
+      setBackupOutDir(defaultBackupDir(config.userDataDir));
+    }
+  }, [config, backupOutDir]);
+
+  useEffect(() => {
+    if (config && !importBackupDir) {
+      setImportBackupDir(defaultImportDir(config.userDataDir));
+    }
+  }, [config, importBackupDir]);
 
   async function handleStartBackend(): Promise<void> {
     setBusy(true);
@@ -180,6 +240,92 @@ export default function App(): JSX.Element {
     }
   }
 
+  async function handleRunExport(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setExportResult(null);
+
+    const outPath = exportOutPath.trim();
+    if (!outPath) {
+      setBusy(false);
+      setError("Export output path is required.");
+      return;
+    }
+
+    const payload: ExportRequest = {
+      outPath,
+      format: "json"
+    };
+
+    try {
+      const result = await window.desktopApi.runExport(payload);
+      setExportResult(result);
+    } catch (err) {
+      setError(`Export failed: ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRunBackup(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setBackupResult(null);
+
+    const outDir = backupOutDir.trim();
+    if (!outDir) {
+      setBusy(false);
+      setError("Backup output directory is required.");
+      return;
+    }
+
+    const payload: BackupRequest = {
+      outDir,
+      includeExportJson: backupIncludeExportJson,
+      includeDocuments: backupIncludeDocuments
+    };
+
+    try {
+      const result = await window.desktopApi.runBackup(payload);
+      setBackupResult(result);
+    } catch (err) {
+      setError(`Backup failed: ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRunImport(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setImportResult(null);
+
+    const backupDir = importBackupDir.trim();
+    if (!backupDir) {
+      setBusy(false);
+      setError("Backup directory is required.");
+      return;
+    }
+
+    const payload: ImportRequest = {
+      backupDir,
+      includeDocuments: importIncludeDocuments,
+      includeToken: importIncludeToken,
+      includeCredentialKey: importIncludeCredentialKey,
+      restartBackend: importRestartBackend
+    };
+
+    try {
+      const result = await window.desktopApi.runImport(payload);
+      setImportResult(result);
+      setBackend(await window.desktopApi.getBackendStatus());
+    } catch (err) {
+      setError(`Backup import failed: ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="shell">
       <header>
@@ -257,6 +403,90 @@ export default function App(): JSX.Element {
             <button disabled={busy} onClick={() => void handleRunSync()}>Run one-time scrape</button>
           </div>
         </article>
+
+        <article className="card">
+          <h2>Backup Bundle</h2>
+          <p>Creates a local backup directory with DB, credentials, and optional exports/documents.</p>
+          <label>
+            Backup directory
+            <input value={backupOutDir} onChange={(event) => setBackupOutDir(event.target.value)} />
+          </label>
+          <label className="inline-checkbox">
+            <input
+              type="checkbox"
+              checked={backupIncludeExportJson}
+              onChange={(event) => setBackupIncludeExportJson(event.target.checked)}
+            />
+            Include JSON receipts export
+          </label>
+          <label className="inline-checkbox">
+            <input
+              type="checkbox"
+              checked={backupIncludeDocuments}
+              onChange={(event) => setBackupIncludeDocuments(event.target.checked)}
+            />
+            Include document storage
+          </label>
+          <div className="actions">
+            <button disabled={busy} onClick={() => void handleRunBackup()}>Create backup</button>
+          </div>
+        </article>
+
+        <article className="card">
+          <h2>Data Export</h2>
+          <p>Exports normalized receipts to a single local JSON file.</p>
+          <label>
+            Output path
+            <input value={exportOutPath} onChange={(event) => setExportOutPath(event.target.value)} />
+          </label>
+          <div className="actions">
+            <button disabled={busy} onClick={() => void handleRunExport()}>Export data</button>
+          </div>
+        </article>
+
+        <article className="card">
+          <h2>Restore Backup</h2>
+          <p>Restores DB/auth artifacts from an existing backup directory.</p>
+          <label>
+            Backup directory
+            <input value={importBackupDir} onChange={(event) => setImportBackupDir(event.target.value)} />
+          </label>
+          <label className="inline-checkbox">
+            <input
+              type="checkbox"
+              checked={importIncludeCredentialKey}
+              onChange={(event) => setImportIncludeCredentialKey(event.target.checked)}
+            />
+            Restore credential key
+          </label>
+          <label className="inline-checkbox">
+            <input
+              type="checkbox"
+              checked={importIncludeToken}
+              onChange={(event) => setImportIncludeToken(event.target.checked)}
+            />
+            Restore token file
+          </label>
+          <label className="inline-checkbox">
+            <input
+              type="checkbox"
+              checked={importIncludeDocuments}
+              onChange={(event) => setImportIncludeDocuments(event.target.checked)}
+            />
+            Restore document storage
+          </label>
+          <label className="inline-checkbox">
+            <input
+              type="checkbox"
+              checked={importRestartBackend}
+              onChange={(event) => setImportRestartBackend(event.target.checked)}
+            />
+            Restart backend after restore
+          </label>
+          <div className="actions">
+            <button disabled={busy} onClick={() => void handleRunImport()}>Restore backup</button>
+          </div>
+        </article>
       </section>
 
       <section className="grid two-cols">
@@ -270,8 +500,15 @@ export default function App(): JSX.Element {
         </article>
 
         <article className="card">
-          <h2>Command Result</h2>
+          <h2>Command Results</h2>
+          <p><strong>One-time scrape</strong></p>
           <pre>{syncResult ? prettyJson(syncResult) : "No scrape executed yet."}</pre>
+          <p><strong>Backup</strong></p>
+          <pre>{backupResult ? prettyJson(backupResult) : "No backup executed yet."}</pre>
+          <p><strong>Data export</strong></p>
+          <pre>{exportResult ? prettyJson(exportResult) : "No export executed yet."}</pre>
+          <p><strong>Restore</strong></p>
+          <pre>{importResult ? prettyJson(importResult) : "No restore executed yet."}</pre>
         </article>
       </section>
 
