@@ -1,3 +1,5 @@
+import type { ApiWarning } from "@/lib/api-messages";
+
 export class ApiTransportError extends Error {
   readonly status: number;
 
@@ -9,12 +11,14 @@ export class ApiTransportError extends Error {
 }
 
 export class ApiDomainError extends Error {
-  readonly warnings: string[];
+  readonly warnings: ApiWarning[];
+  readonly code: string | null;
 
-  constructor(message: string, warnings: string[]) {
+  constructor(message: string, warnings: ApiWarning[], code: string | null = null) {
     super(message);
     this.name = "ApiDomainError";
     this.warnings = warnings;
+    this.code = code;
   }
 }
 

@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { cpSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -7,6 +7,7 @@ const __dirname = dirname(__filename);
 
 const desktopDir = resolve(__dirname, "..");
 const frontendDir = resolve(desktopDir, "vendor", "frontend");
+const frontendOverridesDir = resolve(desktopDir, "overrides", "frontend");
 
 const aliasFragment = "\"@mariozechner/pi-ai\": resolve(process.cwd(), \"src/shims/pi-ai.ts\"),";
 
@@ -32,6 +33,32 @@ function applyPiAiAlias(viteConfigPath) {
   return { changed: true, skipped: false };
 }
 
+function applyOverrides(sourceDir, destDir) {
+  if (!existsSync(sourceDir)) {
+    return [];
+  }
+
+  const copied = [];
+
+  function visit(currentSourceDir) {
+    for (const entry of readdirSync(currentSourceDir)) {
+      const sourcePath = resolve(currentSourceDir, entry);
+      const relativePath = relative(sourceDir, sourcePath);
+      const destPath = resolve(destDir, relativePath);
+      const stats = statSync(sourcePath);
+      if (stats.isDirectory()) {
+        visit(sourcePath);
+        continue;
+      }
+      cpSync(sourcePath, destPath, { force: true });
+      copied.push(relativePath);
+    }
+  }
+
+  visit(sourceDir);
+  return copied.sort();
+}
+
 const viteTs = resolve(frontendDir, "vite.config.ts");
 const viteJs = resolve(frontendDir, "vite.config.js");
 
@@ -48,4 +75,12 @@ if (tsResult.changed || jsResult.changed) {
   console.log("Patched vendored frontend Vite config with browser shim alias for @mariozechner/pi-ai.");
 } else {
   console.log("Vendored frontend Vite config already contains browser shim alias.");
+}
+
+const overrideFiles = applyOverrides(frontendOverridesDir, frontendDir);
+if (overrideFiles.length > 0) {
+  console.log(`Applied desktop frontend overrides (${overrideFiles.length}):`);
+  for (const file of overrideFiles) {
+    console.log(`  - ${file}`);
+  }
 }

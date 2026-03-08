@@ -31,7 +31,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { formatEurFromCents } from "@/utils/format";
+import { useI18n } from "@/i18n";
+import { resolveApiErrorMessage } from "@/lib/backend-messages";
+import { formatDate, formatEurFromCents, formatMonthYear } from "@/utils/format";
 
 type BillFormState = {
   name: string;
@@ -106,6 +108,7 @@ function toFormState(bill: RecurringBill): BillFormState {
 
 export function BillsPage(): JSX.Element {
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const today = new Date();
 
   const [editorOpen, setEditorOpen] = useState(false);
@@ -161,26 +164,26 @@ export function BillsPage(): JSX.Element {
       setEditingBillId(null);
       setFormState(EMPTY_FORM);
       setActionError(null);
-      setActionStatus(editingBillId ? "Bill updated." : "Bill created.");
+      setActionStatus(editingBillId ? t("pages.bills.updated") : t("pages.bills.created"));
       void queryClient.invalidateQueries({ queryKey: ["recurring-bills"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-calendar"] });
     },
     onError: (error) => {
-      setActionError(error instanceof Error ? error.message : "Failed to save bill");
+      setActionError(resolveApiErrorMessage(error, t, t("pages.bills.saveFailed")));
     }
   });
 
   const deleteMutation = useMutation({
     mutationFn: (billId: string) => deleteRecurringBill(billId),
     onSuccess: () => {
-      setActionStatus("Bill archived.");
+      setActionStatus(t("pages.bills.archived"));
       void queryClient.invalidateQueries({ queryKey: ["recurring-bills"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-calendar"] });
     },
     onError: (error) => {
-      setActionError(error instanceof Error ? error.message : "Failed to archive bill");
+      setActionError(resolveApiErrorMessage(error, t, t("pages.bills.archiveFailed")));
     }
   });
 
@@ -200,39 +203,39 @@ export function BillsPage(): JSX.Element {
       });
     },
     onSuccess: () => {
-      setActionStatus("Occurrence updated.");
+      setActionStatus(t("pages.bills.occurrenceUpdated"));
       void queryClient.invalidateQueries({ queryKey: ["recurring-occurrences", expandedBillId] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-calendar"] });
     },
     onError: (error) => {
-      setActionError(error instanceof Error ? error.message : "Failed to update occurrence");
+      setActionError(resolveApiErrorMessage(error, t, t("pages.bills.occurrenceFailed")));
     }
   });
 
   const generateMutation = useMutation({
     mutationFn: (billId: string) => generateBillOccurrences(billId, { horizon_months: 6 }),
     onSuccess: () => {
-      setActionStatus("Occurrences generated.");
+      setActionStatus(t("pages.bills.occurrencesGenerated"));
       void queryClient.invalidateQueries({ queryKey: ["recurring-occurrences", expandedBillId] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-calendar"] });
     },
     onError: (error) => {
-      setActionError(error instanceof Error ? error.message : "Failed to generate occurrences");
+      setActionError(resolveApiErrorMessage(error, t, t("pages.bills.generateFailed")));
     }
   });
 
   const matchMutation = useMutation({
     mutationFn: (billId: string) => runBillMatching(billId),
     onSuccess: (result) => {
-      setActionStatus(`Matching complete: ${result.auto_matched} auto-matches.`);
+      setActionStatus(t("pages.bills.matchingComplete", { count: result.auto_matched }));
       void queryClient.invalidateQueries({ queryKey: ["recurring-occurrences", expandedBillId] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-calendar"] });
     },
     onError: (error) => {
-      setActionError(error instanceof Error ? error.message : "Failed to run matching");
+      setActionError(resolveApiErrorMessage(error, t, t("pages.bills.matchFailed")));
     }
   });
 
@@ -270,17 +273,17 @@ export function BillsPage(): JSX.Element {
     setActionStatus(null);
     setActionError(null);
     if (!formState.name.trim()) {
-      setActionError("Bill name is required.");
+      setActionError(t("pages.bills.validation.nameRequired"));
       return;
     }
     if (!formState.anchorDate) {
-      setActionError("Anchor date is required.");
+      setActionError(t("pages.bills.validation.anchorRequired"));
       return;
     }
     if (formState.amountMode === "fixed") {
       const amount = Number(formState.amountCents);
       if (!Number.isFinite(amount) || amount <= 0) {
-        setActionError("Amount cents must be a positive number for fixed bills.");
+        setActionError(t("pages.bills.validation.amountRequired"));
         return;
       }
     }
@@ -320,7 +323,7 @@ export function BillsPage(): JSX.Element {
   }
 
   async function reconcileFromPrompt(occurrenceId: string): Promise<void> {
-    const transactionId = window.prompt("Enter transaction ID to reconcile:");
+    const transactionId = window.prompt(t("pages.bills.reconcilePrompt"));
     if (!transactionId || !transactionId.trim()) {
       return;
     }
@@ -333,16 +336,16 @@ export function BillsPage(): JSX.Element {
     });
   }
 
-  const monthName = today.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const monthName = formatMonthYear(today);
 
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Recurring Bills</h2>
-          <p className="text-sm text-muted-foreground">Track expected due dates, payment status, and matched transactions.</p>
+          <h2 className="text-lg font-semibold">{t("pages.bills.title")}</h2>
+          <p className="text-sm text-muted-foreground">{t("pages.bills.subtitle")}</p>
         </div>
-        <Button onClick={openCreateDialog}>Add bill</Button>
+        <Button onClick={openCreateDialog}>{t("pages.bills.add")}</Button>
       </div>
 
       {actionStatus ? <p className="text-sm text-muted-foreground">{actionStatus}</p> : null}
@@ -351,7 +354,7 @@ export function BillsPage(): JSX.Element {
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">Monthly committed</CardTitle>
+            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">{t("pages.bills.metric.monthlyCommitted")}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-semibold tabular-nums">
@@ -362,7 +365,7 @@ export function BillsPage(): JSX.Element {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">Active bills</CardTitle>
+            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">{t("pages.bills.metric.activeBills")}</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center justify-between">
             <p className="text-2xl font-semibold tabular-nums">{overviewQuery.data?.active_bills ?? activeBills.length}</p>
@@ -372,7 +375,7 @@ export function BillsPage(): JSX.Element {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">Due this week</CardTitle>
+            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">{t("pages.bills.metric.dueThisWeek")}</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center justify-between">
             <p className="text-2xl font-semibold tabular-nums">{overviewQuery.data?.due_this_week ?? 0}</p>
@@ -382,7 +385,7 @@ export function BillsPage(): JSX.Element {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">Overdue</CardTitle>
+            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">{t("pages.bills.metric.overdue")}</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center justify-between">
             <p className="text-2xl font-semibold tabular-nums">{overviewQuery.data?.overdue ?? 0}</p>
@@ -393,23 +396,23 @@ export function BillsPage(): JSX.Element {
 
       <Card>
         <CardHeader>
-          <CardTitle>Bill list</CardTitle>
+          <CardTitle>{t("pages.bills.listTitle")}</CardTitle>
         </CardHeader>
         <CardContent>
           {billsQuery.isPending ? (
-            <p className="text-sm text-muted-foreground">Loading bills...</p>
+            <p className="text-sm text-muted-foreground">{t("pages.bills.loading")}</p>
           ) : bills.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No recurring bills yet.</p>
+            <p className="text-sm text-muted-foreground">{t("pages.bills.empty")}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Frequency</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Merchant hint</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t("pages.bills.col.name")}</TableHead>
+                  <TableHead>{t("pages.bills.col.status")}</TableHead>
+                  <TableHead>{t("pages.bills.col.frequency")}</TableHead>
+                  <TableHead>{t("pages.bills.col.amount")}</TableHead>
+                  <TableHead>{t("pages.bills.col.merchantHint")}</TableHead>
+                  <TableHead className="text-right">{t("common.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -420,7 +423,7 @@ export function BillsPage(): JSX.Element {
                       <div className="text-xs text-muted-foreground">{bill.category}</div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={bill.active ? "default" : "secondary"}>{bill.active ? "active" : "paused"}</Badge>
+                      <Badge variant={bill.active ? "default" : "secondary"}>{bill.active ? t("pages.bills.active") : t("pages.bills.paused")}</Badge>
                     </TableCell>
                     <TableCell className="capitalize">{frequencyLabel(bill)}</TableCell>
                     <TableCell>{amountLabel(bill.amount_cents)}</TableCell>
@@ -434,10 +437,10 @@ export function BillsPage(): JSX.Element {
                           variant="outline"
                           onClick={() => toggleOccurrencesForBill(bill.id)}
                         >
-                          {expandedBillId === bill.id ? "Hide" : "Occurrences"}
+                          {expandedBillId === bill.id ? t("pages.bills.hideOccurrences") : t("pages.bills.showOccurrences")}
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => openEditDialog(bill)}>
-                          Edit
+                          {t("common.edit")}
                         </Button>
                         <Button
                           size="sm"
@@ -448,7 +451,7 @@ export function BillsPage(): JSX.Element {
                             void generateMutation.mutateAsync(bill.id);
                           }}
                         >
-                          Generate
+                          {t("pages.bills.generate")}
                         </Button>
                         <Button
                           size="sm"
@@ -459,7 +462,7 @@ export function BillsPage(): JSX.Element {
                             void matchMutation.mutateAsync(bill.id);
                           }}
                         >
-                          Match
+                          {t("pages.bills.match")}
                         </Button>
                         <Button
                           size="sm"
@@ -470,7 +473,7 @@ export function BillsPage(): JSX.Element {
                             void deleteMutation.mutateAsync(bill.id);
                           }}
                         >
-                          Archive
+                          {t("pages.bills.archive")}
                         </Button>
                       </div>
                     </TableCell>
@@ -485,13 +488,13 @@ export function BillsPage(): JSX.Element {
       {selectedBill ? (
         <Card>
           <CardHeader>
-            <CardTitle>Occurrences: {selectedBill.name}</CardTitle>
+            <CardTitle>{t("pages.bills.occurrencesTitle", { name: selectedBill.name })}</CardTitle>
           </CardHeader>
           <CardContent>
             {occurrencesQuery.isPending ? (
-              <p className="text-sm text-muted-foreground">Loading occurrences...</p>
+              <p className="text-sm text-muted-foreground">{t("pages.bills.loadingOccurrences")}</p>
             ) : (occurrencesQuery.data?.items ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">No generated occurrences for this bill.</p>
+              <p className="text-sm text-muted-foreground">{t("pages.bills.noOccurrences")}</p>
             ) : (
               <div className="space-y-2">
                 {(occurrencesQuery.data?.items ?? []).map((occurrence) => (
@@ -501,14 +504,19 @@ export function BillsPage(): JSX.Element {
                   >
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{occurrence.due_date}</span>
+                        <span className="text-sm font-medium">{formatDate(occurrence.due_date)}</span>
                         <Badge variant={statusBadgeVariant(occurrence.status)}>{occurrence.status}</Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Expected {amountLabel(occurrence.expected_amount_cents)}
-                        {occurrence.actual_amount_cents !== null
-                          ? ` • Actual ${formatEurFromCents(occurrence.actual_amount_cents)}`
-                          : ""}
+                        {t("pages.bills.expectedAmount", {
+                          amount: amountLabel(occurrence.expected_amount_cents),
+                          actualSuffix:
+                            occurrence.actual_amount_cents !== null
+                              ? ` • ${t("pages.bills.actualAmount", {
+                                  amount: formatEurFromCents(occurrence.actual_amount_cents)
+                                })}`
+                              : ""
+                        })}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -526,7 +534,7 @@ export function BillsPage(): JSX.Element {
                             });
                           }}
                         >
-                          Mark paid
+                          {t("pages.bills.markPaid")}
                         </Button>
                       ) : null}
                       {occurrence.status !== "skipped" ? (
@@ -539,7 +547,7 @@ export function BillsPage(): JSX.Element {
                             void mutateOccurrenceMutation.mutateAsync({ kind: "skip", occurrenceId: occurrence.id });
                           }}
                         >
-                          Skip
+                          {t("pages.bills.skip")}
                         </Button>
                       ) : null}
                       <Button
@@ -551,7 +559,7 @@ export function BillsPage(): JSX.Element {
                           void reconcileFromPrompt(occurrence.id);
                         }}
                       >
-                        Reconcile
+                        {t("pages.bills.reconcile")}
                       </Button>
                     </div>
                   </div>
@@ -564,20 +572,20 @@ export function BillsPage(): JSX.Element {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CalendarCheck className="h-4 w-4" />
-            Calendar strip ({monthName})
-          </CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <CalendarCheck className="h-4 w-4" />
+              {t("pages.bills.calendarTitle", { month: monthName })}
+            </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="mb-2 grid grid-cols-7 gap-2 text-center text-xs uppercase tracking-wide text-muted-foreground">
-            <span>Sun</span>
-            <span>Mon</span>
-            <span>Tue</span>
-            <span>Wed</span>
-            <span>Thu</span>
-            <span>Fri</span>
-            <span>Sat</span>
+            <span>{t("pages.bills.day.sun")}</span>
+            <span>{t("pages.bills.day.mon")}</span>
+            <span>{t("pages.bills.day.tue")}</span>
+            <span>{t("pages.bills.day.wed")}</span>
+            <span>{t("pages.bills.day.thu")}</span>
+            <span>{t("pages.bills.day.fri")}</span>
+            <span>{t("pages.bills.day.sat")}</span>
           </div>
           <div className="grid grid-cols-7 gap-2">
             {monthGridCells().map((cell) =>
@@ -588,7 +596,7 @@ export function BillsPage(): JSX.Element {
                   <p className="text-sm font-medium">{cell.day}</p>
                   {cell.count > 0 ? (
                     <Badge variant={cell.count > 2 ? "destructive" : "secondary"} className="mt-2">
-                      {cell.count} due
+                      {t("pages.bills.dayDue", { count: cell.count })}
                     </Badge>
                   ) : (
                     <p className="mt-2 text-xs text-muted-foreground">-</p>
@@ -603,13 +611,13 @@ export function BillsPage(): JSX.Element {
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editingBillId ? "Edit recurring bill" : "Create recurring bill"}</DialogTitle>
+            <DialogTitle>{editingBillId ? t("pages.bills.dialog.editTitle") : t("pages.bills.dialog.createTitle")}</DialogTitle>
           </DialogHeader>
 
           <form className="grid gap-3" onSubmit={submitEditor}>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1">
-                <Label htmlFor="bill-name">Name</Label>
+                <Label htmlFor="bill-name">{t("pages.bills.form.name")}</Label>
                 <Input
                   id="bill-name"
                   value={formState.name}
@@ -619,7 +627,7 @@ export function BillsPage(): JSX.Element {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="bill-category">Category</Label>
+                <Label htmlFor="bill-category">{t("pages.bills.form.category")}</Label>
                 <Input
                   id="bill-category"
                   value={formState.category}
@@ -629,7 +637,7 @@ export function BillsPage(): JSX.Element {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="bill-frequency">Frequency</Label>
+                <Label htmlFor="bill-frequency">{t("pages.bills.form.frequency")}</Label>
                 <select
                   id="bill-frequency"
                   className="h-10 w-full rounded-md border bg-background px-3 text-sm"
@@ -641,16 +649,16 @@ export function BillsPage(): JSX.Element {
                     }))
                   }
                 >
-                  <option value="weekly">Weekly</option>
-                  <option value="biweekly">Biweekly</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="quarterly">Quarterly</option>
-                  <option value="yearly">Yearly</option>
+                  <option value="weekly">{t("pages.bills.form.frequency.weekly")}</option>
+                  <option value="biweekly">{t("pages.bills.form.frequency.biweekly")}</option>
+                  <option value="monthly">{t("pages.bills.form.frequency.monthly")}</option>
+                  <option value="quarterly">{t("pages.bills.form.frequency.quarterly")}</option>
+                  <option value="yearly">{t("pages.bills.form.frequency.yearly")}</option>
                 </select>
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="bill-interval">Interval</Label>
+                <Label htmlFor="bill-interval">{t("pages.bills.form.interval")}</Label>
                 <Input
                   id="bill-interval"
                   type="number"
@@ -661,7 +669,7 @@ export function BillsPage(): JSX.Element {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="bill-anchor-date">Anchor date</Label>
+                <Label htmlFor="bill-anchor-date">{t("pages.bills.form.anchorDate")}</Label>
                 <Input
                   id="bill-anchor-date"
                   type="date"
@@ -671,7 +679,7 @@ export function BillsPage(): JSX.Element {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="bill-amount-mode">Amount mode</Label>
+                <Label htmlFor="bill-amount-mode">{t("pages.bills.form.amountMode")}</Label>
                 <select
                   id="bill-amount-mode"
                   className="h-10 w-full rounded-md border bg-background px-3 text-sm"
@@ -683,13 +691,13 @@ export function BillsPage(): JSX.Element {
                     }))
                   }
                 >
-                  <option value="fixed">Fixed</option>
-                  <option value="variable">Variable</option>
+                  <option value="fixed">{t("pages.bills.form.amountMode.fixed")}</option>
+                  <option value="variable">{t("pages.bills.form.amountMode.variable")}</option>
                 </select>
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="bill-amount-cents">Amount (cents)</Label>
+                <Label htmlFor="bill-amount-cents">{t("pages.bills.form.amountCents")}</Label>
                 <Input
                   id="bill-amount-cents"
                   type="number"
@@ -701,7 +709,7 @@ export function BillsPage(): JSX.Element {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="bill-tolerance">Amount tolerance</Label>
+                <Label htmlFor="bill-tolerance">{t("pages.bills.form.amountTolerance")}</Label>
                 <Input
                   id="bill-tolerance"
                   type="number"
@@ -715,7 +723,7 @@ export function BillsPage(): JSX.Element {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="bill-merchant-canonical">Merchant (canonical)</Label>
+                <Label htmlFor="bill-merchant-canonical">{t("pages.bills.form.merchantCanonical")}</Label>
                 <Input
                   id="bill-merchant-canonical"
                   value={formState.merchantCanonical}
@@ -727,7 +735,7 @@ export function BillsPage(): JSX.Element {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="bill-merchant-pattern">Merchant alias pattern</Label>
+                <Label htmlFor="bill-merchant-pattern">{t("pages.bills.form.merchantPattern")}</Label>
                 <Input
                   id="bill-merchant-pattern"
                   value={formState.merchantAliasPattern}
@@ -740,7 +748,7 @@ export function BillsPage(): JSX.Element {
             </div>
 
             <div className="space-y-1">
-              <Label htmlFor="bill-notes">Notes</Label>
+              <Label htmlFor="bill-notes">{t("pages.bills.form.notes")}</Label>
               <Textarea
                 id="bill-notes"
                 value={formState.notes}
@@ -751,10 +759,10 @@ export function BillsPage(): JSX.Element {
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditorOpen(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button type="submit" disabled={saveBillMutation.isPending}>
-                {editingBillId ? "Save changes" : "Create bill"}
+                {editingBillId ? t("pages.bills.form.saveChanges") : t("pages.bills.form.create")}
               </Button>
             </DialogFooter>
           </form>

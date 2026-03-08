@@ -5,9 +5,11 @@ import { login } from "@/api/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useI18n } from "@/i18n";
 
 export function LoginPage(): JSX.Element {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +23,7 @@ export function LoginPage(): JSX.Element {
       await login(username.trim(), password);
       navigate("/", { replace: true });
     } catch {
-      setError("Invalid username or password.");
+      setError(t("auth.login.invalid"));
     } finally {
       setBusy(false);
     }
@@ -31,13 +33,13 @@ export function LoginPage(): JSX.Element {
     <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="space-y-1 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-          <p className="text-sm text-muted-foreground">Lidl Receipts Analytics</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("auth.login.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("auth.login.subtitle")}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="username">Username</Label>
+            <Label htmlFor="username">{t("auth.login.username")}</Label>
             <Input
               id="username"
               autoComplete="username"
@@ -49,7 +51,7 @@ export function LoginPage(): JSX.Element {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="password">{t("auth.login.password")}</Label>
             <Input
               id="password"
               type="password"
@@ -68,7 +70,7 @@ export function LoginPage(): JSX.Element {
           ) : null}
 
           <Button type="submit" className="w-full" disabled={busy}>
-            {busy ? "Signing in…" : "Sign in"}
+            {busy ? t("auth.login.submitting") : t("auth.login.submit")}
           </Button>
         </form>
       </div>

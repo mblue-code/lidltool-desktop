@@ -73,7 +73,6 @@ from lidltool.analytics.queries import (
     dashboard_savings_breakdown,
     dashboard_totals,
     dashboard_trends,
-    export_receipts,
     review_queue,
     review_queue_detail,
     search_transactions,
@@ -112,7 +111,7 @@ from lidltool.api.auth import (
     set_session_cookie,
 )
 from lidltool.auth.agent_keys import create_user_agent_key
-from lidltool.auth.user_auth import UserAuthError, decode_token, token_payload_for_user, verify_password
+from lidltool.auth.user_auth import UserAuthError, decode_token, verify_password
 from lidltool.auth.users import (
     SERVICE_USERNAME,
     create_local_user,
@@ -147,21 +146,73 @@ from lidltool.ingest.manual_ingest import (
     ManualTransactionInput,
 )
 from lidltool.ingest.overrides import OverrideService
-from lidltool.ops import backup_database
 from lidltool.reliability.metrics import compute_endpoint_slo_summary, record_endpoint_metric
 from lidltool.recurring.service import RecurringBillsService
 from lidltool.storage.document_storage import DocumentStorage, DocumentStorageError
 
 LOGGER = logging.getLogger(__name__)
+SUPPORTED_LOCALES = {"en", "de"}
+
+
+@dataclass(frozen=True, slots=True)
+class ApiWarningDetail:
+    message: str
+    code: str | None = None
+
+
+def _normalize_supported_locale(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in SUPPORTED_LOCALES:
+        return normalized
+    return None
+
+
+def _warning(message: str, *, code: str | None = None) -> ApiWarningDetail:
+    return ApiWarningDetail(message=message, code=code)
+
+
+def _serialize_current_user(user: User) -> dict[str, Any]:
+    return {
+        "user_id": user.user_id,
+        "username": user.username,
+        "display_name": user.display_name,
+        "is_admin": user.is_admin,
+        "preferred_locale": _normalize_supported_locale(user.preferred_locale),
+    }
+
+
+def _serialize_warning_details(
+    warnings: list[str | ApiWarningDetail] | None,
+) -> tuple[list[str], list[dict[str, str | None]]]:
+    messages: list[str] = []
+    details: list[dict[str, str | None]] = []
+    for warning in warnings or []:
+        if isinstance(warning, ApiWarningDetail):
+            messages.append(warning.message)
+            details.append({"message": warning.message, "code": warning.code})
+            continue
+        messages.append(str(warning))
+    return messages, details
 
 
 def _response(
     ok: bool,
     result: Any = None,
-    warnings: list[str] | None = None,
+    warnings: list[str | ApiWarningDetail] | None = None,
     error: str | None = None,
+    error_code: str | None = None,
 ) -> dict[str, Any]:
-    return {"ok": ok, "result": result, "warnings": warnings or [], "error": error}
+    warning_messages, warning_details = _serialize_warning_details(warnings)
+    return {
+        "ok": ok,
+        "result": result,
+        "warnings": warning_messages,
+        "warning_details": warning_details,
+        "error": error,
+        "error_code": error_code,
+    }
 
 
 def _create_session_factory(
@@ -318,8 +369,8 @@ def _header_api_key(request: Request) -> str | None:
     return None
 
 
-def _apply_auth_guard(config: AppConfig, *, request: Request) -> list[str]:
-    warnings: list[str] = []
+def _apply_auth_guard(config: AppConfig, *, request: Request) -> list[str | ApiWarningDetail]:
+    warnings: list[str | ApiWarningDetail] = []
     expected_api_key = config.openclaw_api_key
     if not expected_api_key:
         return warnings
@@ -328,7 +379,12 @@ def _apply_auth_guard(config: AppConfig, *, request: Request) -> list[str]:
     mode = str(config.openclaw_auth_mode or "warn_only").lower()
     if mode == "enforce":
         raise RuntimeError("unauthorized request")
-    warnings.append("api auth credential missing or invalid")
+    warnings.append(
+        _warning(
+            "api auth credential missing or invalid",
+            code="api_auth_credential_missing_or_invalid",
+        )
+    )
     return warnings
 
 
@@ -385,6 +441,74 @@ def _status_code_for_exception(exc: Exception) -> int:
     return 500
 
 
+def _error_code_from_message(message: str | None, *, status_code: int) -> str | None:
+    normalized = (message or "").strip().lower()
+    if not normalized:
+        return None
+
+    exact_codes = {
+        "admin privileges required": "admin_privileges_required",
+        "api key not found": "api_key_not_found",
+        "authentication required": "auth_required",
+        "at least one admin user is required": "admin_user_required",
+        "cannot delete current user": "cannot_delete_current_user",
+        "cannot remove admin privileges from current user": "cannot_demote_current_user",
+        "chat thread conflict": "chat_thread_conflict",
+        "chat thread not found": "chat_thread_not_found",
+        "data integrity conflict": "data_integrity_conflict",
+        "document not found": "document_not_found",
+        "internal server error": "internal_server_error",
+        "invalid field value": "invalid_field_value",
+        "invalid json payload": "invalid_json_payload",
+        "invalid or expired session token": "invalid_or_expired_session_token",
+        "invalid related resource reference": "invalid_related_resource_reference",
+        "invalid request payload": "invalid_request_payload",
+        "invalid source; register source before upload": "invalid_source_for_upload",
+        "invalid username or password": "auth_invalid_credentials",
+        "message content is required": "message_content_required",
+        "missing required field": "missing_required_field",
+        "missing retryable sources; no failed or remaining sources to retry": "connector_retryable_sources_missing",
+        "missing token signing secret": "missing_token_signing_secret",
+        "rate limit exceeded; retry after retry-after seconds": "rate_limited",
+        "resource conflict": "resource_conflict",
+        "service not ready": "service_not_ready",
+        "session user not found": "session_user_not_found",
+        "setup already completed": "setup_already_completed",
+        "source not found": "source_not_found",
+        "thread is already generating": "chat_thread_already_generating",
+        "transaction item not found": "transaction_item_not_found",
+        "transaction not found": "transaction_not_found",
+        "unauthorized request": "unauthorized_request",
+        "user not found": "user_not_found",
+    }
+    exact = exact_codes.get(normalized)
+    if exact is not None:
+        return exact
+
+    if normalized.startswith("rate limit exceeded; retry after"):
+        return "rate_limited"
+    if normalized.startswith("unsupported source(s) for cascade:"):
+        return "connector_unsupported_sources"
+    return None
+
+
+def _error_code(exc: Exception) -> str | None:
+    status_code = _status_code_for_exception(exc)
+    if isinstance(exc, HTTPException):
+        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        return _error_code_from_message(detail, status_code=status_code)
+    if isinstance(exc, RequestValidationError):
+        return "invalid_request_payload"
+    if isinstance(exc, json.JSONDecodeError):
+        return "invalid_json_payload"
+    if isinstance(exc, IntegrityError):
+        _, message = _integrity_error_mapping(exc)
+        return _error_code_from_message(message, status_code=status_code)
+    if status_code >= 500:
+        return "internal_server_error"
+    return _error_code_from_message(str(exc), status_code=status_code)
+
+
 def _error_message(exc: Exception) -> str:
     if isinstance(exc, HTTPException):
         detail = exc.detail
@@ -405,13 +529,20 @@ def _error_message(exc: Exception) -> str:
 
 def _error_response(exc: Exception) -> JSONResponse:
     status_code = _status_code_for_exception(exc)
+    error_code = _error_code(exc)
     if isinstance(exc, IntegrityError):
         LOGGER.warning("api.integrity_error status=%s", status_code, exc_info=exc)
     elif status_code >= 500:
         LOGGER.exception("api.unhandled_error status=%s", status_code)
     return JSONResponse(
         status_code=status_code,
-        content=_response(False, result=None, warnings=[], error=_error_message(exc)),
+        content=_response(
+            False,
+            result=None,
+            warnings=[],
+            error=_error_message(exc),
+            error_code=error_code,
+        ),
     )
 
 
@@ -627,6 +758,7 @@ def _serialize_user(user: User) -> dict[str, Any]:
         "username": user.username,
         "display_name": user.display_name,
         "is_admin": user.is_admin,
+        "preferred_locale": _normalize_supported_locale(user.preferred_locale),
         "created_at": user.created_at.isoformat(),
         "updated_at": user.updated_at.isoformat(),
     }
@@ -2423,6 +2555,10 @@ class UserUpdateRequest(BaseModel):
     is_admin: bool | None = None
 
 
+class UserLocalePreferenceUpdateRequest(BaseModel):
+    preferred_locale: Literal["en", "de"] | None = None
+
+
 class SourceSharingRequest(BaseModel):
     family_share_mode: Literal["all", "manual", "none"]
 
@@ -2443,12 +2579,6 @@ class TransactionSharingRequest(BaseModel):
 
 class TransactionItemSharingRequest(BaseModel):
     family_shared: bool
-
-
-class SystemBackupRequest(BaseModel):
-    output_dir: str | None = None
-    include_documents: bool = True
-    include_export_json: bool = True
 
 
 UploadFormFile = Annotated[UploadFile, File(...)]
@@ -2767,6 +2897,7 @@ def create_app() -> FastAPI:
                     result=None,
                     warnings=[],
                     error="rate limit exceeded; retry after Retry-After seconds",
+                    error_code="rate_limited",
                 ),
             )
         started_at = time.monotonic()
@@ -2839,6 +2970,7 @@ def create_app() -> FastAPI:
                     },
                     warnings=[],
                     error=None if ready_state else "service not ready",
+                    error_code=None if ready_state else "service_not_ready",
                 ),
             )
         except Exception as exc:  # noqa: BLE001
@@ -2878,12 +3010,7 @@ def create_app() -> FastAPI:
                     is_admin=True,
                 )
                 token = issue_session_token(user=user, config=context.config)
-                result = token_payload_for_user(
-                    user_id=user.user_id,
-                    username=user.username,
-                    is_admin=user.is_admin,
-                )
-                result["display_name"] = user.display_name
+                result = _serialize_current_user(user)
             response = JSONResponse(
                 content=_response(True, result=result, warnings=[], error=None),
                 status_code=200,
@@ -2911,12 +3038,7 @@ def create_app() -> FastAPI:
                 ):
                     raise HTTPException(status_code=401, detail="invalid username or password")
                 token = issue_session_token(user=user, config=context.config)
-                result = token_payload_for_user(
-                    user_id=user.user_id,
-                    username=user.username,
-                    is_admin=user.is_admin,
-                )
-                result["display_name"] = user.display_name
+                result = _serialize_current_user(user)
             response = JSONResponse(
                 content=_response(True, result=result, warnings=[], error=None),
                 status_code=200,
@@ -2949,12 +3071,35 @@ def create_app() -> FastAPI:
                 )
                 if user is None:
                     raise HTTPException(status_code=401, detail="authentication required")
-                result = token_payload_for_user(
-                    user_id=user.user_id,
-                    username=user.username,
-                    is_admin=user.is_admin,
+                result = _serialize_current_user(user)
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.patch("/api/v1/users/me/preferences")
+    def patch_my_user_preferences(
+        request: Request,
+        payload: UserLocalePreferenceUpdateRequest,
+        db: str | None = None,
+        config: str | None = None,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request, db=db, config_path=config)
+            with session_scope(context.sessions) as session:
+                current_user = get_current_user(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                    required=True,
                 )
-                result["display_name"] = user.display_name
+                if current_user is None:
+                    raise HTTPException(status_code=401, detail="authentication required")
+                if current_user.username == SERVICE_USERNAME:
+                    raise RuntimeError("service account cannot manage locale preference")
+                current_user.preferred_locale = _normalize_supported_locale(payload.preferred_locale)
+                current_user.updated_at = datetime.now(tz=UTC)
+                session.flush()
+                result = {"preferred_locale": _normalize_supported_locale(current_user.preferred_locale)}
             return _response(True, result=result, warnings=[], error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -3193,120 +3338,6 @@ def create_app() -> FastAPI:
                 session.delete(user)
                 result = {"user_id": user_id, "deleted": True}
             return _response(True, result=result, warnings=[], error=None)
-        except Exception as exc:  # noqa: BLE001
-            return _error_response(exc)
-
-    @app.post("/api/v1/system/backup")
-    def run_system_backup(
-        request: Request,
-        payload: SystemBackupRequest,
-        db: str | None = None,
-        config: str | None = None,
-    ) -> Any:
-        try:
-            context = _resolve_request_context(request, db=db, config_path=config)
-            app_config = context.config
-            warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(context.sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=app_config
-                )
-                _require_admin(current_user)
-
-                timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
-                if payload.output_dir and payload.output_dir.strip():
-                    output_dir = Path(payload.output_dir.strip()).expanduser().resolve()
-                else:
-                    output_dir = (app_config.config_dir / "desktop-backups" / f"backup-{timestamp}").resolve()
-
-                output_dir.mkdir(parents=True, exist_ok=True)
-                if any(output_dir.iterdir()):
-                    raise RuntimeError(f"backup output directory must be empty: {output_dir}")
-
-                backup_result = backup_database(
-                    app_config, output_dir, include_documents=payload.include_documents
-                )
-                copied: list[str] = [str(backup_result.db_artifact)]
-                skipped: list[str] = []
-
-                token_artifact: str | None = None
-                if backup_result.token_artifact:
-                    token_artifact = str(backup_result.token_artifact)
-                    copied.append(token_artifact)
-                else:
-                    skipped.append("token file not found")
-
-                documents_artifact: str | None = None
-                if payload.include_documents:
-                    if backup_result.documents_artifact:
-                        documents_artifact = str(backup_result.documents_artifact)
-                        copied.append(documents_artifact)
-                    else:
-                        skipped.append("documents directory not found")
-                else:
-                    skipped.append("documents excluded by request")
-
-                credential_key_artifact: str | None = None
-                credential_key = (
-                    os.getenv("LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY")
-                    or app_config.credential_encryption_key
-                )
-                if credential_key and credential_key.strip():
-                    key_artifact = output_dir / "credential_encryption_key.txt"
-                    key_artifact.write_text(f"{credential_key.strip()}\n", encoding="utf-8")
-                    credential_key_artifact = str(key_artifact)
-                    copied.append(credential_key_artifact)
-                else:
-                    skipped.append("credential encryption key not available")
-
-                export_artifact: str | None = None
-                export_records: int | None = None
-                if payload.include_export_json:
-                    export_payload = export_receipts(session)
-                    export_file = output_dir / "receipts-export.json"
-                    export_file.write_text(
-                        json.dumps(export_payload, indent=2, default=str), encoding="utf-8"
-                    )
-                    export_artifact = str(export_file)
-                    export_records = len(export_payload)
-                    copied.append(export_artifact)
-
-                manifest_path = output_dir / "backup-manifest.json"
-                manifest_payload = {
-                    "created_at": datetime.now(tz=UTC).isoformat(),
-                    "requested_by_user_id": current_user.user_id,
-                    "provider": backup_result.provider,
-                    "output_dir": str(output_dir),
-                    "db_artifact": str(backup_result.db_artifact),
-                    "token_artifact": token_artifact,
-                    "documents_artifact": documents_artifact,
-                    "credential_key_artifact": credential_key_artifact,
-                    "export_artifact": export_artifact,
-                    "export_records": export_records,
-                    "include_documents": payload.include_documents,
-                    "include_export_json": payload.include_export_json,
-                    "copied": copied,
-                    "skipped": skipped,
-                }
-                manifest_path.write_text(
-                    json.dumps(manifest_payload, indent=2), encoding="utf-8"
-                )
-                copied.append(str(manifest_path))
-
-                result = {
-                    "provider": backup_result.provider,
-                    "output_dir": str(output_dir),
-                    "db_artifact": str(backup_result.db_artifact),
-                    "token_artifact": token_artifact,
-                    "documents_artifact": documents_artifact,
-                    "credential_key_artifact": credential_key_artifact,
-                    "export_artifact": export_artifact,
-                    "export_records": export_records,
-                    "manifest_path": str(manifest_path),
-                    "copied": copied,
-                    "skipped": skipped,
-                }
-            return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -5721,7 +5752,10 @@ def create_app() -> FastAPI:
                 }
                 if source_id != "lidl_plus_de":
                     warnings.append(
-                        "preview connector bootstrap started; this connector is not live-validated yet"
+                        _warning(
+                            "preview connector bootstrap started; this connector is not live-validated yet",
+                            code="connector_preview_bootstrap_started",
+                        )
                     )
                 return _response(True, result=result, warnings=warnings, error=None)
 
@@ -5742,7 +5776,12 @@ def create_app() -> FastAPI:
                 env["DISPLAY"] = vnc_runtime.display
                 remote_login_url = _novnc_login_url(request)
             except Exception as exc:  # noqa: BLE001
-                warnings.append(f"remote browser session unavailable; falling back to local display ({exc})")
+                warnings.append(
+                    _warning(
+                        f"remote browser session unavailable; falling back to local display ({exc})",
+                        code="connector_remote_browser_session_unavailable",
+                    )
+                )
 
             process = subprocess.Popen(
                 command,
@@ -5780,7 +5819,10 @@ def create_app() -> FastAPI:
             }
             if source_id != "lidl_plus_de":
                 warnings.append(
-                    "preview connector bootstrap started; this connector is not live-validated yet"
+                    _warning(
+                        "preview connector bootstrap started; this connector is not live-validated yet",
+                        code="connector_preview_bootstrap_started",
+                    )
                 )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -5948,7 +5990,12 @@ def create_app() -> FastAPI:
             thread.start()
 
             if source_id != "lidl_plus_de":
-                warnings.append("preview connector sync; this connector is not live-validated yet")
+                warnings.append(
+                    _warning(
+                        "preview connector sync; this connector is not live-validated yet",
+                        code="connector_preview_sync_started",
+                    )
+                )
             return _response(
                 True,
                 result={"source_id": source_id, "reused": False, "sync": _serialize_connector_bootstrap(sync_session)},

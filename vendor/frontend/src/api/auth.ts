@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { apiClient } from "@/lib/api-client";
+import { notifySessionChanged } from "@/i18n";
 
 const SetupRequiredSchema = z.object({ required: z.boolean() });
 
@@ -8,7 +9,8 @@ const AuthResultSchema = z.object({
   user_id: z.string(),
   username: z.string(),
   display_name: z.string().nullable(),
-  is_admin: z.boolean()
+  is_admin: z.boolean(),
+  preferred_locale: z.enum(["en", "de"]).nullable().optional().default(null)
 });
 
 const LogoutSchema = z.object({ logged_out: z.boolean() });
@@ -21,7 +23,9 @@ export async function checkSetupRequired(): Promise<boolean> {
 }
 
 export async function login(username: string, password: string): Promise<AuthResult> {
-  return apiClient.post("/api/v1/auth/login", AuthResultSchema, { username, password });
+  const result = await apiClient.post("/api/v1/auth/login", AuthResultSchema, { username, password });
+  notifySessionChanged();
+  return result;
 }
 
 export async function setup(
@@ -29,13 +33,16 @@ export async function setup(
   password: string,
   displayName?: string
 ): Promise<AuthResult> {
-  return apiClient.post("/api/v1/auth/setup", AuthResultSchema, {
+  const result = await apiClient.post("/api/v1/auth/setup", AuthResultSchema, {
     username,
     password,
     display_name: displayName || null
   });
+  notifySessionChanged();
+  return result;
 }
 
 export async function logout(): Promise<void> {
   await apiClient.post("/api/v1/auth/logout", LogoutSchema);
+  notifySessionChanged();
 }

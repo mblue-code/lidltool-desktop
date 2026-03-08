@@ -12,10 +12,13 @@ import {
   SelectValue
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useI18n } from "@/i18n";
+import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import { useState } from "react";
 
 export function SourcesPage(): JSX.Element {
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const sourcesQuery = useQuery({
     queryKey: ["sources"],
@@ -32,16 +35,18 @@ export function SourcesPage(): JSX.Element {
   });
 
   const sources = sourcesQuery.data?.sources ?? [];
-  const errorMessage = sourcesQuery.error instanceof Error ? sourcesQuery.error.message : null;
+  const errorMessage = sourcesQuery.error
+    ? resolveApiErrorMessage(sourcesQuery.error, t, t("pages.sources.loadErrorTitle"))
+    : null;
 
   async function updateSharing(sourceId: string, mode: "all" | "manual" | "none"): Promise<void> {
     setStatusMessage(null);
     try {
       await sharingMutation.mutateAsync({ sourceId, mode });
       await queryClient.invalidateQueries({ queryKey: ["sources"] });
-      setStatusMessage("Source sharing updated.");
+      setStatusMessage(t("pages.sources.sharingUpdated"));
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Failed to update source sharing.");
+      setStatusMessage(resolveApiErrorMessage(error, t, t("pages.sources.sharingUpdateFailed")));
     }
   }
 
@@ -49,28 +54,28 @@ export function SourcesPage(): JSX.Element {
     <section className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Sources</CardTitle>
+          <CardTitle>{t("pages.sources.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           {errorMessage ? (
             <Alert variant="destructive" className="mb-4">
-              <AlertTitle>Failed to load sources</AlertTitle>
+              <AlertTitle>{t("pages.sources.loadErrorTitle")}</AlertTitle>
               <AlertDescription>{errorMessage}</AlertDescription>
             </Alert>
           ) : null}
           {statusMessage ? <p className="mb-4 text-sm text-muted-foreground">{statusMessage}</p> : null}
           {sources.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No sources available.</p>
+            <p className="text-sm text-muted-foreground">{t("pages.sources.empty")}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Display Name</TableHead>
-                  <TableHead>Owner</TableHead>
-                  <TableHead>Kind</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Enabled</TableHead>
-                  <TableHead>Family sharing</TableHead>
+                  <TableHead>{t("pages.sources.displayName")}</TableHead>
+                  <TableHead>{t("pages.sources.owner")}</TableHead>
+                  <TableHead>{t("pages.sources.kind")}</TableHead>
+                  <TableHead>{t("common.status")}</TableHead>
+                  <TableHead>{t("pages.sources.enabled")}</TableHead>
+                  <TableHead>{t("pages.sources.familySharing")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -84,7 +89,7 @@ export function SourcesPage(): JSX.Element {
                         {source.status}
                       </Badge>
                     </TableCell>
-                    <TableCell>{source.enabled ? "Yes" : "No"}</TableCell>
+                    <TableCell>{source.enabled ? t("common.yes") : t("common.no")}</TableCell>
                     <TableCell>
                       <Select
                         value={source.family_share_mode || "none"}
@@ -97,9 +102,9 @@ export function SourcesPage(): JSX.Element {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="none">Off</SelectItem>
-                          <SelectItem value="all">All receipts</SelectItem>
-                          <SelectItem value="manual">Manual</SelectItem>
+                          <SelectItem value="none">{t("pages.sources.sharing.off")}</SelectItem>
+                          <SelectItem value="all">{t("pages.sources.sharing.all")}</SelectItem>
+                          <SelectItem value="manual">{t("pages.sources.sharing.manual")}</SelectItem>
                         </SelectContent>
                       </Select>
                     </TableCell>

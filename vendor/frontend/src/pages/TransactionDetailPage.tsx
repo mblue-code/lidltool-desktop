@@ -30,6 +30,8 @@ import {
   TableRow
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useI18n } from "@/i18n";
+import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import {
   TransactionOverrideRequest,
   buildDocumentPreviewUrl,
@@ -63,6 +65,7 @@ function supportsInlinePreview(mimeType: string): boolean {
 
 export function TransactionDetailPage(): JSX.Element {
   const { transactionId } = useParams();
+  const { t } = useI18n();
   const txId = transactionId ?? null;
   const [mutationStatus, setMutationStatus] = useState<string | null>(null);
   const [sharingStatus, setSharingStatus] = useState<string | null>(null);
@@ -82,7 +85,7 @@ export function TransactionDetailPage(): JSX.Element {
   const detail = data?.detail ?? null;
   const history = data?.history ?? null;
   const loading = isPending || isFetching;
-  const errorMessage = error instanceof Error ? error.message : null;
+  const errorMessage = error ? resolveApiErrorMessage(error, t, t("pages.transactionDetail.loadError")) : null;
   const isOwner = detail?.transaction.is_owner !== false;
   const currentFamilyShareMode = detail?.transaction.family_share_mode ?? "inherit";
 
@@ -156,7 +159,7 @@ export function TransactionDetailPage(): JSX.Element {
   if (!txId) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Missing transaction id</AlertTitle>
+        <AlertTitle>{t("pages.transactionDetail.missingId")}</AlertTitle>
       </Alert>
     );
   }
@@ -179,7 +182,7 @@ export function TransactionDetailPage(): JSX.Element {
     const itemCorrections: Array<{ item_id: string; corrections: Record<string, unknown> }> = [];
     if (values.itemCategory.trim() && !values.itemId) {
       form.setError("itemId", {
-        message: "Select an item before changing category."
+        message: t("pages.transactionDetail.override.itemRequired")
       });
       return;
     }
@@ -187,7 +190,7 @@ export function TransactionDetailPage(): JSX.Element {
       const item = detail.items.find((candidate) => candidate.id === values.itemId);
       if (!item) {
         form.setError("itemId", {
-          message: "Selected item is no longer available."
+          message: t("pages.transactionDetail.override.itemUnavailable")
         });
         return;
       }
@@ -204,11 +207,11 @@ export function TransactionDetailPage(): JSX.Element {
     }
 
     if (Object.keys(transactionCorrections).length === 0 && itemCorrections.length === 0) {
-      setMutationStatus("No changes detected. Update merchant or item category before applying.");
+      setMutationStatus(t("pages.transactionDetail.override.noChanges"));
       return;
     }
 
-    setMutationStatus("Applying overrides...");
+    setMutationStatus(t("pages.transactionDetail.override.applying"));
 
     try {
       await overridesMutation.mutateAsync({
@@ -222,9 +225,9 @@ export function TransactionDetailPage(): JSX.Element {
         }
       });
       await refetch();
-      setMutationStatus("Overrides applied.");
+      setMutationStatus(t("pages.transactionDetail.override.applied"));
     } catch (err) {
-      setMutationStatus(err instanceof Error ? err.message : "Failed to apply overrides");
+      setMutationStatus(resolveApiErrorMessage(err, t, t("pages.transactionDetail.override.failed")));
     }
   }
 
@@ -234,14 +237,14 @@ export function TransactionDetailPage(): JSX.Element {
     }
     const payload = JSON.stringify(detail.transaction.raw_payload ?? {}, null, 2);
     if (!navigator.clipboard) {
-      setRawCopyStatus("Clipboard is unavailable in this browser.");
+      setRawCopyStatus(t("pages.transactionDetail.clipboardUnavailable"));
       return;
     }
     try {
       await navigator.clipboard.writeText(payload);
-      setRawCopyStatus("Raw payload copied to clipboard.");
+      setRawCopyStatus(t("pages.transactionDetail.copySuccess"));
     } catch {
-      setRawCopyStatus("Failed to copy raw payload.");
+      setRawCopyStatus(t("pages.transactionDetail.copyFailed"));
     }
   }
 
@@ -249,13 +252,13 @@ export function TransactionDetailPage(): JSX.Element {
     if (!detail || !txId || !isOwner) {
       return;
     }
-    setSharingStatus("Updating sharing mode...");
+    setSharingStatus(t("pages.transactionDetail.sharingUpdating"));
     try {
       await sharingMutation.mutateAsync({ transactionId: txId, mode });
       await refetch();
-      setSharingStatus("Sharing mode updated.");
+      setSharingStatus(t("pages.transactionDetail.sharingUpdated"));
     } catch (error) {
-      setSharingStatus(error instanceof Error ? error.message : "Failed to update sharing mode.");
+      setSharingStatus(resolveApiErrorMessage(error, t, t("pages.transactionDetail.sharingFailed")));
     }
   }
 
@@ -263,24 +266,24 @@ export function TransactionDetailPage(): JSX.Element {
     if (!detail || !txId || !isOwner) {
       return;
     }
-    setSharingStatus("Updating shared items...");
+    setSharingStatus(t("pages.transactionDetail.itemSharingUpdating"));
     try {
       await itemSharingMutation.mutateAsync({ transactionId: txId, itemId, familyShared });
       await refetch();
-      setSharingStatus("Item sharing updated.");
+      setSharingStatus(t("pages.transactionDetail.itemSharingUpdated"));
     } catch (error) {
-      setSharingStatus(error instanceof Error ? error.message : "Failed to update item sharing.");
+      setSharingStatus(resolveApiErrorMessage(error, t, t("pages.transactionDetail.itemSharingFailed")));
     }
   }
 
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between rounded-lg border bg-card p-4">
-        <h2 className="text-lg font-semibold">Transaction Detail</h2>
+        <h2 className="text-lg font-semibold">{t("pages.transactionDetail.title")}</h2>
         <Button asChild variant="ghost" size="sm" className="-ml-2">
           <Link to="/transactions">
             <ChevronLeft className="mr-1 h-4 w-4" />
-            Back to Receipts
+            {t("pages.transactionDetail.back")}
           </Link>
         </Button>
       </div>
@@ -288,7 +291,7 @@ export function TransactionDetailPage(): JSX.Element {
       {loading ? <Skeleton className="h-44 w-full" /> : null}
       {errorMessage ? (
         <Alert variant="destructive">
-          <AlertTitle>Failed to load transaction detail</AlertTitle>
+          <AlertTitle>{t("pages.transactionDetail.loadError")}</AlertTitle>
           <AlertDescription>{errorMessage}</AlertDescription>
         </Alert>
       ) : null}
@@ -296,52 +299,52 @@ export function TransactionDetailPage(): JSX.Element {
       {detail ? (
         <Tabs defaultValue="overview" className="space-y-4">
           <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 md:grid-cols-5">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="items">Items</TabsTrigger>
-            <TabsTrigger value="discounts">Discounts</TabsTrigger>
-            <TabsTrigger value="history">History</TabsTrigger>
-            <TabsTrigger value="raw">Raw payload</TabsTrigger>
+            <TabsTrigger value="overview">{t("pages.transactionDetail.tab.overview")}</TabsTrigger>
+            <TabsTrigger value="items">{t("pages.transactionDetail.tab.items")}</TabsTrigger>
+            <TabsTrigger value="discounts">{t("pages.transactionDetail.tab.discounts")}</TabsTrigger>
+            <TabsTrigger value="history">{t("pages.transactionDetail.tab.history")}</TabsTrigger>
+            <TabsTrigger value="raw">{t("pages.transactionDetail.tab.raw")}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
             <div className="grid gap-4 lg:grid-cols-2">
               <Card>
                 <CardHeader>
-                  <CardTitle>Transaction</CardTitle>
+                  <CardTitle>{t("pages.transactionDetail.card.transaction")}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   <p>
-                    <strong>ID:</strong> {detail.transaction.id}
+                    <strong>{t("pages.transactionDetail.field.id")}:</strong> {detail.transaction.id}
                   </p>
                   <p>
-                    <strong>Merchant:</strong> {detail.transaction.merchant_name || "-"}
+                    <strong>{t("pages.transactionDetail.field.merchant")}:</strong> {detail.transaction.merchant_name || "-"}
                   </p>
                   <p>
-                    <strong>Source:</strong> {detail.transaction.source_id}
+                    <strong>{t("pages.transactionDetail.field.source")}:</strong> {detail.transaction.source_id}
                   </p>
                   <p>
-                    <strong>Owner:</strong>{" "}
-                    {detail.transaction.owner_display_name || detail.transaction.owner_username || "Unknown"}
+                    <strong>{t("pages.transactionDetail.field.owner")}:</strong>{" "}
+                    {detail.transaction.owner_display_name || detail.transaction.owner_username || t("pages.transactionDetail.unknownOwner")}
                   </p>
                   <p>
-                    <strong>Purchased:</strong> {formatDateTime(detail.transaction.purchased_at)}
+                    <strong>{t("pages.transactionDetail.field.purchased")}:</strong> {formatDateTime(detail.transaction.purchased_at)}
                   </p>
                   <p>
-                    <strong>Total:</strong> {formatEurFromCents(detail.transaction.total_gross_cents)}
+                    <strong>{t("pages.transactionDetail.field.total")}:</strong> {formatEurFromCents(detail.transaction.total_gross_cents)}
                   </p>
                   <p>
-                    <strong>Discount total:</strong> {formatEurFromCents(detail.transaction.discount_total_cents ?? 0)}
+                    <strong>{t("pages.transactionDetail.field.discountTotal")}:</strong> {formatEurFromCents(detail.transaction.discount_total_cents ?? 0)}
                   </p>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Document Preview</CardTitle>
+                  <CardTitle>{t("pages.transactionDetail.documentPreview")}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {!selectedDocument ? (
-                    <p className="text-sm text-muted-foreground">No linked document available.</p>
+                    <p className="text-sm text-muted-foreground">{t("pages.transactionDetail.noDocument")}</p>
                   ) : null}
 
                   {selectedDocument && previewUrl && canPreviewInline && !previewFailed ? (
@@ -349,14 +352,14 @@ export function TransactionDetailPage(): JSX.Element {
                       <img
                         className="max-h-[420px] w-full rounded-md border object-contain"
                         src={previewUrl}
-                        alt={selectedDocument.file_name || "Document preview"}
+                        alt={selectedDocument.file_name || t("pages.transactionDetail.documentAlt")}
                         onError={() => setPreviewFailed(true)}
                       />
                     ) : (
                       <iframe
                         className="min-h-[420px] w-full rounded-md border"
                         src={previewUrl}
-                        title="Document preview"
+                        title={t("pages.transactionDetail.documentAlt")}
                         onError={() => setPreviewFailed(true)}
                       />
                     )
@@ -365,15 +368,18 @@ export function TransactionDetailPage(): JSX.Element {
                   {selectedDocument && previewUrl && (!canPreviewInline || previewFailed) ? (
                     <div className="space-y-3">
                       <Alert>
-                        <AlertTitle>Inline preview unavailable</AlertTitle>
+                        <AlertTitle>{t("pages.transactionDetail.inlineUnavailable")}</AlertTitle>
                         <AlertDescription>
-                          MIME type <code>{documentMimeType || "unknown"}</code> cannot be previewed inline.
+                          {t("pages.transactionDetail.inlineUnavailableDescription", {
+                            mimeType: documentMimeType || "unknown"
+                          })}{" "}
+                          <code>{documentMimeType || "unknown"}</code>
                         </AlertDescription>
                       </Alert>
                       <Button asChild variant="outline" size="sm">
                         <a href={previewUrl} target="_blank" rel="noreferrer">
                           <ExternalLink className="mr-1 h-4 w-4" />
-                          Open document
+                          {t("pages.transactionDetail.openDocument")}
                         </a>
                       </Button>
                     </div>
@@ -384,11 +390,11 @@ export function TransactionDetailPage(): JSX.Element {
 
             <Card>
               <CardHeader>
-                <CardTitle>Family Sharing</CardTitle>
+                <CardTitle>{t("pages.transactionDetail.familySharing")}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="space-y-2">
-                  <Label htmlFor="family-share-mode">Receipt sharing mode</Label>
+                  <Label htmlFor="family-share-mode">{t("pages.transactionDetail.receiptSharingMode")}</Label>
                   <Select
                     value={currentFamilyShareMode}
                     onValueChange={(value) =>
@@ -400,24 +406,24 @@ export function TransactionDetailPage(): JSX.Element {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="inherit">Inherit source setting</SelectItem>
-                      <SelectItem value="none">Private</SelectItem>
-                      <SelectItem value="receipt">Share full receipt</SelectItem>
-                      <SelectItem value="items">Share individual items</SelectItem>
+                      <SelectItem value="inherit">{t("pages.transactionDetail.share.inherit")}</SelectItem>
+                      <SelectItem value="none">{t("pages.transactionDetail.share.none")}</SelectItem>
+                      <SelectItem value="receipt">{t("pages.transactionDetail.share.receipt")}</SelectItem>
+                      <SelectItem value="items">{t("pages.transactionDetail.share.items")}</SelectItem>
                     </SelectContent>
                   </Select>
                   {!isOwner ? (
                     <p className="text-xs text-muted-foreground">
-                      This receipt is read-only because you are not the owner.
+                      {t("pages.transactionDetail.readOnly")}
                     </p>
                   ) : null}
                 </div>
 
                 {currentFamilyShareMode === "items" ? (
                   <div className="space-y-2">
-                    <p className="text-sm font-medium">Shared items</p>
+                    <p className="text-sm font-medium">{t("pages.transactionDetail.sharedItems")}</p>
                     {detail.items.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No items available for sharing.</p>
+                      <p className="text-sm text-muted-foreground">{t("pages.transactionDetail.noShareableItems")}</p>
                     ) : (
                       <div className="space-y-2 rounded-md border p-3">
                         {detail.items.map((item) => (
@@ -448,12 +454,12 @@ export function TransactionDetailPage(): JSX.Element {
 
             <Card>
               <CardHeader>
-                <CardTitle>Overrides</CardTitle>
+                <CardTitle>{t("pages.transactionDetail.overrides")}</CardTitle>
               </CardHeader>
               <CardContent>
                 {!isOwner ? (
                   <p className="mb-3 text-sm text-muted-foreground">
-                    Overrides are disabled because this receipt is owned by another user.
+                    {t("pages.transactionDetail.overridesDisabled")}
                   </p>
                 ) : null}
                 <form
@@ -461,7 +467,7 @@ export function TransactionDetailPage(): JSX.Element {
                   onSubmit={form.handleSubmit((values) => void submitOverrides(values))}
                 >
                   <div className="space-y-2">
-                    <Label htmlFor="override-mode">Mode</Label>
+                    <Label htmlFor="override-mode">{t("pages.transactionDetail.override.mode")}</Label>
                     <Select
                       value={form.watch("mode")}
                       onValueChange={(value) => {
@@ -475,15 +481,15 @@ export function TransactionDetailPage(): JSX.Element {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="local">Local</SelectItem>
-                        <SelectItem value="global">Global</SelectItem>
-                        <SelectItem value="both">Both</SelectItem>
+                        <SelectItem value="local">{t("pages.transactionDetail.override.mode.local")}</SelectItem>
+                        <SelectItem value="global">{t("pages.transactionDetail.override.mode.global")}</SelectItem>
+                        <SelectItem value="both">{t("pages.transactionDetail.override.mode.both")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="actor-id">Actor ID</Label>
+                    <Label htmlFor="actor-id">{t("pages.transactionDetail.override.actorId")}</Label>
                     <Input id="actor-id" {...form.register("actorId")} />
                     {form.formState.errors.actorId ? (
                       <p className="text-xs text-destructive">{form.formState.errors.actorId.message}</p>
@@ -491,7 +497,7 @@ export function TransactionDetailPage(): JSX.Element {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="reason">Reason</Label>
+                    <Label htmlFor="reason">{t("pages.transactionDetail.override.reason")}</Label>
                     <Input id="reason" {...form.register("reason")} />
                     {form.formState.errors.reason ? (
                       <p className="text-xs text-destructive">{form.formState.errors.reason.message}</p>
@@ -499,7 +505,7 @@ export function TransactionDetailPage(): JSX.Element {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="merchant-name">Merchant Name</Label>
+                    <Label htmlFor="merchant-name">{t("pages.transactionDetail.override.merchantName")}</Label>
                     <Input id="merchant-name" {...form.register("merchantName")} />
                     {form.formState.errors.merchantName ? (
                       <p className="text-xs text-destructive">{form.formState.errors.merchantName.message}</p>
@@ -507,7 +513,7 @@ export function TransactionDetailPage(): JSX.Element {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="override-item">Item</Label>
+                    <Label htmlFor="override-item">{t("pages.transactionDetail.override.item")}</Label>
                     <Select
                       value={selectedItemId || NO_ITEM_VALUE}
                       onValueChange={(value) => {
@@ -525,10 +531,10 @@ export function TransactionDetailPage(): JSX.Element {
                       }}
                     >
                       <SelectTrigger id="override-item">
-                        <SelectValue placeholder="Select item" />
+                        <SelectValue placeholder={t("pages.transactionDetail.override.selectItem")} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NO_ITEM_VALUE}>No item change</SelectItem>
+                        <SelectItem value={NO_ITEM_VALUE}>{t("pages.transactionDetail.override.noItemChange")}</SelectItem>
                         {detail.items.map((item) => (
                           <SelectItem value={item.id} key={item.id}>
                             {item.name}
@@ -542,7 +548,7 @@ export function TransactionDetailPage(): JSX.Element {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="item-category">Item Category</Label>
+                    <Label htmlFor="item-category">{t("pages.transactionDetail.override.itemCategory")}</Label>
                     <Input id="item-category" {...form.register("itemCategory")} />
                     {form.formState.errors.itemCategory ? (
                       <p className="text-xs text-destructive">{form.formState.errors.itemCategory.message}</p>
@@ -550,7 +556,7 @@ export function TransactionDetailPage(): JSX.Element {
                   </div>
 
                   <Button type="submit" className="self-end" disabled={!isOwner || overridesMutation.isPending}>
-                    {overridesMutation.isPending ? "Applying..." : "Apply override"}
+                    {overridesMutation.isPending ? t("pages.transactionDetail.override.applying") : t("pages.transactionDetail.override.submit")}
                   </Button>
                 </form>
 
@@ -564,7 +570,7 @@ export function TransactionDetailPage(): JSX.Element {
           <TabsContent value="items">
             <Card>
               <CardHeader>
-                <CardTitle>Line Items</CardTitle>
+                <CardTitle>{t("pages.transactionDetail.lineItems")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <Table>
@@ -589,7 +595,7 @@ export function TransactionDetailPage(): JSX.Element {
                     ))}
                     {detail.items.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5}>No line items recorded.</TableCell>
+                        <TableCell colSpan={5}>{t("pages.transactionDetail.lineItem.none")}</TableCell>
                       </TableRow>
                     ) : null}
                   </TableBody>
@@ -601,7 +607,7 @@ export function TransactionDetailPage(): JSX.Element {
           <TabsContent value="discounts">
             <Card>
               <CardHeader>
-                <CardTitle>Discount Events</CardTitle>
+                <CardTitle>{t("pages.transactionDetail.discountsTitle")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <Table>
@@ -624,7 +630,7 @@ export function TransactionDetailPage(): JSX.Element {
                     ))}
                     {detail.discounts.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={4}>No discount events.</TableCell>
+                        <TableCell colSpan={4}>{t("pages.transactionDetail.discounts.none")}</TableCell>
                       </TableRow>
                     ) : null}
                   </TableBody>
@@ -636,11 +642,11 @@ export function TransactionDetailPage(): JSX.Element {
           <TabsContent value="history">
             <Card>
               <CardHeader>
-                <CardTitle>Edit History</CardTitle>
+                <CardTitle>{t("pages.transactionDetail.historyTitle")}</CardTitle>
               </CardHeader>
               <CardContent>
                 {!history || history.events.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No edit history yet.</p>
+                  <p className="text-sm text-muted-foreground">{t("pages.transactionDetail.history.none")}</p>
                 ) : (
                   <ol className="relative space-y-3 border-l-2 border-border pl-5">
                     {history.events.map((event) => (
@@ -659,10 +665,10 @@ export function TransactionDetailPage(): JSX.Element {
           <TabsContent value="raw">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Raw Payload</CardTitle>
+                <CardTitle>{t("pages.transactionDetail.rawTitle")}</CardTitle>
                 <Button type="button" variant="outline" size="sm" onClick={() => void copyRawPayload()}>
                   <Copy className="mr-1 h-4 w-4" />
-                  Copy JSON
+                  {t("pages.transactionDetail.copyJson")}
                 </Button>
               </CardHeader>
               <CardContent className="space-y-2">

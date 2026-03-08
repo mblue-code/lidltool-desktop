@@ -23,13 +23,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { type TranslationKey, useI18n } from "@/i18n";
+import { resolveApiErrorMessage } from "@/lib/backend-messages";
 
 type ConnectorCatalogEntry = {
   id: string;
   displayName: string;
   status: "live" | "stub";
   connectCommand: string;
-  note: string;
+  noteKey: TranslationKey;
 };
 
 const CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
@@ -38,42 +40,42 @@ const CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
     displayName: "Lidl",
     status: "live",
     connectCommand: "lidltool auth bootstrap",
-    note: "Live-tested via CLI. This is the production-ready connector today."
+    noteKey: "pages.connectors.catalog.lidl.note"
   },
   {
     id: "amazon_de",
     displayName: "Amazon",
     status: "stub",
     connectCommand: "lidltool amazon auth bootstrap --domain amazon.de",
-    note: "Implemented but not yet fully live-validated end-to-end."
+    noteKey: "pages.connectors.catalog.amazon.note"
   },
   {
     id: "rewe_de",
     displayName: "REWE",
     status: "stub",
     connectCommand: "lidltool rewe auth bootstrap --domain shop.rewe.de",
-    note: "Implemented but currently treated as preview/stub in real usage."
+    noteKey: "pages.connectors.catalog.rewe.note"
   },
   {
     id: "kaufland_de",
     displayName: "Kaufland",
     status: "stub",
     connectCommand: "lidltool kaufland auth bootstrap --domain www.kaufland.de",
-    note: "Implemented but currently treated as preview/stub in real usage."
+    noteKey: "pages.connectors.catalog.kaufland.note"
   },
   {
     id: "dm_de",
     displayName: "dm",
     status: "stub",
     connectCommand: "lidltool dm auth bootstrap --domain www.dm.de",
-    note: "Implemented but currently treated as preview/stub in real usage."
+    noteKey: "pages.connectors.catalog.dm.note"
   },
   {
     id: "rossmann_de",
     displayName: "Rossmann",
     status: "stub",
     connectCommand: "lidltool rossmann auth bootstrap --domain www.rossmann.de",
-    note: "Implemented but currently treated as preview/stub in real usage."
+    noteKey: "pages.connectors.catalog.rossmann.note"
   }
 ];
 
@@ -125,66 +127,9 @@ const IDLE_CASCADE: ConnectorCascadeStatus = {
   sources: []
 };
 
-function sourceStatusBadge(status: string | undefined): JSX.Element {
-  if (!status) {
-    return <Badge variant="secondary">not configured</Badge>;
-  }
-  if (status === "healthy") {
-    return <Badge>healthy</Badge>;
-  }
-  if (status === "connected") {
-    return <Badge>connected</Badge>;
-  }
-  return <Badge variant="secondary">{status}</Badge>;
-}
-
-function bootstrapStatusBadge(status: ConnectorBootstrapStatus["status"]): JSX.Element {
-  if (status === "running") {
-    return <Badge className="bg-blue-500/15 text-blue-700">bootstrap running</Badge>;
-  }
-  if (status === "succeeded") {
-    return <Badge className="bg-emerald-500/15 text-emerald-700">bootstrap succeeded</Badge>;
-  }
-  if (status === "failed") {
-    return <Badge variant="destructive">bootstrap failed</Badge>;
-  }
-  return <Badge variant="secondary">idle</Badge>;
-}
-
-function syncStatusBadge(status: ConnectorSyncStatus["status"]): JSX.Element | null {
-  if (status === "idle") return null;
-  if (status === "running") {
-    return <Badge className="bg-blue-500/15 text-blue-700">syncing…</Badge>;
-  }
-  if (status === "succeeded") {
-    return <Badge className="bg-emerald-500/15 text-emerald-700">sync succeeded</Badge>;
-  }
-  return <Badge variant="destructive">sync failed</Badge>;
-}
-
-function cascadeStateBadge(
-  state: ConnectorCascadeStatus["sources"][number]["state"]
-): JSX.Element {
-  if (state === "completed") {
-    return <Badge className="bg-emerald-500/15 text-emerald-700">completed</Badge>;
-  }
-  if (state === "bootstrapping" || state === "syncing") {
-    return <Badge className="bg-blue-500/15 text-blue-700">{state}</Badge>;
-  }
-  if (state === "bootstrap_failed" || state === "sync_failed") {
-    return <Badge variant="destructive">{state}</Badge>;
-  }
-  if (state === "canceled") {
-    return <Badge variant="secondary">canceled</Badge>;
-  }
-  if (state === "skipped") {
-    return <Badge variant="secondary">skipped</Badge>;
-  }
-  return <Badge variant="secondary">pending</Badge>;
-}
-
 export function ConnectorsPage(): JSX.Element {
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>(() => {
@@ -240,10 +185,10 @@ export function ConnectorsPage(): JSX.Element {
     onSuccess: async (result, { sourceIds, full }) => {
       setActionFeedback(
         result.reused
-          ? "Guided sync cascade already running."
+          ? t("pages.connectors.action.guidedAlreadyRunning")
           : full
-            ? `Guided full sync started for ${sourceIds.length} source(s).`
-            : `Guided sync started for ${sourceIds.length} source(s).`
+            ? t("pages.connectors.action.guidedFullStarted", { count: sourceIds.length })
+            : t("pages.connectors.action.guidedStarted", { count: sourceIds.length })
       );
       await queryClient.invalidateQueries({ queryKey: ["connector-cascade-status"] });
       await queryClient.invalidateQueries({ queryKey: ["sources"] });
@@ -253,7 +198,11 @@ export function ConnectorsPage(): JSX.Element {
   const cancelCascadeMutation = useMutation({
     mutationFn: cancelConnectorCascade,
     onSuccess: async (result) => {
-      setActionFeedback(result.canceled ? "Guided sync cascade canceled." : "No active cascade to cancel.");
+      setActionFeedback(
+        result.canceled
+          ? t("pages.connectors.action.guidedCanceled")
+          : t("pages.connectors.action.noActiveCascade")
+      );
       await queryClient.invalidateQueries({ queryKey: ["connector-cascade-status"] });
       await queryClient.invalidateQueries({ queryKey: ["sources"] });
     }
@@ -264,8 +213,8 @@ export function ConnectorsPage(): JSX.Element {
     onSuccess: async (result) => {
       setActionFeedback(
         result.reused
-          ? "Guided sync cascade already running."
-          : "Retry started for failed or remaining sources."
+          ? t("pages.connectors.action.guidedAlreadyRunning")
+          : t("pages.connectors.action.retryStarted")
       );
       await queryClient.invalidateQueries({ queryKey: ["connector-cascade-status"] });
       await queryClient.invalidateQueries({ queryKey: ["sources"] });
@@ -286,10 +235,10 @@ export function ConnectorsPage(): JSX.Element {
     onSuccess: async (result, sourceId) => {
       setActionFeedback(
         result.reused
-          ? `Bootstrap already running for ${sourceId}.`
+          ? t("pages.connectors.action.bootstrapAlreadyRunning", { sourceId })
           : result.remote_login_url
-            ? `Bootstrap started for ${sourceId}. Open the remote login window from this card.`
-            : `Bootstrap started for ${sourceId}. Complete login in the opened browser window.`
+            ? t("pages.connectors.action.bootstrapStartedRemote", { sourceId })
+            : t("pages.connectors.action.bootstrapStartedBrowser", { sourceId })
       );
       await queryClient.invalidateQueries({ queryKey: ["connector-bootstrap-status", sourceId] });
       await queryClient.invalidateQueries({ queryKey: ["sources"] });
@@ -299,7 +248,7 @@ export function ConnectorsPage(): JSX.Element {
   const cancelBootstrapMutation = useMutation({
     mutationFn: cancelConnectorBootstrap,
     onSuccess: async (_result, sourceId) => {
-      setActionFeedback(`Bootstrap canceled for ${sourceId}.`);
+      setActionFeedback(t("pages.connectors.action.bootstrapCanceled", { sourceId }));
       await queryClient.invalidateQueries({ queryKey: ["connector-bootstrap-status", sourceId] });
     }
   });
@@ -319,10 +268,10 @@ export function ConnectorsPage(): JSX.Element {
     onSuccess: async (result, { sourceId, full }) => {
       setActionFeedback(
         result.reused
-          ? `Sync already running for ${sourceId}.`
+          ? t("pages.connectors.action.syncAlreadyRunning", { sourceId })
           : full
-            ? `Full sync started for ${sourceId}. This may take a few minutes.`
-            : `Sync started for ${sourceId}.`
+            ? t("pages.connectors.action.syncFullStarted", { sourceId })
+            : t("pages.connectors.action.syncStarted", { sourceId })
       );
       await queryClient.invalidateQueries({ queryKey: ["connector-sync-status", sourceId] });
     },
@@ -357,17 +306,30 @@ export function ConnectorsPage(): JSX.Element {
     [syncQueries]
   );
 
-  const errorMessage = sourcesQuery.error instanceof Error ? sourcesQuery.error.message : null;
-  const cascadeError = cascadeQuery.error instanceof Error ? cascadeQuery.error.message : null;
-  const cascadeStartError =
-    startCascadeMutation.error instanceof Error ? startCascadeMutation.error.message : null;
-  const cascadeCancelError =
-    cancelCascadeMutation.error instanceof Error ? cancelCascadeMutation.error.message : null;
-  const cascadeRetryError =
-    retryCascadeMutation.error instanceof Error ? retryCascadeMutation.error.message : null;
-  const bootstrapError = startBootstrapMutation.error instanceof Error ? startBootstrapMutation.error.message : null;
-  const cancelError = cancelBootstrapMutation.error instanceof Error ? cancelBootstrapMutation.error.message : null;
-  const syncError = syncMutation.error instanceof Error ? syncMutation.error.message : null;
+  const errorMessage = sourcesQuery.error
+    ? resolveApiErrorMessage(sourcesQuery.error, t, t("pages.connectors.loadSourceErrorTitle"))
+    : null;
+  const cascadeError = cascadeQuery.error
+    ? resolveApiErrorMessage(cascadeQuery.error, t, t("pages.connectors.loadCascadeErrorTitle"))
+    : null;
+  const cascadeStartError = startCascadeMutation.error
+    ? resolveApiErrorMessage(startCascadeMutation.error, t, t("pages.connectors.startCascadeErrorTitle"))
+    : null;
+  const cascadeCancelError = cancelCascadeMutation.error
+    ? resolveApiErrorMessage(cancelCascadeMutation.error, t, t("pages.connectors.cancelCascadeErrorTitle"))
+    : null;
+  const cascadeRetryError = retryCascadeMutation.error
+    ? resolveApiErrorMessage(retryCascadeMutation.error, t, t("pages.connectors.retryCascadeErrorTitle"))
+    : null;
+  const bootstrapError = startBootstrapMutation.error
+    ? resolveApiErrorMessage(startBootstrapMutation.error, t, t("pages.connectors.startBootstrapErrorTitle"))
+    : null;
+  const cancelError = cancelBootstrapMutation.error
+    ? resolveApiErrorMessage(cancelBootstrapMutation.error, t, t("pages.connectors.cancelBootstrapErrorTitle"))
+    : null;
+  const syncError = syncMutation.error
+    ? resolveApiErrorMessage(syncMutation.error, t, t("pages.connectors.startSyncErrorTitle"))
+    : null;
 
   const selectedSourcesInOrder = CONNECTOR_CATALOG.filter((connector) =>
     selectedSourceIds.includes(connector.id)
@@ -383,12 +345,99 @@ export function ConnectorsPage(): JSX.Element {
     cascadeStatus.status
   );
 
+  const sourceStatusBadge = (status: string | undefined): JSX.Element => {
+    if (!status) {
+      return <Badge variant="secondary">{t("pages.connectors.sourceStatus.notConfigured")}</Badge>;
+    }
+    if (status === "healthy") {
+      return <Badge>{t("pages.connectors.sourceStatus.healthy")}</Badge>;
+    }
+    if (status === "connected") {
+      return <Badge>{t("pages.connectors.sourceStatus.connected")}</Badge>;
+    }
+    return <Badge variant="secondary">{status}</Badge>;
+  };
+
+  const bootstrapStatusBadge = (status: ConnectorBootstrapStatus["status"]): JSX.Element => {
+    if (status === "running") {
+      return <Badge className="bg-blue-500/15 text-blue-700">{t("pages.connectors.bootstrapStatus.running")}</Badge>;
+    }
+    if (status === "succeeded") {
+      return (
+        <Badge className="bg-emerald-500/15 text-emerald-700">
+          {t("pages.connectors.bootstrapStatus.succeeded")}
+        </Badge>
+      );
+    }
+    if (status === "failed") {
+      return <Badge variant="destructive">{t("pages.connectors.bootstrapStatus.failed")}</Badge>;
+    }
+    return <Badge variant="secondary">{t("common.idle")}</Badge>;
+  };
+
+  const syncStatusBadge = (status: ConnectorSyncStatus["status"]): JSX.Element | null => {
+    if (status === "idle") return null;
+    if (status === "running") {
+      return <Badge className="bg-blue-500/15 text-blue-700">{t("pages.connectors.syncStatus.running")}</Badge>;
+    }
+    if (status === "succeeded") {
+      return (
+        <Badge className="bg-emerald-500/15 text-emerald-700">{t("pages.connectors.syncStatus.succeeded")}</Badge>
+      );
+    }
+    return <Badge variant="destructive">{t("pages.connectors.syncStatus.failed")}</Badge>;
+  };
+
+  const cascadeStateBadge = (state: ConnectorCascadeStatus["sources"][number]["state"]): JSX.Element => {
+    if (state === "completed") {
+      return <Badge className="bg-emerald-500/15 text-emerald-700">{t("pages.connectors.cascadeState.completed")}</Badge>;
+    }
+    if (state === "bootstrapping") {
+      return <Badge className="bg-blue-500/15 text-blue-700">{t("pages.connectors.cascadeState.bootstrapping")}</Badge>;
+    }
+    if (state === "syncing") {
+      return <Badge className="bg-blue-500/15 text-blue-700">{t("pages.connectors.cascadeState.syncing")}</Badge>;
+    }
+    if (state === "bootstrap_failed") {
+      return <Badge variant="destructive">{t("pages.connectors.cascadeState.bootstrapFailed")}</Badge>;
+    }
+    if (state === "sync_failed") {
+      return <Badge variant="destructive">{t("pages.connectors.cascadeState.syncFailed")}</Badge>;
+    }
+    if (state === "canceled") {
+      return <Badge variant="secondary">{t("pages.connectors.cascadeState.canceled")}</Badge>;
+    }
+    if (state === "skipped") {
+      return <Badge variant="secondary">{t("pages.connectors.cascadeState.skipped")}</Badge>;
+    }
+    return <Badge variant="secondary">{t("pages.connectors.cascadeState.pending")}</Badge>;
+  };
+
+  const cascadeStatusLabel = (status: ConnectorCascadeStatus["status"]): string => {
+    switch (status) {
+      case "running":
+        return t("pages.connectors.cascadeStatus.running");
+      case "canceling":
+        return t("pages.connectors.cascadeStatus.canceling");
+      case "completed":
+        return t("pages.connectors.cascadeStatus.completed");
+      case "partial_success":
+        return t("pages.connectors.cascadeStatus.partialSuccess");
+      case "failed":
+        return t("pages.connectors.cascadeStatus.failed");
+      case "canceled":
+        return t("pages.connectors.cascadeStatus.canceled");
+      default:
+        return status;
+    }
+  };
+
   async function copyCommand(command: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(command);
-      setCopyFeedback(`Copied: ${command}`);
+      setCopyFeedback(t("pages.connectors.copyFeedbackSuccess", { command }));
     } catch {
-      setCopyFeedback(`Copy failed. Run manually: ${command}`);
+      setCopyFeedback(t("pages.connectors.copyFeedbackFailed", { command }));
     }
   }
 
@@ -405,80 +454,81 @@ export function ConnectorsPage(): JSX.Element {
     <section className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Connector Setup</CardTitle>
-          <CardDescription>
-            Start merchant connection from here. Only Lidl is currently live-tested; all other merchants are shown as
-            preview connectors so they never block app usability.
-          </CardDescription>
+          <CardTitle>{t("pages.connectors.title")}</CardTitle>
+          <CardDescription>{t("pages.connectors.description")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <Alert>
-            <AlertTitle>Usability-safe fallback paths stay available</AlertTitle>
+            <AlertTitle>{t("pages.connectors.fallbackTitle")}</AlertTitle>
             <AlertDescription>
-              Even if preview connectors fail, you can keep using{" "}
-              <Link to="/imports/manual" className="underline">
-                manual import
-              </Link>{" "}
-              and{" "}
-              <Link to="/imports/ocr" className="underline">
-                OCR import
-              </Link>{" "}
-              without interruption.
+              <span>
+                {t("pages.connectors.fallback.beforeManual")}{" "}
+                <Link to="/imports/manual" className="underline">
+                  {t("nav.item.manualImport")}
+                </Link>{" "}
+                {t("pages.connectors.fallback.between")}{" "}
+                <Link to="/imports/ocr" className="underline">
+                  {t("nav.item.ocrImport")}
+                </Link>{" "}
+                {t("pages.connectors.fallback.afterOcr")}
+              </span>
             </AlertDescription>
           </Alert>
 
           {errorMessage ? (
             <Alert variant="destructive">
-              <AlertTitle>Failed to fetch source status</AlertTitle>
-              <AlertDescription>{errorMessage}. Connector setup controls still work.</AlertDescription>
+              <AlertTitle>{t("pages.connectors.loadSourceErrorTitle")}</AlertTitle>
+              <AlertDescription>
+                {errorMessage}. {t("pages.connectors.loadSourceErrorDescription")}
+              </AlertDescription>
             </Alert>
           ) : null}
 
           {cascadeError ? (
             <Alert variant="destructive">
-              <AlertTitle>Failed to load guided sync status</AlertTitle>
+              <AlertTitle>{t("pages.connectors.loadCascadeErrorTitle")}</AlertTitle>
               <AlertDescription>{cascadeError}</AlertDescription>
             </Alert>
           ) : null}
 
           {cascadeStartError ? (
             <Alert variant="destructive">
-              <AlertTitle>Failed to start guided sync</AlertTitle>
+              <AlertTitle>{t("pages.connectors.startCascadeErrorTitle")}</AlertTitle>
               <AlertDescription>{cascadeStartError}</AlertDescription>
             </Alert>
           ) : null}
 
           {cascadeCancelError ? (
             <Alert variant="destructive">
-              <AlertTitle>Failed to cancel guided sync</AlertTitle>
+              <AlertTitle>{t("pages.connectors.cancelCascadeErrorTitle")}</AlertTitle>
               <AlertDescription>{cascadeCancelError}</AlertDescription>
             </Alert>
           ) : null}
 
           {cascadeRetryError ? (
             <Alert variant="destructive">
-              <AlertTitle>Failed to retry guided sync</AlertTitle>
+              <AlertTitle>{t("pages.connectors.retryCascadeErrorTitle")}</AlertTitle>
               <AlertDescription>{cascadeRetryError}</AlertDescription>
             </Alert>
           ) : null}
 
           {bootstrapError ? (
             <Alert variant="destructive">
-              <AlertTitle>Failed to start connector bootstrap</AlertTitle>
+              <AlertTitle>{t("pages.connectors.startBootstrapErrorTitle")}</AlertTitle>
               <AlertDescription>{bootstrapError}</AlertDescription>
             </Alert>
           ) : null}
 
           {cancelError ? (
             <Alert variant="destructive">
-              <AlertTitle>Failed to cancel connector bootstrap</AlertTitle>
+              <AlertTitle>{t("pages.connectors.cancelBootstrapErrorTitle")}</AlertTitle>
               <AlertDescription>{cancelError}</AlertDescription>
             </Alert>
           ) : null}
 
           {syncError ? (
             <Alert variant="destructive">
-              <AlertTitle>Failed to start sync</AlertTitle>
+              <AlertTitle>{t("pages.connectors.startSyncErrorTitle")}</AlertTitle>
               <AlertDescription>{syncError}</AlertDescription>
             </Alert>
           ) : null}
@@ -488,11 +538,8 @@ export function ConnectorsPage(): JSX.Element {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Guided Sync Cascade</CardTitle>
-              <CardDescription>
-                Select the retailers you want and run one guided login journey. The backend will do bootstrap and sync
-                source-by-source in sequence.
-              </CardDescription>
+              <CardTitle className="text-base">{t("pages.connectors.guidedTitle")}</CardTitle>
+              <CardDescription>{t("pages.connectors.guidedDescription")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="grid gap-2 md:grid-cols-3">
@@ -513,17 +560,27 @@ export function ConnectorsPage(): JSX.Element {
               {cascadeStatus.status !== "idle" ? (
                 <div className="space-y-2 rounded-md border p-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant={cascadeBusy ? "secondary" : "default"}>{cascadeStatus.status}</Badge>
+                    <Badge variant={cascadeBusy ? "secondary" : "default"}>
+                      {cascadeStatusLabel(cascadeStatus.status)}
+                    </Badge>
                     {currentCascadeSourceLabel ? (
                       <span className="text-sm text-muted-foreground">
-                        Current: {currentCascadeSourceLabel}
-                        {cascadeStatus.current_step ? ` (${cascadeStatus.current_step})` : ""}
+                        {t("pages.connectors.currentSource", {
+                          label: currentCascadeSourceLabel,
+                          step: cascadeStatus.current_step
+                            ? ` (${t(`pages.connectors.currentStep.${cascadeStatus.current_step}` as TranslationKey)})`
+                            : ""
+                        })}
                       </span>
                     ) : null}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Completed {cascadeStatus.summary.completed}/{cascadeStatus.summary.total_sources}, failed{" "}
-                    {cascadeStatus.summary.failed}, skipped {cascadeStatus.summary.skipped}.
+                    {t("pages.connectors.summary", {
+                      completed: cascadeStatus.summary.completed,
+                      total: cascadeStatus.summary.total_sources,
+                      failed: cascadeStatus.summary.failed,
+                      skipped: cascadeStatus.summary.skipped
+                    })}
                   </p>
                   {cascadeStatus.sources.length > 0 ? (
                     <div className="space-y-2">
@@ -567,22 +624,22 @@ export function ConnectorsPage(): JSX.Element {
                       full: false
                     })
                   }
-                  disabled={
-                    cascadeBusy || startCascadeMutation.isPending || selectedSourcesInOrder.length === 0
-                  }
-                >
-                  {startCascadeMutation.isPending ? (
-                    <>
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      Starting...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="mr-1.5 h-3.5 w-3.5" />
-                      Start guided sync
-                    </>
-                  )}
-                </Button>
+                      disabled={
+                        cascadeBusy || startCascadeMutation.isPending || selectedSourcesInOrder.length === 0
+                      }
+                    >
+                      {startCascadeMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                          {t("pages.connectors.starting")}
+                        </>
+                      ) : (
+                        <>
+                          <Play className="mr-1.5 h-3.5 w-3.5" />
+                          {t("pages.connectors.startGuidedSync")}
+                        </>
+                      )}
+                    </Button>
 
                 <Button
                   type="button"
@@ -599,7 +656,7 @@ export function ConnectorsPage(): JSX.Element {
                   }
                 >
                   <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                  Start guided full sync
+                  {t("pages.connectors.startGuidedFullSync")}
                 </Button>
 
                 <Button
@@ -612,12 +669,12 @@ export function ConnectorsPage(): JSX.Element {
                   {cancelCascadeMutation.isPending ? (
                     <>
                       <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      Canceling...
+                      {t("pages.connectors.canceling")}
                     </>
                   ) : (
                     <>
                       <Square className="mr-1.5 h-3.5 w-3.5" />
-                      Cancel guided sync
+                      {t("pages.connectors.cancelGuidedSync")}
                     </>
                   )}
                 </Button>
@@ -637,12 +694,12 @@ export function ConnectorsPage(): JSX.Element {
                   {retryCascadeMutation.isPending ? (
                     <>
                       <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      Retrying...
+                      {t("pages.connectors.retrying")}
                     </>
                   ) : (
                     <>
                       <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                      Retry failed/remaining ({retryableSourceCount})
+                      {t("pages.connectors.retryFailedRemaining", { count: retryableSourceCount })}
                     </>
                   )}
                 </Button>
@@ -650,7 +707,7 @@ export function ConnectorsPage(): JSX.Element {
                 {cascadeStatus.remote_login_url && cascadeBusy ? (
                   <Button asChild type="button" variant="outline" size="sm">
                     <a href={cascadeStatus.remote_login_url} target="_blank" rel="noreferrer">
-                      Open current login window
+                      {t("pages.connectors.openCurrentLogin")}
                       <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
                     </a>
                   </Button>
@@ -680,27 +737,29 @@ export function ConnectorsPage(): JSX.Element {
                     <div className="flex flex-wrap items-center gap-2">
                       <CardTitle className="text-base">{connector.displayName}</CardTitle>
                       {connector.status === "live" ? (
-                        <Badge className="bg-emerald-500/15 text-emerald-700">live-tested</Badge>
+                        <Badge className="bg-emerald-500/15 text-emerald-700">
+                          {t("pages.connectors.connector.liveTested")}
+                        </Badge>
                       ) : (
-                        <Badge variant="secondary">preview stub</Badge>
+                        <Badge variant="secondary">{t("pages.connectors.connector.previewStub")}</Badge>
                       )}
                       {sourceStatusBadge(source?.status)}
                       {bootstrapStatusBadge(bootstrap.status)}
                       {syncStatusBadge(sync.status)}
                     </div>
-                    <CardDescription>{connector.note}</CardDescription>
+                    <CardDescription>{t(connector.noteKey)}</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <div className="rounded-md border bg-muted/40 p-3">
-                      <p className="mb-1 text-xs text-muted-foreground">CLI command (fallback/manual run):</p>
+                      <p className="mb-1 text-xs text-muted-foreground">{t("pages.connectors.cliCommandLabel")}</p>
                       <code className="block whitespace-pre-wrap text-xs">{connector.connectCommand}</code>
                     </div>
 
                     {bootstrap.status !== "idle" ? (
                       <div className="rounded-md border bg-muted/30 p-3">
-                        <p className="mb-2 text-xs text-muted-foreground">Bootstrap output (latest lines)</p>
+                        <p className="mb-2 text-xs text-muted-foreground">{t("pages.connectors.bootstrapOutputLabel")}</p>
                         {bootstrap.output_tail.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">No output yet.</p>
+                          <p className="text-xs text-muted-foreground">{t("pages.connectors.noOutputYet")}</p>
                         ) : (
                           <pre className="max-h-36 overflow-auto whitespace-pre-wrap text-xs">
                             {bootstrap.output_tail.join("\n")}
@@ -711,9 +770,9 @@ export function ConnectorsPage(): JSX.Element {
 
                     {sync.status !== "idle" ? (
                       <div className="rounded-md border bg-muted/30 p-3">
-                        <p className="mb-2 text-xs text-muted-foreground">Sync output (latest lines)</p>
+                        <p className="mb-2 text-xs text-muted-foreground">{t("pages.connectors.syncOutputLabel")}</p>
                         {sync.output_tail.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">No output yet.</p>
+                          <p className="text-xs text-muted-foreground">{t("pages.connectors.noOutputYet")}</p>
                         ) : (
                           <pre className="max-h-36 overflow-auto whitespace-pre-wrap text-xs">
                             {sync.output_tail.join("\n")}
@@ -732,12 +791,12 @@ export function ConnectorsPage(): JSX.Element {
                         {isStartPending ? (
                           <>
                             <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                            Starting...
+                            {t("pages.connectors.starting")}
                           </>
                         ) : (
                           <>
                             <Play className="mr-1.5 h-3.5 w-3.5" />
-                            Start from frontend
+                            {t("pages.connectors.startFromFrontend")}
                           </>
                         )}
                       </Button>
@@ -753,12 +812,12 @@ export function ConnectorsPage(): JSX.Element {
                           {isCancelPending ? (
                             <>
                               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                              Stopping...
+                              {t("pages.connectors.stopping")}
                             </>
                           ) : (
                             <>
                               <Square className="mr-1.5 h-3.5 w-3.5" />
-                              Stop
+                              {t("pages.connectors.stop")}
                             </>
                           )}
                         </Button>
@@ -767,7 +826,7 @@ export function ConnectorsPage(): JSX.Element {
                       {remoteLoginUrl && isRunning ? (
                         <Button asChild type="button" variant="outline" size="sm">
                           <a href={remoteLoginUrl} target="_blank" rel="noreferrer">
-                            Open remote login
+                            {t("pages.connectors.openRemoteLogin")}
                             <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
                           </a>
                         </Button>
@@ -785,12 +844,12 @@ export function ConnectorsPage(): JSX.Element {
                             {isSyncPending || isSyncing ? (
                               <>
                                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                                Syncing…
+                                {t("pages.connectors.syncing")}
                               </>
                             ) : (
                               <>
                                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                                Sync now
+                                {t("pages.connectors.syncNow")}
                               </>
                             )}
                           </Button>
@@ -802,7 +861,7 @@ export function ConnectorsPage(): JSX.Element {
                             disabled={isSyncing || isSyncPending || cascadeBusy}
                           >
                             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                            Full sync
+                            {t("pages.connectors.fullSync")}
                           </Button>
                         </>
                       ) : null}
@@ -814,12 +873,12 @@ export function ConnectorsPage(): JSX.Element {
                         onClick={() => void copyCommand(connector.connectCommand)}
                       >
                         <Copy className="mr-1.5 h-3.5 w-3.5" />
-                        Copy command
+                        {t("pages.connectors.copyCommand")}
                       </Button>
 
                       <Button asChild type="button" variant="secondary" size="sm">
                         <Link to="/sources">
-                          Open sources
+                          {t("pages.connectors.openSources")}
                           <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
                         </Link>
                       </Button>

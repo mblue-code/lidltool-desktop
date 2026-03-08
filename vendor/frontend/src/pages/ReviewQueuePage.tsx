@@ -37,6 +37,8 @@ import {
 } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { useI18n } from "@/i18n";
+import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import { jsonObjectStringSchema } from "@/lib/json-object-field";
 import { formatDateTime, formatEurFromCents } from "@/utils/format";
 
@@ -113,6 +115,7 @@ function parseThreshold(rawValue: string | null, fallback = 0.85): number {
 export function ReviewQueuePage(): JSX.Element {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { t } = useI18n();
   const { documentId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -179,7 +182,13 @@ export function ReviewQueuePage(): JSX.Element {
   }, [detail, form, selectedItemId, selectedItemInDetail]);
 
   const paginationLabel =
-    total === 0 ? "Showing 0 of 0" : `Showing ${offset + 1}-${Math.min(offset + PAGE_SIZE, total)} of ${total}`;
+    total === 0
+      ? t("pages.reviewQueue.pagination.empty")
+      : t("pages.reviewQueue.pagination.summary", {
+          start: offset + 1,
+          end: Math.min(offset + PAGE_SIZE, total),
+          total
+        });
 
   const decisionMutation = useMutation({
     mutationFn: async ({
@@ -190,7 +199,7 @@ export function ReviewQueuePage(): JSX.Element {
       payload: ReviewDecisionRequest;
     }) => {
       if (!documentId) {
-        throw new Error("Select a document before reviewing.");
+        throw new Error(t("pages.reviewQueue.detail.title"));
       }
       if (action === "approve") {
         return approveReviewDocument(documentId, payload);
@@ -208,7 +217,7 @@ export function ReviewQueuePage(): JSX.Element {
   const patchTransactionMutation = useMutation({
     mutationFn: async (payload: ReviewCorrectionRequest) => {
       if (!documentId) {
-        throw new Error("Select a document before editing.");
+        throw new Error(t("pages.reviewQueue.detail.title"));
       }
       return patchReviewTransaction(documentId, payload);
     },
@@ -229,7 +238,7 @@ export function ReviewQueuePage(): JSX.Element {
       payload: ReviewCorrectionRequest;
     }) => {
       if (!documentId) {
-        throw new Error("Select a document before editing.");
+        throw new Error(t("pages.reviewQueue.detail.title"));
       }
       return patchReviewItem(documentId, itemId, payload);
     },
@@ -265,7 +274,7 @@ export function ReviewQueuePage(): JSX.Element {
 
   async function handleDecision(action: "approve" | "reject"): Promise<void> {
     if (action === "reject") {
-      const confirmed = window.confirm("Reject this document from the review queue?");
+      const confirmed = window.confirm(t("pages.reviewQueue.rejectConfirm"));
       if (!confirmed) {
         return;
       }
@@ -286,9 +295,9 @@ export function ReviewQueuePage(): JSX.Element {
         action,
         payload: toDecisionPayload(parsed.data)
       });
-      setMutationStatus(`Review status updated to "${result.review_status}".`);
+      setMutationStatus(t("pages.reviewQueue.statusUpdated", { status: result.review_status }));
     } catch (error) {
-      setMutationError(error instanceof Error ? error.message : "Failed to update review status");
+      setMutationError(resolveApiErrorMessage(error, t, t("pages.reviewQueue.patchStatusFailed")));
     }
   }
 
@@ -310,11 +319,11 @@ export function ReviewQueuePage(): JSX.Element {
       });
       setMutationStatus(
         result.updated_fields.length > 0
-          ? `Transaction fields updated: ${result.updated_fields.join(", ")}`
-          : "No transaction changes were applied."
+          ? t("pages.reviewQueue.transactionUpdated", { fields: result.updated_fields.join(", ") })
+          : t("pages.reviewQueue.transactionNoChanges")
       );
     } catch (error) {
-      setMutationError(error instanceof Error ? error.message : "Failed to patch transaction");
+      setMutationError(resolveApiErrorMessage(error, t, t("pages.reviewQueue.patchTransactionFailed")));
     }
   }
 
@@ -330,13 +339,13 @@ export function ReviewQueuePage(): JSX.Element {
     }
 
     if (!detail || detail.items.length === 0) {
-      setMutationError("No items are available for this document.");
+      setMutationError(t("pages.reviewQueue.noItems"));
       return;
     }
 
     const selectedItemExists = detail.items.some((item) => item.id === parsed.data.selectedItemId);
     if (!selectedItemExists) {
-      const message = "Selected item is no longer available. Choose a current item and retry.";
+      const message = t("pages.reviewQueue.itemUnavailable");
       form.setError("selectedItemId", { message });
       setMutationError(message);
       return;
@@ -352,11 +361,11 @@ export function ReviewQueuePage(): JSX.Element {
       });
       setMutationStatus(
         result.updated_fields.length > 0
-          ? `Item fields updated: ${result.updated_fields.join(", ")}`
-          : "No item changes were applied."
+          ? t("pages.reviewQueue.itemUpdated", { fields: result.updated_fields.join(", ") })
+          : t("pages.reviewQueue.itemNoChanges")
       );
     } catch (error) {
-      setMutationError(error instanceof Error ? error.message : "Failed to patch item");
+      setMutationError(resolveApiErrorMessage(error, t, t("pages.reviewQueue.patchItemFailed")));
     }
   }
 
@@ -400,12 +409,12 @@ export function ReviewQueuePage(): JSX.Element {
     <section className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Review Queue</CardTitle>
+          <CardTitle>{t("pages.reviewQueue.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           <form className="grid gap-3 md:grid-cols-4" onSubmit={applyFilters}>
             <div className="space-y-2">
-              <Label htmlFor="review-queue-status">Status</Label>
+              <Label htmlFor="review-queue-status">{t("pages.reviewQueue.filter.status")}</Label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger id="review-queue-status">
                   <SelectValue />
@@ -418,7 +427,7 @@ export function ReviewQueuePage(): JSX.Element {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="threshold">Confidence threshold</Label>
+              <Label htmlFor="threshold">{t("pages.reviewQueue.filter.threshold")}</Label>
               <Input
                 id="threshold"
                 type="number"
@@ -430,7 +439,7 @@ export function ReviewQueuePage(): JSX.Element {
               />
             </div>
             <div className="self-end">
-              <Button type="submit">Apply filters</Button>
+              <Button type="submit">{t("pages.reviewQueue.applyFilters")}</Button>
             </div>
           </form>
         </CardContent>
@@ -438,9 +447,9 @@ export function ReviewQueuePage(): JSX.Element {
 
       {queueQuery.error ? (
         <Alert variant="destructive">
-          <AlertTitle>Failed to load queue</AlertTitle>
+          <AlertTitle>{t("pages.reviewQueue.loadError")}</AlertTitle>
           <AlertDescription>
-            {queueQuery.error instanceof Error ? queueQuery.error.message : "Unknown error"}
+            {resolveApiErrorMessage(queueQuery.error, t, t("pages.reviewQueue.unknownError"))}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -450,14 +459,14 @@ export function ReviewQueuePage(): JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Created</TableHead>
-                <TableHead>Merchant</TableHead>
-                <TableHead>Total</TableHead>
-                <TableHead>Confidence</TableHead>
-                <TableHead>OCR</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>{t("pages.reviewQueue.col.created")}</TableHead>
+                <TableHead>{t("pages.reviewQueue.col.merchant")}</TableHead>
+                <TableHead>{t("pages.reviewQueue.col.total")}</TableHead>
+                <TableHead>{t("pages.reviewQueue.col.confidence")}</TableHead>
+                <TableHead>{t("pages.reviewQueue.col.ocr")}</TableHead>
+                <TableHead>{t("common.status")}</TableHead>
                 <TableHead>
-                  <span className="sr-only">Actions</span>
+                  <span className="sr-only">{t("pages.reviewQueue.col.actions")}</span>
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -481,14 +490,14 @@ export function ReviewQueuePage(): JSX.Element {
                   </TableCell>
                   <TableCell>
                     <Button variant="outline" size="sm" asChild>
-                      <Link to={`/review-queue/${item.document_id}?${linkSearch}`}>Open</Link>
+                      <Link to={`/review-queue/${item.document_id}?${linkSearch}`}>{t("pages.reviewQueue.open")}</Link>
                     </Button>
                   </TableCell>
                 </TableRow>
               ))}
               {queueItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7}>No documents matched the selected filters.</TableCell>
+                  <TableCell colSpan={7}>{t("pages.reviewQueue.empty")}</TableCell>
                 </TableRow>
               ) : null}
             </TableBody>
@@ -503,10 +512,10 @@ export function ReviewQueuePage(): JSX.Element {
                 disabled={!canGoPrevious}
                 onClick={() => movePage(-PAGE_SIZE)}
               >
-                Previous
+                {t("common.previous")}
               </Button>
               <Button type="button" variant="outline" disabled={!canGoNext} onClick={() => movePage(PAGE_SIZE)}>
-                Next
+                {t("common.next")}
               </Button>
             </div>
           </div>
@@ -516,26 +525,24 @@ export function ReviewQueuePage(): JSX.Element {
       <Sheet open={drawerOpen} onOpenChange={handleDrawerOpenChange}>
         <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-4xl">
           <SheetHeader className="space-y-2">
-            <SheetTitle>Review Detail</SheetTitle>
-            <SheetDescription>
-              Review OCR output, apply corrections, and approve or reject the document.
-            </SheetDescription>
+            <SheetTitle>{t("pages.reviewQueue.detail.title")}</SheetTitle>
+            <SheetDescription>{t("pages.reviewQueue.detail.description")}</SheetDescription>
             <div>
               <Button variant="outline" size="sm" onClick={closeDetailDrawer}>
-                Back to queue
+                {t("pages.reviewQueue.detail.back")}
               </Button>
             </div>
           </SheetHeader>
 
           <div className="mt-4 space-y-4 pb-6">
             {detailQuery.isPending || detailQuery.isFetching ? (
-              <p className="text-sm text-muted-foreground">Loading review detail...</p>
+              <p className="text-sm text-muted-foreground">{t("pages.reviewQueue.detail.loading")}</p>
             ) : null}
             {detailQuery.error ? (
               <Alert variant="destructive">
-                <AlertTitle>Failed to load detail</AlertTitle>
+                <AlertTitle>{t("pages.reviewQueue.detail.loadError")}</AlertTitle>
                 <AlertDescription>
-                  {detailQuery.error instanceof Error ? detailQuery.error.message : "Unknown error"}
+                  {resolveApiErrorMessage(detailQuery.error, t, t("pages.reviewQueue.unknownError"))}
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -544,34 +551,34 @@ export function ReviewQueuePage(): JSX.Element {
               <>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="rounded-lg border p-4 text-sm">
-                    <p className="font-medium">Document</p>
+                    <p className="font-medium">{t("pages.reviewQueue.detail.document")}</p>
                     <p>ID: {detail.document.id}</p>
-                    <p>File: {detail.document.file_name || "-"}</p>
-                    <p>Source: {detail.document.source_id || "-"}</p>
-                    <p>OCR status: {detail.document.ocr_status}</p>
-                    <p>Review status: {detail.document.review_status}</p>
-                    <p>OCR confidence: {detail.document.ocr_confidence ?? "-"}</p>
+                    <p>{t("pages.reviewQueue.detail.file")}: {detail.document.file_name || "-"}</p>
+                    <p>{t("common.source")}: {detail.document.source_id || "-"}</p>
+                    <p>{t("pages.reviewQueue.detail.ocrStatus")}: {detail.document.ocr_status}</p>
+                    <p>{t("pages.reviewQueue.detail.reviewStatus")}: {detail.document.review_status}</p>
+                    <p>{t("pages.reviewQueue.detail.ocrConfidence")}: {detail.document.ocr_confidence ?? "-"}</p>
                   </div>
                   <div className="rounded-lg border p-4 text-sm">
-                    <p className="font-medium">Transaction</p>
+                    <p className="font-medium">{t("pages.reviewQueue.detail.transaction")}</p>
                     <p>ID: {detail.transaction.id}</p>
-                    <p>Merchant: {detail.transaction.merchant_name || "-"}</p>
-                    <p>Total: {formatEurFromCents(detail.transaction.total_gross_cents)}</p>
-                    <p>Purchased: {formatDateTime(detail.transaction.purchased_at)}</p>
-                    <p>Confidence: {detail.transaction.confidence ?? "-"}</p>
+                    <p>{t("pages.reviewQueue.col.merchant")}: {detail.transaction.merchant_name || "-"}</p>
+                    <p>{t("pages.reviewQueue.col.total")}: {formatEurFromCents(detail.transaction.total_gross_cents)}</p>
+                    <p>{t("pages.reviewQueue.detail.purchased")}: {formatDateTime(detail.transaction.purchased_at)}</p>
+                    <p>{t("pages.reviewQueue.col.confidence")}: {detail.transaction.confidence ?? "-"}</p>
                   </div>
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="actor-id">Actor ID</Label>
+                    <Label htmlFor="actor-id">{t("pages.reviewQueue.detail.actorId")}</Label>
                     <Input id="actor-id" {...form.register("actorId")} />
                     {form.formState.errors.actorId ? (
                       <p className="text-xs text-destructive">{form.formState.errors.actorId.message}</p>
                     ) : null}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="reason">Reason</Label>
+                    <Label htmlFor="reason">{t("pages.reviewQueue.detail.reason")}</Label>
                     <Input id="reason" {...form.register("reason")} />
                     {form.formState.errors.reason ? (
                       <p className="text-xs text-destructive">{form.formState.errors.reason.message}</p>
@@ -585,7 +592,7 @@ export function ReviewQueuePage(): JSX.Element {
                     onClick={() => void handleDecision("approve")}
                     disabled={decisionMutation.isPending}
                   >
-                    Approve
+                    {t("pages.reviewQueue.approve")}
                   </Button>
                   <Button
                     type="button"
@@ -593,14 +600,14 @@ export function ReviewQueuePage(): JSX.Element {
                     onClick={() => void handleDecision("reject")}
                     disabled={decisionMutation.isPending}
                   >
-                    Reject
+                    {t("pages.reviewQueue.reject")}
                   </Button>
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div className="space-y-2 rounded-lg border p-4">
-                    <p className="text-sm font-medium">Patch transaction</p>
-                    <Textarea aria-label="Transaction corrections JSON" rows={6} {...form.register("transactionCorrectionsJson")} />
+                    <p className="text-sm font-medium">{t("pages.reviewQueue.patch.transaction")}</p>
+                    <Textarea aria-label={t("pages.reviewQueue.patch.transactionAria")} rows={6} {...form.register("transactionCorrectionsJson")} />
                     {form.formState.errors.transactionCorrectionsJson ? (
                       <p className="text-xs text-destructive">{form.formState.errors.transactionCorrectionsJson.message}</p>
                     ) : null}
@@ -610,13 +617,13 @@ export function ReviewQueuePage(): JSX.Element {
                       onClick={() => void handlePatchTransaction()}
                       disabled={patchTransactionMutation.isPending}
                     >
-                      Apply transaction patch
+                      {t("pages.reviewQueue.patch.transactionSubmit")}
                     </Button>
                   </div>
 
                   <div className="space-y-2 rounded-lg border p-4">
-                    <p className="text-sm font-medium">Patch item</p>
-                    <Label htmlFor="review-item-select">Item</Label>
+                    <p className="text-sm font-medium">{t("pages.reviewQueue.patch.item")}</p>
+                    <Label htmlFor="review-item-select">{t("pages.reviewQueue.patch.itemLabel")}</Label>
                     <Select
                       value={selectedItemId || EMPTY_ITEM_VALUE}
                       onValueChange={(value) => {
@@ -627,10 +634,10 @@ export function ReviewQueuePage(): JSX.Element {
                       }}
                     >
                       <SelectTrigger id="review-item-select">
-                        <SelectValue placeholder="Select item" />
+                        <SelectValue placeholder={t("pages.reviewQueue.patch.itemSelect")} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={EMPTY_ITEM_VALUE}>No item selected</SelectItem>
+                        <SelectItem value={EMPTY_ITEM_VALUE}>{t("pages.reviewQueue.patch.noItem")}</SelectItem>
                         {detail.items.map((item) => (
                           <SelectItem value={item.id} key={item.id}>
                             #{item.line_no} {item.name}
@@ -641,7 +648,7 @@ export function ReviewQueuePage(): JSX.Element {
                     {form.formState.errors.selectedItemId ? (
                       <p className="text-xs text-destructive">{form.formState.errors.selectedItemId.message}</p>
                     ) : null}
-                    <Textarea aria-label="Item corrections JSON" rows={6} {...form.register("itemCorrectionsJson")} />
+                    <Textarea aria-label={t("pages.reviewQueue.patch.itemAria")} rows={6} {...form.register("itemCorrectionsJson")} />
                     {form.formState.errors.itemCorrectionsJson ? (
                       <p className="text-xs text-destructive">{form.formState.errors.itemCorrectionsJson.message}</p>
                     ) : null}
@@ -651,20 +658,20 @@ export function ReviewQueuePage(): JSX.Element {
                       onClick={() => void handlePatchItem()}
                       disabled={patchItemMutation.isPending || !hasDetailItems || !selectedItemInDetail}
                     >
-                      Apply item patch
+                      {t("pages.reviewQueue.patch.itemSubmit")}
                     </Button>
                   </div>
                 </div>
 
                 {mutationStatus ? (
                   <Alert>
-                    <AlertTitle>Success</AlertTitle>
+                    <AlertTitle>{t("pages.reviewQueue.success")}</AlertTitle>
                     <AlertDescription>{mutationStatus}</AlertDescription>
                   </Alert>
                 ) : null}
                 {mutationError ? (
                   <Alert variant="destructive">
-                    <AlertTitle>Mutation failed</AlertTitle>
+                    <AlertTitle>{t("pages.reviewQueue.mutationFailed")}</AlertTitle>
                     <AlertDescription>{mutationError}</AlertDescription>
                   </Alert>
                 ) : null}

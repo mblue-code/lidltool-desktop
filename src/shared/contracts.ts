@@ -1,4 +1,5 @@
 export type SyncSourceId = "lidl" | "amazon" | "rewe" | "kaufland" | "dm" | "rossmann";
+export type DesktopLocale = "en" | "de";
 
 export type ConnectorSourceId = Exclude<SyncSourceId, "lidl">;
 

@@ -2,6 +2,7 @@ import { Component, ErrorInfo, ReactNode } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { getStoredLocale, tForLocale } from "@/i18n";
 
 type AppErrorBoundaryProps = {
   children: ReactNode;
@@ -36,18 +37,20 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
       return this.props.children;
     }
 
+    const locale = getStoredLocale();
+
     return (
       <main className="mx-auto flex min-h-screen w-full max-w-2xl items-center px-4 py-8">
         <Alert variant="destructive">
-          <AlertTitle>Unexpected frontend error</AlertTitle>
+          <AlertTitle>{tForLocale(locale, "errorBoundary.title")}</AlertTitle>
           <AlertDescription className="space-y-3">
-            <p>The page crashed. Retry the route and reload if the problem persists.</p>
+            <p>{tForLocale(locale, "errorBoundary.description")}</p>
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={this.resetBoundary}>
-                Retry render
+                {tForLocale(locale, "errorBoundary.retryRender")}
               </Button>
               <Button type="button" onClick={() => window.location.reload()}>
-                Reload app
+                {tForLocale(locale, "common.reload")}
               </Button>
             </div>
           </AlertDescription>

@@ -1,4 +1,6 @@
-type ApiWarningListener = (warning: string) => void;
+import { warningCacheKey, type ApiWarning } from "@/lib/api-messages";
+
+type ApiWarningListener = (warning: ApiWarning) => void;
 
 const WARNING_TTL_MS = 15_000;
 const warningListeners = new Set<ApiWarningListener>();
@@ -12,7 +14,7 @@ function pruneWarningCache(now: number): void {
   }
 }
 
-export function emitApiWarnings(warnings: string[]): void {
+export function emitApiWarnings(warnings: ApiWarning[]): void {
   if (warnings.length === 0) {
     return;
   }
@@ -21,17 +23,21 @@ export function emitApiWarnings(warnings: string[]): void {
   pruneWarningCache(now);
 
   for (const rawWarning of warnings) {
-    const warning = rawWarning.trim();
-    if (!warning) {
+    const warning = {
+      code: rawWarning.code ?? null,
+      message: rawWarning.message.trim()
+    };
+    if (!warning.message) {
       continue;
     }
 
-    const seenAt = warningCache.get(warning);
+    const cacheKey = warningCacheKey(warning);
+    const seenAt = warningCache.get(cacheKey);
     if (seenAt !== undefined && now - seenAt < WARNING_TTL_MS) {
       continue;
     }
 
-    warningCache.set(warning, now);
+    warningCache.set(cacheKey, now);
     for (const listener of warningListeners) {
       listener(warning);
     }

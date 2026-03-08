@@ -39,10 +39,17 @@ npm run vendor:sync
 
 This is the only script that reads from the main repo to refresh local copies.
 
+`vendor:sync` now does three explicit things for i18n:
+- copies the canonical web frontend, including `frontend/src/i18n/*`, into `apps/desktop/vendor/frontend`
+- reapplies documented desktop-only overlays from `apps/desktop/overrides/frontend`
+- regenerates the Electron shell catalog under `apps/desktop/src/i18n/generated.ts` from the canonical web message source plus desktop-shell-only additions
+
 After every sync/build, desktop applies a local vendored frontend compatibility patch:
 - `scripts/patch-vendored-frontend.mjs`
 - Injects a Vite alias for `@mariozechner/pi-ai` -> `src/shims/pi-ai.ts`
 - Prevents browser Rollup failures caused by Node-only Smithy/stream imports
+- Reapplies desktop-only renderer overrides such as packaged backup/restore flows
+- `npm run frontend:install` uses `npm ci` against `vendor/frontend/package-lock.json` so desktop keeps the same React/JSON-renderer dependency graph as the vendored app
 
 ## Prerequisites
 

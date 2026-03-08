@@ -29,7 +29,9 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatEurFromCents, formatPercent } from "../utils/format";
+import { useI18n } from "@/i18n";
+import { resolveApiErrorMessage, resolveApiWarningMessage } from "@/lib/backend-messages";
+import { formatEurFromCents, formatMonthDay, formatMonthName, formatMonthYear, formatPercent } from "../utils/format";
 
 type DiscountView = "native" | "normalized";
 type BreakdownDisplay = "chart" | "table";
@@ -52,21 +54,6 @@ const YEAR_MIN = 2020;
 const YEAR_MAX = 2100;
 const MONTH_MIN = 1;
 const MONTH_MAX = 12;
-const MONTH_NAMES = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December"
-] as const;
-
 const RANGE_PRESETS: Array<{ label: string; startMonth: number; endMonth: number }> = [
   { label: "Q1", startMonth: 1, endMonth: 3 },
   { label: "Q2", startMonth: 4, endMonth: 6 },
@@ -142,11 +129,11 @@ function readRetailerIds(raw: string | null): string[] {
 }
 
 function monthName(month: number): string {
-  return MONTH_NAMES[clampNumber(month, MONTH_MIN, MONTH_MAX) - 1];
+  return formatMonthName(clampNumber(month, MONTH_MIN, MONTH_MAX));
 }
 
 function monthYearLabel(year: number, month: number): string {
-  return `${monthName(month)} ${year}`;
+  return formatMonthYear(new Date(Date.UTC(year, month - 1, 1, 12, 0, 0)));
 }
 
 function monthIsoStart(year: number, month: number): string {
@@ -208,6 +195,7 @@ function downloadBlob(filename: string, type: string, content: string): boolean 
 }
 
 export function DashboardPage(): JSX.Element {
+  const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const today = new Date();
   const recurringToday = new Date();
@@ -307,7 +295,7 @@ export function DashboardPage(): JSX.Element {
   const composition = data?.composition ?? null;
   const warnings = data?.warnings ?? [];
   const loading = isPending || isFetching;
-  const errorMessage = error instanceof Error ? error.message : null;
+  const errorMessage = error ? resolveApiErrorMessage(error, t, t("pages.dashboard.loadError")) : null;
 
   const trendPoints = trends?.points ?? [];
   const breakdownRows = breakdown?.by_type ?? [];
@@ -335,12 +323,12 @@ export function DashboardPage(): JSX.Element {
 
   function selectedRetailerSummary(): string {
     if (selectedRetailerIds.length === 0) {
-      return "All retailers";
+      return t("pages.dashboard.allRetailers");
     }
     if (selectedRetailerIds.length === 1) {
       return retailerNameById.get(selectedRetailerIds[0]) ?? selectedRetailerIds[0];
     }
-    return `${selectedRetailerIds.length} retailers selected`;
+    return t("pages.dashboard.retailersSelected", { count: selectedRetailerIds.length });
   }
 
   function toggleRetailer(sourceId: string): void {
@@ -362,7 +350,8 @@ export function DashboardPage(): JSX.Element {
     1
   );
   const maxBreakdownSaved = Math.max(...breakdownRows.map((row) => row.saved_cents), 1);
-  const spendColumnTitle = spendView === "gross" ? "Gross spend" : "Net spend";
+  const spendColumnTitle =
+    spendView === "gross" ? t("pages.dashboard.card.grossSpend") : t("pages.dashboard.card.netSpend");
   const recurringForecastMax = Math.max(
     ...(recurringForecastQuery.data?.points ?? []).map((point) => point.projected_cents),
     1
@@ -397,10 +386,13 @@ export function DashboardPage(): JSX.Element {
 
   const trendTitle =
     periodMode === "month"
-      ? `Trend (last 6 months, ${spendView})`
+      ? t("pages.dashboard.trendTitle.month", { spendView })
       : periodMode === "range"
-        ? `Trend (${monthName(startMonth)}-${monthName(endMonth)} ${year}, ${spendView})`
-        : `Trend (${year}, ${spendView})`;
+        ? t("pages.dashboard.trendTitle.range", {
+            rangeLabel: `${monthName(startMonth)}-${monthName(endMonth)} ${year}`,
+            spendView
+          })
+        : t("pages.dashboard.trendTitle.year", { year, spendView });
 
   const exportRows = useMemo<ExportRow[]>(() => {
     const rows: ExportRow[] = [];
@@ -452,7 +444,7 @@ export function DashboardPage(): JSX.Element {
       "application/json",
       `${JSON.stringify(payload, null, 2)}\n`
     );
-    setExportStatus(downloaded ? "Exported JSON snapshot." : "Download API unavailable in this browser.");
+    setExportStatus(downloaded ? t("pages.dashboard.exportedJson") : t("pages.dashboard.downloadUnavailable"));
   }
 
   function exportSnapshotAsCsv(): void {
@@ -461,7 +453,7 @@ export function DashboardPage(): JSX.Element {
       "text/csv;charset=utf-8",
       `${buildCsv(exportRows)}\n`
     );
-    setExportStatus(downloaded ? "Exported CSV snapshot." : "Download API unavailable in this browser.");
+    setExportStatus(downloaded ? t("pages.dashboard.exportedCsv") : t("pages.dashboard.downloadUnavailable"));
   }
 
   return (
@@ -469,24 +461,24 @@ export function DashboardPage(): JSX.Element {
       <div className="space-y-4 rounded-lg border bg-card p-4">
         <div className="grid gap-3 md:grid-cols-6">
           <div className="space-y-2">
-            <Label htmlFor="dashboard-period-mode">Period</Label>
+            <Label htmlFor="dashboard-period-mode">{t("pages.dashboard.period")}</Label>
             <Select
               value={periodMode}
               onValueChange={(nextMode) => updateSearchParams({ period: nextMode as DashboardPeriodMode })}
             >
               <SelectTrigger id="dashboard-period-mode">
-                <SelectValue placeholder="Select period" />
+                <SelectValue placeholder={t("pages.dashboard.selectPeriod")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="month">Single month</SelectItem>
-                <SelectItem value="range">Month range</SelectItem>
-                <SelectItem value="year">Full year</SelectItem>
+                <SelectItem value="month">{t("pages.dashboard.period.month")}</SelectItem>
+                <SelectItem value="range">{t("pages.dashboard.period.range")}</SelectItem>
+                <SelectItem value="year">{t("pages.dashboard.period.year")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="dashboard-year">Year</Label>
+            <Label htmlFor="dashboard-year">{t("common.year")}</Label>
             <Input
               id="dashboard-year"
               type="number"
@@ -505,18 +497,18 @@ export function DashboardPage(): JSX.Element {
 
           {periodMode === "month" ? (
             <div className="space-y-2">
-              <Label htmlFor="dashboard-month">Month</Label>
+              <Label htmlFor="dashboard-month">{t("common.month")}</Label>
               <Select
                 value={String(month)}
                 onValueChange={(value) => updateSearchParams({ month: clampNumber(Number(value), MONTH_MIN, MONTH_MAX) })}
               >
                 <SelectTrigger id="dashboard-month">
-                  <SelectValue placeholder="Select month" />
+                  <SelectValue placeholder={t("pages.dashboard.selectMonth")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {MONTH_NAMES.map((name, index) => (
-                    <SelectItem key={name} value={String(index + 1)}>
-                      {name}
+                  {Array.from({ length: 12 }, (_, index) => (
+                    <SelectItem key={index + 1} value={String(index + 1)}>
+                      {formatMonthName(index + 1)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -527,7 +519,7 @@ export function DashboardPage(): JSX.Element {
           {periodMode === "range" ? (
             <>
               <div className="space-y-2">
-                <Label htmlFor="dashboard-start-month">From</Label>
+                <Label htmlFor="dashboard-start-month">{t("common.from")}</Label>
                 <Select
                   value={String(startMonth)}
                   onValueChange={(value) =>
@@ -535,19 +527,19 @@ export function DashboardPage(): JSX.Element {
                   }
                 >
                   <SelectTrigger id="dashboard-start-month">
-                    <SelectValue placeholder="Start month" />
+                    <SelectValue placeholder={t("pages.dashboard.startMonth")} />
                   </SelectTrigger>
                   <SelectContent>
-                    {MONTH_NAMES.map((name, index) => (
-                      <SelectItem key={`start-${name}`} value={String(index + 1)}>
-                        {name}
+                    {Array.from({ length: 12 }, (_, index) => (
+                      <SelectItem key={`start-${index + 1}`} value={String(index + 1)}>
+                        {formatMonthName(index + 1)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="dashboard-end-month">To</Label>
+                <Label htmlFor="dashboard-end-month">{t("common.to")}</Label>
                 <Select
                   value={String(endMonth)}
                   onValueChange={(value) =>
@@ -555,12 +547,12 @@ export function DashboardPage(): JSX.Element {
                   }
                 >
                   <SelectTrigger id="dashboard-end-month">
-                    <SelectValue placeholder="End month" />
+                    <SelectValue placeholder={t("pages.dashboard.endMonth")} />
                   </SelectTrigger>
                   <SelectContent>
-                    {MONTH_NAMES.map((name, index) => (
-                      <SelectItem key={`end-${name}`} value={String(index + 1)}>
-                        {name}
+                    {Array.from({ length: 12 }, (_, index) => (
+                      <SelectItem key={`end-${index + 1}`} value={String(index + 1)}>
+                        {formatMonthName(index + 1)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -571,15 +563,15 @@ export function DashboardPage(): JSX.Element {
 
           {periodMode === "year" ? (
             <div className="space-y-2">
-              <Label>Window</Label>
+              <Label>{t("common.window")}</Label>
               <div className="flex h-10 items-center rounded-md border px-3 text-sm text-muted-foreground">
-                January - December
+                {t("pages.dashboard.janToDec")}
               </div>
             </div>
           ) : null}
 
           <div className="space-y-2">
-            <Label>Retailers</Label>
+            <Label>{t("pages.dashboard.retailers")}</Label>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="outline" className="w-full justify-start text-left">
@@ -587,7 +579,7 @@ export function DashboardPage(): JSX.Element {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-72">
-                <DropdownMenuLabel>Filter retailers</DropdownMenuLabel>
+                <DropdownMenuLabel>{t("pages.dashboard.filterRetailers")}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <Button
                   type="button"
@@ -596,10 +588,10 @@ export function DashboardPage(): JSX.Element {
                   className="mx-1 mb-1 w-[calc(100%-0.5rem)] justify-start"
                   onClick={() => updateSearchParams({ retailers: [] })}
                 >
-                  All retailers
+                  {t("pages.dashboard.allRetailers")}
                 </Button>
                 {retailerOptions.length === 0 ? (
-                  <p className="px-2 py-1 text-xs text-muted-foreground">No retailers available yet.</p>
+                  <p className="px-2 py-1 text-xs text-muted-foreground">{t("pages.dashboard.noRetailers")}</p>
                 ) : (
                   retailerOptions.map((option) => (
                     <DropdownMenuCheckboxItem
@@ -617,27 +609,27 @@ export function DashboardPage(): JSX.Element {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="dashboard-spend-view">Spend view</Label>
+            <Label htmlFor="dashboard-spend-view">{t("pages.dashboard.spendView")}</Label>
             <Select value={spendView} onValueChange={(nextView) => updateSearchParams({ spend: nextView as SpendView })}>
               <SelectTrigger id="dashboard-spend-view">
-                <SelectValue placeholder="Select spend view" />
+                <SelectValue placeholder={t("pages.dashboard.selectSpendView")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="net">Net</SelectItem>
-                <SelectItem value="gross">Gross</SelectItem>
+                <SelectItem value="net">{t("pages.dashboard.spendView.net")}</SelectItem>
+                <SelectItem value="gross">{t("pages.dashboard.spendView.gross")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="dashboard-discount-view">Discount view</Label>
+            <Label htmlFor="dashboard-discount-view">{t("pages.dashboard.discountView")}</Label>
             <Select value={view} onValueChange={(nextView) => updateSearchParams({ view: nextView as DiscountView })}>
               <SelectTrigger id="dashboard-discount-view">
-                <SelectValue placeholder="Select view" />
+                <SelectValue placeholder={t("pages.dashboard.selectDiscountView")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="native">Native</SelectItem>
-                <SelectItem value="normalized">Normalized</SelectItem>
+                <SelectItem value="native">{t("pages.dashboard.discountView.native")}</SelectItem>
+                <SelectItem value="normalized">{t("pages.dashboard.discountView.normalized")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -668,25 +660,27 @@ export function DashboardPage(): JSX.Element {
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <p className="text-sm text-muted-foreground">
             {periodMode === "month"
-              ? `Showing ${monthYearLabel(year, month)}`
+              ? t("pages.dashboard.showingMonth", { period: monthYearLabel(year, month) })
               : periodMode === "range"
-                ? `Showing ${monthName(startMonth)}-${monthName(endMonth)} ${year}`
-                : `Showing full year ${year}`}
+                ? t("pages.dashboard.showingRange", { period: `${monthName(startMonth)}-${monthName(endMonth)} ${year}` })
+                : t("pages.dashboard.showingYear", { year })}
             {`, ${selectedRetailerSummary()}`}
           </p>
           <Button asChild>
-            <Link to={ledgerLink}>Drill down to transactions</Link>
+            <Link to={ledgerLink}>{t("pages.dashboard.drillDown")}</Link>
           </Button>
         </div>
       </div>
 
       {warnings.length > 0 ? (
         <Alert>
-          <AlertTitle>Backend warnings</AlertTitle>
+          <AlertTitle>{t("pages.dashboard.backendWarnings")}</AlertTitle>
           <AlertDescription>
             <ul className="list-inside list-disc space-y-1">
               {warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
+                <li key={`${warning.code ?? ""}:${warning.message}`}>
+                  {resolveApiWarningMessage(warning, t)}
+                </li>
               ))}
             </ul>
           </AlertDescription>
@@ -695,7 +689,7 @@ export function DashboardPage(): JSX.Element {
 
       {errorMessage ? (
         <Alert variant="destructive">
-          <AlertTitle>Failed to load dashboard</AlertTitle>
+          <AlertTitle>{t("pages.dashboard.loadError")}</AlertTitle>
           <AlertDescription>{errorMessage}</AlertDescription>
         </Alert>
       ) : null}
@@ -715,7 +709,7 @@ export function DashboardPage(): JSX.Element {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Net spend
+                    {t("pages.dashboard.card.netSpend")}
                   </CardTitle>
                   <span className="rounded-md bg-primary/10 p-1.5 text-primary">
                     <TrendingDown className="h-3.5 w-3.5" />
@@ -733,7 +727,7 @@ export function DashboardPage(): JSX.Element {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Gross spend
+                    {t("pages.dashboard.card.grossSpend")}
                   </CardTitle>
                   <span className="rounded-md bg-muted p-1.5 text-muted-foreground">
                     <Euro className="h-3.5 w-3.5" />
@@ -751,7 +745,7 @@ export function DashboardPage(): JSX.Element {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Savings
+                    {t("pages.dashboard.card.savings")}
                   </CardTitle>
                   <span className="rounded-md bg-success/10 p-1.5 text-success">
                     <PiggyBank className="h-3.5 w-3.5" />
@@ -769,7 +763,7 @@ export function DashboardPage(): JSX.Element {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Savings rate
+                    {t("pages.dashboard.card.savingsRate")}
                   </CardTitle>
                   <span className="rounded-md bg-chart-2/10 p-1.5 text-chart-2">
                     <Percent className="h-3.5 w-3.5" />
@@ -785,7 +779,7 @@ export function DashboardPage(): JSX.Element {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Pfand paid (all-time)
+                    {t("pages.dashboard.card.depositPaid")}
                   </CardTitle>
                   <span className="rounded-md bg-amber-500/10 p-1.5 text-amber-600">
                     <Package className="h-3.5 w-3.5" />
@@ -796,7 +790,7 @@ export function DashboardPage(): JSX.Element {
                 <p className="text-2xl font-bold tabular-nums">
                   {depositQuery.data ? formatEurFromCents(depositQuery.data.total_paid_cents) : "—"}
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground">excluded from spend totals</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t("pages.dashboard.card.depositExcluded")}</p>
               </CardContent>
             </Card>
           </>
@@ -806,13 +800,13 @@ export function DashboardPage(): JSX.Element {
       <section className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Upcoming bills this month</CardTitle>
+            <CardTitle className="text-base">{t("pages.dashboard.upcomingBills")}</CardTitle>
           </CardHeader>
           <CardContent>
             {recurringCalendarQuery.isPending ? (
-              <p className="text-sm text-muted-foreground">Loading recurring calendar...</p>
+              <p className="text-sm text-muted-foreground">{t("pages.dashboard.loadingRecurringCalendar")}</p>
             ) : (recurringCalendarQuery.data?.days ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">No recurring bills scheduled this month.</p>
+              <p className="text-sm text-muted-foreground">{t("pages.dashboard.noRecurringCalendar")}</p>
             ) : (
               <ul className="space-y-3">
                 {(recurringCalendarQuery.data?.days ?? []).map((day) => (
@@ -822,18 +816,15 @@ export function DashboardPage(): JSX.Element {
                   >
                     <div>
                       <p className="text-sm font-medium">
-                        {new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, {
-                          month: "short",
-                          day: "numeric"
-                        })}
+                        {formatMonthDay(`${day.date}T00:00:00`)}
                       </p>
-                      <p className="text-xs text-muted-foreground">{day.count} bill(s)</p>
+                      <p className="text-xs text-muted-foreground">{t("pages.dashboard.billCount", { count: day.count })}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-semibold tabular-nums">
                         {formatEurFromCents(day.total_expected_cents)}
                       </p>
-                      <p className="text-xs text-muted-foreground">expected</p>
+                      <p className="text-xs text-muted-foreground">{t("pages.dashboard.expected")}</p>
                     </div>
                   </li>
                 ))}
@@ -844,14 +835,14 @@ export function DashboardPage(): JSX.Element {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">3-month recurring forecast</CardTitle>
+            <CardTitle className="text-base">{t("pages.dashboard.forecastTitle")}</CardTitle>
             <CalendarCheck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             {recurringForecastQuery.isPending ? (
-              <p className="text-sm text-muted-foreground">Loading recurring forecast...</p>
+              <p className="text-sm text-muted-foreground">{t("pages.dashboard.loadingForecast")}</p>
             ) : (recurringForecastQuery.data?.points ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">No recurring projection data available.</p>
+              <p className="text-sm text-muted-foreground">{t("pages.dashboard.noForecast")}</p>
             ) : (
               <ul className="space-y-3">
                 {(recurringForecastQuery.data?.points ?? []).map((point) => {
@@ -859,10 +850,7 @@ export function DashboardPage(): JSX.Element {
                     8,
                     Math.round((point.projected_cents / recurringForecastMax) * 100)
                   );
-                  const label = new Date(`${point.period}-01T00:00:00`).toLocaleDateString(
-                    undefined,
-                    { month: "short", year: "numeric" }
-                  );
+                  const label = formatMonthYear(`${point.period}-01T00:00:00`);
                   return (
                     <li key={point.period} className="space-y-1">
                       <div className="flex items-center justify-between text-sm">
@@ -890,7 +878,7 @@ export function DashboardPage(): JSX.Element {
           </CardHeader>
           <CardContent>
             {trendPoints.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No trend points in this period.</p>
+              <p className="text-sm text-muted-foreground">{t("pages.dashboard.noTrendPoints")}</p>
             ) : (
               <ul className="space-y-3">
                 {trendPoints.map((point) => {
@@ -904,8 +892,9 @@ export function DashboardPage(): JSX.Element {
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-medium">{labelFromTrendPoint(point)}</span>
                         <span className="text-muted-foreground">
-                          {spendView} {formatEurFromCents(spendCents)} | net {formatEurFromCents(netCents)} | gross{" "}
-                          {formatEurFromCents(grossCents)} | savings {formatEurFromCents(pointSavingsCents)}
+                          {spendView === "gross" ? t("pages.dashboard.trendGross") : t("pages.dashboard.trendNet")}{" "}
+                          {formatEurFromCents(spendCents)} | {t("pages.dashboard.trendNet")} {formatEurFromCents(netCents)} | {t("pages.dashboard.trendGross")}{" "}
+                          {formatEurFromCents(grossCents)} | {t("pages.dashboard.trendSavings")} {formatEurFromCents(pointSavingsCents)}
                         </span>
                       </div>
                       <div className="h-2 rounded-full bg-muted">
@@ -922,7 +911,7 @@ export function DashboardPage(): JSX.Element {
         <Card>
           <CardHeader className="space-y-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Savings by discount type ({view})</CardTitle>
+              <CardTitle className="text-base">{t("pages.dashboard.savingsByType", { view })}</CardTitle>
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -930,7 +919,7 @@ export function DashboardPage(): JSX.Element {
                   variant={breakdownDisplay === "chart" ? "default" : "outline"}
                   onClick={() => updateSearchParams({ breakdown: "chart" })}
                 >
-                  Chart
+                  {t("pages.dashboard.chart")}
                 </Button>
                 <Button
                   type="button"
@@ -938,14 +927,14 @@ export function DashboardPage(): JSX.Element {
                   variant={breakdownDisplay === "table" ? "default" : "outline"}
                   onClick={() => updateSearchParams({ breakdown: "table" })}
                 >
-                  Table
+                  {t("pages.dashboard.table")}
                 </Button>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             {breakdownRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No discount rows in this period.</p>
+              <p className="text-sm text-muted-foreground">{t("pages.dashboard.noDiscountRows")}</p>
             ) : breakdownDisplay === "chart" ? (
               <ul className="space-y-3">
                 {breakdownRows.map((row) => {
@@ -955,7 +944,7 @@ export function DashboardPage(): JSX.Element {
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-medium">{row.type}</span>
                         <span className="text-muted-foreground">
-                          {formatEurFromCents(row.saved_cents)} ({row.discount_events} events)
+                          {formatEurFromCents(row.saved_cents)} ({row.discount_events} {t("pages.dashboard.events").toLowerCase()})
                         </span>
                       </div>
                       <div className="h-2 rounded-full bg-muted">
@@ -969,9 +958,9 @@ export function DashboardPage(): JSX.Element {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Saved</TableHead>
-                    <TableHead>Events</TableHead>
+                    <TableHead>{t("common.type")}</TableHead>
+                    <TableHead>{t("pages.dashboard.saved")}</TableHead>
+                    <TableHead>{t("pages.dashboard.events")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -991,30 +980,30 @@ export function DashboardPage(): JSX.Element {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Savings by retailer</CardTitle>
+          <CardTitle className="text-base">{t("pages.dashboard.byRetailer")}</CardTitle>
           <div className="flex gap-2">
             <Button type="button" variant="outline" size="sm" onClick={exportSnapshotAsJson}>
-              Export JSON
+              {t("pages.dashboard.exportJson")}
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={exportSnapshotAsCsv}>
-              Export CSV
+              {t("pages.dashboard.exportCsv")}
             </Button>
           </div>
         </CardHeader>
         <CardContent>
           {exportStatus ? <p className="mb-3 text-xs text-muted-foreground">{exportStatus}</p> : null}
           {retailerRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No retailer composition rows in this period.</p>
+            <p className="text-sm text-muted-foreground">{t("pages.dashboard.noRetailerRows")}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Retailer</TableHead>
+                  <TableHead>{t("pages.dashboard.retailer")}</TableHead>
                   <TableHead>{spendColumnTitle}</TableHead>
-                  <TableHead>Saved</TableHead>
-                  <TableHead>Saved share</TableHead>
-                  <TableHead>{spendColumnTitle} share</TableHead>
-                  <TableHead>Savings rate</TableHead>
+                  <TableHead>{t("pages.dashboard.saved")}</TableHead>
+                  <TableHead>{t("pages.dashboard.savedShare")}</TableHead>
+                  <TableHead>{t("pages.dashboard.spendShare", { label: spendColumnTitle })}</TableHead>
+                  <TableHead>{t("pages.dashboard.card.savingsRate")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

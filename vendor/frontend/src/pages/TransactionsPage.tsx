@@ -13,6 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useI18n } from "@/i18n";
+import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import { cn } from "@/lib/utils";
 import { formatDateTime, formatEurFromCents } from "../utils/format";
 
@@ -36,22 +38,6 @@ const FILTER_KEYS = [
   "min_total_cents",
   "max_total_cents"
 ] as const;
-
-const FILTER_LABELS: Record<(typeof FILTER_KEYS)[number], string> = {
-  query: "Search",
-  source_id: "Source",
-  source_kind: "Source kind",
-  weekday: "Weekday",
-  hour: "Hour",
-  tz_offset_minutes: "TZ offset",
-  merchant_name: "Merchant",
-  year: "Year",
-  month: "Month",
-  purchased_from: "Purchased from",
-  purchased_to: "Purchased to",
-  min_total_cents: "Min total",
-  max_total_cents: "Max total"
-};
 
 type SortField =
   | "purchased_at"
@@ -157,6 +143,7 @@ function formatFilterValue(key: (typeof FILTER_KEYS)[number], value: string): st
 
 export function TransactionsPage(): JSX.Element {
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const [formValues, setFormValues] = useState<FilterFormValues>(() =>
     readFilterFormValues(searchParams)
@@ -205,6 +192,21 @@ export function TransactionsPage(): JSX.Element {
   );
 
   const appliedFilters = useMemo<FilterChip[]>(() => {
+    const filterLabels: Record<(typeof FILTER_KEYS)[number], string> = {
+      query: t("pages.transactions.filter.query"),
+      source_id: t("pages.transactions.filter.source"),
+      source_kind: t("pages.transactions.filter.sourceKind"),
+      weekday: t("pages.transactions.chip.weekday"),
+      hour: t("pages.transactions.chip.hour"),
+      tz_offset_minutes: t("pages.transactions.chip.tzOffset"),
+      merchant_name: t("pages.transactions.filter.merchant"),
+      year: t("pages.transactions.filter.year"),
+      month: t("pages.transactions.filter.month"),
+      purchased_from: t("pages.transactions.filter.purchasedFrom"),
+      purchased_to: t("pages.transactions.filter.purchasedTo"),
+      min_total_cents: t("pages.transactions.chip.minTotal"),
+      max_total_cents: t("pages.transactions.chip.maxTotal")
+    };
     const chips: FilterChip[] = [];
     for (const key of FILTER_KEYS) {
       const value = searchParams.get(key);
@@ -213,12 +215,12 @@ export function TransactionsPage(): JSX.Element {
       }
       chips.push({
         key,
-        label: FILTER_LABELS[key],
+        label: filterLabels[key],
         value: formatFilterValue(key, value)
       });
     }
     return chips;
-  }, [searchKey, searchParams]);
+  }, [searchKey, searchParams, t]);
 
   const { data, error, isPending, isFetching } = useQuery(transactionsQueryOptions(queryValues));
   const manualMutation = useMutation({
@@ -239,7 +241,7 @@ export function TransactionsPage(): JSX.Element {
   });
 
   const loading = isPending || isFetching;
-  const errorMessage = error instanceof Error ? error.message : null;
+  const errorMessage = error ? resolveApiErrorMessage(error, t, t("pages.transactions.loadError")) : null;
 
   function applySortIfNeeded(next: URLSearchParams): void {
     if (sortField !== DEFAULT_SORT_FIELD || sortDirection !== DEFAULT_SORT_DIRECTION) {
@@ -341,24 +343,24 @@ export function TransactionsPage(): JSX.Element {
 
     const purchasedDate = new Date(manualFormValues.purchasedAt);
     if (Number.isNaN(purchasedDate.valueOf())) {
-      setManualErrorMessage("Purchased at must be a valid date and time.");
+      setManualErrorMessage(t("pages.transactions.manual.invalidDate"));
       return;
     }
     const merchantName = manualFormValues.merchantName.trim();
     if (!merchantName) {
-      setManualErrorMessage("Merchant is required.");
+      setManualErrorMessage(t("pages.transactions.manual.merchantRequired"));
       return;
     }
     const totalGrossCents = Number(manualFormValues.totalGrossCents);
     if (!Number.isInteger(totalGrossCents) || totalGrossCents < 0) {
-      setManualErrorMessage("Total cents must be a non-negative integer.");
+      setManualErrorMessage(t("pages.transactions.manual.totalInvalid"));
       return;
     }
 
     const itemName = manualFormValues.itemName.trim();
     const itemTotalRaw = manualFormValues.itemTotalCents.trim();
     if ((itemName && !itemTotalRaw) || (!itemName && itemTotalRaw)) {
-      setManualErrorMessage("Item name and item total cents must be filled together.");
+      setManualErrorMessage(t("pages.transactions.manual.itemPairRequired"));
       return;
     }
 
@@ -366,7 +368,7 @@ export function TransactionsPage(): JSX.Element {
     if (itemTotalRaw) {
       const parsed = Number(itemTotalRaw);
       if (!Number.isInteger(parsed) || parsed < 0) {
-        setManualErrorMessage("Item total cents must be a non-negative integer.");
+        setManualErrorMessage(t("pages.transactions.manual.itemTotalInvalid"));
         return;
       }
       itemTotalCents = parsed;
@@ -391,9 +393,7 @@ export function TransactionsPage(): JSX.Element {
             : undefined
       });
     } catch (mutationError) {
-      setManualErrorMessage(
-        mutationError instanceof Error ? mutationError.message : "Failed to create transaction."
-      );
+      setManualErrorMessage(resolveApiErrorMessage(mutationError, t, t("pages.transactions.manual.createFailed")));
     }
   }
 
@@ -416,7 +416,7 @@ export function TransactionsPage(): JSX.Element {
           active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
         )}
         onClick={() => updateSort(field)}
-        aria-label={`Sort by ${label}`}
+        aria-label={t("pages.transactions.sortBy", { label })}
         aria-pressed={active}
       >
         <span>{label}</span>
@@ -437,15 +437,15 @@ export function TransactionsPage(): JSX.Element {
     <section className="space-y-4">
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle>Add One-off Purchase</CardTitle>
+          <CardTitle>{t("pages.transactions.manual.title")}</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Add a manual transaction for merchants that do not need a dedicated connector.
+            {t("pages.transactions.manual.description")}
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <form className="grid gap-3 md:grid-cols-6" onSubmit={submitManualTransaction}>
             <div className="space-y-2">
-              <Label htmlFor="manual-purchased-at">Purchased at (one-off)</Label>
+              <Label htmlFor="manual-purchased-at">{t("pages.transactions.manual.purchasedAt")}</Label>
               <Input
                 id="manual-purchased-at"
                 type="datetime-local"
@@ -459,7 +459,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="manual-merchant">Merchant (one-off)</Label>
+              <Label htmlFor="manual-merchant">{t("pages.transactions.manual.merchant")}</Label>
               <Input
                 id="manual-merchant"
                 value={manualFormValues.merchantName}
@@ -472,7 +472,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="manual-total-cents">Total cents (one-off)</Label>
+              <Label htmlFor="manual-total-cents">{t("pages.transactions.manual.totalCents")}</Label>
               <Input
                 id="manual-total-cents"
                 type="number"
@@ -487,7 +487,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="manual-item-name">Item (optional)</Label>
+              <Label htmlFor="manual-item-name">{t("pages.transactions.manual.itemName")}</Label>
               <Input
                 id="manual-item-name"
                 value={manualFormValues.itemName}
@@ -500,7 +500,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="manual-item-total-cents">Item total cents (optional)</Label>
+              <Label htmlFor="manual-item-total-cents">{t("pages.transactions.manual.itemTotalCents")}</Label>
               <Input
                 id="manual-item-total-cents"
                 type="number"
@@ -515,7 +515,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="manual-idempotency-key">Idempotency key (optional)</Label>
+              <Label htmlFor="manual-idempotency-key">{t("pages.transactions.manual.idempotencyKey")}</Label>
               <Input
                 id="manual-idempotency-key"
                 value={manualFormValues.idempotencyKey}
@@ -531,17 +531,17 @@ export function TransactionsPage(): JSX.Element {
               {manualMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
+                  {t("pages.transactions.manual.saving")}
                 </>
               ) : (
-                "Add one-off purchase"
+                t("pages.transactions.manual.submit")
               )}
             </Button>
           </form>
 
           {manualErrorMessage ? (
             <Alert variant="destructive">
-              <AlertTitle>Manual ingestion failed</AlertTitle>
+              <AlertTitle>{t("pages.transactions.manual.errorTitle")}</AlertTitle>
               <AlertDescription>{manualErrorMessage}</AlertDescription>
             </Alert>
           ) : null}
@@ -549,15 +549,16 @@ export function TransactionsPage(): JSX.Element {
           {manualSuccess ? (
             <Alert>
               <CheckCircle2 className="h-4 w-4" />
-              <AlertTitle>Transaction saved</AlertTitle>
+              <AlertTitle>{t("pages.transactions.manual.savedTitle")}</AlertTitle>
               <AlertDescription className="space-y-1">
                 <p>
-                  {manualSuccess.reused ? "Existing transaction reused." : "New transaction created."} Source:
+                  {manualSuccess.reused ? t("pages.transactions.manual.reused") : t("pages.transactions.manual.created")}{" "}
+                  {t("common.source")}:
                   {" "}
                   <span className="font-medium">{manualSuccess.source_id}</span>
                 </p>
                 <Button asChild variant="link" className="h-auto p-0">
-                  <Link to={`/transactions/${manualSuccess.transaction_id}`}>Open transaction details</Link>
+                  <Link to={`/transactions/${manualSuccess.transaction_id}`}>{t("pages.transactions.manual.openDetails")}</Link>
                 </Button>
               </AlertDescription>
             </Alert>
@@ -567,12 +568,12 @@ export function TransactionsPage(): JSX.Element {
 
       <Card>
         <CardHeader>
-          <CardTitle>Transactions</CardTitle>
+          <CardTitle>{t("pages.transactions.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           <form className="grid gap-3 md:grid-cols-5" onSubmit={submitFilters}>
             <div className="space-y-2">
-              <Label htmlFor="query">Search</Label>
+              <Label htmlFor="query">{t("pages.transactions.filter.query")}</Label>
               <Input
                 id="query"
                 value={formValues.query}
@@ -582,7 +583,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="source">Source</Label>
+              <Label htmlFor="source">{t("pages.transactions.filter.source")}</Label>
               <Input
                 id="source"
                 value={formValues.sourceId}
@@ -592,7 +593,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="source-kind">Source kind</Label>
+              <Label htmlFor="source-kind">{t("pages.transactions.filter.sourceKind")}</Label>
               <Input
                 id="source-kind"
                 value={formValues.sourceKind}
@@ -602,7 +603,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="merchant">Merchant</Label>
+              <Label htmlFor="merchant">{t("pages.transactions.filter.merchant")}</Label>
               <Input
                 id="merchant"
                 value={formValues.merchantName}
@@ -612,7 +613,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="year">Year</Label>
+              <Label htmlFor="year">{t("pages.transactions.filter.year")}</Label>
               <Input
                 id="year"
                 type="number"
@@ -623,7 +624,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="month">Month</Label>
+              <Label htmlFor="month">{t("pages.transactions.filter.month")}</Label>
               <Input
                 id="month"
                 type="number"
@@ -634,7 +635,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="weekday">Weekday (0-6)</Label>
+              <Label htmlFor="weekday">{t("pages.transactions.filter.weekday")}</Label>
               <Input
                 id="weekday"
                 type="number"
@@ -647,7 +648,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="hour">Hour (0-23)</Label>
+              <Label htmlFor="hour">{t("pages.transactions.filter.hour")}</Label>
               <Input
                 id="hour"
                 type="number"
@@ -660,7 +661,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="tz-offset-minutes">TZ offset minutes</Label>
+              <Label htmlFor="tz-offset-minutes">{t("pages.transactions.filter.tzOffset")}</Label>
               <Input
                 id="tz-offset-minutes"
                 type="number"
@@ -671,7 +672,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="purchased-from">Purchased from</Label>
+              <Label htmlFor="purchased-from">{t("pages.transactions.filter.purchasedFrom")}</Label>
               <Input
                 id="purchased-from"
                 type="datetime-local"
@@ -682,7 +683,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="purchased-to">Purchased to</Label>
+              <Label htmlFor="purchased-to">{t("pages.transactions.filter.purchasedTo")}</Label>
               <Input
                 id="purchased-to"
                 type="datetime-local"
@@ -693,7 +694,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="min-total">Min total cents</Label>
+              <Label htmlFor="min-total">{t("pages.transactions.filter.minTotal")}</Label>
               <Input
                 id="min-total"
                 type="number"
@@ -704,7 +705,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="max-total">Max total cents</Label>
+              <Label htmlFor="max-total">{t("pages.transactions.filter.maxTotal")}</Label>
               <Input
                 id="max-total"
                 type="number"
@@ -715,7 +716,7 @@ export function TransactionsPage(): JSX.Element {
               />
             </div>
             <Button type="submit" className="self-end">
-              Apply filters
+              {t("pages.transactions.applyFilters")}
             </Button>
           </form>
 
@@ -730,14 +731,14 @@ export function TransactionsPage(): JSX.Element {
                     type="button"
                     className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-foreground"
                     onClick={() => removeFilter(filter.key)}
-                    aria-label={`Remove ${filter.label} filter`}
+                    aria-label={t("pages.transactions.removeFilter", { label: filter.label })}
                   >
                     <X className="h-3 w-3" />
                   </button>
                 </Badge>
               ))}
               <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
-                Clear all
+                {t("pages.transactions.clearFilters")}
               </Button>
             </div>
           ) : null}
@@ -746,7 +747,7 @@ export function TransactionsPage(): JSX.Element {
 
       {errorMessage ? (
         <Alert variant="destructive">
-          <AlertTitle>Failed to load transactions</AlertTitle>
+          <AlertTitle>{t("pages.transactions.loadError")}</AlertTitle>
           <AlertDescription>{errorMessage}</AlertDescription>
         </Alert>
       ) : null}
@@ -758,21 +759,21 @@ export function TransactionsPage(): JSX.Element {
             <TableHeader>
               <TableRow>
                 <TableHead className={STICKY_HEADER_CLASS} aria-sort={ariaSortForField("purchased_at")}>
-                  {renderSortButton("purchased_at", "Date")}
+                  {renderSortButton("purchased_at", t("pages.transactions.col.purchasedAt"))}
                 </TableHead>
                 <TableHead className={STICKY_HEADER_CLASS} aria-sort={ariaSortForField("store_name")}>
-                  {renderSortButton("store_name", "Merchant")}
+                  {renderSortButton("store_name", t("pages.transactions.col.store"))}
                 </TableHead>
                 <TableHead className={STICKY_HEADER_CLASS} aria-sort={ariaSortForField("source_id")}>
-                  {renderSortButton("source_id", "Source")}
+                  {renderSortButton("source_id", t("pages.transactions.col.source"))}
                 </TableHead>
                 <TableHead className={STICKY_HEADER_CLASS} aria-sort={ariaSortForField("total_gross_cents")}>
-                  {renderSortButton("total_gross_cents", "Total")}
+                  {renderSortButton("total_gross_cents", t("pages.transactions.col.total"))}
                 </TableHead>
                 <TableHead className={STICKY_HEADER_CLASS} aria-sort={ariaSortForField("discount_total_cents")}>
-                  {renderSortButton("discount_total_cents", "Discount")}
+                  {renderSortButton("discount_total_cents", t("pages.transactions.col.discounts"))}
                 </TableHead>
-                <TableHead className={STICKY_HEADER_CLASS}>Open</TableHead>
+                <TableHead className={STICKY_HEADER_CLASS}>{t("common.open")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -785,14 +786,14 @@ export function TransactionsPage(): JSX.Element {
                   <TableCell className="tabular-nums">{formatEurFromCents(item.discount_total_cents ?? 0)}</TableCell>
                   <TableCell>
                     <Button asChild variant="link" className="px-0">
-                      <Link to={`/transactions/${item.id}`}>Details</Link>
+                      <Link to={`/transactions/${item.id}`}>{t("pages.transactions.details")}</Link>
                     </Button>
                   </TableCell>
                 </TableRow>
               ))}
               {data && data.items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6}>No transactions match current filters.</TableCell>
+                  <TableCell colSpan={6}>{t("pages.transactions.empty")}</TableCell>
                 </TableRow>
               ) : null}
             </TableBody>
@@ -800,10 +801,14 @@ export function TransactionsPage(): JSX.Element {
 
           <div className="mt-4 flex items-center justify-between">
             <Button type="button" variant="outline" onClick={() => movePage(-PAGE_SIZE)} disabled={offset === 0}>
-              Previous
+              {t("common.previous")}
             </Button>
             <span className="text-sm text-muted-foreground">
-              Showing {data?.count ?? 0} of {data?.total ?? 0}
+              {t("pages.transactions.pagination", {
+                start: data && data.count > 0 ? offset + 1 : 0,
+                end: data ? offset + data.count : 0,
+                total: data?.total ?? 0
+              })}
             </span>
             <Button
               type="button"
@@ -811,7 +816,7 @@ export function TransactionsPage(): JSX.Element {
               onClick={() => movePage(PAGE_SIZE)}
               disabled={!data || offset + PAGE_SIZE >= data.total}
             >
-              Next
+              {t("common.next")}
             </Button>
           </div>
         </CardContent>

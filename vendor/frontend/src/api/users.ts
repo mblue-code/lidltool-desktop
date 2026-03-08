@@ -6,7 +6,8 @@ const CurrentUserSchema = z.object({
   user_id: z.string(),
   username: z.string(),
   display_name: z.string().nullable(),
-  is_admin: z.boolean()
+  is_admin: z.boolean(),
+  preferred_locale: z.enum(["en", "de"]).nullable().optional().default(null)
 });
 
 const UserSchema = z.object({
@@ -14,6 +15,7 @@ const UserSchema = z.object({
   username: z.string(),
   display_name: z.string().nullable(),
   is_admin: z.boolean(),
+  preferred_locale: z.enum(["en", "de"]).nullable().optional().default(null),
   created_at: z.string(),
   updated_at: z.string()
 });
@@ -58,6 +60,17 @@ export type AgentKeyCreateResponse = z.infer<typeof AgentKeyCreateSchema>;
 
 export async function fetchCurrentUser(): Promise<CurrentUser> {
   return apiClient.get("/api/v1/auth/me", CurrentUserSchema);
+}
+
+export async function updateCurrentUserLocale(
+  preferredLocale: "en" | "de"
+): Promise<{ preferred_locale: "en" | "de" | null }> {
+  const schema = z.object({
+    preferred_locale: z.enum(["en", "de"]).nullable().optional().default(null)
+  });
+  return apiClient.patch("/api/v1/users/me/preferences", schema, {
+    preferred_locale: preferredLocale
+  });
 }
 
 export async function fetchUsers(): Promise<UsersList> {

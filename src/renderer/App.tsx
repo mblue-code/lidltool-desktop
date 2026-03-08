@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+
 import type {
   BackupRequest,
   BackendConfig,
@@ -10,6 +11,7 @@ import type {
   SyncRequest,
   SyncSourceId
 } from "@shared/contracts";
+import { useDesktopI18n } from "./i18n";
 
 const SOURCE_OPTIONS: Array<{ id: SyncSourceId; label: string; defaultDomain?: string }> = [
   { id: "lidl", label: "Lidl" },
@@ -20,13 +22,9 @@ const SOURCE_OPTIONS: Array<{ id: SyncSourceId; label: string; defaultDomain?: s
   { id: "rossmann", label: "Rossmann", defaultDomain: "www.rossmann.de" }
 ];
 
-const monthFormatter = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit" });
-
 function defaultYearMonth(): { year: number; month: number } {
-  const parts = monthFormatter.formatToParts(new Date());
-  const year = Number(parts.find((part) => part.type === "year")?.value ?? new Date().getFullYear());
-  const month = Number(parts.find((part) => part.type === "month")?.value ?? new Date().getMonth() + 1);
-  return { year, month };
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1 };
 }
 
 function prettyJson(value: unknown): string {
@@ -58,6 +56,7 @@ function defaultImportDir(userDataDir: string): string {
 }
 
 export default function App(): JSX.Element {
+  const { locale, setLocale, t } = useDesktopI18n();
   const [{ year, month }] = useState(defaultYearMonth);
   const [config, setConfig] = useState<BackendConfig | null>(null);
   const [backend, setBackend] = useState<BackendStatus | null>(null);
@@ -91,6 +90,16 @@ export default function App(): JSX.Element {
     [source]
   );
 
+  const backendStatusText = useMemo(() => {
+    if (!backend) {
+      return t("shell.backend.status.loading");
+    }
+    if (backend.running) {
+      return t("shell.backend.status.running", { pid: backend.pid ?? "n/a" });
+    }
+    return t("shell.backend.status.stopped");
+  }, [backend, t]);
+
   useEffect(() => {
     let disposeLogs: (() => void) | null = null;
     let disposeBootError: (() => void) | null = null;
@@ -112,21 +121,17 @@ export default function App(): JSX.Element {
           setBootError(message);
         });
       } catch (err) {
-        setError(`Failed to initialize desktop API: ${String(err)}`);
+        setError(t("shell.error.desktopApiInit", { detail: String(err) }));
       }
     }
 
     void boot();
 
     return () => {
-      if (disposeLogs) {
-        disposeLogs();
-      }
-      if (disposeBootError) {
-        disposeBootError();
-      }
+      disposeLogs?.();
+      disposeBootError?.();
     };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const nextDomain = selectedSourceMeta?.defaultDomain ?? "";
@@ -158,7 +163,7 @@ export default function App(): JSX.Element {
       const status = await window.desktopApi.startBackend();
       setBackend(status);
     } catch (err) {
-      setError(`Backend start failed: ${String(err)}`);
+      setError(t("shell.error.backendStart", { detail: String(err) }));
     } finally {
       setBusy(false);
     }
@@ -171,7 +176,7 @@ export default function App(): JSX.Element {
       const status = await window.desktopApi.stopBackend();
       setBackend(status);
     } catch (err) {
-      setError(`Backend stop failed: ${String(err)}`);
+      setError(t("shell.error.backendStop", { detail: String(err) }));
     } finally {
       setBusy(false);
     }
@@ -196,7 +201,7 @@ export default function App(): JSX.Element {
       setSyncResult(result);
       setBackend(await window.desktopApi.getBackendStatus());
     } catch (err) {
-      setError(`Sync failed: ${String(err)}`);
+      setError(t("shell.error.sync", { detail: String(err) }));
     } finally {
       setBusy(false);
     }
@@ -204,7 +209,7 @@ export default function App(): JSX.Element {
 
   async function handleLoadCards(): Promise<void> {
     if (!config) {
-      setError("Desktop config is not ready yet.");
+      setError(t("shell.error.configUnavailable"));
       return;
     }
 
@@ -221,7 +226,7 @@ export default function App(): JSX.Element {
       }
       setCardsResult(await response.json());
     } catch (err) {
-      setError(`Cards query failed: ${String(err)}. Start backend first.`);
+      setError(t("shell.error.cards", { detail: String(err) }));
     } finally {
       setBusy(false);
     }
@@ -234,7 +239,7 @@ export default function App(): JSX.Element {
       const url = await window.desktopApi.openFullApp();
       window.location.assign(url);
     } catch (err) {
-      setError(`Could not open full app: ${String(err)}`);
+      setError(t("shell.error.openFullApp", { detail: String(err) }));
     } finally {
       setBusy(false);
     }
@@ -248,7 +253,7 @@ export default function App(): JSX.Element {
     const outPath = exportOutPath.trim();
     if (!outPath) {
       setBusy(false);
-      setError("Export output path is required.");
+      setError(t("shell.error.exportRequired"));
       return;
     }
 
@@ -261,7 +266,7 @@ export default function App(): JSX.Element {
       const result = await window.desktopApi.runExport(payload);
       setExportResult(result);
     } catch (err) {
-      setError(`Export failed: ${String(err)}`);
+      setError(t("shell.error.export", { detail: String(err) }));
     } finally {
       setBusy(false);
     }
@@ -275,7 +280,7 @@ export default function App(): JSX.Element {
     const outDir = backupOutDir.trim();
     if (!outDir) {
       setBusy(false);
-      setError("Backup output directory is required.");
+      setError(t("shell.error.backupRequired"));
       return;
     }
 
@@ -289,7 +294,7 @@ export default function App(): JSX.Element {
       const result = await window.desktopApi.runBackup(payload);
       setBackupResult(result);
     } catch (err) {
-      setError(`Backup failed: ${String(err)}`);
+      setError(t("shell.error.backup", { detail: String(err) }));
     } finally {
       setBusy(false);
     }
@@ -303,7 +308,7 @@ export default function App(): JSX.Element {
     const backupDir = importBackupDir.trim();
     if (!backupDir) {
       setBusy(false);
-      setError("Backup directory is required.");
+      setError(t("shell.error.importRequired"));
       return;
     }
 
@@ -320,7 +325,7 @@ export default function App(): JSX.Element {
       setImportResult(result);
       setBackend(await window.desktopApi.getBackendStatus());
     } catch (err) {
-      setError(`Backup import failed: ${String(err)}`);
+      setError(t("shell.error.import", { detail: String(err) }));
     } finally {
       setBusy(false);
     }
@@ -328,33 +333,58 @@ export default function App(): JSX.Element {
 
   return (
     <main className="shell">
-      <header>
-        <h1>LidlTool Desktop Scaffold</h1>
-        <p>Control center fallback. The full self-hosted app should auto-open when backend startup succeeds.</p>
+      <header className="shell-header">
+        <div>
+          <p className="eyebrow">{t("app.brand.title")}</p>
+          <h1>{t("shell.header.title")}</h1>
+          <p className="shell-subtitle">{t("shell.header.subtitle")}</p>
+        </div>
+        <label className="locale-switcher">
+          <span>{t("app.header.language")}</span>
+          <select value={locale} onChange={(event) => void setLocale(event.target.value as typeof locale)}>
+            <option value="en">{t("app.language.english")}</option>
+            <option value="de">{t("app.language.german")}</option>
+          </select>
+        </label>
       </header>
 
-      {bootError ? <p className="error">Automatic full-app boot failed: {bootError}</p> : null}
+      {bootError ? <p className="error">{t("shell.bootError", { detail: bootError })}</p> : null}
 
       <section className="grid two-cols">
         <article className="card">
-          <h2>Backend</h2>
-          <p><strong>API:</strong> {config?.apiBaseUrl ?? "loading"}</p>
-          <p><strong>DB:</strong> {config?.dbPath ?? "loading"}</p>
-          <p><strong>Status:</strong> {backend?.running ? `running (pid ${backend.pid ?? "n/a"})` : "stopped"}</p>
+          <h2>{t("shell.backend.title")}</h2>
+          <p>
+            <strong>{t("shell.backend.api")}:</strong> {config?.apiBaseUrl ?? t("common.loading")}
+          </p>
+          <p>
+            <strong>{t("shell.backend.db")}:</strong> {config?.dbPath ?? t("common.loading")}
+          </p>
+          <p>
+            <strong>{t("common.status")}:</strong> {backendStatusText}
+          </p>
           <div className="actions">
-            <button disabled={busy} onClick={() => void handleOpenFullApp()}>Open full app</button>
-            <button disabled={busy} onClick={() => void handleStartBackend()}>Start backend</button>
-            <button disabled={busy} onClick={() => void handleStopBackend()}>Stop backend</button>
+            <button type="button" disabled={busy} onClick={() => void handleOpenFullApp()}>
+              {t("shell.backend.action.openFullApp")}
+            </button>
+            <button type="button" disabled={busy} onClick={() => void handleStartBackend()}>
+              {t("shell.backend.action.start")}
+            </button>
+            <button type="button" disabled={busy} onClick={() => void handleStopBackend()}>
+              {t("shell.backend.action.stop")}
+            </button>
           </div>
         </article>
 
         <article className="card">
-          <h2>One-Time Scrape</h2>
+          <h2>{t("shell.sync.title")}</h2>
+          <p>{t("shell.sync.description")}</p>
           <label>
-            Source
+            {t("common.source")}
             <select value={source} onChange={(event) => setSource(event.target.value as SyncSourceId)}>
               {SOURCE_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>{option.label}</option>
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
               ))}
             </select>
           </label>
@@ -362,21 +392,21 @@ export default function App(): JSX.Element {
           {source === "lidl" ? (
             <label className="inline-checkbox">
               <input type="checkbox" checked={fullSync} onChange={(event) => setFullSync(event.target.checked)} />
-              Full historical sync
+              {t("shell.sync.fullHistory")}
             </label>
           ) : (
             <>
               <label className="inline-checkbox">
                 <input type="checkbox" checked={headless} onChange={(event) => setHeadless(event.target.checked)} />
-                Headless browser
+                {t("shell.sync.headless")}
               </label>
               <label>
-                Domain
+                {t("shell.sync.domain")}
                 <input value={domain} onChange={(event) => setDomain(event.target.value)} />
               </label>
               {source === "amazon" ? (
                 <label>
-                  Years
+                  {t("shell.sync.years")}
                   <input
                     type="number"
                     min={1}
@@ -387,7 +417,7 @@ export default function App(): JSX.Element {
                 </label>
               ) : null}
               <label>
-                Max pages
+                {t("shell.sync.maxPages")}
                 <input
                   type="number"
                   min={1}
@@ -400,15 +430,17 @@ export default function App(): JSX.Element {
           )}
 
           <div className="actions">
-            <button disabled={busy} onClick={() => void handleRunSync()}>Run one-time scrape</button>
+            <button type="button" disabled={busy} onClick={() => void handleRunSync()}>
+              {t("shell.sync.action.run")}
+            </button>
           </div>
         </article>
 
         <article className="card">
-          <h2>Backup Bundle</h2>
-          <p>Creates a local backup directory with DB, credentials, and optional exports/documents.</p>
+          <h2>{t("shell.backup.title")}</h2>
+          <p>{t("shell.backup.description")}</p>
           <label>
-            Backup directory
+            {t("shell.backup.outputDir")}
             <input value={backupOutDir} onChange={(event) => setBackupOutDir(event.target.value)} />
           </label>
           <label className="inline-checkbox">
@@ -417,7 +449,7 @@ export default function App(): JSX.Element {
               checked={backupIncludeExportJson}
               onChange={(event) => setBackupIncludeExportJson(event.target.checked)}
             />
-            Include JSON receipts export
+            {t("shell.backup.includeExport")}
           </label>
           <label className="inline-checkbox">
             <input
@@ -425,30 +457,34 @@ export default function App(): JSX.Element {
               checked={backupIncludeDocuments}
               onChange={(event) => setBackupIncludeDocuments(event.target.checked)}
             />
-            Include document storage
+            {t("shell.backup.includeDocuments")}
           </label>
           <div className="actions">
-            <button disabled={busy} onClick={() => void handleRunBackup()}>Create backup</button>
+            <button type="button" disabled={busy} onClick={() => void handleRunBackup()}>
+              {t("shell.backup.action.run")}
+            </button>
           </div>
         </article>
 
         <article className="card">
-          <h2>Data Export</h2>
-          <p>Exports normalized receipts to a single local JSON file.</p>
+          <h2>{t("shell.export.title")}</h2>
+          <p>{t("shell.export.description")}</p>
           <label>
-            Output path
+            {t("shell.export.outputPath")}
             <input value={exportOutPath} onChange={(event) => setExportOutPath(event.target.value)} />
           </label>
           <div className="actions">
-            <button disabled={busy} onClick={() => void handleRunExport()}>Export data</button>
+            <button type="button" disabled={busy} onClick={() => void handleRunExport()}>
+              {t("shell.export.action.run")}
+            </button>
           </div>
         </article>
 
         <article className="card">
-          <h2>Restore Backup</h2>
-          <p>Restores DB/auth artifacts from an existing backup directory.</p>
+          <h2>{t("shell.restore.title")}</h2>
+          <p>{t("shell.restore.description")}</p>
           <label>
-            Backup directory
+            {t("shell.restore.backupDir")}
             <input value={importBackupDir} onChange={(event) => setImportBackupDir(event.target.value)} />
           </label>
           <label className="inline-checkbox">
@@ -457,7 +493,7 @@ export default function App(): JSX.Element {
               checked={importIncludeCredentialKey}
               onChange={(event) => setImportIncludeCredentialKey(event.target.checked)}
             />
-            Restore credential key
+            {t("shell.restore.includeCredentialKey")}
           </label>
           <label className="inline-checkbox">
             <input
@@ -465,7 +501,7 @@ export default function App(): JSX.Element {
               checked={importIncludeToken}
               onChange={(event) => setImportIncludeToken(event.target.checked)}
             />
-            Restore token file
+            {t("shell.restore.includeToken")}
           </label>
           <label className="inline-checkbox">
             <input
@@ -473,7 +509,7 @@ export default function App(): JSX.Element {
               checked={importIncludeDocuments}
               onChange={(event) => setImportIncludeDocuments(event.target.checked)}
             />
-            Restore document storage
+            {t("shell.restore.includeDocuments")}
           </label>
           <label className="inline-checkbox">
             <input
@@ -481,45 +517,59 @@ export default function App(): JSX.Element {
               checked={importRestartBackend}
               onChange={(event) => setImportRestartBackend(event.target.checked)}
             />
-            Restart backend after restore
+            {t("shell.restore.restartBackend")}
           </label>
           <div className="actions">
-            <button disabled={busy} onClick={() => void handleRunImport()}>Restore backup</button>
+            <button type="button" disabled={busy} onClick={() => void handleRunImport()}>
+              {t("shell.restore.action.run")}
+            </button>
           </div>
         </article>
       </section>
 
       <section className="grid two-cols">
         <article className="card">
-          <h2>Analytics Hook</h2>
-          <p>Fetches `/api/v1/dashboard/cards` from your local backend DB for quick post-sync checks.</p>
+          <h2>{t("shell.analytics.title")}</h2>
+          <p>{t("shell.analytics.description")}</p>
           <div className="actions">
-            <button disabled={busy} onClick={() => void handleLoadCards()}>Load dashboard cards</button>
+            <button type="button" disabled={busy} onClick={() => void handleLoadCards()}>
+              {t("shell.analytics.action.load")}
+            </button>
           </div>
-          <pre>{cardsResult ? prettyJson(cardsResult) : "No analytics loaded yet."}</pre>
+          <pre>{cardsResult ? prettyJson(cardsResult) : t("shell.analytics.empty")}</pre>
         </article>
 
         <article className="card">
-          <h2>Command Results</h2>
-          <p><strong>One-time scrape</strong></p>
-          <pre>{syncResult ? prettyJson(syncResult) : "No scrape executed yet."}</pre>
-          <p><strong>Backup</strong></p>
-          <pre>{backupResult ? prettyJson(backupResult) : "No backup executed yet."}</pre>
-          <p><strong>Data export</strong></p>
-          <pre>{exportResult ? prettyJson(exportResult) : "No export executed yet."}</pre>
-          <p><strong>Restore</strong></p>
-          <pre>{importResult ? prettyJson(importResult) : "No restore executed yet."}</pre>
+          <h2>{t("shell.results.title")}</h2>
+          <p>
+            <strong>{t("shell.results.sync")}</strong>
+          </p>
+          <pre>{syncResult ? prettyJson(syncResult) : t("shell.results.empty.sync")}</pre>
+          <p>
+            <strong>{t("shell.results.backup")}</strong>
+          </p>
+          <pre>{backupResult ? prettyJson(backupResult) : t("shell.results.empty.backup")}</pre>
+          <p>
+            <strong>{t("shell.results.export")}</strong>
+          </p>
+          <pre>{exportResult ? prettyJson(exportResult) : t("shell.results.empty.export")}</pre>
+          <p>
+            <strong>{t("shell.results.restore")}</strong>
+          </p>
+          <pre>{importResult ? prettyJson(importResult) : t("shell.results.empty.restore")}</pre>
         </article>
       </section>
 
       <section className="card">
-        <h2>Runtime Logs</h2>
+        <h2>{t("shell.logs.title")}</h2>
         <div className="logbox">
-          {logs.length === 0 ? "No logs yet." : logs.map((entry, idx) => (
-            <div key={`${entry.timestamp}-${idx}`} className={`logline ${entry.stream}`}>
-              [{entry.source}] [{entry.stream}] {entry.line}
-            </div>
-          ))}
+          {logs.length === 0
+            ? t("shell.logs.empty")
+            : logs.map((entry, idx) => (
+                <div key={`${entry.timestamp}-${idx}`} className={`logline ${entry.stream}`}>
+                  [{entry.source}] [{entry.stream}] {entry.line}
+                </div>
+              ))}
         </div>
       </section>
 

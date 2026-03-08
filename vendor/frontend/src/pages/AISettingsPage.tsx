@@ -14,6 +14,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useI18n } from "@/i18n";
+import { resolveApiErrorMessage } from "@/lib/backend-messages";
 
 type ProviderPreset = {
   id: string;
@@ -60,6 +62,7 @@ function inferPreset(baseUrl: string | null, model: string): string {
 
 export function AISettingsPage(): JSX.Element {
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const settingsQuery = useQuery({
     queryKey: ["ai-settings"],
     queryFn: fetchAISettings
@@ -95,18 +98,18 @@ export function AISettingsPage(): JSX.Element {
           if (status.status === "connected") {
             setOauthStatus("connected");
             setOauthError(null);
-            toast.success("AI OAuth connected");
+            toast.success(t("pages.aiSettings.toast.oauthConnected"));
             void queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
             return;
           }
           if (status.status === "error") {
             setOauthStatus("error");
-            setOauthError(status.error || "OAuth connection failed");
+            setOauthError(status.error || t("pages.aiSettings.oauth.failed"));
           }
         })
         .catch((error: unknown) => {
           setOauthStatus("error");
-          setOauthError(error instanceof Error ? error.message : "Failed to check OAuth status");
+          setOauthError(resolveApiErrorMessage(error, t, t("pages.aiSettings.error.oauthStatus")));
         });
     }, 1000);
     return () => {
@@ -123,18 +126,18 @@ export function AISettingsPage(): JSX.Element {
       }),
     onSuccess: (result) => {
       if (!result.ok) {
-        setSaveStatus({ ok: false, error: result.error || "Validation failed" });
+        setSaveStatus({ ok: false, error: result.error || t("pages.aiSettings.validationFailed") });
         return;
       }
       setSaveStatus({ ok: true, error: null });
       setApiKey("");
-      toast.success("AI settings saved");
+      toast.success(t("pages.aiSettings.toast.saved"));
       void queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
     },
     onError: (error) => {
       setSaveStatus({
         ok: false,
-        error: error instanceof Error ? error.message : "Failed to save AI settings"
+        error: resolveApiErrorMessage(error, t, t("pages.aiSettings.error.save"))
       });
     }
   });
@@ -149,7 +152,7 @@ export function AISettingsPage(): JSX.Element {
     },
     onError: (error) => {
       setOauthStatus("error");
-      setOauthError(error instanceof Error ? error.message : "Failed to start OAuth flow");
+      setOauthError(resolveApiErrorMessage(error, t, t("pages.aiSettings.error.startOauth")));
     }
   });
   const disconnectMutation = useMutation({
@@ -159,27 +162,27 @@ export function AISettingsPage(): JSX.Element {
       setSaveStatus(null);
       setOauthStatus("idle");
       setOauthError(null);
-      toast.success("AI settings disconnected");
+      toast.success(t("pages.aiSettings.toast.disconnected"));
       void queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to disconnect AI settings");
+      toast.error(resolveApiErrorMessage(error, t, t("pages.aiSettings.error.disconnect")));
     }
   });
 
   const settings = settingsQuery.data;
   const connectionLabel = useMemo(() => {
     if (!settings) {
-      return "Loading…";
+      return t("pages.aiSettings.connection.loading");
     }
     if (settings.oauth_connected && settings.oauth_provider) {
-      return `Connected via ${settings.oauth_provider}`;
+      return t("pages.aiSettings.connection.connectedVia", { provider: settings.oauth_provider });
     }
     if (settings.api_key_set) {
-      return "API key configured";
+      return t("pages.aiSettings.connection.apiKeyConfigured");
     }
-    return "Not configured";
-  }, [settings]);
+    return t("pages.aiSettings.connection.notConfigured");
+  }, [settings, t]);
 
   function applyPreset(presetId: string): void {
     setActivePreset(presetId);
@@ -195,7 +198,7 @@ export function AISettingsPage(): JSX.Element {
     <section className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>AI Assistant</CardTitle>
+          <CardTitle>{t("pages.aiSettings.title")}</CardTitle>
         </CardHeader>
         <CardContent className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
           <p>{connectionLabel}</p>
@@ -204,7 +207,7 @@ export function AISettingsPage(): JSX.Element {
             onClick={() => void disconnectMutation.mutateAsync()}
             disabled={disconnectMutation.isPending}
           >
-            Disconnect
+            {t("common.disconnect")}
           </Button>
         </CardContent>
       </Card>
@@ -213,14 +216,14 @@ export function AISettingsPage(): JSX.Element {
         <CardContent className="pt-6">
           <Tabs defaultValue="api-key" className="space-y-4">
             <TabsList>
-              <TabsTrigger value="api-key">API Key</TabsTrigger>
-              <TabsTrigger value="oauth">Sign in with...</TabsTrigger>
+              <TabsTrigger value="api-key">{t("pages.aiSettings.tab.apiKey")}</TabsTrigger>
+              <TabsTrigger value="oauth">{t("pages.aiSettings.tab.oauth")}</TabsTrigger>
             </TabsList>
 
             <TabsContent value="api-key" className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="ai-provider-preset">Provider</Label>
+                  <Label htmlFor="ai-provider-preset">{t("common.provider")}</Label>
                   <select
                     id="ai-provider-preset"
                     className="h-10 w-full rounded-md border bg-background px-3 text-sm"
@@ -235,7 +238,7 @@ export function AISettingsPage(): JSX.Element {
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="ai-model">Model</Label>
+                  <Label htmlFor="ai-model">{t("common.model")}</Label>
                   <Input
                     id="ai-model"
                     value={model}
@@ -248,7 +251,7 @@ export function AISettingsPage(): JSX.Element {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="ai-base-url">Base URL</Label>
+                <Label htmlFor="ai-base-url">{t("common.baseUrl")}</Label>
                 <Input
                   id="ai-base-url"
                   value={baseUrl}
@@ -256,18 +259,22 @@ export function AISettingsPage(): JSX.Element {
                     setBaseUrl(event.target.value);
                     setActivePreset("custom");
                   }}
-                  placeholder="https://api.x.ai/v1"
+                  placeholder={t("pages.aiSettings.placeholder.baseUrl")}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="ai-api-key">API Key</Label>
+                <Label htmlFor="ai-api-key">{t("pages.aiSettings.field.apiKey")}</Label>
                 <Input
                   id="ai-api-key"
                   type="password"
                   value={apiKey}
                   onChange={(event) => setApiKey(event.target.value)}
-                  placeholder={settings?.api_key_set ? "●●●●●● configured" : "sk-..."}
+                  placeholder={
+                    settings?.api_key_set
+                      ? t("pages.aiSettings.placeholder.apiKeyConfigured")
+                      : t("pages.aiSettings.placeholder.apiKey")
+                  }
                 />
               </div>
 
@@ -276,9 +283,11 @@ export function AISettingsPage(): JSX.Element {
                   onClick={() => void saveMutation.mutateAsync()}
                   disabled={saveMutation.isPending}
                 >
-                  {saveMutation.isPending ? "Testing..." : "Test & Save"}
+                  {saveMutation.isPending ? t("pages.aiSettings.testing") : t("pages.aiSettings.testAndSave")}
                 </Button>
-                {saveStatus?.ok ? <p className="text-sm text-green-600">Saved successfully</p> : null}
+                {saveStatus?.ok ? (
+                  <p className="text-sm text-green-600">{t("pages.aiSettings.savedSuccessfully")}</p>
+                ) : null}
                 {saveStatus && !saveStatus.ok ? (
                   <p className="text-sm text-destructive">{saveStatus.error}</p>
                 ) : null}
@@ -292,37 +301,37 @@ export function AISettingsPage(): JSX.Element {
                   onClick={() => void oauthMutation.mutateAsync("openai-codex")}
                   disabled={oauthMutation.isPending || oauthStatus === "pending"}
                 >
-                  Connect with ChatGPT
+                  {t("pages.aiSettings.connect.chatgpt")}
                 </Button>
                 <Button
                   variant="outline"
                   disabled
-                  title="Not supported yet in this backend build."
+                  title={t("pages.aiSettings.connect.unsupportedTitle")}
                 >
-                  Connect with GitHub Copilot (coming soon)
+                  {t("pages.aiSettings.connect.githubComingSoon")}
                 </Button>
                 <Button
                   variant="outline"
                   disabled
-                  title="Not supported yet in this backend build."
+                  title={t("pages.aiSettings.connect.unsupportedTitle")}
                 >
-                  Connect with Google (coming soon)
+                  {t("pages.aiSettings.connect.googleComingSoon")}
                 </Button>
               </div>
               {SUPPORTED_OAUTH_PROVIDERS.size < 3 ? (
                 <p className="text-xs text-muted-foreground">
-                  Additional OAuth providers will be enabled once backend support lands.
+                  {t("pages.aiSettings.additionalProviders")}
                 </p>
               ) : null}
 
               {oauthStatus === "pending" ? (
-                <p className="text-sm text-muted-foreground">Waiting for OAuth callback...</p>
+                <p className="text-sm text-muted-foreground">{t("pages.aiSettings.oauth.waiting")}</p>
               ) : null}
               {oauthStatus === "connected" ? (
-                <p className="text-sm text-green-600">Connected successfully</p>
+                <p className="text-sm text-green-600">{t("pages.aiSettings.oauth.connected")}</p>
               ) : null}
               {oauthStatus === "error" ? (
-                <p className="text-sm text-destructive">{oauthError || "OAuth failed"}</p>
+                <p className="text-sm text-destructive">{oauthError || t("pages.aiSettings.oauth.failed")}</p>
               ) : null}
             </TabsContent>
           </Tabs>

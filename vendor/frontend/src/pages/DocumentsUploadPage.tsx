@@ -19,6 +19,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useI18n } from "@/i18n";
+import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import { cn } from "@/lib/utils";
 import { jsonObjectStringSchema } from "@/lib/json-object-field";
 import { formatDateTime } from "@/utils/format";
@@ -42,32 +44,42 @@ function isTerminalOcrStatus(status: string | undefined): status is TerminalOcrS
   return TERMINAL_OCR_STATUSES.has(status as TerminalOcrStatus);
 }
 
-const uploadFormSchema = z.object({
-  file: z
-    .custom<File | null>((value) => value === null || value instanceof File)
-    .refine((value): value is File => value instanceof File, {
-      message: "Select a file before uploading."
-    }),
-  source: z.string().trim().min(1, "Source is required.").max(120, "Source must be 120 characters or less."),
-  metadataJson: jsonObjectStringSchema("Metadata")
-});
+type UploadFormInput = {
+  file: File | null;
+  source: string;
+  metadataJson: string;
+};
 
-type UploadFormInput = z.input<typeof uploadFormSchema>;
-type UploadFormOutput = z.output<typeof uploadFormSchema>;
+type UploadFormOutput = {
+  file: File;
+  source: string;
+  metadataJson: Record<string, unknown>;
+};
 
 const UPLOAD_STATE_CONFIG: Record<
   UploadStatus,
-  { label: string; className: string; Icon: typeof Loader2 | null; spin?: boolean }
+  { className: string; Icon: typeof Loader2 | null; spin?: boolean }
 > = {
-  idle:       { label: "Ready",           className: "bg-muted text-muted-foreground",     Icon: null },
-  uploading:  { label: "Uploading…",      className: "bg-primary/10 text-primary",         Icon: Loader2, spin: true },
-  processing: { label: "Processing OCR…", className: "bg-chart-3/10 text-chart-3",         Icon: Loader2, spin: true },
-  done:       { label: "Complete",        className: "bg-success/10 text-success",          Icon: CheckCircle2 },
-  error:      { label: "Failed",          className: "bg-destructive/10 text-destructive",  Icon: XCircle },
+  idle:       { className: "bg-muted text-muted-foreground",     Icon: null },
+  uploading:  { className: "bg-primary/10 text-primary",         Icon: Loader2, spin: true },
+  processing: { className: "bg-chart-3/10 text-chart-3",         Icon: Loader2, spin: true },
+  done:       { className: "bg-success/10 text-success",         Icon: CheckCircle2 },
+  error:      { className: "bg-destructive/10 text-destructive", Icon: XCircle },
 };
 
 function UploadStateChip({ state }: { state: UploadStatus }): JSX.Element {
+  const { t } = useI18n();
   const config = UPLOAD_STATE_CONFIG[state] ?? UPLOAD_STATE_CONFIG.idle;
+  const labelKey =
+    state === "uploading"
+      ? "pages.documentsUpload.state.uploading"
+      : state === "processing"
+        ? "pages.documentsUpload.state.processing"
+        : state === "done"
+          ? "pages.documentsUpload.state.done"
+          : state === "error"
+            ? "pages.documentsUpload.state.error"
+            : "pages.documentsUpload.state.idle";
   return (
     <span
       className={cn(
@@ -78,7 +90,7 @@ function UploadStateChip({ state }: { state: UploadStatus }): JSX.Element {
       {config.Icon ? (
         <config.Icon className={cn("h-3 w-3 shrink-0", config.spin && "animate-spin")} />
       ) : null}
-      {config.label}
+      {t(labelKey)}
     </span>
   );
 }
@@ -92,6 +104,7 @@ function ocrStatusClass(status: string): string {
 }
 
 export function DocumentsUploadPage(): JSX.Element {
+  const { t } = useI18n();
   const [uploadResult, setUploadResult] = useState<DocumentUploadResponse | null>(null);
   const [processResult, setProcessResult] = useState<DocumentProcessResponse | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
@@ -99,6 +112,24 @@ export function DocumentsUploadPage(): JSX.Element {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState<boolean>(false);
   const [uploadState, setUploadState] = useState<UploadStatus>("idle");
+
+  const uploadFormSchema = useMemo(
+    () =>
+      z.object({
+        file: z
+          .custom<File | null>((value) => value === null || value instanceof File)
+          .refine((value): value is File => value instanceof File, {
+            message: t("pages.documentsUpload.fileRequired")
+          }),
+        source: z
+          .string()
+          .trim()
+          .min(1, t("pages.documentsUpload.sourceRequired"))
+          .max(120, t("pages.documentsUpload.sourceTooLong")),
+        metadataJson: jsonObjectStringSchema("Metadata")
+      }),
+    [t]
+  );
 
   const lastStatusRef = useRef<string | null>(null);
 
@@ -157,12 +188,13 @@ export function DocumentsUploadPage(): JSX.Element {
       return;
     }
     lastStatusRef.current = statusKey;
-    const title = `Status ${statusQuery.data.status}`;
-    const detail = `Review: ${statusQuery.data.review_status || "unknown"}${
-      statusQuery.data.ocr_confidence !== null
-        ? `, OCR confidence: ${statusQuery.data.ocr_confidence.toFixed(3)}`
-        : ""
-    }`;
+    const confidenceSuffix =
+      statusQuery.data.ocr_confidence !== null ? `, OCR confidence: ${statusQuery.data.ocr_confidence.toFixed(3)}` : "";
+    const title = t("pages.documentsUpload.timeline.status", { status: statusQuery.data.status });
+    const detail = t("pages.documentsUpload.timeline.review", {
+      reviewStatus: statusQuery.data.review_status || "unknown",
+      confidenceSuffix
+    });
     setTimeline((previous) => [
       {
         key: `${statusKey}:${Date.now()}`,
@@ -191,16 +223,19 @@ export function DocumentsUploadPage(): JSX.Element {
       setTimeline([
         {
           key: `upload:${result.document_id}:${Date.now()}`,
-          title: "Upload complete",
-          detail: `Document ${result.document_id} stored with MIME ${result.mime_type}.`,
+          title: t("pages.documentsUpload.timeline.uploadTitle"),
+          detail: t("pages.documentsUpload.timeline.uploadComplete", {
+            documentId: result.document_id,
+            mimeType: result.mime_type
+          }),
           createdAt: new Date().toISOString()
         }
       ]);
       lastStatusRef.current = null;
-      setStatusMessage("Document uploaded. You can now trigger OCR processing.");
+      setStatusMessage(t("pages.documentsUpload.uploaded"));
       setUploadState("idle");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Upload failed");
+      setErrorMessage(resolveApiErrorMessage(error, t, t("pages.documentsUpload.uploadFailed")));
       setUploadState("error");
     }
   });
@@ -214,19 +249,24 @@ export function DocumentsUploadPage(): JSX.Element {
     setUploadState("processing");
     try {
       const result = await processMutation.mutateAsync(uploadResult.document_id);
+      const reusedSuffix = result.reused ? " (reused)" : "";
       setProcessResult(result);
       setTimeline((previous) => [
         {
           key: `process:${result.job_id}:${Date.now()}`,
-          title: "Processing started",
-          detail: `Job ${result.job_id} status: ${result.status}${result.reused ? " (reused)" : ""}.`,
+          title: t("pages.documentsUpload.timeline.processTitle"),
+          detail: t("pages.documentsUpload.timeline.processDetail", {
+            jobId: result.job_id,
+            status: result.status,
+            reusedSuffix
+          }),
           createdAt: new Date().toISOString()
         },
         ...previous
       ]);
-      setStatusMessage("OCR processing triggered. Status will update automatically.");
+      setStatusMessage(t("pages.documentsUpload.processingStarted"));
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to start processing");
+      setErrorMessage(resolveApiErrorMessage(error, t, t("pages.documentsUpload.processFailed")));
       setUploadState("error");
     }
   }
@@ -265,7 +305,7 @@ export function DocumentsUploadPage(): JSX.Element {
     <section className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>OCR Document Upload</CardTitle>
+          <CardTitle>{t("pages.documentsUpload.title")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div
@@ -284,13 +324,13 @@ export function DocumentsUploadPage(): JSX.Element {
                 dropActive ? "text-primary" : "text-muted-foreground/40"
               )}
             />
-            <p className="text-sm font-medium">Drop a receipt here, or choose a file</p>
+            <p className="text-sm font-medium">{t("pages.documentsUpload.dropTitle")}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              PDF, image, or text — processed automatically by OCR.
+              {t("pages.documentsUpload.dropDescription")}
             </p>
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
               <Input
-                aria-label="Choose document file"
+                aria-label={t("pages.documentsUpload.chooseFile")}
                 type="file"
                 className="max-w-xs"
                 onChange={handleFileInputChange}
@@ -306,14 +346,14 @@ export function DocumentsUploadPage(): JSX.Element {
 
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="document-source">Source</Label>
+              <Label htmlFor="document-source">{t("pages.documentsUpload.source")}</Label>
               <Input id="document-source" placeholder="ocr_upload" {...form.register("source")} />
               {form.formState.errors.source ? (
                 <p className="text-xs text-destructive">{form.formState.errors.source.message}</p>
               ) : null}
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="document-metadata">Metadata JSON</Label>
+              <Label htmlFor="document-metadata">{t("pages.documentsUpload.metadataJson")}</Label>
               <Textarea id="document-metadata" rows={5} {...form.register("metadataJson")} />
               {form.formState.errors.metadataJson ? (
                 <p className="text-xs text-destructive">{form.formState.errors.metadataJson.message}</p>
@@ -327,16 +367,20 @@ export function DocumentsUploadPage(): JSX.Element {
               onClick={() => void handleUpload()}
               disabled={!selectedFile || uploadMutation.isPending}
             >
-              {uploadMutation.isPending ? "Uploading..." : "Upload document"}
+              {uploadMutation.isPending ? t("pages.documentsUpload.uploading") : t("pages.documentsUpload.upload")}
             </Button>
             <Button
               type="button"
               variant="outline"
-              aria-label={processMutation.isPending ? "Starting OCR process" : "Trigger OCR process"}
+              aria-label={
+                processMutation.isPending
+                  ? t("pages.documentsUpload.startingProcessAria")
+                  : t("pages.documentsUpload.triggerProcessAria")
+              }
               onClick={() => void handleProcess()}
               disabled={!uploadResult || processMutation.isPending}
             >
-              {processMutation.isPending ? "Starting…" : "Trigger OCR"}
+              {processMutation.isPending ? t("pages.documentsUpload.startingProcess") : t("pages.documentsUpload.triggerProcess")}
             </Button>
             <UploadStateChip state={uploadState} />
             <span className="sr-only" aria-live="polite">
@@ -346,13 +390,13 @@ export function DocumentsUploadPage(): JSX.Element {
 
           {statusMessage ? (
             <Alert>
-              <AlertTitle>Status</AlertTitle>
+              <AlertTitle>{t("pages.documentsUpload.statusTitle")}</AlertTitle>
               <AlertDescription>{statusMessage}</AlertDescription>
             </Alert>
           ) : null}
           {errorMessage ? (
             <Alert variant="destructive">
-              <AlertTitle>Action failed</AlertTitle>
+              <AlertTitle>{t("pages.documentsUpload.actionFailed")}</AlertTitle>
               <AlertDescription>{errorMessage}</AlertDescription>
             </Alert>
           ) : null}
@@ -361,12 +405,12 @@ export function DocumentsUploadPage(): JSX.Element {
 
       <Card>
         <CardHeader>
-          <CardTitle>Status Timeline</CardTitle>
+          <CardTitle>{t("pages.documentsUpload.timelineTitle")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="font-mono text-xs">
-              {uploadResult?.document_id ? `doc: ${uploadResult.document_id}` : "No document yet"}
+              {uploadResult?.document_id ? `doc: ${uploadResult.document_id}` : t("pages.documentsUpload.noDocument")}
             </Badge>
             {processResult?.job_id ? (
               <Badge variant="outline" className="font-mono text-xs">
@@ -378,7 +422,7 @@ export function DocumentsUploadPage(): JSX.Element {
             </Badge>
           </div>
           {timelineItems.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No timeline events yet.</p>
+            <p className="text-sm text-muted-foreground">{t("pages.documentsUpload.noTimeline")}</p>
           ) : (
             <ol className="relative space-y-3 border-l-2 border-border pl-5">
               {timelineItems.map((event) => (

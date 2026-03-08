@@ -1,8 +1,8 @@
 :root {
   color-scheme: dark;
-  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #111827;
-  color: #e5e7eb;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background: #12151c;
+  color: #f5f1e8;
 }
 
 * {
@@ -12,21 +12,35 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: radial-gradient(circle at top right, #1f2937, #0b1020 60%);
+  background:
+    radial-gradient(circle at top right, rgba(230, 170, 90, 0.2), transparent 30%),
+    radial-gradient(circle at top left, rgba(76, 146, 226, 0.15), transparent 28%),
+    linear-gradient(135deg, #171c25 0%, #0d1117 55%, #151a22 100%);
 }
 
 .shell {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 24px 24px 40px;
   display: grid;
-  gap: 16px;
+  gap: 18px;
 }
 
 h1,
 h2,
 p {
   margin: 0;
+}
+
+h1 {
+  font-size: clamp(2rem, 3vw, 2.8rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+h2 {
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
 }
 
 .grid {
@@ -39,12 +53,46 @@ p {
 }
 
 .card {
-  background: rgba(17, 24, 39, 0.75);
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 12px;
-  padding: 16px;
+  background: rgba(17, 22, 31, 0.82);
+  border: 1px solid rgba(241, 222, 183, 0.14);
+  border-radius: 18px;
+  padding: 18px;
   display: grid;
   gap: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(14px);
+}
+
+.shell-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 4px 6px;
+}
+
+.shell-subtitle {
+  max-width: 56rem;
+  color: rgba(245, 241, 232, 0.74);
+  line-height: 1.5;
+}
+
+.eyebrow {
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 0.72rem;
+  color: #e4b56a;
+}
+
+.locale-switcher {
+  min-width: 180px;
+  align-self: flex-start;
+}
+
+.locale-switcher span {
+  font-size: 0.8rem;
+  color: rgba(245, 241, 232, 0.68);
 }
 
 label {
@@ -94,12 +142,16 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button:not(:disabled):hover {
+  filter: brightness(1.06);
+}
+
 pre {
   margin: 0;
   padding: 12px;
   border-radius: 8px;
-  background: rgba(15, 23, 42, 0.9);
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(8, 12, 18, 0.88);
+  border: 1px solid rgba(241, 222, 183, 0.12);
   overflow: auto;
   max-height: 260px;
 }
@@ -123,7 +175,21 @@ pre {
 .error {
   margin: 0;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: 12px;
   border: 1px solid #ef4444;
   background: rgba(127, 29, 29, 0.45);
+}
+
+@media (max-width: 720px) {
+  .shell {
+    padding-inline: 16px;
+  }
+
+  .shell-header {
+    flex-direction: column;
+  }
+
+  .locale-switcher {
+    width: 100%;
+  }
 }

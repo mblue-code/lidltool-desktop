@@ -1,11 +1,18 @@
 import { ipcMain } from "electron";
-import type { BackupRequest, ExportRequest, ImportRequest, SyncRequest } from "@shared/contracts";
+import type { BackupRequest, DesktopLocale, ExportRequest, ImportRequest, SyncRequest } from "@shared/contracts";
 import { DesktopRuntime } from "./runtime";
 
-export function registerIpc(runtime: DesktopRuntime, getBootError: () => string | null): void {
+export function registerIpc(
+  runtime: DesktopRuntime,
+  getBootError: () => string | null,
+  getLocale: () => DesktopLocale,
+  setLocale: (locale: DesktopLocale) => DesktopLocale
+): void {
   ipcMain.handle("desktop:get-config", () => runtime.getConfig());
+  ipcMain.handle("desktop:locale:get", () => getLocale());
   ipcMain.handle("desktop:boot-error:get", () => getBootError());
   ipcMain.handle("desktop:backend:status", () => runtime.getBackendStatus());
+  ipcMain.handle("desktop:locale:set", (_event, locale: DesktopLocale) => setLocale(locale));
   ipcMain.handle("desktop:backend:start", async () => await runtime.startBackend());
   ipcMain.handle("desktop:backend:stop", async () => await runtime.stopBackend());
   ipcMain.handle("desktop:app:url", async () => {

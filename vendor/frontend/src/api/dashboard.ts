@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { apiClient } from "@/lib/api-client";
+import type { ApiWarning } from "@/lib/api-messages";
 
 const DashboardCardsResponseSchema = z.object({
   totals: z.object({
@@ -73,7 +74,7 @@ export type SavingsBreakdownResponse = z.infer<typeof SavingsBreakdownResponseSc
 export type RetailerCompositionResponse = z.infer<typeof RetailerCompositionResponseSchema>;
 export type DashboardResponseWithWarnings<T> = {
   result: T;
-  warnings: string[];
+  warnings: ApiWarning[];
 };
 
 function sourceIdsParam(sourceIds?: string[]): string | undefined {

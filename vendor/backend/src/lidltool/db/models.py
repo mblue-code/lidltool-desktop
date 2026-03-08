@@ -117,6 +117,7 @@ class User(Base):
     user_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     username: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    preferred_locale: Mapped[str | None] = mapped_column(String(8), nullable=True)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

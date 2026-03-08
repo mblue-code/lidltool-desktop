@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { ApiDomainError, ApiTransportError } from "@/lib/api-errors";
+import type { ApiWarning } from "@/lib/api-messages";
 import { emitApiWarnings } from "@/lib/api-warnings";
 import { parseEnvelopeResult } from "@/lib/envelope";
 import { getRequestScopeQueryParam } from "@/lib/request-scope";
@@ -20,7 +21,7 @@ type RequestOptions<T> = {
 
 type ApiResultWithWarnings<T> = {
   result: T;
-  warnings: string[];
+  warnings: ApiWarning[];
 };
 
 function buildUrl(path: string, query?: Record<string, QueryParamValue>): URL {
@@ -53,7 +54,7 @@ function mergeHeaders(headers?: HeadersInit): Headers {
   return merged;
 }
 
-async function request<T>({ path, query, init, schema }: RequestOptions<T>): Promise<{ result: T; warnings: string[] }> {
+async function request<T>({ path, query, init, schema }: RequestOptions<T>): Promise<{ result: T; warnings: ApiWarning[] }> {
   const url = buildUrl(path, query);
   const response = await fetch(url.toString(), {
     credentials: "include",

@@ -10,6 +10,7 @@ import { fetchReliabilitySlo } from "@/api/reliability";
 import { fetchReviewQueue, fetchReviewQueueDetail } from "@/api/reviewQueue";
 import { fetchAutomationExecutions, fetchAutomationRules } from "@/api/automations";
 import { fetchTransactionDetail, fetchTransactionHistory, fetchTransactions } from "@/api/transactions";
+import { warningCacheKey, type ApiWarning } from "@/lib/api-messages";
 
 export type DashboardDiscountView = "native" | "normalized";
 export type DashboardPeriodMode = "month" | "range" | "year";
@@ -95,8 +96,12 @@ export function dashboardPanelsQueryOptions(params: {
   const { year, periodMode, month, startMonth, endMonth, view, sourceIds } = params;
   const normalizedSourceIds = Array.from(new Set(sourceIds.map((value) => value.trim()).filter(Boolean))).sort();
 
-  function uniqueWarnings(values: Array<{ warnings: string[] }>): string[] {
-    return Array.from(new Set(values.flatMap((value) => value.warnings)));
+  function uniqueWarnings(values: Array<{ warnings: ApiWarning[] }>): ApiWarning[] {
+    const deduped = new Map<string, ApiWarning>();
+    for (const warning of values.flatMap((value) => value.warnings)) {
+      deduped.set(warningCacheKey(warning), warning);
+    }
+    return Array.from(deduped.values());
   }
 
   function safeRatio(numerator: number, denominator: number): number {

@@ -5,6 +5,7 @@ import type {
   BackupRequest,
   CommandLogEvent,
   CommandResult,
+  DesktopLocale,
   ExportRequest,
   ImportRequest,
   SyncRequest
@@ -12,8 +13,10 @@ import type {
 
 const api = {
   getConfig: async (): Promise<BackendConfig> => await ipcRenderer.invoke("desktop:get-config"),
+  getLocale: async (): Promise<DesktopLocale> => await ipcRenderer.invoke("desktop:locale:get"),
   getBootError: async (): Promise<string | null> => await ipcRenderer.invoke("desktop:boot-error:get"),
   getBackendStatus: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:status"),
+  setLocale: async (locale: DesktopLocale): Promise<DesktopLocale> => await ipcRenderer.invoke("desktop:locale:set", locale),
   startBackend: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:start"),
   stopBackend: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:stop"),
   openFullApp: async (): Promise<string> => await ipcRenderer.invoke("desktop:app:url"),
@@ -37,6 +40,15 @@ const api = {
     ipcRenderer.on("desktop:boot-error", listener);
     return () => {
       ipcRenderer.removeListener("desktop:boot-error", listener);
+    };
+  },
+  onLocaleChanged: (handler: (locale: DesktopLocale) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, locale: DesktopLocale): void => {
+      handler(locale);
+    };
+    ipcRenderer.on("desktop:locale-changed", listener);
+    return () => {
+      ipcRenderer.removeListener("desktop:locale-changed", listener);
     };
   }
 };

@@ -22,7 +22,10 @@ import { normalizeRuntimeMessagesForPersistence } from "@/chat/ui/runtime-messag
 import { ChatUiSpec } from "@/chat/ui/spec";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { type TranslationKey, useI18n } from "@/i18n";
+import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import { cn } from "@/lib/utils";
+import { formatDateTime } from "@/utils/format";
 
 type DisplayMessage = {
   id: string;
@@ -127,6 +130,7 @@ function createMessageIdempotencyKey(): string {
 
 export function ChatWorkspacePage(): JSX.Element {
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [isComposingNewThread, setIsComposingNewThread] = useState(false);
   const [input, setInput] = useState("");
@@ -190,7 +194,7 @@ export function ChatWorkspacePage(): JSX.Element {
     return agent.subscribe((event) => {
       if (event.type === "message_update") {
         if (event.assistantMessageEvent.type === "error") {
-          setStreamError(event.assistantMessageEvent.error.errorMessage || "Agent stream failed");
+          setStreamError(event.assistantMessageEvent.error.errorMessage || t("pages.chatWorkspace.error.streamFailed"));
         }
         const message = event.message as any;
         if (message.role === "assistant") {
@@ -211,7 +215,7 @@ export function ChatWorkspacePage(): JSX.Element {
         }
       }
     });
-  }, [agent]);
+  }, [agent, t]);
 
   const abandonMutation = useMutation({
     mutationFn: async (threadId: string) =>
@@ -261,7 +265,7 @@ export function ChatWorkspacePage(): JSX.Element {
       return;
     }
     if (!agent || !configQuery.data) {
-      setStreamError("AI agent configuration is unavailable.");
+      setStreamError(t("pages.chatWorkspace.error.configUnavailable"));
       return;
     }
 
@@ -308,7 +312,7 @@ export function ChatWorkspacePage(): JSX.Element {
       });
       runPersisted = true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Chat stream failed";
+      const message = resolveApiErrorMessage(error, t, t("pages.chatWorkspace.error.streamFailed"));
       setStreamError(message);
       const elapsedMs = Math.max(1, Math.round(performance.now() - runStartedAtRef.current));
       try {
@@ -351,13 +355,15 @@ export function ChatWorkspacePage(): JSX.Element {
   }
 
   const threads = threadsQuery.data?.items ?? [];
+  const threadStatusLabel = (status: "idle" | "streaming" | "failed"): string =>
+    t(`pages.chatWorkspace.streamStatus.${status}` as TranslationKey);
 
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Chat</h2>
-          <p className="text-sm text-muted-foreground">Persistent threads with server-side history.</p>
+          <h2 className="text-2xl font-semibold tracking-tight">{t("pages.chatWorkspace.title")}</h2>
+          <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.subtitle")}</p>
         </div>
         <Button
           type="button"
@@ -368,18 +374,20 @@ export function ChatWorkspacePage(): JSX.Element {
             setStreamError(null);
           }}
         >
-          New chat
+          {t("pages.chatWorkspace.newChat")}
         </Button>
       </div>
 
       <div className="grid min-h-[70vh] gap-4 md:grid-cols-[280px_1fr]">
         <Card className="overflow-hidden">
           <CardHeader className="border-b py-3">
-            <h3 className="text-sm font-semibold">Threads</h3>
+            <h3 className="text-sm font-semibold">{t("pages.chatWorkspace.threadsTitle")}</h3>
           </CardHeader>
           <CardContent className="max-h-[70vh] space-y-2 overflow-y-auto py-3">
-            {threadsQuery.isPending ? <p className="text-sm text-muted-foreground">Loading threads...</p> : null}
-            {threads.length === 0 ? <p className="text-sm text-muted-foreground">No threads yet.</p> : null}
+            {threadsQuery.isPending ? (
+              <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingThreads")}</p>
+            ) : null}
+            {threads.length === 0 ? <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.noThreads")}</p> : null}
             {threads.map((thread) => (
               <button
                 key={thread.thread_id}
@@ -396,10 +404,10 @@ export function ChatWorkspacePage(): JSX.Element {
                 )}
               >
                 <p className="truncate text-sm font-medium">{thread.title}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{new Date(thread.updated_at).toLocaleString()}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(thread.updated_at)}</p>
                 {thread.stream_status !== "idle" ? (
                   <Badge variant={thread.stream_status === "failed" ? "destructive" : "secondary"} className="mt-2">
-                    {thread.stream_status}
+                    {threadStatusLabel(thread.stream_status)}
                   </Badge>
                 ) : null}
               </button>
@@ -411,11 +419,12 @@ export function ChatWorkspacePage(): JSX.Element {
           <CardHeader className="border-b py-3">
             <div className="flex items-center justify-between gap-2">
               <h3 className="truncate text-sm font-semibold">
-                {selectedThread?.title ?? (isComposingNewThread ? "New chat" : "Chat")}
+                {selectedThread?.title ??
+                  (isComposingNewThread ? t("pages.chatWorkspace.thread.new") : t("pages.chatWorkspace.thread.empty"))}
               </h3>
               {selectedThread ? (
                 <Badge variant={selectedThread.stream_status === "failed" ? "destructive" : "secondary"}>
-                  {selectedThread.stream_status}
+                  {threadStatusLabel(selectedThread.stream_status)}
                 </Badge>
               ) : null}
             </div>
@@ -424,39 +433,43 @@ export function ChatWorkspacePage(): JSX.Element {
           <CardContent className="flex flex-1 flex-col gap-3 py-4">
             {selectedThread?.stream_status === "streaming" ? (
               <Alert>
-                <AlertTitle>Response may have been interrupted</AlertTitle>
+                <AlertTitle>{t("pages.chatWorkspace.interruptedTitle")}</AlertTitle>
                 <AlertDescription className="flex items-center justify-between gap-2">
-                  <span>Thread reconnect detected while generation was still active.</span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={abandonMutation.isPending}
-                    onClick={() => void abandonMutation.mutateAsync(selectedThread.thread_id)}
-                  >
-                    Abandon stream
-                  </Button>
+                  <div className="flex w-full items-center justify-between gap-2">
+                    <span>{t("pages.chatWorkspace.interruptedDescription")}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={abandonMutation.isPending}
+                      onClick={() => void abandonMutation.mutateAsync(selectedThread.thread_id)}
+                    >
+                      {t("pages.chatWorkspace.abandonStream")}
+                    </Button>
+                  </div>
                 </AlertDescription>
               </Alert>
             ) : null}
 
             {activeToolLabel ? (
-              <p className="text-xs text-muted-foreground">Searching with {activeToolLabel}...</p>
+              <p className="text-xs text-muted-foreground">
+                {t("pages.chatWorkspace.searchingWithTool", { tool: activeToolLabel })}
+              </p>
             ) : null}
 
             {streamError ? (
               <Alert variant="destructive">
-                <AlertTitle>Chat failed</AlertTitle>
+                <AlertTitle>{t("pages.chatWorkspace.failedTitle")}</AlertTitle>
                 <AlertDescription>{streamError}</AlertDescription>
               </Alert>
             ) : null}
 
             <div className="flex-1 space-y-3 overflow-y-auto rounded-md border bg-muted/20 p-3">
               {messagesQuery.isPending && selectedThreadId ? (
-                <p className="text-sm text-muted-foreground">Loading conversation...</p>
+                <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingConversation")}</p>
               ) : null}
               {displayMessages.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Send a message to start this thread.</p>
+                <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.empty")}</p>
               ) : null}
               {displayMessages.map((message) => (
                 <div
@@ -473,8 +486,10 @@ export function ChatWorkspacePage(): JSX.Element {
                   {message.role === "tool" ? (
                     <details>
                       <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-                        Tool result: {message.toolName ?? "tool"}
-                        {message.toolCallId ? ` (${message.toolCallId})` : ""}
+                        {t("pages.chatWorkspace.toolResult", {
+                          tool: message.toolName ?? "tool",
+                          callId: message.toolCallId ? ` (${message.toolCallId})` : ""
+                        })}
                       </summary>
                       {message.uiSpecs.length > 0 ? (
                         <div className="mt-2 space-y-2">
@@ -486,7 +501,7 @@ export function ChatWorkspacePage(): JSX.Element {
                       {message.content ? (
                         <pre className="mt-2 whitespace-pre-wrap text-xs">{message.content}</pre>
                       ) : message.uiSpecs.length === 0 ? (
-                        <pre className="mt-2 whitespace-pre-wrap text-xs">(no output)</pre>
+                        <pre className="mt-2 whitespace-pre-wrap text-xs">{t("pages.chatWorkspace.noOutput")}</pre>
                       ) : null}
                     </details>
                   ) : (
@@ -506,13 +521,13 @@ export function ChatWorkspacePage(): JSX.Element {
                     event.currentTarget.form?.requestSubmit();
                   }
                 }}
-                placeholder="Ask about your spending, products, or trends... (Enter to send, Shift+Enter for newline)"
+                placeholder={t("pages.chatWorkspace.placeholder")}
                 rows={4}
                 disabled={streaming}
               />
               <div className="flex justify-end">
                 <Button type="submit" disabled={streaming || input.trim().length === 0 || !agent}>
-                  {streaming ? "Generating..." : "Send"}
+                  {streaming ? t("pages.chatWorkspace.generating") : t("pages.chatWorkspace.send")}
                 </Button>
               </div>
             </form>
