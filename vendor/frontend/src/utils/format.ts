@@ -1,12 +1,18 @@
+import { resolveIntlLocale } from "@/i18n";
+
 export function formatEurFromCents(value: number): string {
-  return new Intl.NumberFormat("de-DE", {
+  return new Intl.NumberFormat(resolveIntlLocale(), {
     style: "currency",
     currency: "EUR"
   }).format(value / 100);
 }
 
 export function formatPercent(value: number): string {
-  return `${(value * 100).toFixed(2)}%`;
+  return new Intl.NumberFormat(resolveIntlLocale(), {
+    style: "percent",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
 }
 
 export function formatDateTime(value: string): string {
@@ -14,7 +20,7 @@ export function formatDateTime(value: string): string {
   if (Number.isNaN(date.valueOf())) {
     return value;
   }
-  return new Intl.DateTimeFormat("de-DE", {
+  return new Intl.DateTimeFormat(resolveIntlLocale(), {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(date);

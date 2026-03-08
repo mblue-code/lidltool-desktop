@@ -56,7 +56,7 @@ const AISettingsPage = lazy(() =>
   pageLoaders.aiSettings().then((module) => ({ default: module.AISettingsPage }))
 );
 
-function TransactionsRedirect(): JSX.Element {
+function TransactionsRedirect() {
   const location = useLocation();
   return <Navigate to={{ pathname: "/receipts", search: location.search, hash: location.hash }} replace />;
 }

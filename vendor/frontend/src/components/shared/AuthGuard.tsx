@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
@@ -13,10 +14,10 @@ type AuthState =
   | { status: "authenticated"; user: CurrentUser };
 
 type AuthGuardProps = {
-  children: (user: CurrentUser) => JSX.Element;
+  children: (user: CurrentUser) => React.JSX.Element;
 };
 
-export function AuthGuard({ children }: AuthGuardProps): JSX.Element {
+export function AuthGuard({ children }: AuthGuardProps) {
   const [auth, setAuth] = useState<AuthState>({ status: "loading" });
   const location = useLocation();
 

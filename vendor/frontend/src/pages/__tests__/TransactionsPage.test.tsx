@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TransactionsPage } from "../TransactionsPage";
 
-function LocationProbe(): JSX.Element {
+function LocationProbe() {
   const location = useLocation();
   return <output data-testid="transactions-location-search">{location.search}</output>;
 }

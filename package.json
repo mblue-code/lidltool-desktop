@@ -6,9 +6,10 @@
   "main": "out/main/index.js",
   "type": "module",
   "scripts": {
-    "vendor:sync": "node ./scripts/sync-vendor.mjs && npm run vendor:patch-frontend",
+    "vendor:sync": "node ./scripts/sync-vendor.mjs && npm run vendor:patch-frontend && npm run vendor:patch-backend",
     "vendor:patch-frontend": "node ./scripts/patch-vendored-frontend.mjs",
-    "frontend:install": "npm --prefix ./vendor/frontend install",
+    "vendor:patch-backend": "node ./scripts/patch-vendored-backend.mjs",
+    "frontend:install": "npm --prefix ./vendor/frontend ci",
     "frontend:build": "npm run vendor:patch-frontend && npm --prefix ./vendor/frontend run build",
     "backend:prepare": "node ./scripts/prepare-backend.mjs",
     "assets:sync": "node ./scripts/sync-assets.mjs",

@@ -33,51 +33,52 @@ import { useAccessScope } from "@/app/scope-provider";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { type TranslationKey, isSupportedLocale, useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
   to: string;
-  label: string;
+  labelKey: TranslationKey;
   icon: LucideIcon;
 };
 
 type NavGroup = {
-  label: string;
+  labelKey: TranslationKey;
   items: NavItem[];
 };
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    label: "Analytics",
+    labelKey: "nav.group.analytics",
     items: [
-      { to: "/", label: "Overview", icon: LayoutDashboard },
-      { to: "/explore", label: "Explore", icon: Search },
-      { to: "/products", label: "Products", icon: Package },
-      { to: "/compare", label: "Comparisons", icon: GitCompare },
-      { to: "/receipts", label: "Receipts", icon: ReceiptText },
-      { to: "/budget", label: "Budget", icon: Wallet },
-      { to: "/bills", label: "Bills", icon: CalendarCheck },
-      { to: "/patterns", label: "Patterns", icon: TrendingUp }
+      { to: "/", labelKey: "nav.item.overview", icon: LayoutDashboard },
+      { to: "/explore", labelKey: "nav.item.explore", icon: Search },
+      { to: "/products", labelKey: "nav.item.products", icon: Package },
+      { to: "/compare", labelKey: "nav.item.comparisons", icon: GitCompare },
+      { to: "/receipts", labelKey: "nav.item.receipts", icon: ReceiptText },
+      { to: "/budget", labelKey: "nav.item.budget", icon: Wallet },
+      { to: "/bills", labelKey: "nav.item.bills", icon: CalendarCheck },
+      { to: "/patterns", labelKey: "nav.item.patterns", icon: TrendingUp }
     ]
   },
   {
-    label: "Data",
+    labelKey: "nav.group.data",
     items: [
-      { to: "/quality", label: "Data Quality", icon: ShieldCheck },
-      { to: "/connectors", label: "Connectors", icon: Database },
-      { to: "/sources", label: "Sources", icon: Database },
-      { to: "/imports/manual", label: "Manual Import", icon: ReceiptText },
-      { to: "/imports/ocr", label: "OCR Import", icon: Search },
-      { to: "/automations", label: "Automations", icon: Zap }
+      { to: "/quality", labelKey: "nav.item.dataQuality", icon: ShieldCheck },
+      { to: "/connectors", labelKey: "nav.item.connectors", icon: Database },
+      { to: "/sources", labelKey: "nav.item.sources", icon: Database },
+      { to: "/imports/manual", labelKey: "nav.item.manualImport", icon: ReceiptText },
+      { to: "/imports/ocr", labelKey: "nav.item.ocrImport", icon: Search },
+      { to: "/automations", labelKey: "nav.item.automations", icon: Zap }
     ]
   },
   {
-    label: "System",
+    labelKey: "nav.group.system",
     items: [
-      { to: "/chat", label: "Chat", icon: MessageCircle },
-      { to: "/reliability", label: "Reliability", icon: Activity },
-      { to: "/settings/ai", label: "AI Assistant", icon: Zap },
-      { to: "/settings/users", label: "Users", icon: Users }
+      { to: "/chat", labelKey: "nav.item.chat", icon: MessageCircle },
+      { to: "/reliability", labelKey: "nav.item.reliability", icon: Activity },
+      { to: "/settings/ai", labelKey: "nav.item.aiAssistant", icon: Zap },
+      { to: "/settings/users", labelKey: "nav.item.users", icon: Users }
     ]
   }
 ];
@@ -97,13 +98,14 @@ function clampChatPanelWidth(width: number): number {
   return Math.min(maxByViewport, Math.max(CHAT_PANEL_WIDTH_MIN, Math.round(width)));
 }
 
-function NavItems(): JSX.Element {
+function NavItems() {
+  const { t } = useI18n();
   return (
-    <nav className="flex flex-col gap-5" aria-label="Primary">
+    <nav className="flex flex-col gap-5" aria-label={t("nav.primary")}>
       {NAV_GROUPS.map((group) => (
-        <div key={group.label}>
+        <div key={group.labelKey}>
           <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
-            {group.label}
+            {t(group.labelKey)}
           </p>
           <div className="flex flex-col gap-0.5">
             {group.items.map((item) => (
@@ -123,7 +125,7 @@ function NavItems(): JSX.Element {
                 }
               >
                 <item.icon className="h-4 w-4 shrink-0" />
-                {item.label}
+                {t(item.labelKey)}
               </NavLink>
             ))}
           </div>
@@ -145,7 +147,8 @@ function SidebarContent({
   onOpenChat: () => void;
   chatOpen: boolean;
   aiReady: boolean;
-}): JSX.Element {
+}) {
+  const { t } = useI18n();
   return (
     <div className="flex h-full flex-col bg-sidebar">
       {/* Brand */}
@@ -154,8 +157,8 @@ function SidebarContent({
           <Percent className="h-4 w-4" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-sidebar-foreground">Lidl Receipts</p>
-          <p className="text-xs text-sidebar-foreground/50">Spending Analytics</p>
+          <p className="text-sm font-semibold text-sidebar-foreground">{t("app.brand.title")}</p>
+          <p className="text-xs text-sidebar-foreground/50">{t("app.brand.subtitle")}</p>
         </div>
       </div>
 
@@ -171,7 +174,7 @@ function SidebarContent({
           onClick={onOpenChat}
         >
           <MessageCircle className="h-4 w-4" />
-          {chatOpen ? "Close chat" : "Open chat"}
+          {chatOpen ? t("app.chat.close") : t("app.chat.open")}
           {aiReady ? (
             <span className="absolute right-3 inline-flex h-2.5 w-2.5">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/70" />
@@ -189,13 +192,13 @@ function SidebarContent({
               {user.display_name ?? user.username}
             </p>
             {user.is_admin ? (
-              <p className="text-[10px] text-sidebar-foreground/40">Admin</p>
+              <p className="text-[10px] text-sidebar-foreground/40">{t("app.role.admin")}</p>
             ) : null}
           </div>
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Sign out"
+            aria-label={t("action.signOut")}
             className="h-7 w-7 shrink-0 text-sidebar-foreground/50 hover:text-sidebar-foreground"
             onClick={onLogout}
           >
@@ -218,10 +221,11 @@ type AppShellProps = {
   user: CurrentUser;
 };
 
-export function AppShell({ user }: AppShellProps): JSX.Element {
+export function AppShell({ user }: AppShellProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { scope, setScope } = useAccessScope();
+  const { locale, setLocale, t } = useI18n();
   const [chatOpen, setChatOpen] = useState(false);
   const [chatPanelWidth, setChatPanelWidth] = useState<number>(() => {
     if (typeof window === "undefined") {
@@ -292,12 +296,12 @@ export function AppShell({ user }: AppShellProps): JSX.Element {
         href="#main-content"
         className="sr-only rounded-md bg-background px-3 py-2 text-sm font-medium focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50"
       >
-        Skip to main content
+        {t("app.skipToMain")}
       </a>
 
       <div className="flex min-h-screen">
         {/* Desktop sidebar */}
-        <aside className="hidden w-64 md:flex md:flex-col" aria-label="Primary navigation">
+        <aside className="hidden w-64 md:flex md:flex-col" aria-label={t("nav.primary")}>
           <SidebarContent
             user={user}
             onLogout={handleLogout}
@@ -325,7 +329,7 @@ export function AppShell({ user }: AppShellProps): JSX.Element {
               <div className="md:hidden">
                 <Sheet>
                   <SheetTrigger asChild>
-                    <Button variant="outline" size="icon" aria-label="Open navigation menu">
+                    <Button variant="outline" size="icon" aria-label={t("app.aria.openNavigationMenu")}>
                       <Menu className="h-4 w-4" />
                     </Button>
                   </SheetTrigger>
@@ -348,11 +352,29 @@ export function AppShell({ user }: AppShellProps): JSX.Element {
                 {activeNavItem ? (
                   <activeNavItem.icon className="h-4 w-4 text-muted-foreground" />
                 ) : null}
-                <h1 className="text-sm font-semibold">{activeNavItem?.label ?? "Overview"}</h1>
+                <h1 className="text-sm font-semibold">{t(activeNavItem?.labelKey ?? "app.defaultPageTitle")}</h1>
               </div>
 
               <div className="ml-auto flex items-center gap-2">
-                <span className="text-xs font-medium text-muted-foreground">Scope</span>
+                <span className="text-xs font-medium text-muted-foreground">{t("app.header.language")}</span>
+                <Select
+                  value={locale}
+                  onValueChange={(nextLocale) => {
+                    if (isSupportedLocale(nextLocale)) {
+                      setLocale(nextLocale);
+                    }
+                  }}
+                >
+                  <SelectTrigger aria-label={t("app.header.language")} className="h-8 w-[120px] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="en">{t("app.language.english")}</SelectItem>
+                    <SelectItem value="de">{t("app.language.german")}</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <span className="text-xs font-medium text-muted-foreground">{t("app.header.scope")}</span>
                 <Select
                   value={scope}
                   onValueChange={(nextScope) => {
@@ -361,12 +383,12 @@ export function AppShell({ user }: AppShellProps): JSX.Element {
                     }
                   }}
                 >
-                  <SelectTrigger aria-label="Data scope" className="h-8 w-[130px] text-xs">
+                  <SelectTrigger aria-label={t("app.header.scope")} className="h-8 w-[130px] text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="personal">Personal</SelectItem>
-                    <SelectItem value="family">Family</SelectItem>
+                    <SelectItem value="personal">{t("app.scope.personal")}</SelectItem>
+                    <SelectItem value="family">{t("app.scope.family")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

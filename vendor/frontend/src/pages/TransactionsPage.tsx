@@ -155,7 +155,7 @@ function formatFilterValue(key: (typeof FILTER_KEYS)[number], value: string): st
   return value;
 }
 
-export function TransactionsPage(): JSX.Element {
+export function TransactionsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [formValues, setFormValues] = useState<FilterFormValues>(() =>
@@ -397,7 +397,7 @@ export function TransactionsPage(): JSX.Element {
     }
   }
 
-  function renderSortButton(field: SortField, label: string): JSX.Element {
+  function renderSortButton(field: SortField, label: string) {
     const active = sortField === field;
     const activeSortState = active ? (sortDirection === "asc" ? "ascending" : "descending") : "not sorted";
     const icon = !active ? (

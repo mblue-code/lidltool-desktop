@@ -66,7 +66,7 @@ const UPLOAD_STATE_CONFIG: Record<
   error:      { label: "Failed",          className: "bg-destructive/10 text-destructive",  Icon: XCircle },
 };
 
-function UploadStateChip({ state }: { state: UploadStatus }): JSX.Element {
+function UploadStateChip({ state }: { state: UploadStatus }) {
   const config = UPLOAD_STATE_CONFIG[state] ?? UPLOAD_STATE_CONFIG.idle;
   return (
     <span
@@ -91,7 +91,7 @@ function ocrStatusClass(status: string): string {
   }
 }
 
-export function DocumentsUploadPage(): JSX.Element {
+export function DocumentsUploadPage() {
   const [uploadResult, setUploadResult] = useState<DocumentUploadResponse | null>(null);
   const [processResult, setProcessResult] = useState<DocumentProcessResponse | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);

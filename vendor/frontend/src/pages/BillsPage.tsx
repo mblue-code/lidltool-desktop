@@ -104,7 +104,7 @@ function toFormState(bill: RecurringBill): BillFormState {
   };
 }
 
-export function BillsPage(): JSX.Element {
+export function BillsPage() {
   const queryClient = useQueryClient();
   const today = new Date();
 

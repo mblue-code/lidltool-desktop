@@ -82,7 +82,7 @@ function buildPayloadJson(execution: AutomationExecution): string {
   );
 }
 
-export function AutomationInboxPage(): JSX.Element {
+export function AutomationInboxPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const appliedStatusFilter = searchParams.get("status") ?? "";
   const appliedRuleTypeFilter = searchParams.get("rule_type") ?? "";

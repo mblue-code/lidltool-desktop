@@ -180,7 +180,7 @@ function buildTimingFilenameBase(context: TimingCsvContext): string {
   return `timing_${safeView}_${safeSource}_${fromPart}_${toPart}`;
 }
 
-function HeatmapLegend({ maxValue, metricLabel }: { maxValue: number; metricLabel: string }): JSX.Element {
+function HeatmapLegend({ maxValue, metricLabel }: { maxValue: number; metricLabel: string }) {
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-label={`Legend for ${metricLabel}`}>
       <span>{metricLabel}</span>
@@ -204,7 +204,7 @@ function YearlyHeatmapPanel({
   data: HeatmapResponse;
   sourceLabel: string;
   onCellClick: (selection: TimingDrilldownSelection) => void;
-}): JSX.Element {
+}) {
   const maxValue = Math.max(...data.points.map((point) => point.value), 0);
   if (maxValue <= 0) {
     return <p className="text-sm text-muted-foreground">No timing data for this date range.</p>;
@@ -260,7 +260,7 @@ function HourlyHeatmapPanel({
   data: HourHeatmapResponse;
   sourceLabel: string;
   onBarClick: (selection: TimingDrilldownSelection) => void;
-}): JSX.Element {
+}) {
   const maxValue = Math.max(...data.points.map((point) => point.value), 0);
   if (maxValue <= 0) {
     return <p className="text-sm text-muted-foreground">No timing data for this date range.</p>;
@@ -302,7 +302,7 @@ function TimingMatrixPanel({
   data: TimingMatrixResponse;
   sourceLabel: string;
   onCellClick: (selection: TimingDrilldownSelection) => void;
-}): JSX.Element {
+}) {
   const maxValue = Math.max(...data.grid.map((cell) => cell.value), 0);
   if (maxValue <= 0) {
     return <p className="text-sm text-muted-foreground">No timing data for this date range.</p>;
@@ -361,7 +361,7 @@ function TimingMatrixPanel({
   );
 }
 
-function LoadingPanel(): JSX.Element {
+function LoadingPanel() {
   return (
     <div className="space-y-2">
       <Skeleton className="h-4 w-44" />
@@ -371,11 +371,11 @@ function LoadingPanel(): JSX.Element {
   );
 }
 
-function PanelError({ message }: { message: string }): JSX.Element {
+function PanelError({ message }: { message: string }) {
   return <p className="text-sm text-destructive">{message}</p>;
 }
 
-export function PatternsPage(): JSX.Element {
+export function PatternsPage() {
   const navigate = useNavigate();
   const [timingView, setTimingView] = useState<TimingView>("yearly");
   const [valueMode, setValueMode] = useState<TimingValueMode>("gross");
@@ -646,7 +646,7 @@ export function PatternsPage(): JSX.Element {
     query: { isPending: boolean; error: unknown; data: HeatmapResponse | undefined },
     sourceLabel: string,
     sourceParam: string | undefined
-  ): JSX.Element {
+  ) {
     if (query.isPending) {
       return <LoadingPanel />;
     }
@@ -670,7 +670,7 @@ export function PatternsPage(): JSX.Element {
     query: { isPending: boolean; error: unknown; data: HourHeatmapResponse | undefined },
     sourceLabel: string,
     sourceParam: string | undefined
-  ): JSX.Element {
+  ) {
     if (query.isPending) {
       return <LoadingPanel />;
     }
@@ -694,7 +694,7 @@ export function PatternsPage(): JSX.Element {
     query: { isPending: boolean; error: unknown; data: TimingMatrixResponse | undefined },
     sourceLabel: string,
     sourceParam: string | undefined
-  ): JSX.Element {
+  ) {
     if (query.isPending) {
       return <LoadingPanel />;
     }

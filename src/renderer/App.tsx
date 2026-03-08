@@ -57,7 +57,7 @@ function defaultImportDir(userDataDir: string): string {
   return `${trimmed}${separator}backups`;
 }
 
-export default function App(): JSX.Element {
+export default function App() {
   const [{ year, month }] = useState(defaultYearMonth);
   const [config, setConfig] = useState<BackendConfig | null>(null);
   const [backend, setBackend] = useState<BackendStatus | null>(null);

@@ -238,7 +238,7 @@ function toFormState(rule: AutomationRule): AutomationFormValues {
   };
 }
 
-export function AutomationsPage(): JSX.Element {
+export function AutomationsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const offset = parseOffset(searchParams.get("offset"));

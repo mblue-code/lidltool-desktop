@@ -19,7 +19,7 @@ type AccessScopeProviderProps = {
   children: ReactNode;
 };
 
-export function AccessScopeProvider({ children }: AccessScopeProviderProps): JSX.Element {
+export function AccessScopeProvider({ children }: AccessScopeProviderProps) {
   const [scope, setScopeState] = useState<RequestScope>(() => getRequestScope());
   const queryClient = useQueryClient();
   const didMountRef = useRef(false);

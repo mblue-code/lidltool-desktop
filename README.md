@@ -43,6 +43,9 @@ After every sync/build, desktop applies a local vendored frontend compatibility 
 - `scripts/patch-vendored-frontend.mjs`
 - Injects a Vite alias for `@mariozechner/pi-ai` -> `src/shims/pi-ai.ts`
 - Prevents browser Rollup failures caused by Node-only Smithy/stream imports
+- `overrides/frontend` reapplies the intentional desktop-only frontend surface after each vendor sync so the vendored app stays current with main
+- `scripts/patch-vendored-backend.mjs` reapplies the desktop-only system-backup endpoint after each vendor sync
+- `npm run frontend:install` uses `npm ci` against `vendor/frontend/package-lock.json` so desktop reuses the locked React/JSON-renderer graph
 
 ## Prerequisites
 

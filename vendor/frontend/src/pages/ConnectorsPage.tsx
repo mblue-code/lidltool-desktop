@@ -125,7 +125,7 @@ const IDLE_CASCADE: ConnectorCascadeStatus = {
   sources: []
 };
 
-function sourceStatusBadge(status: string | undefined): JSX.Element {
+function sourceStatusBadge(status: string | undefined) {
   if (!status) {
     return <Badge variant="secondary">not configured</Badge>;
   }
@@ -138,7 +138,7 @@ function sourceStatusBadge(status: string | undefined): JSX.Element {
   return <Badge variant="secondary">{status}</Badge>;
 }
 
-function bootstrapStatusBadge(status: ConnectorBootstrapStatus["status"]): JSX.Element {
+function bootstrapStatusBadge(status: ConnectorBootstrapStatus["status"]) {
   if (status === "running") {
     return <Badge className="bg-blue-500/15 text-blue-700">bootstrap running</Badge>;
   }
@@ -151,7 +151,7 @@ function bootstrapStatusBadge(status: ConnectorBootstrapStatus["status"]): JSX.E
   return <Badge variant="secondary">idle</Badge>;
 }
 
-function syncStatusBadge(status: ConnectorSyncStatus["status"]): JSX.Element | null {
+function syncStatusBadge(status: ConnectorSyncStatus["status"]) {
   if (status === "idle") return null;
   if (status === "running") {
     return <Badge className="bg-blue-500/15 text-blue-700">syncing…</Badge>;
@@ -164,7 +164,7 @@ function syncStatusBadge(status: ConnectorSyncStatus["status"]): JSX.Element | n
 
 function cascadeStateBadge(
   state: ConnectorCascadeStatus["sources"][number]["state"]
-): JSX.Element {
+) {
   if (state === "completed") {
     return <Badge className="bg-emerald-500/15 text-emerald-700">completed</Badge>;
   }
@@ -183,7 +183,7 @@ function cascadeStateBadge(
   return <Badge variant="secondary">pending</Badge>;
 }
 
-export function ConnectorsPage(): JSX.Element {
+export function ConnectorsPage() {
   const queryClient = useQueryClient();
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);

@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -14,7 +15,7 @@ import { TransactionDetailPage } from "@/pages/TransactionDetailPage";
 import { TransactionsPage } from "@/pages/TransactionsPage";
 import { runAxeAudit } from "@/test/axe";
 
-function renderRoute(routePath: string, initialEntry: string, element: JSX.Element) {
+function renderRoute(routePath: string, initialEntry: string, element: React.JSX.Element) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false }

@@ -58,7 +58,7 @@ function inferPreset(baseUrl: string | null, model: string): string {
   return found?.id ?? "custom";
 }
 
-export function AISettingsPage(): JSX.Element {
+export function AISettingsPage() {
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({
     queryKey: ["ai-settings"],

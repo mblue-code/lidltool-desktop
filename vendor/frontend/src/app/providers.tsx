@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { AccessScopeProvider } from "@/app/scope-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { I18nProvider, useI18n } from "@/i18n";
 import { isRetryableApiError } from "@/lib/api-errors";
 import { subscribeApiWarnings } from "@/lib/api-warnings";
 
@@ -19,7 +20,27 @@ export function shouldRetryQuery(failureCount: number, error: unknown): boolean 
   return isRetryableApiError(error);
 }
 
-export function AppProviders({ children }: AppProvidersProps): JSX.Element {
+function AppProvidersContent({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
+
+  useEffect(() => {
+    return subscribeApiWarnings((warning) => {
+      toast.warning(t("system.backendWarning"), {
+        description: warning,
+        duration: 7000
+      });
+    });
+  }, [t]);
+
+  return (
+    <>
+      {children}
+      <Toaster richColors position="top-right" />
+    </>
+  );
+}
+
+export function AppProviders({ children }: AppProvidersProps) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -33,23 +54,15 @@ export function AppProviders({ children }: AppProvidersProps): JSX.Element {
       })
   );
 
-  useEffect(() => {
-    return subscribeApiWarnings((warning) => {
-      toast.warning("Backend warning", {
-        description: warning,
-        duration: 7000
-      });
-    });
-  }, []);
-
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-      <QueryClientProvider client={queryClient}>
-        <AccessScopeProvider>
-          {children}
-          <Toaster richColors position="top-right" />
-        </AccessScopeProvider>
-      </QueryClientProvider>
-    </ThemeProvider>
+    <I18nProvider>
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <QueryClientProvider client={queryClient}>
+          <AccessScopeProvider>
+            <AppProvidersContent>{children}</AppProvidersContent>
+          </AccessScopeProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
+    </I18nProvider>
   );
 }

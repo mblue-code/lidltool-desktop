@@ -5,6 +5,6 @@ type AppProps = {
   user: CurrentUser;
 };
 
-export default function App({ user }: AppProps): JSX.Element {
+export default function App({ user }: AppProps) {
   return <AppShell user={user} />;
 }

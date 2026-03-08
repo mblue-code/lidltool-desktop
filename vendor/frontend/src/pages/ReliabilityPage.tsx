@@ -67,7 +67,7 @@ function badgeVariantForHealth(isHealthy: boolean): "default" | "secondary" | "d
   return "destructive";
 }
 
-export function ReliabilityPage(): JSX.Element {
+export function ReliabilityPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const appliedWindowHours = parseIntFilter(searchParams.get("window_hours"), DEFAULT_WINDOW_HOURS, 1);
   const appliedSyncP95TargetMs = parseIntFilter(
