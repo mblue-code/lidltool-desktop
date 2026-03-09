@@ -112,7 +112,7 @@ function parseThreshold(rawValue: string | null, fallback = 0.85): number {
   return Math.min(1, Math.max(0, parsed));
 }
 
-export function ReviewQueuePage(): JSX.Element {
+export function ReviewQueuePage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { t } = useI18n();

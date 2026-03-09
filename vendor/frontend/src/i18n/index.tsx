@@ -268,7 +268,7 @@ const I18nContext = createContext<I18nContextValue>({
   tText: (text) => text
 });
 
-export function I18nProvider({ children }: { children: ReactNode }): JSX.Element {
+export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<SupportedLocale>(() => getStoredLocale());
   const [hasAuthenticatedSession, setHasAuthenticatedSession] = useState(false);
   const [, setSignedInLocale] = useState<SupportedLocale | null>(null);

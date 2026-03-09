@@ -133,7 +133,7 @@ export function ChatPanel({
   panelWidth,
   onPanelWidthChange,
   pageContext
-}: ChatPanelProps): JSX.Element | null {
+}: ChatPanelProps) {
   const queryClient = useQueryClient();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);

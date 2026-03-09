@@ -127,7 +127,7 @@ const IDLE_CASCADE: ConnectorCascadeStatus = {
   sources: []
 };
 
-export function ConnectorsPage(): JSX.Element {
+export function ConnectorsPage() {
   const queryClient = useQueryClient();
   const { t } = useI18n();
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
@@ -345,7 +345,7 @@ export function ConnectorsPage(): JSX.Element {
     cascadeStatus.status
   );
 
-  const sourceStatusBadge = (status: string | undefined): JSX.Element => {
+  const sourceStatusBadge = (status: string | undefined) => {
     if (!status) {
       return <Badge variant="secondary">{t("pages.connectors.sourceStatus.notConfigured")}</Badge>;
     }
@@ -358,7 +358,7 @@ export function ConnectorsPage(): JSX.Element {
     return <Badge variant="secondary">{status}</Badge>;
   };
 
-  const bootstrapStatusBadge = (status: ConnectorBootstrapStatus["status"]): JSX.Element => {
+  const bootstrapStatusBadge = (status: ConnectorBootstrapStatus["status"]) => {
     if (status === "running") {
       return <Badge className="bg-blue-500/15 text-blue-700">{t("pages.connectors.bootstrapStatus.running")}</Badge>;
     }
@@ -375,7 +375,7 @@ export function ConnectorsPage(): JSX.Element {
     return <Badge variant="secondary">{t("common.idle")}</Badge>;
   };
 
-  const syncStatusBadge = (status: ConnectorSyncStatus["status"]): JSX.Element | null => {
+  const syncStatusBadge = (status: ConnectorSyncStatus["status"]) => {
     if (status === "idle") return null;
     if (status === "running") {
       return <Badge className="bg-blue-500/15 text-blue-700">{t("pages.connectors.syncStatus.running")}</Badge>;
@@ -388,7 +388,7 @@ export function ConnectorsPage(): JSX.Element {
     return <Badge variant="destructive">{t("pages.connectors.syncStatus.failed")}</Badge>;
   };
 
-  const cascadeStateBadge = (state: ConnectorCascadeStatus["sources"][number]["state"]): JSX.Element => {
+  const cascadeStateBadge = (state: ConnectorCascadeStatus["sources"][number]["state"]) => {
     if (state === "completed") {
       return <Badge className="bg-emerald-500/15 text-emerald-700">{t("pages.connectors.cascadeState.completed")}</Badge>;
     }

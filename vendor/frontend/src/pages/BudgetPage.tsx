@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatEurFromCents, formatPercent } from "@/utils/format";
 
-export function BudgetPage(): JSX.Element {
+export function BudgetPage() {
   const queryClient = useQueryClient();
   const [scopeType, setScopeType] = useState<"category" | "source_kind">("category");
   const [scopeValue, setScopeValue] = useState("");

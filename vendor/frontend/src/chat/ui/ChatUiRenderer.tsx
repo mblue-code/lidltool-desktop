@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { CSSProperties, ReactNode } from "react";
 import { defineCatalog, type Spec } from "@json-render/core";
 import { JSONUIProvider, defineRegistry, Renderer } from "@json-render/react";
@@ -55,9 +56,9 @@ function chartPointsFromData(
 
 function chartFrame(
   title: string | undefined,
-  body: JSX.Element,
+  body: React.JSX.Element,
   className?: string
-): JSX.Element {
+) {
   return (
     <section className={cn("rounded-lg border bg-background p-3", className)}>
       {title ? <h4 className="mb-3 text-sm font-medium">{title}</h4> : null}
@@ -66,7 +67,7 @@ function chartFrame(
   );
 }
 
-function emptyChartState(text = "No plottable numeric data available."): JSX.Element {
+function emptyChartState(text = "No plottable numeric data available.") {
   return <p className="text-xs text-muted-foreground">{text}</p>;
 }
 
@@ -80,7 +81,7 @@ function MetricCard({
   value: string | number;
   subtitle?: string;
   trend?: { value: string | number; direction: "up" | "down" | "neutral" };
-}): JSX.Element {
+}) {
   const trendClass =
     trend?.direction === "up"
       ? "text-emerald-600"
@@ -107,7 +108,7 @@ function Callout({
   tone: "info" | "success" | "warning" | "error";
   title: string;
   body: string;
-}): JSX.Element {
+}) {
   const toneClassByValue: Record<typeof tone, string> = {
     info: "border-sky-500/40 bg-sky-500/5",
     success: "border-emerald-500/40 bg-emerald-500/5",
@@ -131,7 +132,7 @@ function TableElement({
   title?: string;
   columns: string[];
   rows: Array<Array<string | number | null>>;
-}): JSX.Element {
+}) {
   return chartFrame(
     title,
     <div className="overflow-x-auto">
@@ -179,7 +180,7 @@ function LineChart({
   x: string;
   y: string;
   data: Array<Record<string, unknown>>;
-}): JSX.Element {
+}) {
   const points = chartPointsFromData(data, x, y);
   if (points.length === 0) {
     return chartFrame(title, emptyChartState());
@@ -259,7 +260,7 @@ function BarChart({
   x: string;
   y: string;
   data: Array<Record<string, unknown>>;
-}): JSX.Element {
+}) {
   const points = chartPointsFromData(data, x, y);
   if (points.length === 0) {
     return chartFrame(title, emptyChartState());
@@ -342,7 +343,7 @@ function PieChart({
   label: string;
   value: string;
   data: Array<Record<string, unknown>>;
-}): JSX.Element {
+}) {
   const points = chartPointsFromData(data, label, value).filter((point) => point.value > 0);
   const total = points.reduce((sum, point) => sum + point.value, 0);
   if (!points.length || total <= 0) {
@@ -424,7 +425,7 @@ function SankeyChart({
   title?: string;
   nodes: SankeyNode[];
   links: SankeyLink[];
-}): JSX.Element {
+}) {
   const width = 760;
   const height = 320;
   const paddingX = 36;
@@ -712,7 +713,7 @@ function toJsonRenderSpec(spec: ChatUiSpec): Spec {
   };
 }
 
-export function ChatUiRenderer({ spec, className }: { spec: ChatUiSpec; className?: string }): JSX.Element {
+export function ChatUiRenderer({ spec, className }: { spec: ChatUiSpec; className?: string }) {
   const jsonRenderSpec = toJsonRenderSpec(spec);
 
   return (

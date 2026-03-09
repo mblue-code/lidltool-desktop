@@ -1,9 +1,10 @@
+import type * as React from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AppErrorBoundary } from "../AppErrorBoundary";
 
-function ExplodingComponent(): JSX.Element {
+function ExplodingComponent(): React.JSX.Element {
   throw new Error("simulated error");
 }
 

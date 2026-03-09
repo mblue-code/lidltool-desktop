@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-export function ExplorePage(): JSX.Element {
+export function ExplorePage() {
   const queryClient = useQueryClient();
   const [metrics, setMetrics] = useState("net_total,discount_total");
   const [dimensions, setDimensions] = useState("month,source_kind");

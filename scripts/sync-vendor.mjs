@@ -8,8 +8,10 @@ const __dirname = dirname(__filename);
 const desktopDir = resolve(__dirname, "..");
 const sourceRepoRoot = resolve(desktopDir, "..", "..");
 const vendorDir = resolve(desktopDir, "vendor");
+const overridesDir = resolve(desktopDir, "overrides");
 const frontendSource = resolve(sourceRepoRoot, "frontend");
 const frontendDest = resolve(vendorDir, "frontend");
+const frontendOverrides = resolve(overridesDir, "frontend");
 const backendDest = resolve(vendorDir, "backend");
 
 function resetDir(path) {
@@ -34,7 +36,14 @@ if (!existsSync(frontendSource)) {
 mkdirSync(vendorDir, { recursive: true });
 
 resetDir(frontendDest);
-copyTreeFiltered(frontendSource, frontendDest, new Set(["node_modules", "dist", ".vite", "playwright-report", "test-results"]));
+copyTreeFiltered(
+  frontendSource,
+  frontendDest,
+  new Set(["node_modules", "dist", ".vite", ".qa-screenshots", "playwright-report", "test-results"])
+);
+if (existsSync(frontendOverrides)) {
+  cpSync(frontendOverrides, frontendDest, { recursive: true });
+}
 
 resetDir(backendDest);
 const backendEntries = ["pyproject.toml", "README.md", "alembic.ini", "src"];
@@ -53,4 +62,7 @@ if (existsSync(novncSource)) {
 }
 
 console.log(`Vendored frontend -> ${frontendDest}`);
+if (existsSync(frontendOverrides)) {
+  console.log(`Applied frontend overrides -> ${frontendOverrides}`);
+}
 console.log(`Vendored backend -> ${backendDest}`);

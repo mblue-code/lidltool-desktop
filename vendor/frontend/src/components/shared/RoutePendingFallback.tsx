@@ -1,7 +1,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/i18n";
 
-export function RoutePendingFallback(): JSX.Element {
+export function RoutePendingFallback() {
   const { t } = useI18n();
   return (
     <div className="mx-auto w-full max-w-7xl space-y-4 px-4 py-6 md:px-6" role="status" aria-live="polite">

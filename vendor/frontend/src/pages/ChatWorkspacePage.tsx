@@ -128,7 +128,7 @@ function createMessageIdempotencyKey(): string {
   return `msg-${fallbackThreadId()}`;
 }
 
-export function ChatWorkspacePage(): JSX.Element {
+export function ChatWorkspacePage() {
   const queryClient = useQueryClient();
   const { t } = useI18n();
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);

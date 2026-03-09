@@ -16,7 +16,7 @@ import { useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import { useState } from "react";
 
-export function SourcesPage(): JSX.Element {
+export function SourcesPage() {
   const queryClient = useQueryClient();
   const { t } = useI18n();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);

@@ -31,7 +31,7 @@ function getStoredShellLocale(): DesktopLocale {
   return resolveDesktopLocale(window.localStorage.getItem(SHELL_LOCALE_STORAGE_KEY));
 }
 
-export function DesktopI18nProvider({ children }: { children: React.ReactNode }): JSX.Element {
+export function DesktopI18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<DesktopLocale>(() => getStoredShellLocale());
 
   useEffect(() => {

@@ -6,8 +6,9 @@
   "main": "out/main/index.js",
   "type": "module",
   "scripts": {
-    "vendor:sync": "node ./scripts/sync-vendor.mjs && npm run vendor:patch-frontend && npm run i18n:sync-shell",
+    "vendor:sync": "node ./scripts/sync-vendor.mjs && npm run vendor:patch-frontend && npm run vendor:patch-backend && npm run i18n:sync-shell",
     "vendor:patch-frontend": "node ./scripts/patch-vendored-frontend.mjs",
+    "vendor:patch-backend": "node ./scripts/patch-vendored-backend.mjs",
     "i18n:sync-shell": "node ./scripts/sync-shell-i18n.mjs",
     "frontend:install": "npm --prefix ./vendor/frontend ci",
     "frontend:build": "npm run vendor:patch-frontend && npm --prefix ./vendor/frontend run build",

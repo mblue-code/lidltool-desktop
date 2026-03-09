@@ -63,7 +63,7 @@ function supportsInlinePreview(mimeType: string): boolean {
   );
 }
 
-export function TransactionDetailPage(): JSX.Element {
+export function TransactionDetailPage() {
   const { transactionId } = useParams();
   const { t } = useI18n();
   const txId = transactionId ?? null;

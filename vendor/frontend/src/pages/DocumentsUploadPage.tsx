@@ -67,7 +67,7 @@ const UPLOAD_STATE_CONFIG: Record<
   error:      { className: "bg-destructive/10 text-destructive", Icon: XCircle },
 };
 
-function UploadStateChip({ state }: { state: UploadStatus }): JSX.Element {
+function UploadStateChip({ state }: { state: UploadStatus }) {
   const { t } = useI18n();
   const config = UPLOAD_STATE_CONFIG[state] ?? UPLOAD_STATE_CONFIG.idle;
   const labelKey =
@@ -103,7 +103,7 @@ function ocrStatusClass(status: string): string {
   }
 }
 
-export function DocumentsUploadPage(): JSX.Element {
+export function DocumentsUploadPage() {
   const { t } = useI18n();
   const [uploadResult, setUploadResult] = useState<DocumentUploadResponse | null>(null);
   const [processResult, setProcessResult] = useState<DocumentProcessResponse | null>(null);

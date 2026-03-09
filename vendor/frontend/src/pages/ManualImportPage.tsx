@@ -25,7 +25,7 @@ function defaultPurchasedAtValue(): string {
   return local.toISOString().slice(0, 16);
 }
 
-export function ManualImportPage(): JSX.Element {
+export function ManualImportPage() {
   const queryClient = useQueryClient();
   const [manualErrorMessage, setManualErrorMessage] = useState<string | null>(null);
   const [manualSuccess, setManualSuccess] = useState<ManualTransactionResponse | null>(null);

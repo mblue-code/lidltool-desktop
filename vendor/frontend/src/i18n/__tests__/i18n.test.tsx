@@ -15,7 +15,7 @@ vi.mock("@/api/users", () => ({
   updateCurrentUserLocale: mocks.updateCurrentUserLocaleMock
 }));
 
-function LocaleProbe(): JSX.Element {
+function LocaleProbe() {
   const { locale, setLocale } = useI18n();
   return (
     <>

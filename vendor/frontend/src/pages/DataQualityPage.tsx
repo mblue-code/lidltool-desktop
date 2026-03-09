@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatEurFromCents } from "@/utils/format";
 
-export function DataQualityPage(): JSX.Element {
+export function DataQualityPage() {
   const [threshold, setThreshold] = useState("0.85");
 
   const unmatchedQuery = useQuery({

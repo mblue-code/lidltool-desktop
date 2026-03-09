@@ -52,7 +52,7 @@ function writeStoredBasket(items: BasketItem[]): void {
   window.localStorage.setItem(BASKET_STORAGE_KEY, JSON.stringify(items));
 }
 
-export function ComparisonsPage(): JSX.Element {
+export function ComparisonsPage() {
   const queryClient = useQueryClient();
   const [groupName, setGroupName] = useState("");
   const [groupId, setGroupId] = useState<string | null>(null);

@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -14,7 +15,7 @@ function okEnvelope(result: unknown): Record<string, unknown> {
   };
 }
 
-function renderWithQueryClient(ui: JSX.Element): void {
+function renderWithQueryClient(ui: React.JSX.Element): void {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false }

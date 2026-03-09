@@ -35,7 +35,7 @@ function getDesktopApiBridge(): DesktopApiBridge {
   return desktopApi;
 }
 
-export function SetupPage(): JSX.Element {
+export function SetupPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const [username, setUsername] = useState("");

@@ -98,7 +98,7 @@ function clampChatPanelWidth(width: number): number {
   return Math.min(maxByViewport, Math.max(CHAT_PANEL_WIDTH_MIN, Math.round(width)));
 }
 
-function NavItems(): JSX.Element {
+function NavItems() {
   const { t } = useI18n();
   return (
     <nav className="flex flex-col gap-5" aria-label={t("nav.primary")}>
@@ -147,7 +147,7 @@ function SidebarContent({
   onOpenChat: () => void;
   chatOpen: boolean;
   aiReady: boolean;
-}): JSX.Element {
+}) {
   const { t } = useI18n();
   return (
     <div className="flex h-full flex-col bg-sidebar">
@@ -221,7 +221,7 @@ type AppShellProps = {
   user: CurrentUser;
 };
 
-export function AppShell({ user }: AppShellProps): JSX.Element {
+export function AppShell({ user }: AppShellProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { scope, setScope } = useAccessScope();

@@ -89,7 +89,7 @@ function toIsoOrUndefined(raw: string): string | undefined {
   return parsed.toISOString();
 }
 
-export function UsersSettingsPage(): JSX.Element {
+export function UsersSettingsPage() {
   const queryClient = useQueryClient();
   const { t } = useI18n();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);

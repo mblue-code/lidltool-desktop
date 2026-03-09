@@ -21,7 +21,7 @@ export function shouldRetryQuery(failureCount: number, error: unknown): boolean 
   return isRetryableApiError(error);
 }
 
-function AppProvidersContent({ children }: { children: ReactNode }): JSX.Element {
+function AppProvidersContent({ children }: { children: ReactNode }) {
   const { t } = useI18n();
 
   useEffect(() => {
@@ -41,7 +41,7 @@ function AppProvidersContent({ children }: { children: ReactNode }): JSX.Element
   );
 }
 
-export function AppProviders({ children }: AppProvidersProps): JSX.Element {
+export function AppProviders({ children }: AppProvidersProps) {
   const [queryClient] = useState(
     () =>
       new QueryClient({

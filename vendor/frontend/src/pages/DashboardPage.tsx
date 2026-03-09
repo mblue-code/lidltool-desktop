@@ -194,7 +194,7 @@ function downloadBlob(filename: string, type: string, content: string): boolean 
   return true;
 }
 
-export function DashboardPage(): JSX.Element {
+export function DashboardPage() {
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const today = new Date();

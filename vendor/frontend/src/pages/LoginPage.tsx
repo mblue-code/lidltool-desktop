@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/i18n";
 
-export function LoginPage(): JSX.Element {
+export function LoginPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const [username, setUsername] = useState("");

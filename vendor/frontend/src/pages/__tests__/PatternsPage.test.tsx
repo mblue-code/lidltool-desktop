@@ -10,7 +10,7 @@ vi.mock("html-to-image", () => ({
   toPng: vi.fn(async () => "data:image/png;base64,AAAA")
 }));
 
-function LocationProbe(): JSX.Element {
+function LocationProbe() {
   const location = useLocation();
   return <output data-testid="patterns-location">{`${location.pathname}${location.search}`}</output>;
 }
