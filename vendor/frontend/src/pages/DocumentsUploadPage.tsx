@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, UploadCloud, XCircle } from "lucide-react";
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
+import { Link } from "react-router-dom";
 import { z } from "zod";
 
 import {
@@ -16,6 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -303,11 +305,9 @@ export function DocumentsUploadPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.ocrImport")} />
       <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.documentsUpload.title")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 pt-6">
           <div
             className={cn(
               "rounded-lg border border-dashed p-8 text-center transition-colors",
@@ -386,6 +386,11 @@ export function DocumentsUploadPage() {
             <span className="sr-only" aria-live="polite">
               State: {uploadState}
             </span>
+            {uploadState === "done" ? (
+              <Button asChild variant="link" size="sm">
+                <Link to="/review-queue">{t("pages.documentsUpload.reviewDocument")}</Link>
+              </Button>
+            ) : null}
           </div>
 
           {statusMessage ? (

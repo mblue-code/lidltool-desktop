@@ -14,6 +14,9 @@ import {
   ReviewCorrectionRequest,
   ReviewDecisionRequest
 } from "@/api/reviewQueue";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -127,6 +130,9 @@ export function ReviewQueuePage() {
   const [thresholdFilter, setThresholdFilter] = useState<string>(thresholdFromQuery.toString());
   const [mutationStatus, setMutationStatus] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [approveOpen, setApproveOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [batchApproveOpen, setBatchApproveOpen] = useState(false);
 
   const form = useForm<ReviewQueueFormValues>({
     resolver: zodResolver(reviewQueueFormSchema),
@@ -273,13 +279,6 @@ export function ReviewQueuePage() {
   }
 
   async function handleDecision(action: "approve" | "reject"): Promise<void> {
-    if (action === "reject") {
-      const confirmed = window.confirm(t("pages.reviewQueue.rejectConfirm"));
-      if (!confirmed) {
-        return;
-      }
-    }
-
     setMutationStatus(null);
     setMutationError(null);
     form.clearErrors(["actorId", "reason"]);
@@ -369,6 +368,30 @@ export function ReviewQueuePage() {
     }
   }
 
+  const highConfidenceItems = queueItems.filter(
+    (item) => typeof item.transaction_confidence === "number" && item.transaction_confidence > 0.95
+  );
+
+  async function handleBatchApprove(): Promise<void> {
+    setMutationStatus(null);
+    setMutationError(null);
+    if (highConfidenceItems.length === 0) {
+      setMutationStatus(t("pages.reviewQueue.batchApproveNone"));
+      return;
+    }
+    let count = 0;
+    for (const item of highConfidenceItems) {
+      try {
+        await approveReviewDocument(item.document_id, { actor_id: "batch-ui" });
+        count += 1;
+      } catch {
+        // continue
+      }
+    }
+    setMutationStatus(t("pages.reviewQueue.batchApproveComplete", { count }));
+    await queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+  }
+
   function applyFilters(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     const next = new URLSearchParams(searchParams);
@@ -407,11 +430,10 @@ export function ReviewQueuePage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("pages.reviewQueue.title")} />
+
       <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.reviewQueue.title")}</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="pt-6">
           <form className="grid gap-3 md:grid-cols-4" onSubmit={applyFilters}>
             <div className="space-y-2">
               <Label htmlFor="review-queue-status">{t("pages.reviewQueue.filter.status")}</Label>
@@ -420,14 +442,16 @@ export function ReviewQueuePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="needs_review">Needs review</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
+                  <SelectItem value="needs_review">{t("pages.reviewQueue.filter.needsReview")}</SelectItem>
+                  <SelectItem value="approved">{t("pages.reviewQueue.filter.approved")}</SelectItem>
+                  <SelectItem value="rejected">{t("pages.reviewQueue.filter.rejected")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="threshold">{t("pages.reviewQueue.filter.threshold")}</Label>
+              <Label htmlFor="threshold">
+                {t("pages.reviewQueue.filter.threshold")}
+              </Label>
               <Input
                 id="threshold"
                 type="number"
@@ -437,13 +461,31 @@ export function ReviewQueuePage() {
                 value={thresholdFilter}
                 onChange={(event) => setThresholdFilter(event.target.value)}
               />
+              <p className="text-xs text-muted-foreground">{t("pages.reviewQueue.thresholdHint")}</p>
             </div>
-            <div className="self-end">
+            <div className="self-end flex gap-2">
               <Button type="submit">{t("pages.reviewQueue.applyFilters")}</Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setBatchApproveOpen(true)}
+                disabled={highConfidenceItems.length === 0}
+              >
+                {t("pages.reviewQueue.batchApprove")}
+              </Button>
             </div>
           </form>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={batchApproveOpen}
+        onOpenChange={setBatchApproveOpen}
+        title={t("pages.reviewQueue.batchApproveConfirmTitle")}
+        description={t("pages.reviewQueue.batchApproveConfirmDescription")}
+        confirmLabel={t("pages.reviewQueue.batchApprove")}
+        onConfirm={() => void handleBatchApprove()}
+      />
 
       {queueQuery.error ? (
         <Alert variant="destructive">
@@ -456,10 +498,54 @@ export function ReviewQueuePage() {
 
       <Card>
         <CardContent className="pt-6">
+          <div className="md:hidden space-y-3">
+            {queueItems.map((item) => (
+              <div
+                key={item.document_id}
+                className="rounded-lg border bg-card p-4 space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{item.merchant_name || "-"}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {formatDateTime(item.created_at)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="tabular-nums font-semibold">
+                    {formatEurFromCents(item.total_gross_cents)}
+                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    <Badge className={cn("text-xs", reviewStatusClass(item.review_status))}>
+                      {item.review_status.replace(/_/g, " ")}
+                    </Badge>
+                    <Badge className={cn("text-xs", ocrStatusClass(item.ocr_status))}>
+                      {item.ocr_status}
+                    </Badge>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  <span>{t("pages.reviewQueue.col.confidence")}: {item.transaction_confidence ?? "—"}</span>
+                  <span>{t("pages.reviewQueue.col.ocr")}: {item.ocr_confidence ?? "—"}</span>
+                </div>
+                <Button variant="outline" size="sm" asChild className="w-full">
+                  <Link to={`/review-queue/${item.document_id}?${linkSearch}`}>{t("pages.reviewQueue.open")}</Link>
+                </Button>
+              </div>
+            ))}
+            {queueItems.length === 0 ? (
+              <EmptyState
+                title={t("pages.reviewQueue.empty")}
+                description={t("pages.reviewQueue.emptyDescription")}
+                action={{ label: t("pages.reviewQueue.uploadReceipts"), href: "/imports/ocr" }}
+              />
+            ) : null}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("pages.reviewQueue.col.created")}</TableHead>
+                <TableHead className="sticky left-0 z-10 bg-background">{t("pages.reviewQueue.col.created")}</TableHead>
                 <TableHead>{t("pages.reviewQueue.col.merchant")}</TableHead>
                 <TableHead>{t("pages.reviewQueue.col.total")}</TableHead>
                 <TableHead>{t("pages.reviewQueue.col.confidence")}</TableHead>
@@ -473,7 +559,7 @@ export function ReviewQueuePage() {
             <TableBody>
               {queueItems.map((item) => (
                 <TableRow key={item.document_id}>
-                  <TableCell>{formatDateTime(item.created_at)}</TableCell>
+                  <TableCell className="sticky left-0 z-10 bg-background">{formatDateTime(item.created_at)}</TableCell>
                   <TableCell>{item.merchant_name || "-"}</TableCell>
                   <TableCell className="tabular-nums">{formatEurFromCents(item.total_gross_cents)}</TableCell>
                   <TableCell className="tabular-nums">{item.transaction_confidence ?? "—"}</TableCell>
@@ -497,11 +583,18 @@ export function ReviewQueuePage() {
               ))}
               {queueItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7}>{t("pages.reviewQueue.empty")}</TableCell>
+                  <TableCell colSpan={7}>
+                    <EmptyState
+                      title={t("pages.reviewQueue.empty")}
+                      description={t("pages.reviewQueue.emptyDescription")}
+                      action={{ label: t("pages.reviewQueue.uploadReceipts"), href: "/imports/ocr" }}
+                    />
+                  </TableCell>
                 </TableRow>
               ) : null}
             </TableBody>
           </Table>
+          </div>
 
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-muted-foreground">{paginationLabel}</p>
@@ -558,6 +651,9 @@ export function ReviewQueuePage() {
                     <p>{t("pages.reviewQueue.detail.ocrStatus")}: {detail.document.ocr_status}</p>
                     <p>{t("pages.reviewQueue.detail.reviewStatus")}: {detail.document.review_status}</p>
                     <p>{t("pages.reviewQueue.detail.ocrConfidence")}: {detail.document.ocr_confidence ?? "-"}</p>
+                    <Button variant="link" className="h-auto p-0" asChild>
+                      <Link to="/imports/ocr">{t("pages.reviewQueue.sourceUploadLink")}</Link>
+                    </Button>
                   </div>
                   <div className="rounded-lg border p-4 text-sm">
                     <p className="font-medium">{t("pages.reviewQueue.detail.transaction")}</p>
@@ -589,7 +685,7 @@ export function ReviewQueuePage() {
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
-                    onClick={() => void handleDecision("approve")}
+                    onClick={() => setApproveOpen(true)}
                     disabled={decisionMutation.isPending}
                   >
                     {t("pages.reviewQueue.approve")}
@@ -597,11 +693,28 @@ export function ReviewQueuePage() {
                   <Button
                     type="button"
                     variant="destructive"
-                    onClick={() => void handleDecision("reject")}
+                    onClick={() => setRejectOpen(true)}
                     disabled={decisionMutation.isPending}
                   >
                     {t("pages.reviewQueue.reject")}
                   </Button>
+                  <ConfirmDialog
+                    open={approveOpen}
+                    onOpenChange={setApproveOpen}
+                    title={t("pages.reviewQueue.approveConfirmTitle")}
+                    description={t("pages.reviewQueue.approveConfirmDescription")}
+                    confirmLabel={t("pages.reviewQueue.approve")}
+                    onConfirm={() => void handleDecision("approve")}
+                  />
+                  <ConfirmDialog
+                    open={rejectOpen}
+                    onOpenChange={setRejectOpen}
+                    title={t("pages.reviewQueue.rejectConfirmTitle")}
+                    description={t("pages.reviewQueue.rejectConfirmDescription")}
+                    variant="destructive"
+                    confirmLabel={t("pages.reviewQueue.reject")}
+                    onConfirm={() => void handleDecision("reject")}
+                  />
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-2">

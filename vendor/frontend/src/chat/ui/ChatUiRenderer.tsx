@@ -84,9 +84,9 @@ function MetricCard({
 }) {
   const trendClass =
     trend?.direction === "up"
-      ? "text-emerald-600"
+      ? "text-success"
       : trend?.direction === "down"
-        ? "text-rose-600"
+        ? "text-destructive"
         : "text-muted-foreground";
 
   return chartFrame(
@@ -110,10 +110,10 @@ function Callout({
   body: string;
 }) {
   const toneClassByValue: Record<typeof tone, string> = {
-    info: "border-sky-500/40 bg-sky-500/5",
-    success: "border-emerald-500/40 bg-emerald-500/5",
-    warning: "border-amber-500/40 bg-amber-500/5",
-    error: "border-rose-500/40 bg-rose-500/5"
+    info: "border-info/40 bg-info/5",
+    success: "border-success/40 bg-success/5",
+    warning: "border-warning/40 bg-warning/5",
+    error: "border-destructive/40 bg-destructive/5"
   };
 
   return (

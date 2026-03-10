@@ -17,6 +17,10 @@ import {
   updateOccurrenceStatus,
   type RecurringBill
 } from "@/api/recurringBills";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { MetricCard } from "@/components/shared/MetricCard";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { SearchInput } from "@/components/shared/SearchInput";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -117,6 +121,8 @@ export function BillsPage() {
   const [expandedBillId, setExpandedBillId] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [archiveConfirmBillId, setArchiveConfirmBillId] = useState<string | null>(null);
+  const [billSearch, setBillSearch] = useState("");
 
   const billsQuery = useQuery({
     queryKey: ["recurring-bills"],
@@ -241,6 +247,9 @@ export function BillsPage() {
 
   const bills = billsQuery.data?.items ?? [];
   const activeBills = bills.filter((bill) => bill.active);
+  const filteredBills = billSearch
+    ? bills.filter((bill) => bill.name.toLowerCase().includes(billSearch.toLowerCase()))
+    : bills;
   const selectedBill = useMemo(
     () => bills.find((bill) => bill.id === expandedBillId) ?? null,
     [bills, expandedBillId]
@@ -340,68 +349,52 @@ export function BillsPage() {
 
   return (
     <section className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">{t("pages.bills.title")}</h2>
-          <p className="text-sm text-muted-foreground">{t("pages.bills.subtitle")}</p>
-        </div>
+      <PageHeader title={t("pages.bills.title")} description={t("pages.bills.subtitle")}>
         <Button onClick={openCreateDialog}>{t("pages.bills.add")}</Button>
-      </div>
+      </PageHeader>
 
       {actionStatus ? <p className="text-sm text-muted-foreground">{actionStatus}</p> : null}
       {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">{t("pages.bills.metric.monthlyCommitted")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold tabular-nums">
-              {overviewQuery.data ? formatEurFromCents(overviewQuery.data.monthly_committed_cents) : "-"}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">{t("pages.bills.metric.activeBills")}</CardTitle>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between">
-            <p className="text-2xl font-semibold tabular-nums">{overviewQuery.data?.active_bills ?? activeBills.length}</p>
-            <Wallet className="h-4 w-4 text-muted-foreground" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">{t("pages.bills.metric.dueThisWeek")}</CardTitle>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between">
-            <p className="text-2xl font-semibold tabular-nums">{overviewQuery.data?.due_this_week ?? 0}</p>
-            <CalendarClock className="h-4 w-4 text-muted-foreground" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">{t("pages.bills.metric.overdue")}</CardTitle>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between">
-            <p className="text-2xl font-semibold tabular-nums">{overviewQuery.data?.overdue ?? 0}</p>
-            <CircleAlert className="h-4 w-4 text-destructive" />
-          </CardContent>
-        </Card>
+        <MetricCard
+          title={t("pages.bills.metric.monthlyCommitted")}
+          value={overviewQuery.data ? formatEurFromCents(overviewQuery.data.monthly_committed_cents) : "-"}
+        />
+        <MetricCard
+          title={t("pages.bills.metric.activeBills")}
+          value={String(overviewQuery.data?.active_bills ?? activeBills.length)}
+          icon={<Wallet className="h-4 w-4" />}
+          iconClassName="text-muted-foreground"
+        />
+        <MetricCard
+          title={t("pages.bills.metric.dueThisWeek")}
+          value={String(overviewQuery.data?.due_this_week ?? 0)}
+          icon={<CalendarClock className="h-4 w-4" />}
+          iconClassName="text-muted-foreground"
+        />
+        <MetricCard
+          title={t("pages.bills.metric.overdue")}
+          value={String(overviewQuery.data?.overdue ?? 0)}
+          icon={<CircleAlert className="h-4 w-4" />}
+          iconClassName="text-destructive"
+        />
       </section>
 
       <Card>
         <CardHeader>
           <CardTitle>{t("pages.bills.listTitle")}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <SearchInput
+            value={billSearch}
+            onChange={setBillSearch}
+            placeholder={t("pages.bills.searchBills")}
+            className="max-w-sm"
+          />
           {billsQuery.isPending ? (
             <p className="text-sm text-muted-foreground">{t("pages.bills.loading")}</p>
-          ) : bills.length === 0 ? (
+          ) : filteredBills.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t("pages.bills.empty")}</p>
           ) : (
             <Table>
@@ -416,7 +409,7 @@ export function BillsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {bills.map((bill) => (
+                {filteredBills.map((bill) => (
                   <TableRow key={bill.id}>
                     <TableCell>
                       <div className="font-medium">{bill.name}</div>
@@ -467,11 +460,7 @@ export function BillsPage() {
                         <Button
                           size="sm"
                           variant="destructive"
-                          onClick={() => {
-                            setActionStatus(null);
-                            setActionError(null);
-                            void deleteMutation.mutateAsync(bill.id);
-                          }}
+                          onClick={() => setArchiveConfirmBillId(bill.id)}
                         >
                           {t("pages.bills.archive")}
                         </Button>
@@ -578,35 +567,65 @@ export function BillsPage() {
             </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="mb-2 grid grid-cols-7 gap-2 text-center text-xs uppercase tracking-wide text-muted-foreground">
-            <span>{t("pages.bills.day.sun")}</span>
-            <span>{t("pages.bills.day.mon")}</span>
-            <span>{t("pages.bills.day.tue")}</span>
-            <span>{t("pages.bills.day.wed")}</span>
-            <span>{t("pages.bills.day.thu")}</span>
-            <span>{t("pages.bills.day.fri")}</span>
-            <span>{t("pages.bills.day.sat")}</span>
+          <div className="hidden md:block">
+            <div className="mb-2 grid grid-cols-7 gap-2 text-center text-xs uppercase tracking-wide text-muted-foreground">
+              <span>{t("pages.bills.day.sun")}</span>
+              <span>{t("pages.bills.day.mon")}</span>
+              <span>{t("pages.bills.day.tue")}</span>
+              <span>{t("pages.bills.day.wed")}</span>
+              <span>{t("pages.bills.day.thu")}</span>
+              <span>{t("pages.bills.day.fri")}</span>
+              <span>{t("pages.bills.day.sat")}</span>
+            </div>
+            <div className="grid grid-cols-7 gap-2">
+              {monthGridCells().map((cell) =>
+                cell.kind === "blank" ? (
+                  <div key={cell.key} className="rounded-md border border-dashed bg-muted/10 p-2" />
+                ) : (
+                  <div key={cell.isoDate} className="rounded-md border bg-background p-2 text-center">
+                    <p className="text-sm font-medium">{cell.day}</p>
+                    {cell.count > 0 ? (
+                      <Badge variant={cell.count > 2 ? "destructive" : "secondary"} className="mt-2">
+                        {t("pages.bills.dayDue", { count: cell.count })}
+                      </Badge>
+                    ) : (
+                      <p className="mt-2 text-xs text-muted-foreground">-</p>
+                    )}
+                  </div>
+                )
+              )}
+            </div>
           </div>
-          <div className="grid grid-cols-7 gap-2">
-            {monthGridCells().map((cell) =>
-              cell.kind === "blank" ? (
-                <div key={cell.key} className="rounded-md border border-dashed bg-muted/10 p-2" />
-              ) : (
-                <div key={cell.isoDate} className="rounded-md border bg-background p-2 text-center">
-                  <p className="text-sm font-medium">{cell.day}</p>
-                  {cell.count > 0 ? (
-                    <Badge variant={cell.count > 2 ? "destructive" : "secondary"} className="mt-2">
-                      {t("pages.bills.dayDue", { count: cell.count })}
-                    </Badge>
-                  ) : (
-                    <p className="mt-2 text-xs text-muted-foreground">-</p>
-                  )}
+          <div className="md:hidden space-y-2">
+            {monthGridCells()
+              .filter((cell): cell is Extract<typeof cell, { kind: "day" }> => cell.kind === "day" && cell.count > 0)
+              .map((cell) => (
+                <div key={cell.isoDate} className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <span className="text-sm font-medium">{cell.isoDate}</span>
+                  <Badge variant={cell.count > 2 ? "destructive" : "secondary"}>
+                    {t("pages.bills.dayDue", { count: cell.count })}
+                  </Badge>
                 </div>
-              )
-            )}
+              ))}
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={archiveConfirmBillId !== null}
+        onOpenChange={(open) => { if (!open) setArchiveConfirmBillId(null); }}
+        title={t("pages.bills.confirmArchiveTitle")}
+        description={t("pages.bills.confirmArchiveDescription")}
+        variant="destructive"
+        confirmLabel={t("pages.bills.archive")}
+        onConfirm={() => {
+          if (archiveConfirmBillId) {
+            setActionStatus(null);
+            setActionError(null);
+            void deleteMutation.mutateAsync(archiveConfirmBillId);
+          }
+        }}
+      />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="sm:max-w-2xl">

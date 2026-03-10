@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { type TranslationKey, useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
 
@@ -452,6 +453,7 @@ export function ConnectorsPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.connectors")} />
       <Card>
         <CardHeader>
           <CardTitle>{t("pages.connectors.title")}</CardTitle>
@@ -474,6 +476,7 @@ export function ConnectorsPage() {
               </span>
             </AlertDescription>
           </Alert>
+          <p className="text-sm text-muted-foreground">{t("pages.connectors.setupHint")}</p>
 
           {errorMessage ? (
             <Alert variant="destructive">

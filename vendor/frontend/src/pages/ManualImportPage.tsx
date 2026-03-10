@@ -6,9 +6,11 @@ import { Link } from "react-router-dom";
 import { createManualTransaction, ManualTransactionResponse } from "@/api/transactions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useI18n } from "@/i18n";
 
 type ManualFormValues = {
   purchasedAt: string;
@@ -27,6 +29,7 @@ function defaultPurchasedAtValue(): string {
 
 export function ManualImportPage() {
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const [manualErrorMessage, setManualErrorMessage] = useState<string | null>(null);
   const [manualSuccess, setManualSuccess] = useState<ManualTransactionResponse | null>(null);
   const [manualFormValues, setManualFormValues] = useState<ManualFormValues>({
@@ -120,14 +123,9 @@ export function ManualImportPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.manualImport")} description={t("pages.manualImport.description")} />
       <Card>
-        <CardHeader>
-          <CardTitle>Manual Import</CardTitle>
-          <CardDescription>
-            Add one-off purchases from merchants where you do not want a full connector.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 pt-6">
           <form className="grid gap-3 md:grid-cols-6" onSubmit={submitManualTransaction}>
             <div className="space-y-2">
               <Label htmlFor="manual-purchased-at">Purchased at</Label>

@@ -1,4 +1,6 @@
 import { FormEvent, useMemo, useState } from "react";
+
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { createSavedQuery, deleteSavedQuery, fetchSavedQueries, runQuery, runQueryDsl } from "@/api/query";
@@ -7,12 +9,22 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useI18n } from "@/i18n";
+
+const DSL_TEMPLATES = {
+  monthlyByCategory: 'SPEND net BY month, category\nWHERE date BETWEEN 2026-01-01..2026-12-31\nLIMIT 20',
+  topProducts: 'SPEND gross BY product\nORDER BY gross DESC\nLIMIT 10',
+  retailerComparison: 'SPEND net BY source_kind, month\nWHERE date BETWEEN 2026-01-01..2026-12-31\nLIMIT 24'
+};
 
 export function ExplorePage() {
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const [metrics, setMetrics] = useState("net_total,discount_total");
+  const [showSyntaxHelp, setShowSyntaxHelp] = useState(false);
   const [dimensions, setDimensions] = useState("month,source_kind");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -22,6 +34,7 @@ export function ExplorePage() {
   );
   const [result, setResult] = useState<Awaited<ReturnType<typeof runQuery>> | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [confirmDeleteQueryId, setConfirmDeleteQueryId] = useState<string | null>(null);
 
   const savedQuery = useQuery({
     queryKey: ["saved-queries"],
@@ -118,6 +131,7 @@ export function ExplorePage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.explore")} />
       <Card>
         <CardHeader>
           <CardTitle>Explore Workbench</CardTitle>
@@ -166,11 +180,42 @@ export function ExplorePage() {
           <CardTitle>DSL Mode</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setDsl(DSL_TEMPLATES.monthlyByCategory)}>
+              {t("pages.explore.template.monthlyByCategory")}
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setDsl(DSL_TEMPLATES.topProducts)}>
+              {t("pages.explore.template.topProducts")}
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setDsl(DSL_TEMPLATES.retailerComparison)}>
+              {t("pages.explore.template.retailerComparison")}
+            </Button>
+          </div>
           <Label htmlFor="explore-dsl">Query DSL</Label>
           <Textarea id="explore-dsl" value={dsl} onChange={(event) => setDsl(event.target.value)} rows={5} />
-          <Button type="button" variant="outline" onClick={runDslQuery} disabled={dslMutation.isPending}>
-            Run DSL
-          </Button>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={runDslQuery} disabled={dslMutation.isPending}>
+              Run DSL
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowSyntaxHelp((v) => !v)}
+            >
+              {showSyntaxHelp ? t("pages.explore.syntaxHelp.hide") : t("pages.explore.syntaxHelp.show")}
+            </Button>
+          </div>
+          {showSyntaxHelp ? (
+            <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1">
+              <p className="font-medium">DSL Syntax Reference</p>
+              <p><code>SPEND net|gross BY dim1, dim2</code> — aggregate spending</p>
+              <p><code>WHERE date BETWEEN YYYY-MM-DD..YYYY-MM-DD</code> — date filter</p>
+              <p><code>AND category = "Dairy"</code> — field filter</p>
+              <p><code>ORDER BY metric ASC|DESC</code> — sort results</p>
+              <p><code>LIMIT n</code> — limit rows returned</p>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -190,7 +235,11 @@ export function ExplorePage() {
             <p className="text-sm text-muted-foreground">Run a query to see results.</p>
           ) : (
             <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">Drilldown token: {result.drilldown_token}</p>
+              <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                <span>{t("pages.explore.previewRows").replace("{count}", String(result.rows.length))}</span>
+                <span>{t("pages.explore.detailFilter")}: {result.drilldown_token}</span>
+              </div>
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -209,6 +258,7 @@ export function ExplorePage() {
                   ))}
                 </TableBody>
               </Table>
+              </div>
             </div>
           )}
         </CardContent>
@@ -220,6 +270,7 @@ export function ExplorePage() {
         </CardHeader>
         <CardContent>
           {savedQuery.data?.items.length ? (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -238,7 +289,7 @@ export function ExplorePage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => void deleteMutation.mutateAsync(queryItem.query_id)}
+                          onClick={() => setConfirmDeleteQueryId(queryItem.query_id)}
                         >
                           Delete
                         </Button>
@@ -250,11 +301,22 @@ export function ExplorePage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           ) : (
             <p className="text-sm text-muted-foreground">No saved queries yet.</p>
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={confirmDeleteQueryId !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDeleteQueryId(null); }}
+        title={t("pages.explore.confirmDeleteTitle")}
+        description={t("pages.explore.confirmDeleteDescription")}
+        variant="destructive"
+        confirmLabel={t("common.delete")}
+        onConfirm={() => { if (confirmDeleteQueryId) void deleteMutation.mutateAsync(confirmDeleteQueryId); }}
+      />
     </section>
   );
 }

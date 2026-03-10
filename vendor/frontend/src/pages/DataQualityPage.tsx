@@ -1,15 +1,20 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchLowConfidenceOcr, fetchUnmatchedItems } from "@/api/quality";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useI18n } from "@/i18n";
 import { formatEurFromCents } from "@/utils/format";
 
 export function DataQualityPage() {
+  const { t } = useI18n();
   const [threshold, setThreshold] = useState("0.85");
 
   const unmatchedQuery = useQuery({
@@ -23,11 +28,9 @@ export function DataQualityPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.dataQuality")} />
       <Card>
-        <CardHeader>
-          <CardTitle>Data Quality</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
+        <CardContent className="grid gap-3 pt-6 md:grid-cols-3">
           <div className="rounded-md border p-3">
             <p className="text-sm text-muted-foreground">Unmatched items</p>
             <p className="text-2xl font-semibold">{unmatchedQuery.data?.count ?? 0}</p>
@@ -62,6 +65,7 @@ export function DataQualityPage() {
         </CardHeader>
         <CardContent>
           {unmatchedQuery.data?.items.length ? (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -82,18 +86,25 @@ export function DataQualityPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No unmatched items.</p>
+            <EmptyState title={t("pages.dataQuality.emptyUnmatched")} />
           )}
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Low-confidence OCR</CardTitle>
+          {(lowConfidenceQuery.data?.items.length ?? 0) > 0 ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/review-queue">{t("pages.dataQuality.reviewThem")}</Link>
+            </Button>
+          ) : null}
         </CardHeader>
         <CardContent>
           {lowConfidenceQuery.data?.items.length ? (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -114,8 +125,12 @@ export function DataQualityPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No low-confidence OCR documents.</p>
+            <EmptyState
+              title={t("pages.dataQuality.emptyLowConfidence")}
+              action={{ label: t("pages.dataQuality.reviewThem"), href: "/review-queue" }}
+            />
           )}
         </CardContent>
       </Card>

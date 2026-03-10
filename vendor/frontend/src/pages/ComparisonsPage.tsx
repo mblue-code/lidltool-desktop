@@ -11,9 +11,13 @@ import { fetchPriceIndex, postBasketCompare } from "@/api/analytics";
 import { fetchProducts } from "@/api/products";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { SearchInput } from "@/components/shared/SearchInput";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useI18n } from "@/i18n";
 import { formatEurFromCents } from "@/utils/format";
 
 type BasketItem = {
@@ -54,6 +58,7 @@ function writeStoredBasket(items: BasketItem[]): void {
 
 export function ComparisonsPage() {
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const [groupName, setGroupName] = useState("");
   const [groupId, setGroupId] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState("");
@@ -160,10 +165,8 @@ export function ComparisonsPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.comparisons")} />
       <Card>
-        <CardHeader>
-          <CardTitle>Comparisons</CardTitle>
-        </CardHeader>
         <CardContent className="space-y-3">
           <form className="flex gap-2" onSubmit={submitGroup}>
             <div className="flex-1 space-y-1">
@@ -199,15 +202,18 @@ export function ComparisonsPage() {
             </div>
             <div className="space-y-1">
               <Label htmlFor="compare-product-search">Find product</Label>
-              <Input
-                id="compare-product-search"
+              <SearchInput
                 value={productSearch}
-                onChange={(event) => setProductSearch(event.target.value)}
+                onChange={setProductSearch}
                 placeholder="Milk"
+                isLoading={productsQuery.isFetching}
               />
             </div>
           </div>
 
+          {productSearch.trim().length > 0 && !productsQuery.isFetching && products.length === 0 ? (
+            <EmptyState title={t("pages.comparisons.noProductsFound")} description={t("pages.comparisons.noProductsFoundDescription")} />
+          ) : null}
           {products.length > 0 ? (
             <div className="space-y-2 rounded-md border p-3">
               <p className="text-sm font-medium">Search results</p>
@@ -240,12 +246,16 @@ export function ComparisonsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Basket Builder</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Basket Builder</CardTitle>
+            <p className="text-xs text-muted-foreground">{t("pages.comparisons.basketSavedLocally")}</p>
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {basket.length === 0 ? (
             <p className="text-sm text-muted-foreground">Add products to build a comparison basket.</p>
           ) : (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -264,6 +274,7 @@ export function ComparisonsPage() {
                         <Button
                           size="sm"
                           variant="outline"
+                          className="h-10 w-10 min-w-10 min-h-10"
                           onClick={() =>
                             setBasket((previous) =>
                               previous.map((row) =>
@@ -279,6 +290,7 @@ export function ComparisonsPage() {
                         <Button
                           size="sm"
                           variant="outline"
+                          className="h-10 w-10 min-w-10 min-h-10"
                           onClick={() =>
                             setBasket((previous) =>
                               previous.map((row) =>
@@ -306,6 +318,7 @@ export function ComparisonsPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
 
           <div className="flex gap-2">
@@ -321,6 +334,7 @@ export function ComparisonsPage() {
             </Button>
           </div>
           {basketResult.length > 0 ? (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -341,6 +355,7 @@ export function ComparisonsPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           ) : null}
         </CardContent>
       </Card>
@@ -355,6 +370,7 @@ export function ComparisonsPage() {
           ) : seriesPoints.length === 0 ? (
             <p className="text-sm text-muted-foreground">No series points yet.</p>
           ) : (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -377,6 +393,7 @@ export function ComparisonsPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -389,6 +406,7 @@ export function ComparisonsPage() {
           {indexPoints.length === 0 ? (
             <p className="text-sm text-muted-foreground">No index points available.</p>
           ) : (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -409,6 +427,7 @@ export function ComparisonsPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

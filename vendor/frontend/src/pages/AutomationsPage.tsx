@@ -10,6 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/shared/PageHeader";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,7 @@ import {
   runAutomationRule,
   updateAutomationRule
 } from "../api/automations";
+import { useI18n } from "@/i18n";
 import { formatDateTime } from "../utils/format";
 
 type RuleType = "category_auto_tagging" | "budget_alert" | "weekly_summary";
@@ -240,6 +242,7 @@ function toFormState(rule: AutomationRule): AutomationFormValues {
 
 export function AutomationsPage() {
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const offset = parseOffset(searchParams.get("offset"));
 
@@ -426,19 +429,11 @@ export function AutomationsPage() {
 
   return (
     <section className="space-y-4">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight">Automations</h2>
-            <p className="text-sm text-muted-foreground">
-              Manage rule templates, scheduling, and execution controls.
-            </p>
-          </div>
-          <Button type="button" onClick={beginCreate}>
-            Create rule
-          </Button>
-        </CardHeader>
-      </Card>
+      <PageHeader title={t("nav.item.automations")} description={t("pages.automations.description")}>
+        <Button type="button" onClick={beginCreate}>
+          Create rule
+        </Button>
+      </PageHeader>
 
       {status ? (
         <Alert>
@@ -465,10 +460,11 @@ export function AutomationsPage() {
         </CardHeader>
         <CardContent>
           {loading ? <p className="text-sm text-muted-foreground">Loading automations...</p> : null}
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
+                <TableHead className="sticky left-0 z-10 bg-background">Name</TableHead>
                 <TableHead>Template</TableHead>
                 <TableHead>Enabled</TableHead>
                 <TableHead>Interval</TableHead>
@@ -483,7 +479,7 @@ export function AutomationsPage() {
                 const intervalSeconds = (schedule?.interval_seconds as number | undefined) ?? 3600;
                 return (
                   <TableRow key={rule.id}>
-                    <TableCell>{rule.name}</TableCell>
+                    <TableCell className="sticky left-0 z-10 bg-background">{rule.name}</TableCell>
                     <TableCell>{rule.rule_type.replace(/_/g, " ")}</TableCell>
                     <TableCell>
                       <Badge variant={rule.enabled ? "default" : "secondary"}>
@@ -540,6 +536,7 @@ export function AutomationsPage() {
               ) : null}
             </TableBody>
           </Table>
+          </div>
 
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-muted-foreground">

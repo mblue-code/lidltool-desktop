@@ -15,15 +15,18 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { Label } from "@/components/ui/label";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { SearchInput } from "@/components/shared/SearchInput";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/i18n";
 import { formatEurFromCents } from "@/utils/format";
 
 export function ProductsPage() {
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
+  const { t } = useI18n();
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [clusterJobId, setClusterJobId] = useState<string | null>(null);
@@ -34,15 +37,6 @@ export function ProductsPage() {
     products_created: number;
     errors: string[];
   } | null>(null);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setDebouncedSearch(search.trim());
-    }, 300);
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [search]);
 
   const productsQuery = useQuery({
     queryKey: ["products", debouncedSearch],
@@ -150,28 +144,27 @@ export function ProductsPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.products")}>
+        <Button
+          variant="outline"
+          onClick={() => void seedMutation.mutateAsync()}
+          disabled={seedMutation.isPending}
+          title={t("pages.products.seed.tooltip")}
+        >
+          {t("pages.products.seedButton")}
+        </Button>
+        {aiEnabled ? (
+          <Button
+            variant="outline"
+            onClick={() => void clusterMutation.mutateAsync()}
+            disabled={clusterMutation.isPending || clusterJobId !== null}
+            title={t("pages.products.cluster.tooltip")}
+          >
+            Cluster with AI
+          </Button>
+        ) : null}
+      </PageHeader>
       <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0">
-          <CardTitle>Products</CardTitle>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={() => void seedMutation.mutateAsync()}
-              disabled={seedMutation.isPending}
-            >
-              Seed Products
-            </Button>
-            {aiEnabled ? (
-              <Button
-                variant="outline"
-                onClick={() => void clusterMutation.mutateAsync()}
-                disabled={clusterMutation.isPending || clusterJobId !== null}
-              >
-                Cluster with AI
-              </Button>
-            ) : null}
-          </div>
-        </CardHeader>
         <CardContent>
           <div className="space-y-3">
             {clusterProgress ? (
@@ -191,11 +184,11 @@ export function ProductsPage() {
               </div>
             ) : null}
             <Label htmlFor="products-search">Search products</Label>
-            <Input
-              id="products-search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
+            <SearchInput
+              value={debouncedSearch}
+              onChange={(value) => setDebouncedSearch(value.trim())}
               placeholder="Milk, butter, yogurt..."
+              isLoading={productsQuery.isFetching}
             />
           </div>
         </CardContent>
@@ -207,8 +200,9 @@ export function ProductsPage() {
         </CardHeader>
         <CardContent>
           {productRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No products found.</p>
+            <EmptyState title="No products found" description={debouncedSearch ? "Try a different search term." : undefined} />
           ) : (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -225,7 +219,7 @@ export function ProductsPage() {
                     className={cn(
                       "cursor-pointer transition-colors",
                       selectedProductId === row.product_id
-                        ? "bg-primary/10 hover:bg-primary/10"
+                        ? "bg-primary/15 ring-1 ring-primary/30 hover:bg-primary/15"
                         : ""
                     )}
                     onClick={() => setSelectedProductId(row.product_id)}
@@ -244,6 +238,7 @@ export function ProductsPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -270,6 +265,7 @@ export function ProductsPage() {
               {selectedPricePoints.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No price points available.</p>
               ) : (
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -290,6 +286,7 @@ export function ProductsPage() {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -302,6 +299,7 @@ export function ProductsPage() {
               {selectedPurchases.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No purchases found.</p>
               ) : (
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -324,6 +322,7 @@ export function ProductsPage() {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               )}
             </CardContent>
           </Card>

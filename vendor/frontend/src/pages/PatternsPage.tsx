@@ -22,7 +22,9 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/i18n";
 import { formatEurFromCents } from "@/utils/format";
 
 type TimingView = "yearly" | "hourly" | "matrix";
@@ -181,17 +183,20 @@ function buildTimingFilenameBase(context: TimingCsvContext): string {
 }
 
 function HeatmapLegend({ maxValue, metricLabel }: { maxValue: number; metricLabel: string }) {
+  const mid = Math.round(maxValue / 2);
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-label={`Legend for ${metricLabel}`}>
       <span>{metricLabel}</span>
       <div className="flex items-center gap-1">
+        <span className="text-xs">0</span>
         <span className="h-3 w-3 rounded-sm bg-muted" />
         <span className="h-3 w-3 rounded-sm bg-primary/25" />
         <span className="h-3 w-3 rounded-sm bg-primary/45" />
+        <span className="text-xs">{mid.toLocaleString()}</span>
         <span className="h-3 w-3 rounded-sm bg-primary/70" />
         <span className="h-3 w-3 rounded-sm bg-primary" />
+        <span className="text-xs">{maxValue.toLocaleString()}+</span>
       </div>
-      <span>max {maxValue.toLocaleString()}</span>
     </div>
   );
 }
@@ -282,7 +287,7 @@ function HourlyHeatmapPanel({
             />
           ))}
         </div>
-        <div className="mt-1 grid min-w-[38rem] text-[10px] text-muted-foreground" style={{ gridTemplateColumns: "repeat(24, minmax(0, 1fr))" }}>
+        <div className="mt-1 grid min-w-[38rem] text-xs text-muted-foreground" style={{ gridTemplateColumns: "repeat(24, minmax(0, 1fr))" }}>
           {data.points.map((point) => (
             <span key={`label-${point.hour}`} className="text-center">
               {point.hour % 3 === 0 ? String(point.hour).padStart(2, "0") : ""}
@@ -322,7 +327,7 @@ function TimingMatrixPanel({
             <tr>
               <th className="px-1 text-left text-muted-foreground">Day</th>
               {Array.from({ length: 24 }, (_, hour) => (
-                <th key={`hour-header-${hour}`} className="w-5 px-0 text-center text-[10px] text-muted-foreground">
+                <th key={`hour-header-${hour}`} className="w-5 px-0 text-center text-xs text-muted-foreground">
                   {hour % 3 === 0 ? String(hour).padStart(2, "0") : ""}
                 </th>
               ))}
@@ -331,7 +336,7 @@ function TimingMatrixPanel({
           <tbody>
             {Array.from({ length: 7 }, (_, weekday) => (
               <tr key={`weekday-${weekday}`}>
-                <td className="pr-2 text-[11px] text-muted-foreground">{WEEKDAY_LABELS[weekday]}</td>
+                <td className="pr-2 text-xs text-muted-foreground">{WEEKDAY_LABELS[weekday]}</td>
                 {Array.from({ length: 24 }, (_, hour) => {
                   const cell = byCell.get(`${weekday}-${hour}`) ?? {
                     weekday,
@@ -375,8 +380,34 @@ function PanelError({ message }: { message: string }) {
   return <p className="text-sm text-destructive">{message}</p>;
 }
 
+function MobileSummary({ data }: { data: HeatmapResponse | HourHeatmapResponse | TimingMatrixResponse | undefined }) {
+  if (!data) {
+    return null;
+  }
+  let totalCount = 0;
+  let totalCents = 0;
+  if ("points" in data) {
+    for (const p of data.points) {
+      totalCount += p.count;
+      totalCents += p.value_cents;
+    }
+  } else if ("grid" in data) {
+    for (const c of data.grid) {
+      totalCount += c.count;
+      totalCents += c.value_cents;
+    }
+  }
+  return (
+    <div className="space-y-2 text-sm">
+      <p className="font-medium">{formatEurFromCents(totalCents)}</p>
+      <p className="text-muted-foreground">{totalCount} orders</p>
+    </div>
+  );
+}
+
 export function PatternsPage() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [timingView, setTimingView] = useState<TimingView>("yearly");
   const [valueMode, setValueMode] = useState<TimingValueMode>("gross");
   const [fromDate, setFromDate] = useState<string>(() => dateDaysAgo(90));
@@ -633,7 +664,8 @@ export function PatternsPage() {
       return;
     }
     try {
-      const dataUrl = await toPng(node, { cacheBust: true, backgroundColor: "#ffffff" });
+      const bg = getComputedStyle(document.documentElement).getPropertyValue("--background").trim() || "#ffffff";
+      const dataUrl = await toPng(node, { cacheBust: true, backgroundColor: bg.startsWith("#") ? bg : `hsl(${bg})` });
       const filename = `${buildTimingFilenameBase(context)}.png`;
       downloadDataUrl(filename, dataUrl);
       setExportStatus(`Exported PNG (${filename}).`);
@@ -745,10 +777,8 @@ export function PatternsPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.patterns")} />
       <Card>
-        <CardHeader>
-          <CardTitle>Timing Patterns</CardTitle>
-        </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <div className="space-y-2 xl:col-span-3">
@@ -881,7 +911,10 @@ export function PatternsPage() {
             </div>
           </div>
 
-          <div className={cn("grid gap-4", compareMode && "md:grid-cols-2")}>
+          <div className="md:hidden">
+            <MobileSummary data={primaryTimingData} />
+          </div>
+          <div className={cn("hidden md:grid gap-4", compareMode && "md:grid-cols-2")}>
             <Card>
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-2">
