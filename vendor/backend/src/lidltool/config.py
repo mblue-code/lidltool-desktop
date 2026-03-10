@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import os
 import tomllib
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from lidltool.ai.policy import PluginAiMediationConfig
 
 DEFAULT_SOURCE = "lidl_plus_de"
 DEFAULT_CONFIG_DIR = "~/.config/lidltool"
@@ -107,6 +110,12 @@ class AppConfig(BaseModel):
     automations_scheduler_max_rules_per_tick: int = 20
     connector_live_sync_enabled: bool = True
     connector_live_sync_interval_seconds: int = 7200  # 2 hours
+    connector_external_runtime_enabled: bool = False
+    connector_plugin_search_paths: list[Path] = Field(default_factory=list)
+    connector_external_receipt_plugins_enabled: bool = False
+    connector_external_offer_plugins_enabled: bool = False
+    connector_external_allowed_trust_classes: list[str] = Field(default_factory=list)
+    connector_market_profile: str = "global_shell"
     ai_base_url: str | None = None
     ai_api_key_encrypted: str | None = None
     ai_model: str = "grok-3-mini"
@@ -115,16 +124,74 @@ class AppConfig(BaseModel):
     ai_oauth_access_token_encrypted: str | None = None
     ai_oauth_refresh_token_encrypted: str | None = None
     ai_oauth_expires_at: str | None = None
+    plugin_ai_mediation: PluginAiMediationConfig = Field(default_factory=PluginAiMediationConfig)
 
-    @field_validator("db_path", "config_dir", "token_file", "document_storage_path", mode="before")
+    @field_validator(
+        "db_path",
+        "config_dir",
+        "token_file",
+        "document_storage_path",
+        mode="before",
+    )
     @classmethod
     def _validate_path(cls, value: Any) -> Path:
         return _expand_path(value)
+
+    @field_validator("connector_plugin_search_paths", mode="before")
+    @classmethod
+    def _validate_plugin_search_paths(cls, value: Any) -> list[Path]:
+        if value is None:
+            return []
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("connector_plugin_search_paths must be a list or tuple")
+        normalized: list[Path] = []
+        seen: set[Path] = set()
+        for item in value:
+            candidate = _expand_path(item)
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            normalized.append(candidate)
+        return normalized
+
+    @field_validator("connector_external_allowed_trust_classes", mode="before")
+    @classmethod
+    def _validate_allowed_trust_classes(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw_items = [item.strip() for item in value.split(",")]
+        elif isinstance(value, (list, tuple)):
+            raw_items = [str(item).strip() for item in value]
+        else:
+            raise ValueError("connector_external_allowed_trust_classes must be a list or tuple")
+        allowed = {"official", "community_verified", "community_unsigned", "local_custom"}
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in raw_items:
+            if not item:
+                continue
+            if item not in allowed:
+                raise ValueError(
+                    "connector_external_allowed_trust_classes entries must be one of: "
+                    "official, community_verified, community_unsigned, local_custom"
+                )
+            if item in seen:
+                continue
+            seen.add(item)
+            normalized.append(item)
+        return normalized
 
     @model_validator(mode="after")
     def _derive_token_file_from_config_dir(self) -> AppConfig:
         if "token_file" not in self.model_fields_set:
             self.token_file = self.config_dir / DEFAULT_TOKEN_FILE_NAME
+        return self
+
+    @model_validator(mode="after")
+    def _derive_plugin_search_paths_from_config_dir(self) -> AppConfig:
+        if "connector_plugin_search_paths" not in self.model_fields_set:
+            self.connector_plugin_search_paths = [self.config_dir / "plugins"]
         return self
 
     @model_validator(mode="after")
@@ -332,10 +399,67 @@ def build_config(config_path: Path | None = None, db_override: Path | None = Non
         env_overrides["connector_live_sync_interval_seconds"] = int(
             os.getenv("LIDLTOOL_CONNECTOR_LIVE_SYNC_INTERVAL_SECONDS", "7200")
         )
+    if os.getenv("LIDLTOOL_CONNECTOR_EXTERNAL_RUNTIME_ENABLED"):
+        env_overrides["connector_external_runtime_enabled"] = (
+            os.getenv("LIDLTOOL_CONNECTOR_EXTERNAL_RUNTIME_ENABLED", "false").lower()
+            == "true"
+        )
+    if os.getenv("LIDLTOOL_CONNECTOR_PLUGIN_PATHS"):
+        env_overrides["connector_plugin_search_paths"] = [
+            item.strip()
+            for item in os.getenv("LIDLTOOL_CONNECTOR_PLUGIN_PATHS", "").split(",")
+            if item.strip()
+        ]
+    if os.getenv("LIDLTOOL_CONNECTOR_EXTERNAL_RECEIPT_PLUGINS_ENABLED"):
+        env_overrides["connector_external_receipt_plugins_enabled"] = (
+            os.getenv("LIDLTOOL_CONNECTOR_EXTERNAL_RECEIPT_PLUGINS_ENABLED", "false").lower()
+            == "true"
+        )
+    if os.getenv("LIDLTOOL_CONNECTOR_EXTERNAL_OFFER_PLUGINS_ENABLED"):
+        env_overrides["connector_external_offer_plugins_enabled"] = (
+            os.getenv("LIDLTOOL_CONNECTOR_EXTERNAL_OFFER_PLUGINS_ENABLED", "false").lower()
+            == "true"
+        )
+    if os.getenv("LIDLTOOL_CONNECTOR_EXTERNAL_ALLOWED_TRUST_CLASSES"):
+        env_overrides["connector_external_allowed_trust_classes"] = [
+            item.strip()
+            for item in os.getenv("LIDLTOOL_CONNECTOR_EXTERNAL_ALLOWED_TRUST_CLASSES", "").split(",")
+            if item.strip()
+        ]
+    if os.getenv("LIDLTOOL_CONNECTOR_MARKET_PROFILE"):
+        env_overrides["connector_market_profile"] = os.getenv(
+            "LIDLTOOL_CONNECTOR_MARKET_PROFILE"
+        )
     if os.getenv("LIDLTOOL_AI_BASE_URL"):
         env_overrides["ai_base_url"] = os.getenv("LIDLTOOL_AI_BASE_URL")
     if os.getenv("LIDLTOOL_AI_MODEL"):
         env_overrides["ai_model"] = os.getenv("LIDLTOOL_AI_MODEL")
+    if os.getenv("LIDLTOOL_PLUGIN_AI_ENABLED"):
+        plugin_ai = dict(data.get("plugin_ai_mediation") or {})
+        plugin_ai["enabled"] = os.getenv("LIDLTOOL_PLUGIN_AI_ENABLED", "false").lower() == "true"
+        env_overrides["plugin_ai_mediation"] = plugin_ai
+    if os.getenv("LIDLTOOL_PLUGIN_AI_DEFAULT_POLICY_LEVEL"):
+        plugin_ai = dict(env_overrides.get("plugin_ai_mediation") or data.get("plugin_ai_mediation") or {})
+        plugin_ai["default_policy_level"] = os.getenv("LIDLTOOL_PLUGIN_AI_DEFAULT_POLICY_LEVEL")
+        env_overrides["plugin_ai_mediation"] = plugin_ai
+    if os.getenv("LIDLTOOL_PLUGIN_AI_TRUST_DEFAULTS"):
+        plugin_ai = dict(env_overrides.get("plugin_ai_mediation") or data.get("plugin_ai_mediation") or {})
+        plugin_ai["trust_defaults"] = json.loads(os.getenv("LIDLTOOL_PLUGIN_AI_TRUST_DEFAULTS", "{}"))
+        env_overrides["plugin_ai_mediation"] = plugin_ai
+    if os.getenv("LIDLTOOL_PLUGIN_AI_PLUGIN_OVERRIDES"):
+        plugin_ai = dict(env_overrides.get("plugin_ai_mediation") or data.get("plugin_ai_mediation") or {})
+        plugin_ai["plugin_overrides"] = json.loads(
+            os.getenv("LIDLTOOL_PLUGIN_AI_PLUGIN_OVERRIDES", "{}")
+        )
+        env_overrides["plugin_ai_mediation"] = plugin_ai
+    if os.getenv("LIDLTOOL_PLUGIN_AI_LIMITS"):
+        plugin_ai = dict(env_overrides.get("plugin_ai_mediation") or data.get("plugin_ai_mediation") or {})
+        plugin_ai["limits"] = json.loads(os.getenv("LIDLTOOL_PLUGIN_AI_LIMITS", "{}"))
+        env_overrides["plugin_ai_mediation"] = plugin_ai
+    if os.getenv("LIDLTOOL_PLUGIN_AI_BUDGETS"):
+        plugin_ai = dict(env_overrides.get("plugin_ai_mediation") or data.get("plugin_ai_mediation") or {})
+        plugin_ai["budgets"] = json.loads(os.getenv("LIDLTOOL_PLUGIN_AI_BUDGETS", "{}"))
+        env_overrides["plugin_ai_mediation"] = plugin_ai
 
     if db_override is not None:
         env_overrides["db_path"] = db_override

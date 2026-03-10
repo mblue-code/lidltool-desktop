@@ -16,6 +16,14 @@ from lidltool.analytics.scope import (
     personal_source_filter,
     visible_transaction_ids_subquery,
 )
+from lidltool.config import AppConfig
+from lidltool.connectors.connector_catalog import connector_catalog_payload
+from lidltool.connectors.market_catalog import self_hosted_market_strategy_payload
+from lidltool.connectors.registry import (
+    get_connector_registry,
+    source_catalog,
+    source_manifest_payload,
+)
 from lidltool.db.models import (
     ComparisonGroup,
     ComparisonGroupMember,
@@ -127,8 +135,12 @@ def ensure_saved_query_presets(session: Session) -> None:
 
 
 def list_sources(
-    session: Session, *, visibility: VisibilityContext | None = None
+    session: Session,
+    *,
+    config: AppConfig | None = None,
+    visibility: VisibilityContext | None = None,
 ) -> dict[str, Any]:
+    registry = get_connector_registry(config)
     stmt = select(Source).options(selectinload(Source.user)).order_by(Source.display_name.asc())
     if visibility is not None:
         stmt = stmt.where(personal_source_filter(visibility))
@@ -145,9 +157,17 @@ def list_sources(
                 "status": source.status,
                 "enabled": source.enabled,
                 "family_share_mode": source.family_share_mode,
+                "plugin": source_manifest_payload(source.id, config=config, registry=registry),
             }
             for source in rows
-        ]
+        ],
+        "catalog": source_catalog(config=config, registry=registry),
+        "discovery_catalog": connector_catalog_payload(
+            product="self_hosted",
+            config=config,
+            registry=registry,
+        ),
+        "market_strategy": self_hosted_market_strategy_payload(config),
     }
 
 

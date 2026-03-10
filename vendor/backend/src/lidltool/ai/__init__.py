@@ -1,2 +1,1 @@
-"""AI provider integration helpers."""
-
+"""AI provider and mediation helpers."""

@@ -1,0 +1,166 @@
+{
+  "schema_version": "1",
+  "support_policies": [
+    {
+      "support_class": "official",
+      "display_name": "Official",
+      "shipping_policy": "May ship preloaded in official self-hosted and desktop releases.",
+      "ui_label": "Official",
+      "diagnostics_expectation": "Included in standard connector diagnostics and maintainer triage.",
+      "update_expectations": "Updated alongside core releases when official behavior changes.",
+      "maintainer_support": "Maintainers support packaging, compatibility, and regression issues."
+    },
+    {
+      "support_class": "community_verified",
+      "display_name": "Community Verified",
+      "shipping_policy": "Not shipped by default; may be documented or operator-approved explicitly.",
+      "ui_label": "Community verified",
+      "diagnostics_expectation": "Diagnostics stay visible, but community ownership remains explicit.",
+      "update_expectations": "Best-effort updates; release cadence is independent from core releases.",
+      "maintainer_support": "Best-effort guidance only. Plugin authors/operators own plugin behavior."
+    },
+    {
+      "support_class": "community_unsigned",
+      "display_name": "Community Unsigned",
+      "shipping_policy": "Never implicitly shipped or endorsed in official curated bundles.",
+      "ui_label": "Community unsigned",
+      "diagnostics_expectation": "Diagnostics include trust warnings and explicit operator review boundaries.",
+      "update_expectations": "No release guarantees. Operators must validate updates themselves.",
+      "maintainer_support": "Unsupported beyond core platform defect reports."
+    },
+    {
+      "support_class": "local_custom",
+      "display_name": "Local Custom",
+      "shipping_policy": "Never shipped by the project; local path/operator managed only.",
+      "ui_label": "Local custom",
+      "diagnostics_expectation": "Diagnostics stay local-first and highlight non-distributed ownership.",
+      "update_expectations": "User-managed only.",
+      "maintainer_support": "No maintainer support for plugin implementation or packaging."
+    }
+  ],
+  "bundles": [
+    {
+      "bundle_id": "official.de_receipts_core",
+      "display_name": "Official Germany Receipts Core",
+      "market": "DE",
+      "region": "Germany",
+      "connector_plugin_ids": [
+        "builtin.lidl_plus_de",
+        "builtin.amazon_de",
+        "builtin.rewe_de",
+        "builtin.kaufland_de",
+        "builtin.dm_de",
+        "builtin.rossmann_de"
+      ],
+      "supported_products": ["self_hosted", "desktop"],
+      "default_state": {
+        "self_hosted": "available",
+        "desktop": "available"
+      },
+      "support_class": "official",
+      "support_level": "maintained",
+      "release_channel": "stable",
+      "description": "Current official DE-first receipt connector bundle shared by self-hosted and desktop."
+    }
+  ],
+  "profiles": [
+    {
+      "profile_id": "global_shell",
+      "display_name": "Generic / Global Shell",
+      "market": "global",
+      "description": "Neutral default that avoids implying regional endorsement in universal releases.",
+      "supported_products": ["self_hosted", "desktop"],
+      "default_bundle_ids": [],
+      "recommended_bundle_ids": ["official.de_receipts_core"],
+      "default_connector_plugin_ids": [],
+      "recommended_connector_plugin_ids": [],
+      "excluded_plugin_families": ["offer"],
+      "out_of_scope_notes": [
+        "Desktop remains receipt-focused in Sprint 9.",
+        "Community packs require explicit trust labeling and opt-in."
+      ]
+    },
+    {
+      "profile_id": "dach_starter",
+      "display_name": "DACH Starter",
+      "market": "DACH",
+      "description": "Curated starter profile for German-speaking operators. Current official coverage is DE-first.",
+      "supported_products": ["self_hosted", "desktop"],
+      "default_bundle_ids": ["official.de_receipts_core"],
+      "recommended_bundle_ids": [],
+      "default_connector_plugin_ids": [],
+      "recommended_connector_plugin_ids": [],
+      "excluded_plugin_families": ["offer"],
+      "out_of_scope_notes": [
+        "Austria and Switzerland official connector expansion remains future work.",
+        "Desktop offer/deal parity is intentionally out of scope."
+      ]
+    },
+    {
+      "profile_id": "us_starter",
+      "display_name": "US Starter",
+      "market": "US",
+      "description": "Shell-first profile for future US rollout without implying current official US connector coverage.",
+      "supported_products": ["self_hosted", "desktop"],
+      "default_bundle_ids": [],
+      "recommended_bundle_ids": [],
+      "default_connector_plugin_ids": [],
+      "recommended_connector_plugin_ids": [],
+      "excluded_plugin_families": ["offer"],
+      "out_of_scope_notes": [
+        "No official US receipt connectors ship in Sprint 9.",
+        "Hosted backend and desktop offer/deal work remain deferred."
+      ]
+    }
+  ],
+  "release_variants": [
+    {
+      "variant_id": "self_hosted_oss_universal",
+      "display_name": "Self-hosted OSS Universal",
+      "product": "self_hosted",
+      "edition_kind": "universal_shell",
+      "default_market_profile_id": "global_shell",
+      "selectable_market_profile_ids": ["global_shell", "dach_starter", "us_starter"],
+      "preloaded_bundle_ids": ["official.de_receipts_core"],
+      "optional_bundle_ids": [],
+      "release_channel": "stable",
+      "description": "Docker-first OSS image ships one universal artifact. Market profiles only drive curated defaults and metadata."
+    },
+    {
+      "variant_id": "desktop_universal_shell",
+      "display_name": "Desktop Universal Shell",
+      "product": "desktop",
+      "edition_kind": "universal_shell",
+      "default_market_profile_id": "global_shell",
+      "selectable_market_profile_ids": ["global_shell", "dach_starter", "us_starter"],
+      "preloaded_bundle_ids": ["official.de_receipts_core"],
+      "optional_bundle_ids": [],
+      "release_channel": "stable",
+      "description": "Default signed desktop shell with current official built-ins plus optional imported receipt packs."
+    },
+    {
+      "variant_id": "desktop_dach_edition",
+      "display_name": "Desktop DACH Edition",
+      "product": "desktop",
+      "edition_kind": "regional_edition",
+      "default_market_profile_id": "dach_starter",
+      "selectable_market_profile_ids": ["dach_starter"],
+      "preloaded_bundle_ids": ["official.de_receipts_core"],
+      "optional_bundle_ids": [],
+      "release_channel": "stable",
+      "description": "Regional desktop preset that preselects the DACH starter profile without changing plugin architecture."
+    },
+    {
+      "variant_id": "desktop_us_shell",
+      "display_name": "Desktop US Starter Shell",
+      "product": "desktop",
+      "edition_kind": "regional_edition",
+      "default_market_profile_id": "us_starter",
+      "selectable_market_profile_ids": ["us_starter"],
+      "preloaded_bundle_ids": [],
+      "optional_bundle_ids": [],
+      "release_channel": "preview",
+      "description": "Preview desktop preset for future US rollout. It does not imply official US connector coverage in Sprint 9."
+    }
+  ]
+}

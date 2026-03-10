@@ -283,6 +283,34 @@ class IngestionJob(Base):
     source_account: Mapped[SourceAccount | None] = relationship(back_populates="jobs")
 
 
+class ConnectorPayloadQuarantine(Base):
+    __tablename__ = "connector_payload_quarantine"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), nullable=False, index=True)
+    source_account_id: Mapped[str | None] = mapped_column(
+        ForeignKey("source_accounts.id"), nullable=True, index=True
+    )
+    ingestion_job_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ingestion_jobs.id"), nullable=True, index=True
+    )
+    plugin_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    manifest_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    connector_api_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    runtime_kind: Mapped[str | None] = mapped_column(String, nullable=True)
+    action_name: Mapped[str] = mapped_column(String, nullable=False)
+    outcome: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    review_status: Mapped[str] = mapped_column(String, nullable=False, default="pending", index=True)
+    source_record_ref: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    payload_snapshot: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    validation_errors: Mapped[list[dict[str, object]]] = mapped_column(JSON, nullable=False)
+    runtime_diagnostics: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class Transaction(Base):
     __tablename__ = "transactions"
 
@@ -686,6 +714,190 @@ class ProductAlias(Base):
 
 
 Index("idx_product_aliases_raw", ProductAlias.source_kind, ProductAlias.raw_name)
+
+
+class OfferSource(Base):
+    __tablename__ = "offer_sources"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    plugin_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    merchant_name: Mapped[str] = mapped_column(String, nullable=False)
+    merchant_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False, index=True)
+    region_code: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    store_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    store_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    scope_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    raw_scope_payload: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    offers: Mapped[list[Offer]] = relationship(back_populates="offer_source")
+
+
+class Offer(Base):
+    __tablename__ = "offers"
+
+    offer_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    offer_source_id: Mapped[str] = mapped_column(
+        ForeignKey("offer_sources.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    plugin_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    source_offer_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    fingerprint: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    offer_type: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active", index=True)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="EUR")
+    price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    original_price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    discount_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bundle_terms: Mapped[str | None] = mapped_column(Text, nullable=True)
+    offer_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    validity_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    validity_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    raw_payload: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    normalized_payload: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    offer_source: Mapped[OfferSource] = relationship(back_populates="offers")
+    items: Mapped[list[OfferItem]] = relationship(back_populates="offer", cascade="all, delete-orphan")
+    matches: Mapped[list[OfferMatch]] = relationship(
+        back_populates="offer", cascade="all, delete-orphan"
+    )
+
+
+class OfferItem(Base):
+    __tablename__ = "offer_items"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    offer_id: Mapped[str] = mapped_column(
+        ForeignKey("offers.offer_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    line_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_item_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    brand: Mapped[str | None] = mapped_column(String, nullable=True)
+    canonical_product_id: Mapped[str | None] = mapped_column(
+        ForeignKey("products.product_id"), nullable=True, index=True
+    )
+    gtin_ean: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    alias_candidates: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    quantity_text: Mapped[str | None] = mapped_column(String, nullable=True)
+    unit: Mapped[str | None] = mapped_column(String, nullable=True)
+    size_text: Mapped[str | None] = mapped_column(String, nullable=True)
+    price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    original_price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    discount_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bundle_terms: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_payload: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    offer: Mapped[Offer] = relationship(back_populates="items")
+    product: Mapped[Product | None] = relationship()
+    matches: Mapped[list[OfferMatch]] = relationship(back_populates="offer_item")
+
+
+Index("ux_offer_items_offer_line", OfferItem.offer_id, OfferItem.line_no, unique=True)
+
+
+class ProductWatchlist(Base):
+    __tablename__ = "product_watchlists"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    product_id: Mapped[str | None] = mapped_column(
+        ForeignKey("products.product_id"), nullable=True, index=True
+    )
+    query_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    min_discount_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    user: Mapped[User] = relationship()
+    product: Mapped[Product | None] = relationship()
+    matches: Mapped[list[OfferMatch]] = relationship(back_populates="watchlist")
+
+
+class OfferMatch(Base):
+    __tablename__ = "offer_matches"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    match_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    offer_id: Mapped[str] = mapped_column(
+        ForeignKey("offers.offer_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    offer_item_id: Mapped[str | None] = mapped_column(
+        ForeignKey("offer_items.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    watchlist_id: Mapped[str | None] = mapped_column(
+        ForeignKey("product_watchlists.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    matched_product_id: Mapped[str | None] = mapped_column(
+        ForeignKey("products.product_id"), nullable=True, index=True
+    )
+    match_kind: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    match_method: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending_alert", index=True)
+    reason_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    offer: Mapped[Offer] = relationship(back_populates="matches")
+    offer_item: Mapped[OfferItem | None] = relationship(back_populates="matches")
+    user: Mapped[User] = relationship()
+    watchlist: Mapped[ProductWatchlist | None] = relationship(back_populates="matches")
+    matched_product: Mapped[Product | None] = relationship()
+    alert_events: Mapped[list[AlertEvent]] = relationship(
+        back_populates="offer_match", cascade="all, delete-orphan"
+    )
+
+
+class AlertEvent(Base):
+    __tablename__ = "alert_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    offer_match_id: Mapped[str] = mapped_column(
+        ForeignKey("offer_matches.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String, nullable=False, default="offer_match", index=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending", index=True)
+    dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    user: Mapped[User] = relationship()
+    offer_match: Mapped[OfferMatch] = relationship(back_populates="alert_events")
 
 
 class ComparisonGroup(Base):

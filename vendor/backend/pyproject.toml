@@ -83,3 +83,10 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lidltool"]
+artifacts = [
+  "src/lidltool/connectors/official_market_catalog.json",
+  "src/lidltool/connectors/curated_connector_catalog.json",
+]

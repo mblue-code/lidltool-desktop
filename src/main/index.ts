@@ -26,6 +26,15 @@ async function loadControlCenter(window: BrowserWindow, bootError?: string): Pro
 
 async function bootIntoFullApp(window: BrowserWindow): Promise<void> {
   try {
+    const diagnostics = runtime.getRuntimeDiagnostics();
+    if (!diagnostics.fullAppReady) {
+      await loadControlCenter(
+        window,
+        `This build does not include the main app pages at '${diagnostics.frontendDistPath}'. ` +
+          "You can still run local sync, plugin pack, export, and backup tasks from the control center."
+      );
+      return;
+    }
     await runtime.startBackend({ strictOverride: true });
     latestBootError = null;
     await window.loadURL(runtime.getFullAppUrl());

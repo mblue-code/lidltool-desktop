@@ -27,6 +27,17 @@ from lidltool.analytics.queries import (
 )
 from lidltool.auth.token_store import TokenStore
 from lidltool.config import AppConfig, build_config, database_url
+from lidltool.connectors.auth.auth_orchestration import ConnectorAuthOrchestrationService
+from lidltool.connectors.connector_catalog import connector_catalog_payload
+from lidltool.connectors.market_catalog import self_hosted_market_strategy_payload
+from lidltool.connectors.registry import (
+    get_connector_registry,
+    source_bootstrap_command,
+    source_catalog,
+    source_display_name,
+    source_manifest_payload,
+)
+from lidltool.connectors.runtime.execution import ConnectorExecutionService
 from lidltool.db.audit import record_audit_event
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
 from lidltool.db.models import IngestionJob, Source, SourceAccount, SyncState
@@ -500,28 +511,68 @@ def _session_factory_from_params(
 
 
 def _source_auth_state(config: AppConfig, source_id: str) -> dict[str, Any]:
-    token_store = TokenStore.from_config(config)
-    has_refresh_token = bool(token_store.get_refresh_token())
-    reauth_flag = token_store.is_reauth_required()
-    requires_reauth = reauth_flag
-    auth_status = (
-        "reauth_required"
-        if requires_reauth
-        else ("authenticated" if has_refresh_token else "missing_credentials")
+    registry = get_connector_registry(config)
+    manifest = registry.get_manifest(source_id)
+    if manifest is None:
+        return {
+            "source": source_id,
+            "auth_kind": "none",
+            "status": "managed_externally",
+            "reauth_required": False,
+            "reauth_flag_set": False,
+            "has_refresh_token": False,
+            "state": "not_connected",
+            "detail": "source is not registered in the connector auth registry",
+            "available_actions": [],
+            "implemented_actions": [],
+            "compatibility_actions": [],
+            "actions": {},
+        }
+
+    execution = ConnectorExecutionService(config=config)
+    service = ConnectorAuthOrchestrationService(
+        config=config,
+        connector_builder=execution.build_receipt_connector,
     )
+    snapshot = service.get_auth_status(source_id=source_id)
+    auth_kind = snapshot.capabilities.auth_kind
+    token_store = TokenStore.from_config(config) if auth_kind == "oauth_pkce" else None
+    has_refresh_token = bool(token_store.get_refresh_token()) if token_store is not None else False
+    reauth_flag = token_store.is_reauth_required() if token_store is not None else False
+    status_map = {
+        "connected": "authenticated",
+        "reauth_required": "reauth_required",
+        "not_connected": "missing_credentials",
+        "bootstrap_running": "managed_externally",
+        "bootstrap_canceled": "managed_externally",
+        "auth_failed": "managed_externally",
+        "connecting": "managed_externally",
+    }
+    auth_status = status_map.get(snapshot.state, "managed_externally")
+    actions: dict[str, Any] = {}
+    if source_bootstrap_command(source_id, registry=registry) is not None:
+        actions["reauth_start"] = {
+            "action": "source_auth_reauth_start",
+            "params": {"source": source_id},
+        }
+    if auth_kind == "oauth_pkce":
+        actions["reauth_confirm"] = {
+            "action": "source_auth_reauth_confirm",
+            "params": {"source": source_id},
+        }
     return {
         "source": source_id,
+        "auth_kind": auth_kind,
         "status": auth_status,
-        "reauth_required": requires_reauth,
+        "reauth_required": snapshot.state == "reauth_required",
         "reauth_flag_set": reauth_flag,
         "has_refresh_token": has_refresh_token,
-        "actions": {
-            "reauth_start": {"action": "source_auth_reauth_start", "params": {"source": source_id}},
-            "reauth_confirm": {
-                "action": "source_auth_reauth_confirm",
-                "params": {"source": source_id},
-            },
-        },
+        "state": snapshot.state,
+        "detail": snapshot.detail,
+        "available_actions": list(snapshot.available_actions),
+        "implemented_actions": list(snapshot.implemented_actions),
+        "compatibility_actions": list(snapshot.compatibility_actions),
+        "actions": actions,
     }
 
 
@@ -586,8 +637,8 @@ def _handle_sync(
     source = _validate_optional_str("sync params.source must be a string", params.get("source"))
     target_source = source or config.source
 
-    # Only Lidl source requires the refresh token bootstrap flow.
-    if target_source == "lidl_plus_de":
+    manifest = get_connector_registry(config).get_manifest(target_source)
+    if manifest is not None and manifest.auth_kind == "oauth_pkce":
         token_store = TokenStore.from_config(config)
         token = token_store.get_refresh_token()
         if not token:
@@ -753,6 +804,16 @@ def _handle_source_auth_reauth_start(
         "source_auth_reauth_start params.caller_token must be a string", params.get("caller_token")
     )
     target_source = source_id or config.source
+    registry = get_connector_registry(config)
+    manifest = registry.get_manifest(target_source)
+    if manifest is None:
+        raise ActionRuntimeFailureError(f"source not found: {target_source}")
+    bootstrap_command = source_bootstrap_command(target_source, registry=registry)
+    if bootstrap_command is None:
+        raise ActionRuntimeFailureError(
+            f"re-authentication bootstrap not supported for source: {target_source}"
+        )
+    instruction = f"Run `{' '.join(bootstrap_command)}` to re-authenticate this source."
     _emit_audit_event(
         sessions,
         action="source.reauth.started",
@@ -763,18 +824,20 @@ def _handle_source_auth_reauth_start(
             "action_origin": "openclaw",
             "action_category": "safe_write",
             "contract_version": CONTRACT_VERSION,
-            "instructions": "run lidltool auth bootstrap",
+            "instructions": instruction,
         },
     )
     auth = _source_auth_state(config, target_source)
+    next_action = (
+        {"action": "source_auth_reauth_confirm", "params": {"source": target_source}}
+        if manifest.auth_kind == "oauth_pkce"
+        else None
+    )
     return {
         "source": target_source,
         "reauth_started": True,
-        "instructions": "Run `lidltool auth bootstrap` to re-authenticate this source.",
-        "next_action": {
-            "action": "source_auth_reauth_confirm",
-            "params": {"source": target_source},
-        },
+        "instructions": instruction,
+        "next_action": next_action,
         "auth": auth,
     }
 
@@ -790,6 +853,13 @@ def _handle_source_auth_reauth_confirm(
         params.get("caller_token"),
     )
     target_source = source_id or config.source
+    manifest = get_connector_registry(config).get_manifest(target_source)
+    if manifest is None:
+        raise ActionRuntimeFailureError(f"source not found: {target_source}")
+    if manifest.auth_kind != "oauth_pkce":
+        raise ActionRuntimeFailureError(
+            f"re-authentication confirm is not supported for auth_kind={manifest.auth_kind}"
+        )
     token_store = TokenStore.from_config(config)
     refresh_token = token_store.get_refresh_token()
     if not refresh_token:
@@ -1231,10 +1301,16 @@ def _handle_sources_list(
     config: AppConfig, sessions: sessionmaker[Session], params: dict[str, Any]
 ) -> dict[str, Any]:
     include_disabled = bool(params.get("include_disabled", False))
+    registry = get_connector_registry(config)
     with session_scope(sessions) as session:
         sources = session.execute(select(Source).order_by(Source.id.asc())).scalars().all()
+        persisted_by_id = {source.id: source for source in sources}
         items: list[dict[str, Any]] = []
-        for source in sources:
+        for manifest in registry.list_manifests(plugin_family="receipt"):
+            source = persisted_by_id.get(manifest.source_id)
+            if source is None:
+                items.append(_default_source_payload(config, manifest.source_id, registry=registry))
+                continue
             if not include_disabled and not source.enabled:
                 continue
             account = _first_source_account(session, source.id)
@@ -1242,13 +1318,48 @@ def _handle_sources_list(
             sync_state = session.get(SyncState, source.id)
             auth = _source_auth_state(config, source.id)
             items.append(
-                _source_payload(source, account, latest_job, sync_state=sync_state, auth=auth)
+                _source_payload(
+                    source,
+                    account,
+                    latest_job,
+                    sync_state=sync_state,
+                    auth=auth,
+                    config=config,
+                    registry=registry,
+                )
+            )
+        for source in sources:
+            if source.id in persisted_by_id and registry.has_source(source.id):
+                continue
+            if not include_disabled and not source.enabled:
+                continue
+            account = _first_source_account(session, source.id)
+            latest_job = _latest_job_for_source(session, source.id)
+            sync_state = session.get(SyncState, source.id)
+            auth = _source_auth_state(config, source.id)
+            items.append(
+                _source_payload(
+                    source,
+                    account,
+                    latest_job,
+                    sync_state=sync_state,
+                    auth=auth,
+                    config=config,
+                    registry=registry,
+                )
             )
         if not items:
-            items.append(_default_source_payload(config, config.source))
+            items.append(_default_source_payload(config, config.source, registry=registry))
 
     return {
         "sources": items,
+        "catalog": source_catalog(config=config, registry=registry),
+        "discovery_catalog": connector_catalog_payload(
+            product="self_hosted",
+            config=config,
+            registry=registry,
+        ),
+        "market_strategy": self_hosted_market_strategy_payload(config),
         "sync_actions": {
             "global": {"action": "sync", "params": {}},
             "per_source": {"action": "sync", "params_template": {"source": "<source_id>"}},
@@ -1266,17 +1377,26 @@ def _handle_source_status(
     if not source_id:
         raise ActionValidationError("source_status requires params.source")
 
+    registry = get_connector_registry(config)
     with session_scope(sessions) as session:
         source = session.get(Source, source_id)
         if source is None:
-            if source_id == config.source:
-                return _default_source_payload(config, source_id)
+            if registry.has_source(source_id) or source_id == config.source:
+                return _default_source_payload(config, source_id, registry=registry)
             raise ActionRuntimeFailureError(f"source not found: {source_id}")
         account = _first_source_account(session, source_id)
         latest_job = _latest_job_for_source(session, source_id)
         sync_state = session.get(SyncState, source_id)
         auth = _source_auth_state(config, source_id)
-        return _source_payload(source, account, latest_job, sync_state=sync_state, auth=auth)
+        return _source_payload(
+            source,
+            account,
+            latest_job,
+            sync_state=sync_state,
+            auth=auth,
+            config=config,
+            registry=registry,
+        )
 
 
 def _first_source_account(session: Session, source_id: str) -> SourceAccount | None:
@@ -1306,6 +1426,8 @@ def _source_payload(
     *,
     sync_state: SyncState | None,
     auth: dict[str, Any],
+    config: AppConfig,
+    registry: Any,
 ) -> dict[str, Any]:
     status, status_reason = _derive_source_status(source, account, latest_job, auth=auth)
     progress: dict[str, Any] = {}
@@ -1346,6 +1468,7 @@ def _source_payload(
         "source": source.id,
         "display_name": source.display_name,
         "kind": source.kind,
+        "plugin": source_manifest_payload(source.id, config=config, registry=registry),
         "enabled": source.enabled,
         "status": status,
         "status_reason": status_reason,
@@ -1390,16 +1513,26 @@ def _source_payload(
     }
 
 
-def _default_source_payload(config: AppConfig, source_id: str) -> dict[str, Any]:
+def _default_source_payload(config: AppConfig, source_id: str, *, registry: Any) -> dict[str, Any]:
     auth = _source_auth_state(config, source_id)
     recovery = _build_recovery_payload(status=None, error=None)
+    plugin = source_manifest_payload(source_id, config=config, registry=registry)
+    status_reason = "source known but has no sync history yet"
+    if isinstance(plugin, dict) and plugin.get("status") not in {None, "enabled"}:
+        detail = plugin.get("status_detail")
+        status_reason = (
+            f"plugin is present but not active: {detail}"
+            if isinstance(detail, str) and detail
+            else "plugin is present but not active"
+        )
     return {
         "source": source_id,
-        "display_name": source_id.replace("_", " ").title(),
+        "display_name": source_display_name(source_id, config=config, registry=registry),
         "kind": "connector",
+        "plugin": plugin,
         "enabled": True,
         "status": SOURCE_STATUS_CONNECTED,
-        "status_reason": "source known but has no sync history yet",
+        "status_reason": status_reason,
         "account": {
             "id": None,
             "account_ref": None,

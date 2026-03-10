@@ -1,17 +1,44 @@
 # LidlTool Desktop (Electron)
 
-Desktop host for the full self-hosted LidlTool experience, including connector/scraper flows.
+LidlTool Desktop is the standalone occasional-use desktop product. It is local-first, receipt-oriented, and
+plugin-capable, but it is intentionally narrower than the self-hosted server deployment.
 
-## What this app does
+## Desktop product scope
 
-- Starts local backend (`lidltool serve`) from Electron
-- Opens the real full app UI (the same frontend used in self-host mode)
-- Keeps fallback control center UI if backend boot fails
-- Supports one-off sync command execution directly from fallback control center
-- Supports one-off backup import/restore from fallback control center
-- Supports one-off local backup bundle creation from full app settings and fallback control center
-- Supports one-off backup import/restore from full app settings and setup page
-- Supports one-off JSON data export execution directly from fallback control center
+Desktop is for:
+- opening the app when you want a local sync
+- reviewing receipts on the same machine
+- exporting normalized receipt data
+- creating or restoring local backups
+- enabling a small number of receipt plugin packs
+
+Desktop is not for:
+- running as an always-on household server
+- offer/watchlist/alert parity
+- recurring background scraping
+- hosted/backend service workflows
+- on-device plugin authoring
+
+## Sprint 16 summary
+
+Sprint 16 focuses on product polish instead of new parity scope.
+
+- first-run and control-center copy now frames desktop as a local occasional-use product
+- the control center now explains whether you are in full-app-ready mode, reduced fallback mode, or control-center-only mode
+- receipt pack management is organized around installed packs, trusted optional packs, explicit enable/disable/remove actions, and clearer trust/support labels
+- backup, export, and restore flows now explain what is included, what stays out of scope, and where misunderstandings are most likely
+- regional edition and market profile context is surfaced more clearly from the existing release metadata
+- partial-runtime states now stay actionable when full frontend assets are missing or release metadata falls back to a safe local shell profile
+
+## User journey
+
+Typical desktop flow:
+1. Open the app.
+2. Confirm whether the main app is available or whether the local control center is active.
+3. Review the installed edition and market profile.
+4. Install, update, enable, disable, or remove receipt packs if needed.
+5. Run a one-off sync.
+6. Review results locally, then export or back up if you want a portable copy.
 
 ## Runtime model
 
@@ -23,10 +50,174 @@ Desktop host for the full self-hosted LidlTool experience, including connector/s
 - Frontend assets for packaged builds are copied to `resources/frontend-dist`.
 - Vendored backend source is copied to `resources/backend-src`.
 - Backend receives:
-  - `LIDLTOOL_FRONTEND_DIST` (so FastAPI serves packaged frontend)
-  - `LIDLTOOL_REPO_ROOT` (cwd hint for connector subprocess usage)
-  - `LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY` (desktop auto-provisions and persists one in app user data)
-  - `PLAYWRIGHT_BROWSERS_PATH=0` for bundled/managed venv backends (ensures packaged Chromium is used)
+  - `LIDLTOOL_FRONTEND_DIST`
+  - `LIDLTOOL_REPO_ROOT`
+  - `LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY`
+  - desktop-managed connector plugin env vars for explicitly enabled receipt plugin packs
+  - `PLAYWRIGHT_BROWSERS_PATH=0` for bundled or managed venv backends
+
+Control-center states:
+- full-app-ready: bundled frontend pages are present and the main app can open normally
+- reduced fallback mode: desktop keeps the control center open because the local runtime did not start cleanly
+- control-center-only: desktop keeps the shell open because the bundled frontend pages are missing, while local sync/export/backup tasks still remain available
+
+Release metadata fallback:
+- if the vendored market metadata is missing or incomplete, desktop falls back to a safe local shell profile
+- manual receipt pack import remains available with conservative trust labeling
+- trusted catalog installs only appear when verified metadata is present
+
+## Receipt plugin packs
+
+Desktop supports user-installed receipt connector packs without mutating the signed app bundle.
+
+Scope:
+- receipt plugins only
+- manual local file import remains supported
+- trusted URL install/update is supported only for signed catalog entries
+- offer/deal plugins remain out of desktop scope
+- recurring offer scraping and alerts remain out of desktop scope
+
+Management surface:
+- use the Electron control center
+- if the app boots straight into the full web UI, use the desktop menu action `Reload control center`
+
+Activation model:
+- imported packs install disabled by default
+- enable/disable is explicit
+- manual unsigned packs are never presented as official or project-supported
+- trusted catalog downloads must verify before install
+- revoked, invalid, or incompatible packs stay visible but blocked from activation
+- enabling, disabling, updating, or removing a pack restarts the local backend when needed
+
+Support and trust labels shown in the control center:
+- `official`: project-maintained desktop path
+- `community_verified`: signed community pack allowed by trusted desktop distribution
+- `community_unsigned`: manual import only, kept under conservative trust labeling
+- `local_custom`: operator-supplied local pack with no upstream support promise
+
+Desktop workflow:
+1. Open the control center.
+2. Use `Import local pack` for a ZIP file, or choose `Install trusted pack` for a verified catalog entry.
+3. Review the status, trust, support, and market-profile messaging.
+4. Enable the pack explicitly if you want desktop to load it into the next backend run.
+5. Use the same control center to install a trusted update, disable a pack, or remove it from local storage.
+
+### Pack format
+
+Desktop uses a ZIP-based receipt plugin pack with this layout:
+
+```text
+plugin-pack.json
+manifest.json
+integrity.json
+signature.json          # optional for manual import, required for trusted URL install
+payload/...
+```
+
+Desktop validates:
+- ZIP structure and safe paths
+- required files and runtime payload presence
+- per-file SHA-256 hashes
+- backend manifest compatibility for host kind `electron`
+- imported trust-class policy
+- detached Ed25519 signatures against the pack envelope + payload hash manifest for trusted installs
+- trusted distribution revocations by key id, plugin id/version, or archive hash
+
+### Storage layout
+
+Imported packs live under user-writable Electron app-data, never under packaged app resources.
+
+- macOS:
+  - `~/Library/Application Support/LidlTool Desktop/plugins/receipt-packs/`
+- Windows:
+  - `%APPDATA%/LidlTool Desktop/plugins/receipt-packs/`
+
+Desktop-managed layout:
+
+```text
+plugins/receipt-packs/
+  state.json
+  installs/
+    <plugin-id>/
+      <plugin-version>/
+        plugin-pack.json
+        manifest.json
+        integrity.json
+        signature.json
+        payload/...
+  staging/
+```
+
+## Backup, export, and restore
+
+Backup:
+- creates a local backup directory for this desktop profile
+- always includes the database
+- can include document storage and a JSON export snapshot
+- does not include receipt pack archives or any hosted service state
+- requires an empty output directory
+
+Export:
+- writes normalized receipts to a single local JSON file
+- does not include credentials, tokens, plugin packs, or document storage
+- is the better choice when you want portable data without restoring a full desktop profile
+
+Restore:
+- restores the local database from a backup directory
+- can restore credential key, token, and document storage when present
+- does not reinstall receipt packs automatically
+- can restart the local backend after restore
+
+## Release variants and regional editions
+
+Desktop source of truth:
+- official bundle/profile catalog is vendored under `apps/desktop/vendor/backend/src/lidltool/connectors/official_market_catalog.json`
+- Electron resolves release metadata from that vendored catalog at runtime/build time
+
+Current desktop release variants:
+- `desktop_universal_shell`
+  - stable default
+  - neutral/global shell
+  - still supports optional imported receipt plugin packs
+- `desktop_dach_edition`
+  - stable regional preset
+  - preselects the `dach_starter` profile
+- `desktop_us_shell`
+  - preview preset for future rollout
+  - intentionally does not imply official US connector support yet
+
+Set the active desktop release preset with:
+- `LIDLTOOL_DESKTOP_RELEASE_VARIANT`
+
+Notes:
+- universal shell and regional editions share the same plugin/runtime model
+- official bundle metadata is separate from imported community/local receipt packs
+- desktop uses the market profile to explain why some connectors are preselected while others are optional
+- desktop offer/deal parity remains intentionally out of scope
+
+## Curated connector catalog
+
+Desktop consumes a signed connector catalog envelope and can optionally fetch a newer signed remote catalog when
+`LIDLTOOL_DESKTOP_CATALOG_URL` is set.
+
+Desktop catalog source of truth:
+- bundled signed envelope: `apps/desktop/src/main/trusted-distribution/bundled-connector-catalog.json`
+- bundled trust roots: `apps/desktop/src/main/trusted-distribution/trust-roots.json`
+- parsed desktop catalog logic: `apps/desktop/src/main/connector-catalog.ts`
+
+Current behavior:
+- invalid or unverifiable remote catalog metadata fails closed and is ignored
+- the bundled signed catalog remains the trust anchor fallback
+- catalog entries never auto-install or auto-enable anything
+- trusted desktop-pack entries may expose explicit `Install trusted pack` and `Install trusted update` actions
+- revoked catalog entries stay visible with block reasons and cannot be installed through the trusted flow
+- local ZIP import remains the first-class path for community and local receipt packs
+- official versus community trust labeling stays explicit in the control center
+
+Current desktop deferrals still remain:
+- no full hosted marketplace flow
+- no multi-hop signature chain beyond bundled trust roots and detached signatures
+- no offer/deal plugin-pack parity
 
 ## Vendor sync (required)
 
@@ -93,6 +284,8 @@ npm run vendor:sync
 npm run frontend:install
 npm run frontend:build
 npm run backend:prepare
+npm run test:plugin-packs
+npm run test:release-metadata
 npm run typecheck
 npm run build
 npm run dist:full

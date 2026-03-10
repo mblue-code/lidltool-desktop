@@ -13,7 +13,6 @@ import subprocess
 import sys
 import threading
 import time
-from collections import deque
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -24,8 +23,8 @@ from typing import Annotated, Any, Literal, cast
 from urllib.parse import parse_qs, urlencode, urlparse
 from uuid import uuid4
 
-import uvicorn
 import httpx
+import uvicorn
 from fastapi import (
     FastAPI,
     File,
@@ -47,6 +46,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 
+from lidltool.ai.clustering import cluster_products_with_llm, get_cluster_job_progress
 from lidltool.ai.config import (
     get_ai_api_key,
     get_ai_oauth_access_token,
@@ -55,7 +55,6 @@ from lidltool.ai.config import (
     set_ai_oauth_access_token,
     set_ai_oauth_refresh_token,
 )
-from lidltool.ai.clustering import cluster_products_with_llm, get_cluster_job_progress
 from lidltool.analytics.advanced import (
     basket_compare,
     budget_utilization,
@@ -83,8 +82,8 @@ from lidltool.analytics.scope import VisibilityContext, parse_scope
 from lidltool.analytics.workbench import (
     add_comparison_group_member,
     comparison_group_series,
-    create_product,
     create_comparison_group,
+    create_product,
     create_saved_query,
     delete_saved_query,
     get_product_detail,
@@ -98,8 +97,8 @@ from lidltool.analytics.workbench import (
     product_price_series,
     product_purchases,
     run_workbench_query,
-    seed_products_from_items,
     search_products,
+    seed_products_from_items,
     unmatched_items_quality,
 )
 from lidltool.api.auth import (
@@ -122,7 +121,24 @@ from lidltool.auth.users import (
 )
 from lidltool.automations.scheduler import AutomationScheduler
 from lidltool.automations.service import AutomationService
-from lidltool.config import AppConfig, build_config, database_url, default_config_file, validate_config
+from lidltool.config import (
+    AppConfig,
+    build_config,
+    database_url,
+    default_config_file,
+    validate_config,
+)
+from lidltool.connectors.auth.auth_orchestration import (
+    ConnectorAuthOrchestrationService,
+    ConnectorAuthSessionRegistry,
+    ConnectorBootstrapSession,
+    any_connector_bootstrap_running,
+    connector_bootstrap_is_running,
+    serialize_connector_bootstrap,
+    start_connector_command_session,
+    terminate_connector_bootstrap,
+)
+from lidltool.connectors.runtime.execution import ConnectorExecutionService
 from lidltool.db.audit import list_transaction_history
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
 from lidltool.db.models import (
@@ -146,8 +162,8 @@ from lidltool.ingest.manual_ingest import (
     ManualTransactionInput,
 )
 from lidltool.ingest.overrides import OverrideService
-from lidltool.reliability.metrics import compute_endpoint_slo_summary, record_endpoint_metric
 from lidltool.recurring.service import RecurringBillsService
+from lidltool.reliability.metrics import compute_endpoint_slo_summary, record_endpoint_metric
 from lidltool.storage.document_storage import DocumentStorage, DocumentStorageError
 
 LOGGER = logging.getLogger(__name__)
@@ -237,18 +253,6 @@ class RequestContext:
     config_path: Path
     db_override: str | None
     config_override: str | None
-
-
-@dataclass(slots=True)
-class ConnectorBootstrapSession:
-    source_id: str
-    command: list[str]
-    process: subprocess.Popen[str]
-    started_at: datetime
-    output: deque[str]
-    lock: threading.Lock
-    finished_at: datetime | None = None
-    return_code: int | None = None
 
 
 @dataclass(slots=True)
@@ -1195,156 +1199,64 @@ def _novnc_login_url(request: Request) -> str | None:
     )
 
 
-def _connector_bootstrap_command(source_id: str) -> list[str] | None:
-    source_commands: dict[str, list[str]] = {
-        "lidl_plus_de": [sys.executable, "-m", "lidltool.cli", "auth", "bootstrap"],
-        "amazon_de": [
-            sys.executable,
-            "-m",
-            "lidltool.cli",
-            "amazon",
-            "auth",
-            "bootstrap",
-            "--domain",
-            "amazon.de",
-        ],
-        "rewe_de": [
-            sys.executable,
-            "-m",
-            "lidltool.cli",
-            "rewe",
-            "auth",
-            "bootstrap",
-            "--domain",
-            "shop.rewe.de",
-        ],
-        "kaufland_de": [
-            sys.executable,
-            "-m",
-            "lidltool.cli",
-            "kaufland",
-            "auth",
-            "bootstrap",
-            "--domain",
-            "www.kaufland.de",
-        ],
-        "dm_de": [
-            sys.executable,
-            "-m",
-            "lidltool.cli",
-            "dm",
-            "auth",
-            "bootstrap",
-            "--domain",
-            "www.dm.de",
-        ],
-        "rossmann_de": [
-            sys.executable,
-            "-m",
-            "lidltool.cli",
-            "rossmann",
-            "auth",
-            "bootstrap",
-            "--domain",
-            "www.rossmann.de",
-        ],
-    }
-    return source_commands.get(source_id)
+def _connector_command(
+    config: AppConfig,
+    *,
+    source_id: str,
+    operation: Literal["bootstrap", "sync"],
+    full: bool = False,
+) -> list[str] | None:
+    resolved = ConnectorExecutionService(config=config).build_command(
+        source_id=source_id,
+        operation=operation,
+        extra_args=("--full",) if operation == "sync" and full else (),
+    )
+    if resolved is None:
+        return None
+    return list(resolved.command)
 
 
-def _connector_sync_command(source_id: str) -> list[str] | None:
-    sync_commands: dict[str, list[str]] = {
-        "lidl_plus_de": [sys.executable, "-m", "lidltool.cli", "sync"],
-        "amazon_de": [sys.executable, "-m", "lidltool.cli", "amazon", "sync", "--domain", "amazon.de"],
-        "rewe_de": [sys.executable, "-m", "lidltool.cli", "rewe", "sync", "--domain", "shop.rewe.de"],
-        "kaufland_de": [sys.executable, "-m", "lidltool.cli", "kaufland", "sync", "--domain", "www.kaufland.de"],
-        "dm_de": [sys.executable, "-m", "lidltool.cli", "dm", "sync", "--domain", "www.dm.de"],
-        "rossmann_de": [sys.executable, "-m", "lidltool.cli", "rossmann", "sync", "--domain", "www.rossmann.de"],
-    }
-    return sync_commands.get(source_id)
+def _connector_auth_service(app: FastAPI, *, config: AppConfig) -> ConnectorAuthOrchestrationService:
+    execution = ConnectorExecutionService(config=config)
+    registry = cast(ConnectorAuthSessionRegistry, app.state.connector_auth_sessions)
+    return ConnectorAuthOrchestrationService(
+        config=config,
+        session_registry=registry,
+        connector_builder=execution.build_receipt_connector,
+        repo_root=_repo_root(),
+        process_factory=subprocess.Popen,
+    )
 
 
 def _connector_bootstrap_is_running(session: ConnectorBootstrapSession) -> bool:
-    if session.return_code is not None:
-        return False
-    polled = session.process.poll()
-    if polled is None:
-        return True
-    with session.lock:
-        session.return_code = polled
-        if session.finished_at is None:
-            session.finished_at = datetime.now(tz=UTC)
-    return False
+    return connector_bootstrap_is_running(session)
 
 
 def _serialize_connector_bootstrap(session: ConnectorBootstrapSession) -> dict[str, Any]:
-    running = _connector_bootstrap_is_running(session)
-    with session.lock:
-        started_at = session.started_at
-        finished_at = session.finished_at
-        return_code = session.return_code
-        output_tail = list(session.output)[-30:]
-    status = "running" if running else "succeeded" if return_code == 0 else "failed"
+    snapshot = serialize_connector_bootstrap(session)
     return {
-        "source_id": session.source_id,
-        "status": status,
-        "command": " ".join(session.command),
-        "pid": session.process.pid,
-        "started_at": started_at.isoformat(),
-        "finished_at": finished_at.isoformat() if finished_at is not None else None,
-        "return_code": return_code,
-        "output_tail": output_tail,
-        "can_cancel": running,
+        "source_id": snapshot.source_id,
+        "status": snapshot.state,
+        "command": " ".join(snapshot.command or ()),
+        "pid": snapshot.pid,
+        "started_at": snapshot.started_at.isoformat() if snapshot.started_at is not None else None,
+        "finished_at": (
+            snapshot.finished_at.isoformat() if snapshot.finished_at is not None else None
+        ),
+        "return_code": snapshot.return_code,
+        "output_tail": list(snapshot.output_tail),
+        "can_cancel": snapshot.can_cancel,
     }
 
 
-def _stream_connector_bootstrap_output(
-    app: FastAPI,
-    *,
-    source_id: str,
-    sessions_attr: str = "connector_bootstrap_sessions",
-) -> None:
-    sessions = cast(dict[str, ConnectorBootstrapSession], getattr(app.state, sessions_attr))
-    session = sessions.get(source_id)
-    if session is None:
-        return
-    try:
-        stream = session.process.stdout
-        if stream is not None:
-            for line in stream:
-                stripped = line.rstrip()
-                if not stripped:
-                    continue
-                with session.lock:
-                    session.output.append(stripped)
-        return_code: int | None = session.process.wait()
-    except Exception as exc:  # noqa: BLE001
-        with session.lock:
-            session.output.append(f"bootstrap monitor failed: {exc}")
-        return_code = session.process.poll()
-    with session.lock:
-        session.return_code = return_code
-        session.finished_at = datetime.now(tz=UTC)
-
-
 def _terminate_connector_bootstrap(session: ConnectorBootstrapSession) -> None:
-    if not _connector_bootstrap_is_running(session):
-        return
-    session.process.terminate()
-    try:
-        session.process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        session.process.kill()
-        session.process.wait(timeout=5)
-    with session.lock:
-        session.return_code = session.process.returncode
-        session.finished_at = datetime.now(tz=UTC)
+    terminate_connector_bootstrap(session)
 
 
 def _connector_any_running(
     sessions: dict[str, ConnectorBootstrapSession],
 ) -> bool:
-    return any(_connector_bootstrap_is_running(session) for session in sessions.values())
+    return any_connector_bootstrap_running(sessions)
 
 
 def _connector_process_env(app: FastAPI, *, config: AppConfig) -> dict[str, str]:
@@ -1371,35 +1283,16 @@ def _start_connector_command_session(
     sessions_attr: str,
     thread_name: str,
 ) -> ConnectorBootstrapSession:
-    process = subprocess.Popen(
-        command,
-        cwd=str(_repo_root()),
-        env=_connector_process_env(app, config=config),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL,
-        text=True,
-        bufsize=1,
-    )
-    connector_session = ConnectorBootstrapSession(
+    sessions = cast(dict[str, ConnectorBootstrapSession], getattr(app.state, sessions_attr))
+    return start_connector_command_session(
+        ConnectorAuthSessionRegistry(sessions),
         source_id=source_id,
         command=command,
-        process=process,
-        started_at=datetime.now(tz=UTC),
-        output=deque(maxlen=400),
-        lock=threading.Lock(),
+        cwd=_repo_root(),
+        env=_connector_process_env(app, config=config),
+        process_factory=subprocess.Popen,
+        thread_name=thread_name,
     )
-    sessions = cast(dict[str, ConnectorBootstrapSession], getattr(app.state, sessions_attr))
-    sessions[source_id] = connector_session
-    thread = threading.Thread(
-        target=_stream_connector_bootstrap_output,
-        args=(app,),
-        kwargs={"source_id": source_id, "sessions_attr": sessions_attr},
-        daemon=True,
-        name=thread_name,
-    )
-    thread.start()
-    return connector_session
 
 
 def _wait_for_connector_session(
@@ -1659,7 +1552,11 @@ def _run_connector_cascade(
                 cascade.current_source_id = source_id
                 cascade.current_step = "bootstrap"
 
-            bootstrap_command = _connector_bootstrap_command(source_id)
+            bootstrap_command = _connector_command(
+                config,
+                source_id=source_id,
+                operation="bootstrap",
+            )
             if bootstrap_command is None:
                 any_failure = True
                 with cascade.lock:
@@ -1707,7 +1604,12 @@ def _run_connector_cascade(
                     source_state.error = "connector bootstrap failed"
                 continue
 
-            sync_command = _connector_sync_command(source_id)
+            sync_command = _connector_command(
+                config,
+                source_id=source_id,
+                operation="sync",
+                full=cascade.full,
+            )
             if sync_command is None:
                 any_failure = True
                 with cascade.lock:
@@ -1716,8 +1618,6 @@ def _run_connector_cascade(
                     source_state.finished_at = datetime.now(tz=UTC)
                     source_state.error = f"connector sync not supported for source: {source_id}"
                 continue
-            if cascade.full:
-                sync_command = [*sync_command, "--full"]
 
             with cascade.lock:
                 source_state = cascade.sources[source_id]
@@ -2388,14 +2288,14 @@ class StreamProxyModelRef(BaseModel):
 
 
 class StreamProxyContext(BaseModel):
-    systemPrompt: str | None = None
+    systemPrompt: str | None = None  # noqa: N815
     messages: list[dict[str, Any]] = Field(default_factory=list)
     tools: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class StreamProxyOptions(BaseModel):
     temperature: float = 0.7
-    maxTokens: int = 4096
+    maxTokens: int = 4096  # noqa: N815
 
 
 class StreamProxyRequest(BaseModel):
@@ -2725,45 +2625,26 @@ def _run_periodic_connector_sync(
                 if existing is not None and _connector_bootstrap_is_running(existing):
                     logger.info("connector.live_sync.skipped source_id=%s (already running)", source_id)
                     continue
-                command = _connector_sync_command(source_id)
+                command = _connector_command(
+                    config,
+                    source_id=source_id,
+                    operation="sync",
+                )
                 if command is None:
                     continue
-                env = os.environ.copy()
-                env["LIDLTOOL_DB"] = str(config.db_path)
-                env["LIDLTOOL_CONFIG_DIR"] = str(config.config_dir)
-                if config.db_url:
-                    env["LIDLTOOL_DB_URL"] = config.db_url
-                if config.credential_encryption_key:
-                    env["LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY"] = config.credential_encryption_key
-                env["PYTHONUNBUFFERED"] = "1"
-                process = subprocess.Popen(
-                    command,
-                    cwd=str(_repo_root()),
-                    env=env,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    stdin=subprocess.DEVNULL,
-                    text=True,
-                    bufsize=1,
-                )
-                sync_session = ConnectorBootstrapSession(
+                sync_session = _start_connector_command_session(
+                    app,
                     source_id=source_id,
                     command=command,
-                    process=process,
-                    started_at=datetime.now(tz=UTC),
-                    output=deque(maxlen=400),
-                    lock=threading.Lock(),
+                    config=config,
+                    sessions_attr="connector_sync_sessions",
+                    thread_name=f"connector-sync-{source_id}",
                 )
-                sync_sessions[source_id] = sync_session
-                thread = threading.Thread(
-                    target=_stream_connector_bootstrap_output,
-                    args=(app,),
-                    kwargs={"source_id": source_id, "sessions_attr": "connector_sync_sessions"},
-                    daemon=True,
-                    name=f"connector-sync-{source_id}",
+                logger.info(
+                    "connector.live_sync.triggered source_id=%s pid=%s",
+                    source_id,
+                    sync_session.process.pid,
                 )
-                thread.start()
-                logger.info("connector.live_sync.triggered source_id=%s pid=%s", source_id, process.pid)
             except Exception as exc:  # noqa: BLE001
                 logger.error("connector.live_sync.error source_id=%s error=%s", source_id, exc)
     logger.info("connector.live_sync.stopped")
@@ -2853,6 +2734,9 @@ def create_app() -> FastAPI:
     app.state.http_rate_limit_buckets = {}
     app.state.http_rate_limit_lock = threading.Lock()
     app.state.connector_bootstrap_sessions = {}
+    app.state.connector_auth_sessions = ConnectorAuthSessionRegistry(
+        app.state.connector_bootstrap_sessions
+    )
     app.state.connector_sync_sessions = {}
     app.state.connector_cascade_sessions = {}
     app.state.connector_cascade_sessions_lock = threading.Lock()
@@ -3355,7 +3239,6 @@ def create_app() -> FastAPI:
             _reject_legacy_form_api_key(legacy_api_key)
             context = _resolve_request_context(request, db=db, config_path=config)
             app_config = context.config
-            sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
             storage = DocumentStorage(app_config)
             payload = await file.read()
@@ -3370,6 +3253,7 @@ def create_app() -> FastAPI:
                 loaded = json.loads(metadata_json)
                 if isinstance(loaded, dict):
                     metadata = loaded
+            sessions = context.sessions
             with session_scope(sessions) as session:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
@@ -3600,6 +3484,7 @@ def create_app() -> FastAPI:
             validated_hour = _validate_hour(hour)
             clamped_limit = min(max(limit, 1), 200)
             clamped_offset = max(offset, 0)
+            sessions = context.sessions
             with session_scope(sessions) as session:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
@@ -4287,7 +4172,6 @@ def create_app() -> FastAPI:
         try:
             context = _resolve_request_context(request, db=db, config_path=config)
             app_config = context.config
-            sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
             content = payload.content.strip()
             if not content:
@@ -4299,6 +4183,7 @@ def create_app() -> FastAPI:
             )
 
             schedule_title_generation = False
+            sessions = context.sessions
             with session_scope(sessions) as session:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
@@ -4356,7 +4241,10 @@ def create_app() -> FastAPI:
                     if thread is None or thread.archived_at is not None:
                         raise exc
                     if not _owns_user_resource(current_user, resource_user_id=thread.user_id):
-                        raise HTTPException(status_code=404, detail="chat thread not found")
+                        raise HTTPException(
+                            status_code=404,
+                            detail="chat thread not found",
+                        ) from None
                     existing_message = session.scalar(
                         select(ChatMessage)
                         .where(
@@ -5428,7 +5316,7 @@ def create_app() -> FastAPI:
                     is_service=(current_user.username == SERVICE_USERNAME),
                     scope="personal",
                 )
-                result = list_sources(session, visibility=visibility)
+                result = list_sources(session, config=app_config, visibility=visibility)
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -5455,8 +5343,8 @@ def create_app() -> FastAPI:
             unsupported_sources = [
                 source_id
                 for source_id in source_ids
-                if _connector_bootstrap_command(source_id) is None
-                or _connector_sync_command(source_id) is None
+                if _connector_command(app_config, source_id=source_id, operation="bootstrap") is None
+                or _connector_command(app_config, source_id=source_id, operation="sync") is None
             ]
             if unsupported_sources:
                 unsupported = ", ".join(sorted(unsupported_sources))
@@ -5725,9 +5613,8 @@ def create_app() -> FastAPI:
                     "connector cascade is already running; cancel or wait for completion before manual bootstrap"
                 )
 
-            command = _connector_bootstrap_command(source_id)
-            if command is None:
-                raise RuntimeError(f"connector bootstrap not supported for source: {source_id}")
+            service = _connector_auth_service(app, config=app_config)
+            manifest = service.get_auth_status(source_id=source_id, validate_session=False).manifest
 
             bootstrap_sessions = cast(
                 dict[str, ConnectorBootstrapSession], app.state.connector_bootstrap_sessions
@@ -5759,22 +5646,14 @@ def create_app() -> FastAPI:
                     )
                 return _response(True, result=result, warnings=warnings, error=None)
 
-            env = os.environ.copy()
-            env["LIDLTOOL_DB"] = str(app_config.db_path)
-            env["LIDLTOOL_CONFIG_DIR"] = str(app_config.config_dir)
-            if app_config.db_url:
-                env["LIDLTOOL_DB_URL"] = app_config.db_url
-            if app_config.credential_encryption_key:
-                env["LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY"] = (
-                    app_config.credential_encryption_key
-                )
-            env["PYTHONUNBUFFERED"] = "1"
-
             remote_login_url: str | None = None
+            env: dict[str, str] | None = None
             try:
-                vnc_runtime = _ensure_vnc_runtime(app)
-                env["DISPLAY"] = vnc_runtime.display
+                _ensure_vnc_runtime(app)
                 remote_login_url = _novnc_login_url(request)
+                runtime = cast(VncRuntime | None, app.state.vnc_runtime)
+                if runtime is not None:
+                    env = {"DISPLAY": runtime.display}
             except Exception as exc:  # noqa: BLE001
                 warnings.append(
                     _warning(
@@ -5783,41 +5662,23 @@ def create_app() -> FastAPI:
                     )
                 )
 
-            process = subprocess.Popen(
-                command,
-                cwd=str(_repo_root()),
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
-                text=True,
-                bufsize=1,
-            )
-            bootstrap = ConnectorBootstrapSession(
+            started = service.start_bootstrap(
                 source_id=source_id,
-                command=command,
-                process=process,
-                started_at=datetime.now(tz=UTC),
-                output=deque(maxlen=400),
-                lock=threading.Lock(),
+                env=env,
             )
-            bootstrap_sessions[source_id] = bootstrap
-            thread = threading.Thread(
-                target=_stream_connector_bootstrap_output,
-                args=(app,),
-                kwargs={"source_id": source_id},
-                daemon=True,
-                name=f"connector-bootstrap-{source_id}",
-            )
-            thread.start()
+            if started.bootstrap is None:
+                raise RuntimeError(f"failed to start connector bootstrap for source: {source_id}")
+            bootstrap = bootstrap_sessions.get(source_id)
+            if bootstrap is None:
+                raise RuntimeError(f"connector bootstrap session missing after start: {source_id}")
 
             result = {
                 "source_id": source_id,
-                "reused": False,
+                "reused": started.status == "reused",
                 "bootstrap": _serialize_connector_bootstrap(bootstrap),
                 "remote_login_url": remote_login_url,
             }
-            if source_id != "lidl_plus_de":
+            if manifest.source_id != "lidl_plus_de":
                 warnings.append(
                     _warning(
                         "preview connector bootstrap started; this connector is not live-validated yet",
@@ -5849,9 +5710,11 @@ def create_app() -> FastAPI:
             bootstrap = bootstrap_sessions.get(source_id)
             remote_login_url = _novnc_login_url(request)
             if bootstrap is None:
+                service = _connector_auth_service(app, config=app_config)
+                snapshot = service.get_bootstrap_status(source_id=source_id)
                 result: dict[str, Any] = {
-                    "source_id": source_id,
-                    "status": "idle",
+                    "source_id": snapshot.source_id,
+                    "status": snapshot.state,
                     "command": None,
                     "pid": None,
                     "started_at": None,
@@ -5894,7 +5757,8 @@ def create_app() -> FastAPI:
             if bootstrap is None:
                 result = {"source_id": source_id, "canceled": False, "bootstrap": None}
             else:
-                _terminate_connector_bootstrap(bootstrap)
+                service = _connector_auth_service(app, config=app_config)
+                service.cancel_bootstrap(source_id=source_id)
                 result = {
                     "source_id": source_id,
                     "canceled": True,
@@ -5934,11 +5798,14 @@ def create_app() -> FastAPI:
                     "connector cascade is already running; cancel or wait for completion before manual sync"
                 )
 
-            command = _connector_sync_command(source_id)
+            command = _connector_command(
+                app_config,
+                source_id=source_id,
+                operation="sync",
+                full=full,
+            )
             if command is None:
                 raise RuntimeError(f"sync not supported for source: {source_id}")
-            if full:
-                command = [*command, "--full"]
 
             sync_sessions = cast(
                 dict[str, ConnectorBootstrapSession], app.state.connector_sync_sessions
@@ -5952,42 +5819,14 @@ def create_app() -> FastAPI:
                     error=None,
                 )
 
-            env = os.environ.copy()
-            env["LIDLTOOL_DB"] = str(app_config.db_path)
-            env["LIDLTOOL_CONFIG_DIR"] = str(app_config.config_dir)
-            if app_config.db_url:
-                env["LIDLTOOL_DB_URL"] = app_config.db_url
-            if app_config.credential_encryption_key:
-                env["LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY"] = app_config.credential_encryption_key
-            env["PYTHONUNBUFFERED"] = "1"
-
-            process = subprocess.Popen(
-                command,
-                cwd=str(_repo_root()),
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
-                text=True,
-                bufsize=1,
-            )
-            sync_session = ConnectorBootstrapSession(
+            sync_session = _start_connector_command_session(
+                app,
                 source_id=source_id,
                 command=command,
-                process=process,
-                started_at=datetime.now(tz=UTC),
-                output=deque(maxlen=400),
-                lock=threading.Lock(),
+                config=app_config,
+                sessions_attr="connector_sync_sessions",
+                thread_name=f"connector-sync-{source_id}",
             )
-            sync_sessions[source_id] = sync_session
-            thread = threading.Thread(
-                target=_stream_connector_bootstrap_output,
-                args=(app,),
-                kwargs={"source_id": source_id, "sessions_attr": "connector_sync_sessions"},
-                daemon=True,
-                name=f"connector-sync-{source_id}",
-            )
-            thread.start()
 
             if source_id != "lidl_plus_de":
                 warnings.append(
@@ -6430,7 +6269,6 @@ def create_app() -> FastAPI:
         try:
             context = _resolve_request_context(request, db=db, config_path=config)
             app_config = context.config
-            sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
 
             body = await request.json()
@@ -6463,7 +6301,7 @@ finally:
             )
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 proc.kill()
                 await proc.communicate()
                 return _error_response(TimeoutError(f"Code execution timed out after {timeout}s"))
@@ -7055,7 +6893,6 @@ finally:
             tool_content_index = 1  # contentIndex for the next tool call (increments per call)
             args_buffer = ""        # Accumulate function-call arg deltas in Python
             has_tool_calls = False
-            text_started = False
 
             yield _log_yield({"type": "start"})
             yield _log_yield({"type": "text_start", "contentIndex": 0})
@@ -7097,7 +6934,6 @@ finally:
                         if etype == "response.output_text.delta":
                             delta = event.get("delta", "")
                             if delta:
-                                text_started = True
                                 yield _sse_data({"type": "text_delta", "contentIndex": 0, "delta": delta})
 
                         elif etype == "response.function_call_arguments.delta":

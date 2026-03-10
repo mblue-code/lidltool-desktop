@@ -18,6 +18,10 @@
     "dev:full": "npm run vendor:sync && npm run frontend:install && npm run backend:prepare && npm run frontend:build && electron-vite dev",
     "build": "npm run i18n:sync-shell && npm run assets:sync && electron-vite build",
     "build:full-ui": "npm run frontend:install && npm run frontend:build && npm run assets:sync && electron-vite build",
+    "test:control-center": "node --test --experimental-strip-types tests/control-center-model.test.ts",
+    "test:plugin-packs": "node --test --experimental-strip-types tests/receipt-plugin-packs.test.ts",
+    "test:release-metadata": "node --test --experimental-strip-types tests/release-metadata.test.ts",
+    "test:trusted-distribution": "node --test --experimental-strip-types tests/control-center-model.test.ts tests/receipt-plugin-packs.test.ts tests/release-metadata.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",
@@ -78,6 +82,7 @@
     }
   },
   "dependencies": {
+    "jszip": "^3.10.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },

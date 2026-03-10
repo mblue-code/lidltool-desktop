@@ -14,46 +14,24 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from lidltool.amazon.client_playwright import AmazonPlaywrightClient
-from lidltool.amazon.session import default_amazon_state_file
-from lidltool.auth.token_store import TokenStore
+from lidltool.ai.mediation import PluginAiMediationService
 from lidltool.auth.users import ensure_service_user
 from lidltool.config import AppConfig, build_config, database_url
-from lidltool.connectors.amazon_adapter import AmazonConnectorAdapter
-from lidltool.connectors.base import (
-    Connector,
-    require_connector_action_scope,
-    validate_connector_scope_contract,
+from lidltool.connectors.base import Connector
+from lidltool.connectors.registry import source_display_name
+from lidltool.connectors.runtime import (
+    ConnectorRuntimeHost,
+    RuntimeHostedReceiptConnector,
 )
-from lidltool.connectors.dm_adapter import DmConnectorAdapter
-from lidltool.connectors.kaufland_adapter import KauflandConnectorAdapter
-from lidltool.connectors.lidl_adapter import LidlConnectorAdapter
-from lidltool.connectors.rewe_adapter import ReweConnectorAdapter
-from lidltool.connectors.rossmann_adapter import RossmannConnectorAdapter
+from lidltool.connectors.runtime.errors import ConnectorRuntimeError
+from lidltool.connectors.runtime.execution import ConnectorExecutionService
+from lidltool.connectors.runtime.logging import log_runtime_invocation
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
 from lidltool.db.models import Document, IngestionJob, Source, SourceAccount
-from lidltool.dm.client_playwright import DmPlaywrightClient
-from lidltool.dm.session import default_dm_state_file
 from lidltool.ingest.ocr_ingest import OcrIngestService
 from lidltool.ingest.sync import SyncProgress, SyncResult, SyncService
-from lidltool.kaufland.client_playwright import KauflandPlaywrightClient
-from lidltool.kaufland.session import default_kaufland_state_file
-from lidltool.lidl.client import create_lidl_client
-from lidltool.rewe.client_playwright import RewePlaywrightClient
-from lidltool.rewe.session import default_rewe_state_file
-from lidltool.rossmann.client_playwright import RossmannPlaywrightClient
-from lidltool.rossmann.session import default_rossmann_state_file
 
 LOGGER = logging.getLogger(__name__)
-RUNTIME_CONNECTOR_SCOPES = {
-    "auth.session",
-    "read.health",
-    "read.receipts",
-    "read.receipt_detail",
-    "transform.normalize",
-    "transform.discounts",
-}
-
 JOB_STATUS_QUEUED = "queued"
 JOB_STATUS_RUNNING = "running"
 JOB_STATUS_SUCCESS = "success"
@@ -124,6 +102,12 @@ class JobService:
         self._worker_host = socket.gethostname()
         self._worker_pid = os.getpid()
         self._worker_id = os.getenv("LIDLTOOL_WORKER_ID", f"{self._worker_host}:{self._worker_pid}")
+        self._runtime_host = ConnectorRuntimeHost(
+            plugin_ai_service=PluginAiMediationService(
+                config=self._config,
+                session_factory=self._session_factory,
+            )
+        )
 
     def create_sync_job(
         self,
@@ -427,6 +411,7 @@ class JobService:
 
     def _run_sync_job(self, job_id: str, full: bool) -> None:
         LOGGER.info("job.lifecycle.running job_id=%s", job_id)
+        connector: Connector | None = None
         try:
             snapshot = self.get_job(job_id=job_id)
             source_id = snapshot.source_id if snapshot is not None else self._config.source
@@ -437,6 +422,7 @@ class JobService:
                 session_factory=self._session_factory,
                 config=source_config,
                 connector=connector,
+                ingestion_job_id=job_id,
             )
 
             def progress_cb(progress: SyncProgress) -> None:
@@ -450,9 +436,43 @@ class JobService:
                     )
 
             result = sync_service.sync(full=full, progress_cb=progress_cb)
+            self._store_runtime_diagnostics(job_id=job_id, connector=connector)
             self._finalize_success(job_id=job_id, result=result)
+        except ConnectorRuntimeError as exc:
+            self._store_runtime_diagnostics(job_id=job_id, connector=connector)
+            failure_kind = (
+                "protocol_failure"
+                if exc.code in {"protocol_violation", "malformed_response"}
+                else "runtime_failure"
+            )
+            self._finalize_failure(
+                job_id=job_id,
+                error=str(exc),
+                failure_kind=failure_kind,
+                details={
+                    "code": exc.code,
+                    "retryable": exc.retryable,
+                    "diagnostics": exc.diagnostics.model_dump(mode="python"),
+                },
+            )
         except Exception as exc:  # noqa: BLE001
-            self._finalize_failure(job_id=job_id, error=str(exc))
+            self._store_runtime_diagnostics(job_id=job_id, connector=connector)
+            failure_kind = "ingest_failure"
+            details: dict[str, Any] | None = None
+            if isinstance(connector, RuntimeHostedReceiptConnector):
+                diagnostics = connector.latest_runtime_diagnostics()
+                if diagnostics and diagnostics[-1].response_ok is False:
+                    failure_kind = "runtime_failure"
+                    details = {
+                        "code": "connector_action_failed",
+                        "diagnostics": diagnostics[-1].model_dump(mode="python"),
+                    }
+            self._finalize_failure(
+                job_id=job_id,
+                error=str(exc),
+                failure_kind=failure_kind,
+                details=details,
+            )
 
     def _claim_next_job(self) -> JobSnapshot | None:
         now = datetime.now(tz=UTC)
@@ -519,81 +539,11 @@ class JobService:
             self._finalize_failure(job_id=job_id, error=str(exc))
 
     def _build_source_connector(self, *, source_config: AppConfig) -> tuple[Any | None, Connector]:
-        source_id = source_config.source
-        if source_id == "lidl_plus_de":
-            token_store = TokenStore.from_config(source_config)
-            refresh_token = token_store.get_refresh_token()
-            if not refresh_token:
-                raise RuntimeError("auth token missing; run lidltool auth bootstrap")
-            lidl_client = create_lidl_client(source_config, refresh_token, token_store=token_store)
-            connector: Connector = LidlConnectorAdapter(
-                client=lidl_client, page_size=source_config.page_size
-            )
-            self._validate_connector_security(connector)
-            return lidl_client, connector
-        if source_id == "amazon_de":
-            amazon_client = AmazonPlaywrightClient(
-                state_file=default_amazon_state_file(source_config),
-                domain="amazon.de",
-                headless=True,
-            )
-            connector = AmazonConnectorAdapter(client=amazon_client, source=source_id)
-            self._validate_connector_security(connector)
-            return None, connector
-        if source_id == "rewe_de":
-            rewe_client = RewePlaywrightClient(
-                state_file=default_rewe_state_file(source_config),
-                domain="shop.rewe.de",
-                headless=True,
-            )
-            connector = ReweConnectorAdapter(client=rewe_client, source=source_id)
-            self._validate_connector_security(connector)
-            return None, connector
-        if source_id == "kaufland_de":
-            kaufland_client = KauflandPlaywrightClient(
-                state_file=default_kaufland_state_file(source_config),
-                domain="www.kaufland.de",
-                headless=True,
-            )
-            connector = KauflandConnectorAdapter(client=kaufland_client, source=source_id)
-            self._validate_connector_security(connector)
-            return None, connector
-        if source_id == "dm_de":
-            dm_client = DmPlaywrightClient(
-                state_file=default_dm_state_file(source_config),
-                domain="www.dm.de",
-                headless=True,
-            )
-            connector = DmConnectorAdapter(client=dm_client, source=source_id)
-            self._validate_connector_security(connector)
-            return None, connector
-        if source_id == "rossmann_de":
-            rossmann_client = RossmannPlaywrightClient(
-                state_file=default_rossmann_state_file(source_config),
-                domain="www.rossmann.de",
-                headless=True,
-            )
-            connector = RossmannConnectorAdapter(client=rossmann_client, source=source_id)
-            self._validate_connector_security(connector)
-            return None, connector
-        raise RuntimeError(f"unsupported source connector: {source_id}")
-
-    def _validate_connector_security(self, connector: Connector) -> None:
-        validate_connector_scope_contract(connector)
-        for action in (
-            "authenticate",
-            "refresh_auth",
-            "healthcheck",
-            "discover_new_records",
-            "fetch_record_detail",
-            "normalize",
-            "extract_discounts",
-        ):
-            require_connector_action_scope(
-                connector,
-                action=action,
-                granted_scopes=RUNTIME_CONNECTOR_SCOPES,
-            )
+        resolved = ConnectorExecutionService(
+            config=source_config,
+            runtime_host=self._runtime_host,
+        ).build_receipt_connector(source_id=source_config.source)
+        return resolved.client, resolved.connector
 
     def _update_progress(self, *, job_id: str, progress: SyncProgress) -> None:
         with session_scope(self._session_factory) as session:
@@ -621,6 +571,33 @@ class JobService:
                 progress.new_receipts,
             )
 
+    def _store_runtime_diagnostics(self, *, job_id: str, connector: Connector | None) -> None:
+        if not isinstance(connector, RuntimeHostedReceiptConnector):
+            return
+        diagnostics = connector.latest_runtime_diagnostics()
+        if not diagnostics:
+            return
+        for item in diagnostics:
+            log_runtime_invocation(
+                LOGGER,
+                item,
+                error=None if item.response_ok is not False else "connector action failed",
+            )
+        with session_scope(self._session_factory) as session:
+            job = session.get(IngestionJob, job_id)
+            if job is None:
+                return
+            summary = dict(job.summary or {})
+            runtime_payload = summary.get("runtime")
+            if not isinstance(runtime_payload, dict):
+                runtime_payload = {}
+            runtime_payload["invocations"] = [
+                item.model_dump(mode="python") for item in diagnostics[-20:]
+            ]
+            runtime_payload["last"] = diagnostics[-1].model_dump(mode="python")
+            summary["runtime"] = runtime_payload
+            job.summary = summary
+
     def _finalize_success(self, *, job_id: str, result: SyncResult) -> None:
         final_status = JOB_STATUS_PARTIAL_SUCCESS if result.warnings else JOB_STATUS_SUCCESS
         with session_scope(self._session_factory) as session:
@@ -640,6 +617,7 @@ class JobService:
                 "cutoff_hit": result.cutoff_hit,
                 "warnings": list(result.warnings),
             }
+            summary["validation"] = dict(result.validation)
             if job.started_at is not None:
                 started_at = _as_utc(job.started_at)
                 result_summary = summary.get("result")
@@ -697,7 +675,14 @@ class JobService:
             job.finished_at = datetime.now(tz=UTC)
             LOGGER.info("job.lifecycle.finished_ocr job_id=%s", job_id)
 
-    def _finalize_failure(self, *, job_id: str, error: str) -> None:
+    def _finalize_failure(
+        self,
+        *,
+        job_id: str,
+        error: str,
+        failure_kind: str = "ingest_failure",
+        details: dict[str, Any] | None = None,
+    ) -> None:
         with session_scope(self._session_factory) as session:
             job = session.get(IngestionJob, job_id)
             if job is None:
@@ -718,6 +703,13 @@ class JobService:
                 summary["last_duration_ms"] = max(
                     int((datetime.now(tz=UTC) - started_at).total_seconds() * 1000), 0
                 )
+            failure_summary: dict[str, Any] = {
+                "kind": failure_kind,
+                "error": error,
+            }
+            if details:
+                failure_summary["details"] = dict(details)
+            summary["failure"] = failure_summary
             job.summary = summary
             job.status = JOB_STATUS_FAILED
             job.error = error
@@ -829,7 +821,7 @@ class JobService:
                 id=source_id,
                 user_id=service_user.user_id,
                 kind="connector",
-                display_name=source_id.replace("_", " ").title(),
+                display_name=source_display_name(source_id, config=self._config),
                 status="healthy",
                 enabled=True,
             )

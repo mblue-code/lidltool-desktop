@@ -4,7 +4,6 @@ import json
 import logging
 import sys
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -16,13 +15,10 @@ from rich.table import Table
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from lidltool.amazon.bootstrap_playwright import run_amazon_headful_bootstrap
 from lidltool.amazon.client_playwright import AmazonClientError, AmazonPlaywrightClient
 from lidltool.amazon.importer import AmazonImportService
 from lidltool.amazon.session import default_amazon_state_file
 from lidltool.analytics.queries import export_receipts, month_stats
-from lidltool.auth.bootstrap_playwright import run_headful_bootstrap
-from lidltool.auth.token_store import TokenStore
 from lidltool.auth.users import (
     SERVICE_USERNAME,
     create_local_user,
@@ -30,26 +26,15 @@ from lidltool.auth.users import (
     set_user_password,
 )
 from lidltool.config import AppConfig, build_config, database_url, validate_config
-from lidltool.connectors.amazon_adapter import AmazonConnectorAdapter
-from lidltool.connectors.dm_adapter import DmConnectorAdapter
-from lidltool.connectors.kaufland_adapter import KauflandConnectorAdapter
-from lidltool.connectors.rewe_adapter import ReweConnectorAdapter
-from lidltool.connectors.rossmann_adapter import RossmannConnectorAdapter
+from lidltool.connectors.auth.auth_orchestration import ConnectorAuthOrchestrationService
+from lidltool.connectors.runtime.execution import ConnectorExecutionService
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
 from lidltool.db.models import Source, Transaction, User
-from lidltool.dm.bootstrap_playwright import run_dm_headful_bootstrap
 from lidltool.dm.client_playwright import DmClientError, DmPlaywrightClient
 from lidltool.dm.session import default_dm_state_file
 from lidltool.ingest.sync import SyncProgress, SyncService
-from lidltool.kaufland.bootstrap_playwright import run_kaufland_headful_bootstrap
-from lidltool.kaufland.client_playwright import KauflandClientError, KauflandPlaywrightClient
 from lidltool.kaufland.session import default_kaufland_state_file
-from lidltool.lidl.client import LidlClientError, create_lidl_client
 from lidltool.logging import configure_logging
-from lidltool.rewe.bootstrap_playwright import run_rewe_headful_bootstrap
-from lidltool.rewe.client_playwright import ReweClientError, RewePlaywrightClient
-from lidltool.rossmann.bootstrap_playwright import run_rossmann_headful_bootstrap
-from lidltool.rossmann.client_playwright import RossmannClientError, RossmannPlaywrightClient
 from lidltool.rossmann.session import default_rossmann_state_file
 
 app = typer.Typer(help="Lidl Plus receipts CLI")
@@ -162,6 +147,192 @@ def _resolve_rossmann_state_file(path: Path | None, config: AppConfig) -> Path:
     return target.expanduser().resolve()
 
 
+def _connector_execution_service(config: AppConfig) -> ConnectorExecutionService:
+    return ConnectorExecutionService(config=config)
+
+
+def _connector_auth_service(config: AppConfig) -> ConnectorAuthOrchestrationService:
+    execution = _connector_execution_service(config)
+    return ConnectorAuthOrchestrationService(
+        config=config,
+        connector_builder=execution.build_receipt_connector,
+    )
+
+
+def _connector_error_exit_code(exc: Exception) -> int:
+    if "auth token missing" in str(exc).lower():
+        return 2
+    return 1
+
+
+def _sync_result_payload(
+    *,
+    result: Any,
+    source_id: str,
+    display_name: str,
+    runtime_identity: dict[str, Any],
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    payload = {
+        "ok": result.ok,
+        "source_id": source_id,
+        "display_name": display_name,
+        "full": result.full,
+        "pages": result.pages,
+        "receipts_seen": result.receipts_seen,
+        "new_receipts": result.new_receipts,
+        "new_items": result.new_items,
+        "skipped_existing": result.skipped_existing,
+        "cutoff_hit": result.cutoff_hit,
+        "warnings": result.warnings,
+        "runtime": runtime_identity,
+    }
+    if source_id == "amazon_de":
+        payload["records_seen"] = result.receipts_seen
+        payload["orders_fetched"] = result.receipts_seen
+    payload.update(metadata)
+    return payload
+
+
+def _render_sync_result_table(
+    *,
+    title: str,
+    payload: dict[str, Any],
+) -> None:
+    table = Table(title=title)
+    table.add_column("Metric")
+    table.add_column("Value")
+    table.add_row("Pages", str(payload["pages"]))
+    if payload["source_id"] == "amazon_de":
+        table.add_row("Orders fetched", str(payload["receipts_seen"]))
+        table.add_row("Records seen", str(payload["receipts_seen"]))
+    else:
+        table.add_row("Receipts seen", str(payload["receipts_seen"]))
+    table.add_row("New receipts", str(payload["new_receipts"]))
+    table.add_row("New items", str(payload["new_items"]))
+    table.add_row("Skipped existing", str(payload["skipped_existing"]))
+    table.add_row("Cutoff reached", str(payload["cutoff_hit"]))
+    state_file = payload.get("state_file")
+    if state_file:
+        table.add_row("State file", str(state_file))
+    dump_html = payload.get("dump_html")
+    if dump_html:
+        table.add_row("HTML dump dir", str(dump_html))
+    warnings = payload.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        table.add_row("Warnings", "; ".join(str(item) for item in warnings))
+    console.print(table)
+
+
+def _run_connector_sync_command(
+    ctx: typer.Context,
+    *,
+    source_id: str,
+    full: bool,
+    connector_options: dict[str, Any] | None = None,
+    tracking_source_id: str | None = None,
+) -> None:
+    runtime = _ctx(ctx)
+    service = _connector_execution_service(runtime.config)
+    try:
+        resolved = service.build_receipt_connector(
+            source_id=source_id,
+            connector_options=connector_options,
+            tracking_source_id=tracking_source_id,
+        )
+        db_sessions = _create_session_factory(runtime.config)
+        sync_service = SyncService(
+            client=resolved.client,
+            session_factory=db_sessions,
+            config=resolved.source_config,
+            connector=resolved.connector,
+        )
+        if runtime.json_output:
+            result = sync_service.sync(full=full)
+        else:
+            with Progress(
+                SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True
+            ) as progress:
+                task = progress.add_task(
+                    f"Syncing {resolved.manifest.display_name} receipts...",
+                    total=None,
+                )
+
+                def on_progress(state: SyncProgress) -> None:
+                    progress.update(
+                        task,
+                        description=(
+                            f"pages={state.pages} seen={state.receipts_seen} "
+                            f"new={state.new_receipts} items={state.new_items}"
+                        ),
+                    )
+
+                result = sync_service.sync(full=full, progress_cb=on_progress)
+    except Exception as exc:  # noqa: BLE001
+        if runtime.json_output:
+            _emit({"ok": False, "error": str(exc)}, json_output=True)
+            raise typer.Exit(code=_connector_error_exit_code(exc)) from exc
+        raise typer.BadParameter(str(exc)) from exc
+
+    payload = _sync_result_payload(
+        result=result,
+        source_id=resolved.manifest.source_id,
+        display_name=resolved.manifest.display_name,
+        runtime_identity=resolved.connector.runtime_identity(),
+        metadata=resolved.metadata,
+    )
+    if runtime.json_output:
+        _emit(payload, json_output=True)
+        if not result.ok:
+            raise typer.Exit(code=1)
+        return
+    _render_sync_result_table(title=f"{resolved.manifest.display_name} Sync Result", payload=payload)
+
+
+def _run_connector_bootstrap_command(
+    ctx: typer.Context,
+    *,
+    source_id: str,
+    options: dict[str, Any] | None = None,
+) -> None:
+    runtime = _ctx(ctx)
+    service = _connector_auth_service(runtime.config)
+    try:
+        resolved = service.run_bootstrap(source_id=source_id, options=options)
+    except Exception as exc:  # noqa: BLE001
+        if runtime.json_output:
+            _emit({"ok": False, "error": str(exc)}, json_output=True)
+            raise typer.Exit(code=_connector_error_exit_code(exc)) from exc
+        raise typer.BadParameter(str(exc)) from exc
+
+    payload = {
+        "ok": resolved.ok,
+        "source_id": resolved.source_id,
+        "display_name": resolved.manifest.display_name,
+        "auth_state": resolved.state,
+        "detail": resolved.detail,
+        "runtime": {
+            "plugin_id": resolved.manifest.plugin_id,
+            "source_id": resolved.manifest.source_id,
+            "runtime_kind": resolved.manifest.runtime_kind,
+        },
+        **resolved.metadata,
+    }
+    if runtime.json_output:
+        _emit(payload, json_output=True)
+        raise typer.Exit(code=0 if resolved.ok else 1)
+    if not resolved.ok:
+        raise typer.BadParameter(
+            f"{resolved.manifest.display_name} login/session capture failed. "
+            "Re-run and complete login before pressing Enter."
+        )
+    state_file = resolved.metadata.get("state_file")
+    if state_file:
+        console.print(f"{resolved.manifest.display_name} session stored at {state_file}")
+    else:
+        console.print("ok")
+
+
 @auth_app.command("bootstrap")
 def auth_bootstrap(
     ctx: typer.Context,
@@ -179,69 +350,94 @@ def auth_bootstrap(
     ] = DEFAULT_HAR_OUT,
 ) -> None:
     runtime = _ctx(ctx)
-    token_store = TokenStore.from_config(runtime.config)
-
+    service = _connector_auth_service(runtime.config)
     token_value = refresh_token
-    if not token_value and headful:
-        source_suffix = runtime.config.source.rsplit("_", 1)[-1]  # "lidl_plus_de" -> "de"
-        token_value = run_headful_bootstrap(
-            har_out, country=source_suffix.upper(), language=source_suffix.lower()
-        )
-    if not token_value:
+    if not token_value and not headful:
         if not sys.stdin.isatty():
             typer.echo("No token captured and no terminal available for manual entry.", err=True)
             raise typer.Exit(code=1)
         token_value = typer.prompt("Paste refresh token", hide_input=True).strip()
-    if not token_value:
-        raise typer.Exit(code=2)
+    try:
+        result = service.run_bootstrap(
+            source_id=runtime.config.source,
+            options={
+                "refresh_token": token_value,
+                "headful": headful,
+                "har_out": har_out,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        if runtime.json_output:
+            _emit({"ok": False, "error": str(exc)}, json_output=True)
+            raise typer.Exit(code=_connector_error_exit_code(exc)) from exc
+        raise typer.BadParameter(str(exc)) from exc
 
-    token_store.set_refresh_token(token_value)
-    _emit("ok", json_output=runtime.json_output)
+    if runtime.json_output:
+        _emit(
+            {
+                "ok": result.ok,
+                "source_id": result.source_id,
+                "auth_state": result.state,
+                **result.metadata,
+            },
+            json_output=True,
+        )
+        raise typer.Exit(code=0 if result.ok else 1)
+    _emit("ok", json_output=False)
 
 
 @auth_app.command("status")
 def auth_status(ctx: typer.Context) -> None:
-    """Show the current token state and time until the access token expires."""
+    """Show the normalized auth/session state for the configured source."""
     runtime = _ctx(ctx)
-    token_store = TokenStore.from_config(runtime.config)
-
-    refresh_token = token_store.get_refresh_token()
-    reauth = token_store.is_reauth_required()
-    cached = token_store.get_access_cache()
+    service = _connector_auth_service(runtime.config)
+    snapshot = service.get_auth_status(source_id=runtime.config.source)
 
     if runtime.json_output:
         payload: dict[str, Any] = {
-            "refresh_token_set": refresh_token is not None,
-            "reauth_required": reauth,
-            "access_token_cached": cached is not None,
-            "access_token_expires_at": cached[1].isoformat() if cached else None,
+            "source_id": snapshot.manifest.source_id,
+            "display_name": snapshot.manifest.display_name,
+            "auth_kind": snapshot.capabilities.auth_kind,
+            "state": snapshot.state,
+            "detail": snapshot.detail,
+            "available_actions": list(snapshot.available_actions),
+            "implemented_actions": list(snapshot.implemented_actions),
+            "compatibility_actions": list(snapshot.compatibility_actions),
+            "reserved_actions": list(snapshot.reserved_actions),
+            "metadata": snapshot.metadata,
+            "diagnostics": snapshot.diagnostics,
         }
+        if snapshot.bootstrap is not None:
+            payload["bootstrap"] = {
+                "state": snapshot.bootstrap.state,
+                "started_at": (
+                    snapshot.bootstrap.started_at.isoformat()
+                    if snapshot.bootstrap.started_at is not None
+                    else None
+                ),
+                "finished_at": (
+                    snapshot.bootstrap.finished_at.isoformat()
+                    if snapshot.bootstrap.finished_at is not None
+                    else None
+                ),
+                "can_cancel": snapshot.bootstrap.can_cancel,
+            }
         _emit(payload, json_output=True)
         return
 
     table = Table(title="Auth Status")
     table.add_column("Field")
     table.add_column("Value")
-
-    table.add_row("Token file", str(runtime.config.token_file))
-    table.add_row("Refresh token", "SET" if refresh_token else "[red]NOT SET[/red]")
-    table.add_row("Reauth required", "[red]YES — run auth bootstrap[/red]" if reauth else "No")
-
-    if cached:
-        _, expires_at = cached
-        now = datetime.now(UTC)
-        delta = expires_at - now
-        total_s = int(delta.total_seconds())
-        if total_s <= 0:
-            status = "[yellow]EXPIRED[/yellow]"
-        else:
-            h, rem = divmod(total_s, 3600)
-            m, s = divmod(rem, 60)
-            status = f"expires in {h}h {m}m {s}s  ({expires_at.strftime('%Y-%m-%d %H:%M:%S UTC')})"
-        table.add_row("Access token", status)
-    else:
-        table.add_row("Access token", "not cached (will fetch on next sync)")
-
+    table.add_row("Source", snapshot.manifest.display_name)
+    table.add_row("Auth kind", snapshot.capabilities.auth_kind)
+    table.add_row("State", snapshot.state)
+    table.add_row("Detail", snapshot.detail or "-")
+    table.add_row(
+        "Available actions",
+        ", ".join(snapshot.available_actions) if snapshot.available_actions else "-",
+    )
+    if snapshot.bootstrap is not None:
+        table.add_row("Bootstrap", snapshot.bootstrap.state)
     console.print(table)
 
 
@@ -402,74 +598,7 @@ def sync_command(
         typer.Option("--full", help="Fetch historical receipts until stop condition"),
     ] = False,
 ) -> None:
-    runtime = _ctx(ctx)
-    token_store = TokenStore.from_config(runtime.config)
-    refresh_token = token_store.get_refresh_token()
-    if not refresh_token:
-        message = "Auth token missing. Run 'lidltool auth bootstrap' first."
-        if runtime.json_output:
-            _emit({"ok": False, "error": message}, json_output=True)
-            raise typer.Exit(code=2)
-        raise typer.BadParameter(message)
-
-    db_sessions = _create_session_factory(runtime.config)
-
-    try:
-        client = create_lidl_client(runtime.config, refresh_token, token_store=token_store)
-    except LidlClientError as exc:
-        LOGGER.error("Unable to initialize Lidl client: %s", exc)
-        raise typer.Exit(code=1) from exc
-
-    service = SyncService(client=client, session_factory=db_sessions, config=runtime.config)
-
-    if runtime.json_output:
-        result = service.sync(full=full)
-    else:
-        with Progress(
-            SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True
-        ) as p:
-            task = p.add_task("Syncing receipts...", total=None)
-
-            def on_progress(state: SyncProgress) -> None:
-                p.update(
-                    task,
-                    description=(
-                        f"pages={state.pages} seen={state.receipts_seen} "
-                        f"new={state.new_receipts} items={state.new_items}"
-                    ),
-                )
-
-            result = service.sync(full=full, progress_cb=on_progress)
-
-    payload = {
-        "ok": result.ok,
-        "full": result.full,
-        "pages": result.pages,
-        "receipts_seen": result.receipts_seen,
-        "new_receipts": result.new_receipts,
-        "new_items": result.new_items,
-        "skipped_existing": result.skipped_existing,
-        "cutoff_hit": result.cutoff_hit,
-        "warnings": result.warnings,
-    }
-
-    if runtime.json_output:
-        _emit(payload, json_output=True)
-        raise typer.Exit(code=0 if result.ok else 1)
-
-    table = Table(title="Sync Result")
-    table.add_column("Metric")
-    table.add_column("Value")
-    table.add_row("Full sync", str(result.full))
-    table.add_row("Pages", str(result.pages))
-    table.add_row("Receipts seen", str(result.receipts_seen))
-    table.add_row("New receipts", str(result.new_receipts))
-    table.add_row("New items", str(result.new_items))
-    table.add_row("Skipped existing", str(result.skipped_existing))
-    table.add_row("Cutoff reached", str(result.cutoff_hit))
-    if result.warnings:
-        table.add_row("Warnings", "; ".join(result.warnings))
-    console.print(table)
+    _run_connector_sync_command(ctx, source_id=_ctx(ctx).config.source, full=full)
 
 
 @app.command("serve")
@@ -614,25 +743,11 @@ def amazon_auth_bootstrap_command(
         typer.Option("--domain", help="Amazon domain, e.g. amazon.de"),
     ] = "amazon.de",
 ) -> None:
-    runtime = _ctx(ctx)
-    target = _resolve_amazon_state_file(state_file, runtime.config)
-    ok = run_amazon_headful_bootstrap(target, domain=domain)
-    if runtime.json_output:
-        _emit(
-            {
-                "ok": ok,
-                "state_file": str(target),
-                "domain": domain,
-                "error": None if ok else "login/session capture failed",
-            },
-            json_output=True,
-        )
-        raise typer.Exit(code=0 if ok else 1)
-    if not ok:
-        raise typer.BadParameter(
-            "Amazon login/session capture failed. Re-run and complete login + MFA before pressing Enter."
-        )
-    console.print(f"Amazon session stored at {target}")
+    _run_connector_bootstrap_command(
+        ctx,
+        source_id="amazon_de",
+        options={"state_file": state_file, "domain": domain},
+    )
 
 
 @amazon_app.command("sync")
@@ -671,70 +786,21 @@ def amazon_sync_command(
         typer.Option("--dump-html", help="Save raw HTML pages to this directory for fixture capture"),
     ] = None,
 ) -> None:
-    runtime = _ctx(ctx)
-    target_state = _resolve_amazon_state_file(state_file, runtime.config)
-    client = AmazonPlaywrightClient(
-        state_file=target_state,
-        domain=domain,
-        headless=headless,
-        dump_html_dir=dump_html,
+    _run_connector_sync_command(
+        ctx,
+        source_id="amazon_de",
+        full=True,
+        connector_options={
+            "state_file": state_file,
+            "domain": domain,
+            "headless": headless,
+            "dump_html": dump_html,
+            "years": years,
+            "max_pages_per_year": max_pages_per_year,
+            "store_name": store_name,
+        },
+        tracking_source_id=source,
     )
-    db_sessions = _create_session_factory(runtime.config)
-    connector = AmazonConnectorAdapter(
-        client=client,
-        source=source,
-        store_name=store_name,
-        years=years,
-        max_pages_per_year=max_pages_per_year,
-    )
-    source_config = runtime.config.model_copy(update={"source": source})
-    service = SyncService(
-        client=None,
-        session_factory=db_sessions,
-        config=source_config,
-        connector=connector,
-    )
-
-    try:
-        result = service.sync(full=True)
-    except AmazonClientError as exc:
-        if runtime.json_output:
-            _emit({"ok": False, "error": str(exc)}, json_output=True)
-            raise typer.Exit(code=1) from exc
-        raise typer.BadParameter(str(exc)) from exc
-
-    payload = {
-        "ok": result.ok,
-        "full": result.full,
-        "pages": result.pages,
-        "receipts_seen": result.receipts_seen,
-        "records_seen": result.receipts_seen,
-        "new_receipts": result.new_receipts,
-        "new_items": result.new_items,
-        "skipped_existing": result.skipped_existing,
-        "cutoff_hit": result.cutoff_hit,
-        "warnings": result.warnings,
-        "orders_fetched": result.receipts_seen,
-        "state_file": str(target_state),
-    }
-    if runtime.json_output:
-        _emit(payload, json_output=True)
-        return
-
-    table = Table(title="Amazon Sync Result")
-    table.add_column("Metric")
-    table.add_column("Value")
-    table.add_row("Pages", str(result.pages))
-    table.add_row("Orders fetched", str(result.receipts_seen))
-    table.add_row("Records seen", str(result.receipts_seen))
-    table.add_row("New receipts", str(result.new_receipts))
-    table.add_row("New items", str(result.new_items))
-    table.add_row("Skipped existing", str(result.skipped_existing))
-    table.add_row("Cutoff reached", str(result.cutoff_hit))
-    table.add_row("State file", str(target_state))
-    if result.warnings:
-        table.add_row("Warnings", "; ".join(result.warnings))
-    console.print(table)
 
 
 @amazon_app.command("scrape")
@@ -866,25 +932,11 @@ def rewe_auth_bootstrap_command(
         typer.Option("--domain", help="REWE domain, e.g. shop.rewe.de"),
     ] = "shop.rewe.de",
 ) -> None:
-    runtime = _ctx(ctx)
-    target = _resolve_rewe_state_file(state_file, runtime.config)
-    ok = run_rewe_headful_bootstrap(target, domain=domain)
-    if runtime.json_output:
-        _emit(
-            {
-                "ok": ok,
-                "state_file": str(target),
-                "domain": domain,
-                "error": None if ok else "login/session capture failed",
-            },
-            json_output=True,
-        )
-        raise typer.Exit(code=0 if ok else 1)
-    if not ok:
-        raise typer.BadParameter(
-            "REWE login/session capture failed. Re-run and complete login before pressing Enter."
-        )
-    console.print(f"REWE session stored at {target}")
+    _run_connector_bootstrap_command(
+        ctx,
+        source_id="rewe_de",
+        options={"state_file": state_file, "domain": domain},
+    )
 
 
 @rewe_app.command("sync")
@@ -915,59 +967,19 @@ def rewe_sync_command(
         typer.Option("--headless/--no-headless", help="Run browser headless during sync"),
     ] = True,
 ) -> None:
-    runtime = _ctx(ctx)
-    target_state = _resolve_rewe_state_file(state_file, runtime.config)
-    client = RewePlaywrightClient(
-        state_file=target_state,
-        domain=domain,
-        headless=headless,
-        max_pages=max_pages,
+    _run_connector_sync_command(
+        ctx,
+        source_id="rewe_de",
+        full=True,
+        connector_options={
+            "state_file": state_file,
+            "domain": domain,
+            "headless": headless,
+            "max_pages": max_pages,
+            "store_name": store_name,
+        },
+        tracking_source_id=source,
     )
-    db_sessions = _create_session_factory(runtime.config)
-    connector = ReweConnectorAdapter(client=client, source=source, store_name=store_name)
-    source_config = runtime.config.model_copy(update={"source": source})
-    service = SyncService(
-        client=None,
-        session_factory=db_sessions,
-        config=source_config,
-        connector=connector,
-    )
-    try:
-        result = service.sync(full=True)
-    except ReweClientError as exc:
-        if runtime.json_output:
-            _emit({"ok": False, "error": str(exc)}, json_output=True)
-            raise typer.Exit(code=1) from exc
-        raise typer.BadParameter(str(exc)) from exc
-
-    payload = {
-        "ok": result.ok,
-        "full": result.full,
-        "pages": result.pages,
-        "receipts_seen": result.receipts_seen,
-        "new_receipts": result.new_receipts,
-        "new_items": result.new_items,
-        "skipped_existing": result.skipped_existing,
-        "cutoff_hit": result.cutoff_hit,
-        "warnings": result.warnings,
-        "state_file": str(target_state),
-    }
-    if runtime.json_output:
-        _emit(payload, json_output=True)
-        return
-
-    table = Table(title="REWE Sync Result")
-    table.add_column("Metric")
-    table.add_column("Value")
-    table.add_row("Pages", str(result.pages))
-    table.add_row("Receipts seen", str(result.receipts_seen))
-    table.add_row("New receipts", str(result.new_receipts))
-    table.add_row("New items", str(result.new_items))
-    table.add_row("Skipped existing", str(result.skipped_existing))
-    table.add_row("State file", str(target_state))
-    if result.warnings:
-        table.add_row("Warnings", "; ".join(result.warnings))
-    console.print(table)
 
 
 @kaufland_auth_app.command("bootstrap")
@@ -982,25 +994,11 @@ def kaufland_auth_bootstrap_command(
         typer.Option("--domain", help="Kaufland domain, e.g. www.kaufland.de"),
     ] = "www.kaufland.de",
 ) -> None:
-    runtime = _ctx(ctx)
-    target = _resolve_kaufland_state_file(state_file, runtime.config)
-    ok = run_kaufland_headful_bootstrap(target, domain=domain)
-    if runtime.json_output:
-        _emit(
-            {
-                "ok": ok,
-                "state_file": str(target),
-                "domain": domain,
-                "error": None if ok else "login/session capture failed",
-            },
-            json_output=True,
-        )
-        raise typer.Exit(code=0 if ok else 1)
-    if not ok:
-        raise typer.BadParameter(
-            "Kaufland login/session capture failed. Re-run and complete login before pressing Enter."
-        )
-    console.print(f"Kaufland session stored at {target}")
+    _run_connector_bootstrap_command(
+        ctx,
+        source_id="kaufland_de",
+        options={"state_file": state_file, "domain": domain},
+    )
 
 
 @kaufland_app.command("sync")
@@ -1031,59 +1029,19 @@ def kaufland_sync_command(
         typer.Option("--headless/--no-headless", help="Run browser headless during sync"),
     ] = True,
 ) -> None:
-    runtime = _ctx(ctx)
-    target_state = _resolve_kaufland_state_file(state_file, runtime.config)
-    client = KauflandPlaywrightClient(
-        state_file=target_state,
-        domain=domain,
-        headless=headless,
-        max_pages=max_pages,
+    _run_connector_sync_command(
+        ctx,
+        source_id="kaufland_de",
+        full=True,
+        connector_options={
+            "state_file": state_file,
+            "domain": domain,
+            "headless": headless,
+            "max_pages": max_pages,
+            "store_name": store_name,
+        },
+        tracking_source_id=source,
     )
-    db_sessions = _create_session_factory(runtime.config)
-    connector = KauflandConnectorAdapter(client=client, source=source, store_name=store_name)
-    source_config = runtime.config.model_copy(update={"source": source})
-    service = SyncService(
-        client=None,
-        session_factory=db_sessions,
-        config=source_config,
-        connector=connector,
-    )
-    try:
-        result = service.sync(full=True)
-    except KauflandClientError as exc:
-        if runtime.json_output:
-            _emit({"ok": False, "error": str(exc)}, json_output=True)
-            raise typer.Exit(code=1) from exc
-        raise typer.BadParameter(str(exc)) from exc
-
-    payload = {
-        "ok": result.ok,
-        "full": result.full,
-        "pages": result.pages,
-        "receipts_seen": result.receipts_seen,
-        "new_receipts": result.new_receipts,
-        "new_items": result.new_items,
-        "skipped_existing": result.skipped_existing,
-        "cutoff_hit": result.cutoff_hit,
-        "warnings": result.warnings,
-        "state_file": str(target_state),
-    }
-    if runtime.json_output:
-        _emit(payload, json_output=True)
-        return
-
-    table = Table(title="Kaufland Sync Result")
-    table.add_column("Metric")
-    table.add_column("Value")
-    table.add_row("Pages", str(result.pages))
-    table.add_row("Receipts seen", str(result.receipts_seen))
-    table.add_row("New receipts", str(result.new_receipts))
-    table.add_row("New items", str(result.new_items))
-    table.add_row("Skipped existing", str(result.skipped_existing))
-    table.add_row("State file", str(target_state))
-    if result.warnings:
-        table.add_row("Warnings", "; ".join(result.warnings))
-    console.print(table)
 
 
 @dm_auth_app.command("bootstrap")
@@ -1098,25 +1056,11 @@ def dm_auth_bootstrap_command(
         typer.Option("--domain", help="dm domain, e.g. www.dm.de"),
     ] = "www.dm.de",
 ) -> None:
-    runtime = _ctx(ctx)
-    target = _resolve_dm_state_file(state_file, runtime.config)
-    ok = run_dm_headful_bootstrap(target, domain=domain)
-    if runtime.json_output:
-        _emit(
-            {
-                "ok": ok,
-                "state_file": str(target),
-                "domain": domain,
-                "error": None if ok else "login/session capture failed",
-            },
-            json_output=True,
-        )
-        raise typer.Exit(code=0 if ok else 1)
-    if not ok:
-        raise typer.BadParameter(
-            "dm login/session capture failed. Re-run and complete login before pressing Enter."
-        )
-    console.print(f"dm session stored at {target}")
+    _run_connector_bootstrap_command(
+        ctx,
+        source_id="dm_de",
+        options={"state_file": state_file, "domain": domain},
+    )
 
 
 @dm_app.command("sync")
@@ -1206,73 +1150,30 @@ def dm_sync_command(
         typer.Option("--headless/--no-headless", help="Run browser headless during sync"),
     ] = True,
 ) -> None:
-    runtime = _ctx(ctx)
-    target_state = _resolve_dm_state_file(state_file, runtime.config)
-    client = DmPlaywrightClient(
-        state_file=target_state,
-        domain=domain,
-        headless=headless,
-        max_pages=max_pages,
-        detail_fetch_limit=detail_fetch_limit,
-        detail_retry_count=detail_retry_count,
-        detail_retry_backoff_ms=detail_retry_backoff_ms,
-        detail_pause_ms=detail_pause_ms,
-        detail_batch_size=detail_batch_size,
-        detail_batch_pause_ms=detail_batch_pause_ms,
-        max_consecutive_detail_failures=max_consecutive_detail_failures,
-        persist_state_on_success=persist_state,
-        state_persist_interval=state_persist_interval,
-        session_keepalive_every=session_keepalive_every,
-        dump_html_dir=dump_html,
+    _run_connector_sync_command(
+        ctx,
+        source_id="dm_de",
+        full=True,
+        connector_options={
+            "state_file": state_file,
+            "domain": domain,
+            "headless": headless,
+            "max_pages": max_pages,
+            "detail_fetch_limit": detail_fetch_limit,
+            "detail_retry_count": detail_retry_count,
+            "detail_retry_backoff_ms": detail_retry_backoff_ms,
+            "detail_pause_ms": detail_pause_ms,
+            "detail_batch_size": detail_batch_size,
+            "detail_batch_pause_ms": detail_batch_pause_ms,
+            "max_consecutive_detail_failures": max_consecutive_detail_failures,
+            "persist_state": persist_state,
+            "state_persist_interval": state_persist_interval,
+            "session_keepalive_every": session_keepalive_every,
+            "dump_html": dump_html,
+            "store_name": store_name,
+        },
+        tracking_source_id=source,
     )
-    db_sessions = _create_session_factory(runtime.config)
-    connector = DmConnectorAdapter(client=client, source=source, store_name=store_name)
-    source_config = runtime.config.model_copy(update={"source": source})
-    service = SyncService(
-        client=None,
-        session_factory=db_sessions,
-        config=source_config,
-        connector=connector,
-    )
-    try:
-        result = service.sync(full=True)
-    except DmClientError as exc:
-        if runtime.json_output:
-            _emit({"ok": False, "error": str(exc)}, json_output=True)
-            raise typer.Exit(code=1) from exc
-        raise typer.BadParameter(str(exc)) from exc
-
-    payload = {
-        "ok": result.ok,
-        "full": result.full,
-        "pages": result.pages,
-        "receipts_seen": result.receipts_seen,
-        "new_receipts": result.new_receipts,
-        "new_items": result.new_items,
-        "skipped_existing": result.skipped_existing,
-        "cutoff_hit": result.cutoff_hit,
-        "warnings": result.warnings,
-        "state_file": str(target_state),
-        "dump_html": str(dump_html) if dump_html is not None else None,
-    }
-    if runtime.json_output:
-        _emit(payload, json_output=True)
-        return
-
-    table = Table(title="dm Sync Result")
-    table.add_column("Metric")
-    table.add_column("Value")
-    table.add_row("Pages", str(result.pages))
-    table.add_row("Receipts seen", str(result.receipts_seen))
-    table.add_row("New receipts", str(result.new_receipts))
-    table.add_row("New items", str(result.new_items))
-    table.add_row("Skipped existing", str(result.skipped_existing))
-    table.add_row("State file", str(target_state))
-    if dump_html is not None:
-        table.add_row("HTML dump dir", str(dump_html))
-    if result.warnings:
-        table.add_row("Warnings", "; ".join(result.warnings))
-    console.print(table)
 
 
 @dm_app.command("scrape")
@@ -1425,25 +1326,11 @@ def rossmann_auth_bootstrap_command(
         typer.Option("--domain", help="Rossmann domain, e.g. www.rossmann.de"),
     ] = "www.rossmann.de",
 ) -> None:
-    runtime = _ctx(ctx)
-    target = _resolve_rossmann_state_file(state_file, runtime.config)
-    ok = run_rossmann_headful_bootstrap(target, domain=domain)
-    if runtime.json_output:
-        _emit(
-            {
-                "ok": ok,
-                "state_file": str(target),
-                "domain": domain,
-                "error": None if ok else "login/session capture failed",
-            },
-            json_output=True,
-        )
-        raise typer.Exit(code=0 if ok else 1)
-    if not ok:
-        raise typer.BadParameter(
-            "Rossmann login/session capture failed. Re-run and complete login before pressing Enter."
-        )
-    console.print(f"Rossmann session stored at {target}")
+    _run_connector_bootstrap_command(
+        ctx,
+        source_id="rossmann_de",
+        options={"state_file": state_file, "domain": domain},
+    )
 
 
 @rossmann_app.command("sync")
@@ -1474,59 +1361,19 @@ def rossmann_sync_command(
         typer.Option("--headless/--no-headless", help="Run browser headless during sync"),
     ] = True,
 ) -> None:
-    runtime = _ctx(ctx)
-    target_state = _resolve_rossmann_state_file(state_file, runtime.config)
-    client = RossmannPlaywrightClient(
-        state_file=target_state,
-        domain=domain,
-        headless=headless,
-        max_pages=max_pages,
+    _run_connector_sync_command(
+        ctx,
+        source_id="rossmann_de",
+        full=True,
+        connector_options={
+            "state_file": state_file,
+            "domain": domain,
+            "headless": headless,
+            "max_pages": max_pages,
+            "store_name": store_name,
+        },
+        tracking_source_id=source,
     )
-    db_sessions = _create_session_factory(runtime.config)
-    connector = RossmannConnectorAdapter(client=client, source=source, store_name=store_name)
-    source_config = runtime.config.model_copy(update={"source": source})
-    service = SyncService(
-        client=None,
-        session_factory=db_sessions,
-        config=source_config,
-        connector=connector,
-    )
-    try:
-        result = service.sync(full=True)
-    except RossmannClientError as exc:
-        if runtime.json_output:
-            _emit({"ok": False, "error": str(exc)}, json_output=True)
-            raise typer.Exit(code=1) from exc
-        raise typer.BadParameter(str(exc)) from exc
-
-    payload = {
-        "ok": result.ok,
-        "full": result.full,
-        "pages": result.pages,
-        "receipts_seen": result.receipts_seen,
-        "new_receipts": result.new_receipts,
-        "new_items": result.new_items,
-        "skipped_existing": result.skipped_existing,
-        "cutoff_hit": result.cutoff_hit,
-        "warnings": result.warnings,
-        "state_file": str(target_state),
-    }
-    if runtime.json_output:
-        _emit(payload, json_output=True)
-        return
-
-    table = Table(title="Rossmann Sync Result")
-    table.add_column("Metric")
-    table.add_column("Value")
-    table.add_row("Pages", str(result.pages))
-    table.add_row("Receipts seen", str(result.receipts_seen))
-    table.add_row("New receipts", str(result.new_receipts))
-    table.add_row("New items", str(result.new_items))
-    table.add_row("Skipped existing", str(result.skipped_existing))
-    table.add_row("State file", str(target_state))
-    if result.warnings:
-        table.add_row("Warnings", "; ".join(result.warnings))
-    console.print(table)
 
 
 def main() -> None:

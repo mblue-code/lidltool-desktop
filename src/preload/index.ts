@@ -5,9 +5,16 @@ import type {
   BackupRequest,
   CommandLogEvent,
   CommandResult,
+  DesktopReleaseMetadata,
+  DesktopRuntimeDiagnostics,
   DesktopLocale,
   ExportRequest,
   ImportRequest,
+  ReceiptPluginCatalogInstallRequest,
+  ReceiptPluginPackInstallResult,
+  ReceiptPluginPackListResult,
+  ReceiptPluginPackToggleResult,
+  ReceiptPluginPackUninstallResult,
   SyncRequest
 } from "@shared/contracts";
 
@@ -16,6 +23,10 @@ const api = {
   getLocale: async (): Promise<DesktopLocale> => await ipcRenderer.invoke("desktop:locale:get"),
   getBootError: async (): Promise<string | null> => await ipcRenderer.invoke("desktop:boot-error:get"),
   getBackendStatus: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:status"),
+  getRuntimeDiagnostics: async (): Promise<DesktopRuntimeDiagnostics> =>
+    await ipcRenderer.invoke("desktop:runtime:diagnostics"),
+  getReleaseMetadata: async (): Promise<DesktopReleaseMetadata> =>
+    await ipcRenderer.invoke("desktop:release-metadata:get"),
   setLocale: async (locale: DesktopLocale): Promise<DesktopLocale> => await ipcRenderer.invoke("desktop:locale:set", locale),
   startBackend: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:start"),
   stopBackend: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:stop"),
@@ -24,6 +35,20 @@ const api = {
   runExport: async (payload: ExportRequest): Promise<CommandResult> => await ipcRenderer.invoke("desktop:export:run", payload),
   runBackup: async (payload: BackupRequest): Promise<CommandResult> => await ipcRenderer.invoke("desktop:backup:run", payload),
   runImport: async (payload: ImportRequest): Promise<CommandResult> => await ipcRenderer.invoke("desktop:import:run", payload),
+  listReceiptPlugins: async (): Promise<ReceiptPluginPackListResult> =>
+    await ipcRenderer.invoke("desktop:receipt-plugins:list"),
+  installReceiptPluginFromDialog: async (): Promise<ReceiptPluginPackInstallResult | null> =>
+    await ipcRenderer.invoke("desktop:receipt-plugins:install-dialog"),
+  installReceiptPluginFromCatalogEntry: async (
+    payload: ReceiptPluginCatalogInstallRequest
+  ): Promise<ReceiptPluginPackInstallResult> =>
+    await ipcRenderer.invoke("desktop:receipt-plugins:install-catalog-entry", payload),
+  enableReceiptPlugin: async (pluginId: string): Promise<ReceiptPluginPackToggleResult> =>
+    await ipcRenderer.invoke("desktop:receipt-plugins:enable", pluginId),
+  disableReceiptPlugin: async (pluginId: string): Promise<ReceiptPluginPackToggleResult> =>
+    await ipcRenderer.invoke("desktop:receipt-plugins:disable", pluginId),
+  uninstallReceiptPlugin: async (pluginId: string): Promise<ReceiptPluginPackUninstallResult> =>
+    await ipcRenderer.invoke("desktop:receipt-plugins:uninstall", pluginId),
   onLog: (handler: (event: CommandLogEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: CommandLogEvent): void => {
       handler(payload);

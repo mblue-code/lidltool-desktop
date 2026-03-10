@@ -1,0 +1,184 @@
+{
+  "schema_version": "1",
+  "envelope_type": "connector_catalog",
+  "catalog_id": "connector_catalog",
+  "source_kind": "bundled_signed",
+  "published_at": "2026-03-09T00:00:00Z",
+  "expires_at": null,
+  "catalog": {
+    "schema_version": "1",
+    "catalog_id": "connector_catalog",
+    "source_kind": "repo_static",
+    "entries": [
+      {
+        "entry_id": "connector.builtin.lidl_plus_de",
+        "entry_type": "connector",
+        "plugin_id": "builtin.lidl_plus_de",
+        "source_id": "lidl_plus_de",
+        "display_name": "Lidl Plus",
+        "summary": "Official Lidl Plus DE receipt connector bundled with the self-hosted and desktop shells.",
+        "description": "Built-in connector entry for the Lidl Plus DE login and receipt sync flow.",
+        "trust_class": "official",
+        "maintainer": "lidltool maintainers",
+        "source": "lidltool curated catalog",
+        "supported_products": ["self_hosted", "desktop"],
+        "supported_markets": ["DE"],
+        "current_version": "1.0.0",
+        "compatibility": {
+          "min_core_version": "0.1.0",
+          "supported_host_kinds": ["self_hosted", "electron"]
+        },
+        "install_methods": ["built_in"],
+        "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
+        "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli",
+        "release_notes_summary": "Bundled official connector metadata is discovery-only here and never auto-activates additional plugins."
+      },
+      {
+        "entry_id": "connector.builtin.amazon_de",
+        "entry_type": "connector",
+        "plugin_id": "builtin.amazon_de",
+        "source_id": "amazon_de",
+        "display_name": "Amazon",
+        "summary": "Official Amazon.de receipt connector available in the core bundle.",
+        "description": "Built-in connector entry for Amazon.de order and invoice history sync.",
+        "trust_class": "official",
+        "maintainer": "lidltool maintainers",
+        "source": "lidltool curated catalog",
+        "supported_products": ["self_hosted", "desktop"],
+        "supported_markets": ["DE"],
+        "current_version": "1.0.0",
+        "compatibility": {
+          "min_core_version": "0.1.0",
+          "supported_host_kinds": ["self_hosted", "electron"]
+        },
+        "install_methods": ["built_in"],
+        "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
+        "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
+      },
+      {
+        "entry_id": "connector.builtin.rewe_de",
+        "entry_type": "connector",
+        "plugin_id": "builtin.rewe_de",
+        "source_id": "rewe_de",
+        "display_name": "REWE",
+        "summary": "Official REWE receipt connector available in the core bundle.",
+        "description": "Built-in connector entry for REWE account bootstrap and sync.",
+        "trust_class": "official",
+        "maintainer": "lidltool maintainers",
+        "source": "lidltool curated catalog",
+        "supported_products": ["self_hosted", "desktop"],
+        "supported_markets": ["DE"],
+        "current_version": "1.0.0",
+        "compatibility": {
+          "min_core_version": "0.1.0",
+          "supported_host_kinds": ["self_hosted", "electron"]
+        },
+        "install_methods": ["built_in"],
+        "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
+        "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
+      },
+      {
+        "entry_id": "connector.builtin.kaufland_de",
+        "entry_type": "connector",
+        "plugin_id": "builtin.kaufland_de",
+        "source_id": "kaufland_de",
+        "display_name": "Kaufland",
+        "summary": "Official Kaufland receipt connector available in the core bundle.",
+        "description": "Built-in connector entry for Kaufland account bootstrap and sync.",
+        "trust_class": "official",
+        "maintainer": "lidltool maintainers",
+        "source": "lidltool curated catalog",
+        "supported_products": ["self_hosted", "desktop"],
+        "supported_markets": ["DE"],
+        "current_version": "1.0.0",
+        "compatibility": {
+          "min_core_version": "0.1.0",
+          "supported_host_kinds": ["self_hosted", "electron"]
+        },
+        "install_methods": ["built_in"],
+        "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
+        "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
+      },
+      {
+        "entry_id": "connector.builtin.dm_de",
+        "entry_type": "connector",
+        "plugin_id": "builtin.dm_de",
+        "source_id": "dm_de",
+        "display_name": "dm",
+        "summary": "Official dm receipt connector available in the core bundle.",
+        "description": "Built-in connector entry for dm.de auth bootstrap and sync.",
+        "trust_class": "official",
+        "maintainer": "lidltool maintainers",
+        "source": "lidltool curated catalog",
+        "supported_products": ["self_hosted", "desktop"],
+        "supported_markets": ["DE"],
+        "current_version": "1.0.0",
+        "compatibility": {
+          "min_core_version": "0.1.0",
+          "supported_host_kinds": ["self_hosted", "electron"]
+        },
+        "install_methods": ["built_in"],
+        "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
+        "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
+      },
+      {
+        "entry_id": "connector.builtin.rossmann_de",
+        "entry_type": "connector",
+        "plugin_id": "builtin.rossmann_de",
+        "source_id": "rossmann_de",
+        "display_name": "Rossmann",
+        "summary": "Official Rossmann receipt connector available in the core bundle.",
+        "description": "Built-in connector entry for Rossmann.de auth bootstrap and sync.",
+        "trust_class": "official",
+        "maintainer": "lidltool maintainers",
+        "source": "lidltool curated catalog",
+        "supported_products": ["self_hosted", "desktop"],
+        "supported_markets": ["DE"],
+        "current_version": "1.0.0",
+        "compatibility": {
+          "min_core_version": "0.1.0",
+          "supported_host_kinds": ["self_hosted", "electron"]
+        },
+        "install_methods": ["built_in"],
+        "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
+        "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
+      },
+      {
+        "entry_id": "bundle.official.de_receipts_core",
+        "entry_type": "bundle",
+        "bundle_id": "official.de_receipts_core",
+        "display_name": "Official Germany Receipts Core",
+        "summary": "Curated official DE-first bundle shared by self-hosted and desktop release metadata.",
+        "description": "Discovery entry for the official DE receipts bundle. Bundle metadata remains authoritative in the market catalog.",
+        "trust_class": "official",
+        "maintainer": "lidltool maintainers",
+        "source": "lidltool curated catalog",
+        "supported_products": ["self_hosted", "desktop"],
+        "supported_markets": ["DE", "DACH"],
+        "current_version": "2026.03",
+        "compatibility": {
+          "min_core_version": "0.1.0",
+          "supported_host_kinds": ["self_hosted", "electron"]
+        },
+        "install_methods": ["built_in"],
+        "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/design/market-bundle-release-strategy.md",
+        "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli",
+        "release_notes_summary": "This bundle is curated metadata only; it does not auto-install or auto-activate connectors from the discovery catalog."
+      }
+    ]
+  },
+  "revocations": {
+    "key_ids": [],
+    "archive_sha256": [],
+    "plugin_versions": [],
+    "entry_ids": []
+  },
+  "signatures": [
+    {
+      "key_id": "official-maintainers-2026-03",
+      "algorithm": "ed25519",
+      "payload_sha256": "ce841ee356cce47b86fc7d10cf3f64f335656a3094a315c227cc52dfce35588e",
+      "signature": "qUWwt/W1La/L1dgSPJTakL5fiKGK/n2/169sJxEni9rxJ2+CbaPrTE5H2FaSfyFlmLI0sLNwH/VuPnTpB6rQDw=="
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -22,6 +23,8 @@ from lidltool.auth.users import ensure_service_user
 from lidltool.config import AppConfig
 from lidltool.connectors.base import Connector
 from lidltool.connectors.lidl_adapter import LidlConnectorAdapter
+from lidltool.connectors.registry import source_display_name
+from lidltool.connectors.runtime.host import RuntimeHostedReceiptConnector
 from lidltool.db.engine import session_scope
 from lidltool.db.models import (
     DiscountEvent,
@@ -42,7 +45,11 @@ from lidltool.ingest.dedupe import (
     fingerprint_exists,
     receipt_exists,
 )
+from lidltool.ingest.json_payloads import make_json_safe
 from lidltool.ingest.normalizer import normalize_receipt, parse_datetime, to_decimal
+from lidltool.ingest.quarantine import quarantine_connector_payload
+from lidltool.ingest.validation import validate_normalized_connector_payload
+from lidltool.ingest.validation_results import ValidationOutcome
 from lidltool.lidl.client import LidlClient
 
 LOGGER = logging.getLogger(__name__)
@@ -68,6 +75,7 @@ class SyncResult:
     skipped_existing: int
     cutoff_hit: bool
     warnings: list[str] = field(default_factory=list)
+    validation: dict[str, Any] = field(default_factory=dict)
 
 
 class SyncService:
@@ -77,10 +85,12 @@ class SyncService:
         session_factory: sessionmaker[Session],
         config: AppConfig,
         connector: Connector | None = None,
+        ingestion_job_id: str | None = None,
     ) -> None:
         self._client = client
         self._session_factory = session_factory
         self._config = config
+        self._ingestion_job_id = ingestion_job_id
         if connector is not None:
             self._connector = connector
         else:
@@ -99,6 +109,9 @@ class SyncService:
         cutoff_hit = False
 
         with session_scope(self._session_factory) as session:
+            validation_outcomes: Counter[str] = Counter()
+            validation_issue_codes: Counter[str] = Counter()
+            blocked_outputs: list[dict[str, Any]] = []
             rules = load_compiled_rules(session)
             normalization_bundle = load_normalization_bundle(session, source=self._config.source)
             sync_state = session.get(SyncState, self._config.source)
@@ -157,6 +170,72 @@ class SyncService:
                 normalized = normalize_receipt(detail, category_rules=rules)
                 canonical_normalized = self._connector.normalize(detail)
                 discounts = self._connector.extract_discounts(detail)
+                validation_report = validate_normalized_connector_payload(
+                    source_record_ref=receipt_id,
+                    source_record_detail=detail,
+                    connector_normalized=canonical_normalized,
+                    extracted_discounts=discounts,
+                )
+                validation_outcomes[validation_report.outcome.value] += 1
+                for issue in validation_report.issues:
+                    validation_issue_codes[issue.code] += 1
+
+                if validation_report.outcome in {
+                    ValidationOutcome.QUARANTINE,
+                    ValidationOutcome.REJECT,
+                }:
+                    quarantine_row = quarantine_connector_payload(
+                        session,
+                        source_id=source.id,
+                        source_account=source_account,
+                        ingestion_job_id=self._ingestion_job_id,
+                        connector=self._connector,
+                        action_name="canonical_write_gate",
+                        outcome=validation_report.outcome,
+                        source_record_ref=receipt_id,
+                        source_record_detail=detail,
+                        connector_normalized=canonical_normalized,
+                        extracted_discounts=discounts,
+                        report=validation_report,
+                    )
+                    blocked_outputs.append(
+                        {
+                            "source_record_ref": receipt_id,
+                            "outcome": validation_report.outcome.value,
+                            "quarantine_id": quarantine_row.id,
+                            "issue_codes": [issue.code for issue in validation_report.issues],
+                        }
+                    )
+                    state_warnings.append(
+                        _validation_summary_message(
+                            record_ref=receipt_id,
+                            outcome=validation_report.outcome,
+                            issue_count=len(validation_report.issues),
+                        )
+                    )
+                    LOGGER.warning(
+                        "ingest.validation.blocked source=%s record_ref=%s outcome=%s quarantine_id=%s",
+                        source.id,
+                        receipt_id,
+                        validation_report.outcome.value,
+                        quarantine_row.id,
+                    )
+                    continue
+
+                if validation_report.outcome is ValidationOutcome.WARN:
+                    state_warnings.append(
+                        _validation_summary_message(
+                            record_ref=receipt_id,
+                            outcome=validation_report.outcome,
+                            issue_count=len(validation_report.issues),
+                        )
+                    )
+                    LOGGER.warning(
+                        "ingest.validation.warn source=%s record_ref=%s issues=%s",
+                        source.id,
+                        receipt_id,
+                        len(validation_report.issues),
+                    )
 
                 _upsert_canonical_transaction(
                     session=session,
@@ -262,6 +341,12 @@ class SyncService:
             skipped_existing=progress.skipped_existing,
             cutoff_hit=cutoff_hit,
             warnings=state_warnings,
+            validation=_validation_summary(
+                connector=self._connector,
+                validation_outcomes=validation_outcomes,
+                validation_issue_codes=validation_issue_codes,
+                blocked_outputs=blocked_outputs,
+            ),
         )
 
 
@@ -304,7 +389,7 @@ def _ensure_source_account(session: Session, *, source_id: str) -> tuple[Source,
             id=source_id,
             user_id=service_user.user_id,
             kind="connector",
-            display_name=source_id.replace("_", " ").title(),
+            display_name=source_display_name(source_id, config=config),
             status="healthy",
             enabled=True,
         )
@@ -320,6 +405,62 @@ def _ensure_source_account(session: Session, *, source_id: str) -> tuple[Source,
         session.add(account)
         session.flush()
     return source, account
+
+
+def _validation_summary_message(
+    *,
+    record_ref: str,
+    outcome: ValidationOutcome,
+    issue_count: int,
+) -> str:
+    return (
+        f"connector validation {outcome.value} for record {record_ref}; "
+        f"{issue_count} issue(s) recorded"
+    )
+
+
+def _validation_summary(
+    *,
+    connector: Connector,
+    validation_outcomes: Counter[str],
+    validation_issue_codes: Counter[str],
+    blocked_outputs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    outcomes = {
+        ValidationOutcome.ACCEPT.value: int(validation_outcomes.get(ValidationOutcome.ACCEPT.value, 0)),
+        ValidationOutcome.WARN.value: int(validation_outcomes.get(ValidationOutcome.WARN.value, 0)),
+        ValidationOutcome.QUARANTINE.value: int(
+            validation_outcomes.get(ValidationOutcome.QUARANTINE.value, 0)
+        ),
+        ValidationOutcome.REJECT.value: int(validation_outcomes.get(ValidationOutcome.REJECT.value, 0)),
+    }
+    records_validated = sum(outcomes.values())
+    summary: dict[str, Any] = {
+        "records_validated": records_validated,
+        "outcomes": outcomes,
+        "issue_codes": dict(validation_issue_codes),
+        "blocked_outputs": blocked_outputs[:20],
+        "quality_signal": (
+            "degraded"
+            if outcomes[ValidationOutcome.QUARANTINE.value] or outcomes[ValidationOutcome.REJECT.value]
+            else "warning"
+            if outcomes[ValidationOutcome.WARN.value]
+            else "healthy"
+        ),
+    }
+    if records_validated > 0:
+        summary["warn_rate"] = round(outcomes[ValidationOutcome.WARN.value] / records_validated, 3)
+        summary["blocked_rate"] = round(
+            (
+                outcomes[ValidationOutcome.QUARANTINE.value]
+                + outcomes[ValidationOutcome.REJECT.value]
+            )
+            / records_validated,
+            3,
+        )
+    if isinstance(connector, RuntimeHostedReceiptConnector):
+        summary["connector"] = connector.runtime_identity()
+    return summary
 
 
 def _upsert_canonical_transaction(
@@ -376,6 +517,7 @@ def _upsert_canonical_transaction(
         "source_record_detail": source_record_detail,
         "connector_normalized": connector_normalized,
     }
+    payload = make_json_safe(payload)
 
     if existing is not None:
         if existing.user_id is None:

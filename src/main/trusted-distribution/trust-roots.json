@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "roots": [
+    {
+      "key_id": "official-maintainers-2026-03",
+      "label": "Official Maintainer Root",
+      "algorithm": "ed25519",
+      "scopes": ["catalog", "pack"],
+      "allowed_pack_trust_classes": ["official", "community_verified"],
+      "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA7VAXAMJ5ZP1zIeZ9qP0YsQmWAiyDdm6NxK7O1sJSNJQ=\n-----END PUBLIC KEY-----\n"
+    }
+  ],
+  "blocklist": {
+    "key_ids": [],
+    "archive_sha256": [],
+    "plugin_versions": [],
+    "entry_ids": []
+  }
+}

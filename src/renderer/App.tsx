@@ -6,12 +6,33 @@ import type {
   BackendStatus,
   CommandLogEvent,
   CommandResult,
+  DesktopRuntimeDiagnostics,
   ExportRequest,
   ImportRequest,
+  ReceiptPluginPackInfo,
   SyncRequest,
   SyncSourceId
 } from "@shared/contracts";
 import { useDesktopI18n } from "./i18n";
+import {
+  catalogProfileSummary,
+  catalogSupportSummary,
+  compareVersions,
+  describeBackendCommand,
+  describeCatalogEntry,
+  describeControlCenterMode,
+  describeInstalledPack,
+  findCatalogDesktopPackEntry,
+  formatCatalogEntryType,
+  formatCatalogVerification,
+  formatEditionKind,
+  formatInstallMethods,
+  formatPluginTrust,
+  formatTrustClassLabel,
+  packInstallSource,
+  packOriginSummary,
+  packSupportSummary
+} from "./control-center-model";
 
 const SOURCE_OPTIONS: Array<{ id: SyncSourceId; label: string; defaultDomain?: string }> = [
   { id: "lidl", label: "Lidl" },
@@ -55,11 +76,35 @@ function defaultImportDir(userDataDir: string): string {
   return `${trimmed}${separator}backups`;
 }
 
+function bundleLabelsForIds(
+  releaseMetadata: NonNullable<Awaited<ReturnType<typeof window.desktopApi.getReleaseMetadata>>> | null,
+  bundleIds: string[]
+): string[] {
+  if (!releaseMetadata) {
+    return [];
+  }
+  return bundleIds.map((bundleId) => {
+    const match = releaseMetadata.official_bundles.find((bundle) => bundle.bundle_id === bundleId);
+    return match?.display_name ?? bundleId;
+  });
+}
+
+function sourceJourneySummary(source: SyncSourceId): string {
+  if (source === "lidl") {
+    return "Use the built-in Lidl path when you just want a one-off local refresh of recent or full receipt history.";
+  }
+  return "Use a receipt pack when you want an occasional local sync for another retailer, then review or export the results on this computer.";
+}
+
 export default function App() {
   const { locale, setLocale, t } = useDesktopI18n();
   const [{ year, month }] = useState(defaultYearMonth);
   const [config, setConfig] = useState<BackendConfig | null>(null);
   const [backend, setBackend] = useState<BackendStatus | null>(null);
+  const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<DesktopRuntimeDiagnostics | null>(null);
+  const [releaseMetadata, setReleaseMetadata] = useState<Awaited<ReturnType<typeof window.desktopApi.getReleaseMetadata>> | null>(null);
+  const [releaseMetadataError, setReleaseMetadataError] = useState<string | null>(null);
+  const [pluginLoadError, setPluginLoadError] = useState<string | null>(null);
   const [source, setSource] = useState<SyncSourceId>("lidl");
   const [fullSync, setFullSync] = useState(false);
   const [headless, setHeadless] = useState(true);
@@ -80,6 +125,9 @@ export default function App() {
   const [importIncludeToken, setImportIncludeToken] = useState(true);
   const [importIncludeCredentialKey, setImportIncludeCredentialKey] = useState(true);
   const [importRestartBackend, setImportRestartBackend] = useState(true);
+  const [pluginPacks, setPluginPacks] = useState<ReceiptPluginPackInfo[]>([]);
+  const [pluginSearchPaths, setPluginSearchPaths] = useState<string[]>([]);
+  const [pluginStatusMessage, setPluginStatusMessage] = useState<string | null>(null);
   const [cardsResult, setCardsResult] = useState<unknown>(null);
   const [logs, setLogs] = useState<CommandLogEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -100,29 +148,87 @@ export default function App() {
     return t("shell.backend.status.stopped");
   }, [backend, t]);
 
+  const controlCenterMode = useMemo(
+    () => describeControlCenterMode(bootError, runtimeDiagnostics),
+    [bootError, runtimeDiagnostics]
+  );
+
+  const curatedDesktopEntries = useMemo(
+    () => releaseMetadata?.discovery_catalog.entries ?? [],
+    [releaseMetadata]
+  );
+  const curatedDesktopPackEntries = useMemo(
+    () => curatedDesktopEntries.filter((entry) => entry.entry_type === "desktop_pack"),
+    [curatedDesktopEntries]
+  );
+  const defaultBundleLabels = useMemo(
+    () => bundleLabelsForIds(releaseMetadata, releaseMetadata?.selected_market_profile.default_bundle_ids ?? []),
+    [releaseMetadata]
+  );
+  const recommendedBundleLabels = useMemo(
+    () => bundleLabelsForIds(releaseMetadata, releaseMetadata?.selected_market_profile.recommended_bundle_ids ?? []),
+    [releaseMetadata]
+  );
+  const installedEnabledCount = useMemo(
+    () => pluginPacks.filter((pack) => pack.status === "enabled").length,
+    [pluginPacks]
+  );
+
   useEffect(() => {
     let disposeLogs: (() => void) | null = null;
     let disposeBootError: (() => void) | null = null;
 
     async function boot(): Promise<void> {
-      try {
-        const [cfg, initialBootError, status] = await Promise.all([
-          window.desktopApi.getConfig(),
-          window.desktopApi.getBootError(),
-          window.desktopApi.getBackendStatus()
-        ]);
-        setConfig(cfg);
-        setBootError(initialBootError);
-        setBackend(status);
-        disposeLogs = window.desktopApi.onLog((event) => {
-          setLogs((prev) => [...prev.slice(-399), event]);
-        });
-        disposeBootError = window.desktopApi.onBootError((message) => {
-          setBootError(message);
-        });
-      } catch (err) {
-        setError(t("shell.error.desktopApiInit", { detail: String(err) }));
+      const results = await Promise.allSettled([
+        window.desktopApi.getConfig(),
+        window.desktopApi.getBootError(),
+        window.desktopApi.getBackendStatus(),
+        window.desktopApi.getRuntimeDiagnostics(),
+        window.desktopApi.listReceiptPlugins(),
+        window.desktopApi.getReleaseMetadata()
+      ]);
+
+      const [cfgResult, bootErrorResult, statusResult, runtimeResult, receiptPluginsResult, metadataResult] = results;
+
+      if (cfgResult.status === "fulfilled") {
+        setConfig(cfgResult.value);
+      } else {
+        setError(t("shell.error.desktopApiInit", { detail: String(cfgResult.reason) }));
       }
+
+      if (bootErrorResult.status === "fulfilled") {
+        setBootError(bootErrorResult.value);
+      }
+
+      if (statusResult.status === "fulfilled") {
+        setBackend(statusResult.value);
+      }
+
+      if (runtimeResult.status === "fulfilled") {
+        setRuntimeDiagnostics(runtimeResult.value);
+      }
+
+      if (receiptPluginsResult.status === "fulfilled") {
+        setPluginPacks(receiptPluginsResult.value.packs);
+        setPluginSearchPaths(receiptPluginsResult.value.activePluginSearchPaths);
+        setPluginLoadError(null);
+      } else {
+        setPluginLoadError(String(receiptPluginsResult.reason));
+      }
+
+      if (metadataResult.status === "fulfilled") {
+        setReleaseMetadata(metadataResult.value);
+        setReleaseMetadataError(null);
+      } else {
+        setReleaseMetadataError(String(metadataResult.reason));
+      }
+
+      disposeLogs = window.desktopApi.onLog((event) => {
+        setLogs((prev) => [...prev.slice(-399), event]);
+      });
+      disposeBootError = window.desktopApi.onBootError((message) => {
+        setBootError(message);
+      });
     }
 
     void boot();
@@ -155,6 +261,27 @@ export default function App() {
       setImportBackupDir(defaultImportDir(config.userDataDir));
     }
   }, [config, importBackupDir]);
+
+  async function refreshReleaseMetadata(): Promise<void> {
+    try {
+      const nextMetadata = await window.desktopApi.getReleaseMetadata();
+      setReleaseMetadata(nextMetadata);
+      setReleaseMetadataError(null);
+    } catch (err) {
+      setReleaseMetadataError(String(err));
+    }
+  }
+
+  async function refreshReceiptPlugins(): Promise<void> {
+    try {
+      const result = await window.desktopApi.listReceiptPlugins();
+      setPluginPacks(result.packs);
+      setPluginSearchPaths(result.activePluginSearchPaths);
+      setPluginLoadError(null);
+    } catch (err) {
+      setPluginLoadError(String(err));
+    }
+  }
 
   async function handleStartBackend(): Promise<void> {
     setBusy(true);
@@ -331,13 +458,120 @@ export default function App() {
     }
   }
 
+  async function handleRefreshPluginState(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setPluginStatusMessage(null);
+    try {
+      await Promise.all([refreshReceiptPlugins(), refreshReleaseMetadata()]);
+      setPluginStatusMessage("Refreshed local plugin packs and edition catalog details.");
+    } catch (err) {
+      setError(`Could not refresh receipt pack details. ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleInstallReceiptPlugin(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setPluginStatusMessage(null);
+    try {
+      const result = await window.desktopApi.installReceiptPluginFromDialog();
+      if (!result) {
+        setPluginStatusMessage("No local pack was selected.");
+        return;
+      }
+      setPluginStatusMessage(
+        result.action === "installed"
+          ? `Imported ${result.pack.displayName} ${result.pack.version}. Review the trust label, then enable it when you are ready.`
+          : result.action === "updated"
+            ? `Updated ${result.pack.displayName} to ${result.pack.version}.`
+            : `Reinstalled ${result.pack.displayName} ${result.pack.version}.`
+      );
+      if (result.backendStatus) {
+        setBackend(result.backendStatus);
+      }
+      await refreshReceiptPlugins();
+    } catch (err) {
+      setError(`Could not import the local receipt pack. ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleInstallReceiptPluginFromCatalog(entryId: string): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setPluginStatusMessage(null);
+    try {
+      const result = await window.desktopApi.installReceiptPluginFromCatalogEntry({ entryId });
+      setPluginStatusMessage(
+        result.action === "installed"
+          ? `Installed trusted pack ${result.pack.displayName} ${result.pack.version}. Enable it when you want it active in the next backend run.`
+          : result.action === "updated"
+            ? `Updated trusted pack ${result.pack.displayName} to ${result.pack.version}.`
+            : `Reinstalled trusted pack ${result.pack.displayName} ${result.pack.version}.`
+      );
+      if (result.backendStatus) {
+        setBackend(result.backendStatus);
+      }
+      await Promise.all([refreshReleaseMetadata(), refreshReceiptPlugins()]);
+    } catch (err) {
+      setError(`Could not install the trusted receipt pack. ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleToggleReceiptPlugin(pluginId: string, enabled: boolean): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setPluginStatusMessage(null);
+    try {
+      const result = enabled
+        ? await window.desktopApi.enableReceiptPlugin(pluginId)
+        : await window.desktopApi.disableReceiptPlugin(pluginId);
+      setPluginStatusMessage(enabled ? `Enabled ${result.pack.displayName}.` : `Disabled ${result.pack.displayName}.`);
+      if (result.backendStatus) {
+        setBackend(result.backendStatus);
+      }
+      await refreshReceiptPlugins();
+    } catch (err) {
+      setError(`Could not update the receipt pack state. ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleUninstallReceiptPlugin(pluginId: string): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setPluginStatusMessage(null);
+    try {
+      const result = await window.desktopApi.uninstallReceiptPlugin(pluginId);
+      setPluginStatusMessage(`Removed ${result.pluginId} from local desktop storage.`);
+      if (result.backendStatus) {
+        setBackend(result.backendStatus);
+      }
+      await refreshReceiptPlugins();
+    } catch (err) {
+      setError(`Could not remove the receipt pack. ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="shell">
       <header className="shell-header">
         <div>
           <p className="eyebrow">{t("app.brand.title")}</p>
-          <h1>{t("shell.header.title")}</h1>
-          <p className="shell-subtitle">{t("shell.header.subtitle")}</p>
+          <h1>Local receipt sync, review, export, and backup.</h1>
+          <p className="shell-subtitle">
+            LidlTool Desktop is the occasional-use companion for this computer. It is local-first, receipt-oriented,
+            and plugin-capable, but it is not the always-on self-hosted server product.
+          </p>
         </div>
         <label className="locale-switcher">
           <span>{t("app.header.language")}</span>
@@ -348,36 +582,473 @@ export default function App() {
         </label>
       </header>
 
+      <section className="hero card">
+        <div className="hero-copy">
+          <span className={`status-chip status-tone-${controlCenterMode.tone}`}>{controlCenterMode.label}</span>
+          <h2>{controlCenterMode.title}</h2>
+          <p>{controlCenterMode.detail}</p>
+        </div>
+        <div className="hero-actions">
+          <button type="button" disabled={busy || runtimeDiagnostics?.fullAppReady === false} onClick={() => void handleOpenFullApp()}>
+            Open main app
+          </button>
+          <button type="button" className="secondary" disabled={busy} onClick={() => void handleStartBackend()}>
+            Start local service
+          </button>
+          <a className="button-link secondary" href="#plugins">
+            Manage receipt packs
+          </a>
+          <a className="button-link secondary" href="#safety">
+            Backup or export data
+          </a>
+        </div>
+        <div className="feature-grid">
+          <div className="feature-card">
+            <h3>Best for</h3>
+            <p>Open the app when you need a sync, a quick review, a JSON export, or a local backup.</p>
+          </div>
+          <div className="feature-card">
+            <h3>Supports</h3>
+            <p>Built-in connectors plus optional receipt packs that you import locally or install from a trusted catalog.</p>
+          </div>
+          <div className="feature-card">
+            <h3>Not included</h3>
+            <p>Always-on offer scraping, watchlists, alerts, and broad self-hosted household automation remain out of scope here.</p>
+          </div>
+        </div>
+      </section>
+
       {bootError ? <p className="error">{t("shell.bootError", { detail: bootError })}</p> : null}
 
       <section className="grid two-cols">
         <article className="card">
-          <h2>{t("shell.backend.title")}</h2>
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Control center</p>
+              <h2>Desktop mode and quick actions</h2>
+            </div>
+            <span className={`status-chip ${backend?.running ? "status-enabled" : "status-disabled"}`}>{backendStatusText}</span>
+          </div>
           <p>
-            <strong>{t("shell.backend.api")}:</strong> {config?.apiBaseUrl ?? t("common.loading")}
+            The control center is the low-friction place to start the local service, open the main app, run a one-off
+            sync, or recover with exports and backups when the full UI is unavailable.
           </p>
-          <p>
-            <strong>{t("shell.backend.db")}:</strong> {config?.dbPath ?? t("common.loading")}
-          </p>
-          <p>
-            <strong>{t("common.status")}:</strong> {backendStatusText}
-          </p>
+          <div className="key-value-grid">
+            <div>
+              <span className="label">Main app pages</span>
+              <strong>{runtimeDiagnostics?.fullAppReady ? "Bundled and ready" : "Control center only"}</strong>
+            </div>
+            <div>
+              <span className="label">Local API</span>
+              <strong>{config?.apiBaseUrl ?? t("common.loading")}</strong>
+            </div>
+            <div>
+              <span className="label">Data file</span>
+              <strong>{config?.dbPath ?? t("common.loading")}</strong>
+            </div>
+            <div>
+              <span className="label">Runtime</span>
+              <strong>{describeBackendCommand(runtimeDiagnostics)}</strong>
+            </div>
+          </div>
           <div className="actions">
-            <button type="button" disabled={busy} onClick={() => void handleOpenFullApp()}>
-              {t("shell.backend.action.openFullApp")}
+            <button type="button" disabled={busy || runtimeDiagnostics?.fullAppReady === false} onClick={() => void handleOpenFullApp()}>
+              Open main app
             </button>
             <button type="button" disabled={busy} onClick={() => void handleStartBackend()}>
-              {t("shell.backend.action.start")}
+              Start local service
             </button>
-            <button type="button" disabled={busy} onClick={() => void handleStopBackend()}>
-              {t("shell.backend.action.stop")}
+            <button type="button" className="secondary" disabled={busy} onClick={() => void handleStopBackend()}>
+              Stop local service
             </button>
           </div>
+          <details>
+            <summary>Runtime details</summary>
+            <dl className="plugin-meta">
+              <div>
+                <dt>Environment</dt>
+                <dd>{runtimeDiagnostics?.environment ?? t("common.loading")}</dd>
+              </div>
+              <div>
+                <dt>Frontend assets</dt>
+                <dd>{runtimeDiagnostics?.frontendDistStatus ?? t("common.loading")}</dd>
+              </div>
+              <div>
+                <dt>Frontend path</dt>
+                <dd>{runtimeDiagnostics?.frontendDistPath ?? t("common.loading")}</dd>
+              </div>
+              <div>
+                <dt>Backend source</dt>
+                <dd>{runtimeDiagnostics?.backendSourceStatus ?? t("common.loading")}</dd>
+              </div>
+              <div>
+                <dt>Backend source path</dt>
+                <dd>{runtimeDiagnostics?.backendSourcePath ?? t("common.loading")}</dd>
+              </div>
+              <div>
+                <dt>Backend command</dt>
+                <dd>{runtimeDiagnostics?.backendCommand ?? t("common.loading")}</dd>
+              </div>
+            </dl>
+          </details>
         </article>
 
         <article className="card">
-          <h2>{t("shell.sync.title")}</h2>
-          <p>{t("shell.sync.description")}</p>
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Edition</p>
+              <h2>Regional profile and release context</h2>
+            </div>
+            <span className="status-chip status-disabled">
+              {releaseMetadata ? formatEditionKind(releaseMetadata.active_release_variant.edition_kind) : "Loading"}
+            </span>
+          </div>
+          <p>
+            Desktop uses bundled market and release metadata so the default connectors and optional receipt packs match
+            the edition you installed without turning desktop into the full self-hosted product.
+          </p>
+          <div className="key-value-grid">
+            <div>
+              <span className="label">Release</span>
+              <strong>{releaseMetadata?.active_release_variant.display_name ?? "Loading"}</strong>
+            </div>
+            <div>
+              <span className="label">Market profile</span>
+              <strong>{releaseMetadata?.selected_market_profile.display_name ?? "Loading"}</strong>
+            </div>
+            <div>
+              <span className="label">Default connector bundles</span>
+              <strong>{defaultBundleLabels.length > 0 ? defaultBundleLabels.join(", ") : "None bundled by default"}</strong>
+            </div>
+            <div>
+              <span className="label">Optional receipt packs</span>
+              <strong>{curatedDesktopPackEntries.length}</strong>
+            </div>
+          </div>
+          <p className="muted">
+            {releaseMetadata?.selected_market_profile.description ??
+              "Desktop is preparing the current release profile."}
+          </p>
+          {recommendedBundleLabels.length > 0 ? (
+            <p className="muted">Optional recommendations for this profile: {recommendedBundleLabels.join(", ")}.</p>
+          ) : null}
+          {releaseMetadata?.selected_market_profile.out_of_scope_notes.length ? (
+            <div className="callout warning">
+              {releaseMetadata.selected_market_profile.out_of_scope_notes.map((note) => (
+                <p key={note}>{note}</p>
+              ))}
+            </div>
+          ) : null}
+          {releaseMetadata?.discovery_catalog.diagnostics.length ? (
+            <div className="callout warning">
+              <p>{releaseMetadata.discovery_catalog.diagnostics[0]?.message}</p>
+            </div>
+          ) : null}
+          {releaseMetadataError ? (
+            <div className="callout warning">
+              <p>Edition metadata could not be refreshed. Manual pack import still works.</p>
+              <p className="muted">{releaseMetadataError}</p>
+            </div>
+          ) : null}
+        </article>
+      </section>
+
+      <section id="plugins" className="grid two-cols">
+        <article className="card">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Receipt packs</p>
+              <h2>Installed packs on this desktop</h2>
+            </div>
+            <span className="status-chip status-disabled">
+              {pluginPacks.length} installed / {installedEnabledCount} enabled
+            </span>
+          </div>
+          <p>
+            Import local ZIP packs or review the packs already stored in desktop app-data. Installed packs stay local to
+            this computer and activation remains explicit.
+          </p>
+          <div className="actions">
+            <button type="button" disabled={busy} onClick={() => void handleInstallReceiptPlugin()}>
+              Import local pack
+            </button>
+            <button type="button" className="secondary" disabled={busy} onClick={() => void handleRefreshPluginState()}>
+              Rescan pack state
+            </button>
+          </div>
+          <div className="key-value-grid">
+            <div>
+              <span className="label">Pack storage</span>
+              <strong>{config?.receiptPluginStorageDir ?? t("common.loading")}</strong>
+            </div>
+            <div>
+              <span className="label">Active runtime paths</span>
+              <strong>{pluginSearchPaths.length > 0 ? pluginSearchPaths.join(", ") : "No enabled external packs"}</strong>
+            </div>
+          </div>
+          <div className="trust-legend">
+            {["official", "community_verified", "community_unsigned", "local_custom"].map((trustClass) => (
+              <div key={trustClass} className="feature-card">
+                <h3>{formatTrustClassLabel(trustClass)}</h3>
+                <p>
+                  {trustClass === "official"
+                    ? "Project-shipped desktop path."
+                    : trustClass === "community_verified"
+                      ? "Signed community pack allowed by trusted distribution."
+                      : trustClass === "community_unsigned"
+                        ? "Manual import only, with conservative labels."
+                        : "Local operator pack with no upstream support promise."}
+                </p>
+              </div>
+            ))}
+          </div>
+          {pluginStatusMessage ? <p className="success-text">{pluginStatusMessage}</p> : null}
+          {pluginLoadError ? (
+            <div className="callout warning">
+              <p>Desktop could not fully read installed pack state.</p>
+              <p className="muted">{pluginLoadError}</p>
+            </div>
+          ) : null}
+          {pluginPacks.length === 0 ? (
+            <div className="empty-state">
+              <h3>No local receipt packs installed yet.</h3>
+              <p>
+                Start with manual ZIP import, or install a trusted pack from the catalog section when this build ships
+                one for your edition.
+              </p>
+            </div>
+          ) : (
+            <div className="plugin-list">
+              {pluginPacks.map((pack) => {
+                const catalogEntry = releaseMetadata
+                  ? findCatalogDesktopPackEntry(releaseMetadata.discovery_catalog.entries, pack.pluginId)
+                  : null;
+                const packStatus = describeInstalledPack(pack);
+                const updateTarget =
+                  catalogEntry &&
+                  !!catalogEntry.current_version &&
+                  compareVersions(pack.version, catalogEntry.current_version) < 0 &&
+                  !catalogEntry.availability.blocked_by_policy
+                    ? catalogEntry
+                    : null;
+
+                return (
+                  <article key={pack.pluginId} className="plugin-pack">
+                    <div className="plugin-pack-header">
+                      <div>
+                        <h3>{pack.displayName}</h3>
+                        <p className="muted">
+                          {pack.pluginId} · {pack.version}
+                        </p>
+                      </div>
+                      <span className={`status-chip ${packStatus.chipClass}`}>{packStatus.label}</span>
+                    </div>
+                    <p>{packStatus.detail}</p>
+                    <dl className="plugin-meta">
+                      <div>
+                        <dt>Trust</dt>
+                        <dd>{formatPluginTrust(pack)}</dd>
+                      </div>
+                      <div>
+                        <dt>Support</dt>
+                        <dd>{formatTrustClassLabel(pack.trustClass)}</dd>
+                      </div>
+                      <div>
+                        <dt>Installed via</dt>
+                        <dd>{packInstallSource(pack)}</dd>
+                      </div>
+                      <div>
+                        <dt>Retailer</dt>
+                        <dd>{pack.sourceId}</dd>
+                      </div>
+                    </dl>
+                    <p className="muted">{packOriginSummary(pack)}</p>
+                    <p className="muted">{packSupportSummary(pack, catalogEntry)}</p>
+                    {catalogEntry ? <p className="muted">{catalogProfileSummary(catalogEntry, releaseMetadata)}</p> : null}
+                    {updateTarget ? <p className="success-text">Trusted update available: {updateTarget.current_version}</p> : null}
+                    {pack.trustReason ? <p className="error compact">{pack.trustReason}</p> : null}
+                    {pack.compatibilityReason ? <p className="error compact">{pack.compatibilityReason}</p> : null}
+                    <div className="actions">
+                      {updateTarget ? (
+                        <button type="button" disabled={busy} onClick={() => void handleInstallReceiptPluginFromCatalog(updateTarget.entry_id)}>
+                          Update from trusted catalog
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={busy || pack.status === "invalid" || pack.status === "revoked" || pack.status === "incompatible"}
+                        onClick={() => void handleToggleReceiptPlugin(pack.pluginId, !pack.enabled)}
+                      >
+                        {pack.enabled ? "Disable pack" : "Enable pack"}
+                      </button>
+                      <button type="button" className="secondary" disabled={busy} onClick={() => void handleUninstallReceiptPlugin(pack.pluginId)}>
+                        Remove pack
+                      </button>
+                    </div>
+                    <details>
+                      <summary>Technical details</summary>
+                      <dl className="plugin-meta">
+                        <div>
+                          <dt>Runtime</dt>
+                          <dd>{pack.runtimeKind}</dd>
+                        </div>
+                        <div>
+                          <dt>Integrity</dt>
+                          <dd>{pack.integrityStatus}</dd>
+                        </div>
+                        <div>
+                          <dt>Signature</dt>
+                          <dd>{pack.signatureStatus}</dd>
+                        </div>
+                        <div>
+                          <dt>Signing key</dt>
+                          <dd>{pack.signingKeyId ?? "none"}</dd>
+                        </div>
+                        <div>
+                          <dt>Install path</dt>
+                          <dd>{pack.installPath}</dd>
+                        </div>
+                        <div>
+                          <dt>Imported file</dt>
+                          <dd>{pack.importedFileName}</dd>
+                        </div>
+                      </dl>
+                      {pack.diagnostics.length > 0 ? <pre>{prettyJson(pack.diagnostics)}</pre> : null}
+                    </details>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </article>
+
+        <article className="card">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Trusted catalog</p>
+              <h2>Edition-aware optional packs</h2>
+            </div>
+            <span className="status-chip status-disabled">
+              {formatCatalogVerification(releaseMetadata?.discovery_catalog ?? null)}
+            </span>
+          </div>
+          <p>
+            Trusted catalog installs remain optional. Desktop uses them to explain what is available for your edition,
+            why certain packs are present by default, and when a signed update is ready.
+          </p>
+          <div className="key-value-grid">
+            <div>
+              <span className="label">Catalog source</span>
+              <strong>{releaseMetadata?.discovery_catalog.source_kind ?? t("common.loading")}</strong>
+            </div>
+            <div>
+              <span className="label">Verification</span>
+              <strong>{formatCatalogVerification(releaseMetadata?.discovery_catalog ?? null)}</strong>
+            </div>
+            <div>
+              <span className="label">Shown packs</span>
+              <strong>{curatedDesktopPackEntries.length}</strong>
+            </div>
+            <div>
+              <span className="label">Manual import</span>
+              <strong>Always available</strong>
+            </div>
+          </div>
+          {curatedDesktopPackEntries.length === 0 ? (
+            <div className="empty-state">
+              <h3>No optional trusted receipt packs are listed for this build.</h3>
+              <p>Manual ZIP import remains the fallback path for community and local packs.</p>
+            </div>
+          ) : (
+            <div className="plugin-list">
+              {curatedDesktopPackEntries.map((entry) => {
+                const installedPack = entry.plugin_id
+                  ? (pluginPacks.find((pack) => pack.pluginId === entry.plugin_id) ?? null)
+                  : null;
+                const availability = describeCatalogEntry(entry, installedPack);
+                const updateAvailable =
+                  installedPack &&
+                  !!entry.current_version &&
+                  compareVersions(installedPack.version, entry.current_version) < 0;
+                const trustedUrlInstallAllowed =
+                  releaseMetadata?.discovery_catalog.verification_status === "trusted" &&
+                  entry.install_methods.includes("download_url") &&
+                  !!entry.download_url &&
+                  !entry.availability.blocked_by_policy;
+
+                return (
+                  <article key={entry.entry_id} className="plugin-pack">
+                    <div className="plugin-pack-header">
+                      <div>
+                        <h3>{entry.display_name}</h3>
+                        <p className="muted">
+                          {formatCatalogEntryType(entry.entry_type)} · {entry.current_version ?? "version not declared"}
+                        </p>
+                      </div>
+                      <span className={`status-chip ${availability.chipClass}`}>{availability.label}</span>
+                    </div>
+                    <p>{entry.summary}</p>
+                    <p className="muted">{availability.detail}</p>
+                    <dl className="plugin-meta">
+                      <div>
+                        <dt>Support</dt>
+                        <dd>{formatTrustClassLabel(entry.trust_class)}</dd>
+                      </div>
+                      <div>
+                        <dt>Install path</dt>
+                        <dd>{formatInstallMethods(entry.install_methods)}</dd>
+                      </div>
+                      <div>
+                        <dt>Maintainer</dt>
+                        <dd>{entry.maintainer}</dd>
+                      </div>
+                      <div>
+                        <dt>Markets</dt>
+                        <dd>{entry.supported_markets.length > 0 ? entry.supported_markets.join(", ") : "Unspecified"}</dd>
+                      </div>
+                    </dl>
+                    <p className="muted">{catalogSupportSummary(entry)}</p>
+                    <p className="muted">{catalogProfileSummary(entry, releaseMetadata)}</p>
+                    {entry.release_notes_summary ? <p className="muted">{entry.release_notes_summary}</p> : null}
+                    {updateAvailable ? <p className="success-text">Trusted update available: {entry.current_version}</p> : null}
+                    {entry.availability.blocked_by_policy ? (
+                      <p className="error compact">{entry.availability.block_reason ?? "Catalog entry blocked by policy."}</p>
+                    ) : null}
+                    <div className="actions">
+                      {trustedUrlInstallAllowed ? (
+                        <button type="button" disabled={busy} onClick={() => void handleInstallReceiptPluginFromCatalog(entry.entry_id)}>
+                          {installedPack ? (updateAvailable ? "Install trusted update" : "Reinstall trusted pack") : "Install trusted pack"}
+                        </button>
+                      ) : null}
+                      {entry.docs_url ? (
+                        <a className="button-link secondary" href={entry.docs_url} target="_blank" rel="noreferrer">
+                          Docs
+                        </a>
+                      ) : null}
+                      {entry.homepage_url ? (
+                        <a className="button-link secondary" href={entry.homepage_url} target="_blank" rel="noreferrer">
+                          Homepage
+                        </a>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </article>
+      </section>
+
+      <section id="sync" className="grid two-cols">
+        <article className="card">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Sync</p>
+              <h2>{t("shell.sync.title")}</h2>
+            </div>
+            <span className="status-chip status-disabled">{SOURCE_OPTIONS.find((option) => option.id === source)?.label}</span>
+          </div>
+          <p>{sourceJourneySummary(source)}</p>
           <label>
             {t("common.source")}
             <select value={source} onChange={(event) => setSource(event.target.value as SyncSourceId)}>
@@ -407,24 +1078,12 @@ export default function App() {
               {source === "amazon" ? (
                 <label>
                   {t("shell.sync.years")}
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={years}
-                    onChange={(event) => setYears(Number(event.target.value) || 1)}
-                  />
+                  <input type="number" min={1} max={10} value={years} onChange={(event) => setYears(Number(event.target.value) || 1)} />
                 </label>
               ) : null}
               <label>
                 {t("shell.sync.maxPages")}
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={maxPages}
-                  onChange={(event) => setMaxPages(Number(event.target.value) || 1)}
-                />
+                <input type="number" min={1} max={100} value={maxPages} onChange={(event) => setMaxPages(Number(event.target.value) || 1)} />
               </label>
             </>
           )}
@@ -437,26 +1096,51 @@ export default function App() {
         </article>
 
         <article className="card">
-          <h2>{t("shell.backup.title")}</h2>
-          <p>{t("shell.backup.description")}</p>
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Results</p>
+              <h2>Recent local task output</h2>
+            </div>
+          </div>
+          <p className="muted">
+            Use this area for quick confirmation after a sync, export, backup, or restore. The main app remains the
+            richer place to browse results when it is available.
+          </p>
+          <p>
+            <strong>{t("shell.results.sync")}</strong>
+          </p>
+          <pre>{syncResult ? prettyJson(syncResult) : t("shell.results.empty.sync")}</pre>
+          <p>
+            <strong>{t("shell.results.export")}</strong>
+          </p>
+          <pre>{exportResult ? prettyJson(exportResult) : t("shell.results.empty.export")}</pre>
+        </article>
+      </section>
+
+      <section id="safety" className="grid three-cols">
+        <article className="card">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Backup</p>
+              <h2>{t("shell.backup.title")}</h2>
+            </div>
+          </div>
+          <p>Create a local backup folder for this desktop install. Choose an empty directory so the backup manifest is easy to inspect later.</p>
+          <ul className="bullet-list">
+            <li>Includes the local database.</li>
+            <li>Can include a JSON export snapshot and document storage.</li>
+            <li>Does not include receipt pack ZIPs or a hosted sync service.</li>
+          </ul>
           <label>
             {t("shell.backup.outputDir")}
             <input value={backupOutDir} onChange={(event) => setBackupOutDir(event.target.value)} />
           </label>
           <label className="inline-checkbox">
-            <input
-              type="checkbox"
-              checked={backupIncludeExportJson}
-              onChange={(event) => setBackupIncludeExportJson(event.target.checked)}
-            />
+            <input checked={backupIncludeExportJson} type="checkbox" onChange={(event) => setBackupIncludeExportJson(event.target.checked)} />
             {t("shell.backup.includeExport")}
           </label>
           <label className="inline-checkbox">
-            <input
-              type="checkbox"
-              checked={backupIncludeDocuments}
-              onChange={(event) => setBackupIncludeDocuments(event.target.checked)}
-            />
+            <input checked={backupIncludeDocuments} type="checkbox" onChange={(event) => setBackupIncludeDocuments(event.target.checked)} />
             {t("shell.backup.includeDocuments")}
           </label>
           <div className="actions">
@@ -467,8 +1151,18 @@ export default function App() {
         </article>
 
         <article className="card">
-          <h2>{t("shell.export.title")}</h2>
-          <p>{t("shell.export.description")}</p>
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Export</p>
+              <h2>{t("shell.export.title")}</h2>
+            </div>
+          </div>
+          <p>Export normalized receipt data to a single JSON file for analysis or sharing with your own local tools.</p>
+          <ul className="bullet-list">
+            <li>Includes normalized receipt records only.</li>
+            <li>Does not include credentials, tokens, plugin packs, or document storage.</li>
+            <li>Safe when you want portable data without restoring a full desktop state.</li>
+          </ul>
           <label>
             {t("shell.export.outputPath")}
             <input value={exportOutPath} onChange={(event) => setExportOutPath(event.target.value)} />
@@ -481,42 +1175,36 @@ export default function App() {
         </article>
 
         <article className="card">
-          <h2>{t("shell.restore.title")}</h2>
-          <p>{t("shell.restore.description")}</p>
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Restore</p>
+              <h2>{t("shell.restore.title")}</h2>
+            </div>
+          </div>
+          <p>Restore from a local backup when you need to recover this desktop profile or move it back onto the same machine.</p>
+          <ul className="bullet-list">
+            <li>Restores the local database.</li>
+            <li>Can restore credentials, tokens, and documents when they are present in the backup.</li>
+            <li>Does not reinstall receipt packs automatically.</li>
+          </ul>
           <label>
             {t("shell.restore.backupDir")}
             <input value={importBackupDir} onChange={(event) => setImportBackupDir(event.target.value)} />
           </label>
           <label className="inline-checkbox">
-            <input
-              type="checkbox"
-              checked={importIncludeCredentialKey}
-              onChange={(event) => setImportIncludeCredentialKey(event.target.checked)}
-            />
+            <input checked={importIncludeCredentialKey} type="checkbox" onChange={(event) => setImportIncludeCredentialKey(event.target.checked)} />
             {t("shell.restore.includeCredentialKey")}
           </label>
           <label className="inline-checkbox">
-            <input
-              type="checkbox"
-              checked={importIncludeToken}
-              onChange={(event) => setImportIncludeToken(event.target.checked)}
-            />
+            <input checked={importIncludeToken} type="checkbox" onChange={(event) => setImportIncludeToken(event.target.checked)} />
             {t("shell.restore.includeToken")}
           </label>
           <label className="inline-checkbox">
-            <input
-              type="checkbox"
-              checked={importIncludeDocuments}
-              onChange={(event) => setImportIncludeDocuments(event.target.checked)}
-            />
+            <input checked={importIncludeDocuments} type="checkbox" onChange={(event) => setImportIncludeDocuments(event.target.checked)} />
             {t("shell.restore.includeDocuments")}
           </label>
           <label className="inline-checkbox">
-            <input
-              type="checkbox"
-              checked={importRestartBackend}
-              onChange={(event) => setImportRestartBackend(event.target.checked)}
-            />
+            <input checked={importRestartBackend} type="checkbox" onChange={(event) => setImportRestartBackend(event.target.checked)} />
             {t("shell.restore.restartBackend")}
           </label>
           <div className="actions">
@@ -529,48 +1217,55 @@ export default function App() {
 
       <section className="grid two-cols">
         <article className="card">
-          <h2>{t("shell.analytics.title")}</h2>
-          <p>{t("shell.analytics.description")}</p>
-          <div className="actions">
-            <button type="button" disabled={busy} onClick={() => void handleLoadCards()}>
-              {t("shell.analytics.action.load")}
-            </button>
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Restore and backup output</p>
+              <h2>Most recent local safety tasks</h2>
+            </div>
           </div>
-          <pre>{cardsResult ? prettyJson(cardsResult) : t("shell.analytics.empty")}</pre>
-        </article>
-
-        <article className="card">
-          <h2>{t("shell.results.title")}</h2>
-          <p>
-            <strong>{t("shell.results.sync")}</strong>
-          </p>
-          <pre>{syncResult ? prettyJson(syncResult) : t("shell.results.empty.sync")}</pre>
           <p>
             <strong>{t("shell.results.backup")}</strong>
           </p>
           <pre>{backupResult ? prettyJson(backupResult) : t("shell.results.empty.backup")}</pre>
           <p>
-            <strong>{t("shell.results.export")}</strong>
-          </p>
-          <pre>{exportResult ? prettyJson(exportResult) : t("shell.results.empty.export")}</pre>
-          <p>
             <strong>{t("shell.results.restore")}</strong>
           </p>
           <pre>{importResult ? prettyJson(importResult) : t("shell.results.empty.restore")}</pre>
         </article>
-      </section>
 
-      <section className="card">
-        <h2>{t("shell.logs.title")}</h2>
-        <div className="logbox">
-          {logs.length === 0
-            ? t("shell.logs.empty")
-            : logs.map((entry, idx) => (
-                <div key={`${entry.timestamp}-${idx}`} className={`logline ${entry.stream}`}>
-                  [{entry.source}] [{entry.stream}] {entry.line}
-                </div>
-              ))}
-        </div>
+        <article className="card">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Advanced checks</p>
+              <h2>Local diagnostics and logs</h2>
+            </div>
+          </div>
+          <p className="muted">
+            These tools stay available for troubleshooting or quick post-sync validation without turning desktop into a
+            server admin console.
+          </p>
+          <div className="actions">
+            <button type="button" disabled={busy} onClick={() => void handleLoadCards()}>
+              {t("shell.analytics.action.load")}
+            </button>
+          </div>
+          <details open={Boolean(cardsResult)}>
+            <summary>Dashboard cards</summary>
+            <pre>{cardsResult ? prettyJson(cardsResult) : t("shell.analytics.empty")}</pre>
+          </details>
+          <details open={logs.length > 0}>
+            <summary>{t("shell.logs.title")}</summary>
+            <div className="logbox">
+              {logs.length === 0
+                ? t("shell.logs.empty")
+                : logs.map((entry, idx) => (
+                    <div key={`${entry.timestamp}-${idx}`} className={`logline ${entry.stream}`}>
+                      [{entry.source}] [{entry.stream}] {entry.line}
+                    </div>
+                  ))}
+            </div>
+          </details>
+        </article>
       </section>
 
       {error ? <p className="error">{error}</p> : null}

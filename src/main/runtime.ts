@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog } from "electron";
 import { randomBytes } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -10,11 +10,25 @@ import type {
   BackupRequest,
   CommandLogEvent,
   CommandResult,
+  DesktopRuntimeDiagnostics,
+  ConnectorCatalogEntry,
   ConnectorSourceId,
+  DesktopReleaseMetadata,
   ExportRequest,
   ImportRequest,
+  ReceiptPluginCatalogInstallRequest,
+  ReceiptPluginPackInfo,
+  ReceiptPluginPackInstallResult,
+  ReceiptPluginPackListResult,
+  ReceiptPluginPackToggleResult,
+  ReceiptPluginPackUninstallResult,
   SyncRequest
 } from "@shared/contracts";
+import {
+  ReceiptPluginPackManager,
+  type ValidatedManifestSnapshot,
+} from "./plugins/receipt-plugin-packs";
+import { resolveDesktopReleaseContext, resolveDesktopReleaseMetadata } from "./release-metadata";
 
 const DEFAULT_PORT = 18765;
 
@@ -41,6 +55,10 @@ export class DesktopRuntime {
   private backendProcess: ChildProcessWithoutNullStreams | null = null;
   private backendStartedAt: string | null = null;
   private readonly apiPort: number;
+  private readonly receiptPluginPackManager = new ReceiptPluginPackManager({
+    rootDir: this.receiptPluginStorageDir(),
+    validateManifest: async (manifestPath) => await this.validateReceiptPluginManifest(manifestPath)
+  });
 
   constructor(port = DEFAULT_PORT) {
     this.apiPort = port;
@@ -53,7 +71,8 @@ export class DesktopRuntime {
     return {
       apiBaseUrl: `http://127.0.0.1:${this.apiPort}`,
       dbPath: join(userDataDir, "lidltool.sqlite"),
-      userDataDir
+      userDataDir,
+      receiptPluginStorageDir: this.receiptPluginStorageDir()
     };
   }
 
@@ -66,8 +85,35 @@ export class DesktopRuntime {
     };
   }
 
+  getRuntimeDiagnostics(): DesktopRuntimeDiagnostics {
+    const frontendDistPath = this.resolveFrontendDist();
+    const backendSourcePath = this.resolveRepoRootHint();
+    const backendCommandSummary = this.inspectBackendCommand();
+    const frontendReady = existsSync(frontendDistPath) && existsSync(join(frontendDistPath, "index.html"));
+
+    return {
+      environment: app.isPackaged ? "packaged" : "development",
+      fullAppReady: frontendReady,
+      frontendDistPath,
+      frontendDistStatus: frontendReady ? "ready" : "missing",
+      backendSourcePath,
+      backendSourceStatus: existsSync(backendSourcePath) ? "ready" : "missing",
+      backendCommand: backendCommandSummary.command,
+      backendCommandSource: backendCommandSummary.source,
+      backendCommandStatus: backendCommandSummary.status
+    };
+  }
+
   getFullAppUrl(): string {
     return this.getConfig().apiBaseUrl;
+  }
+
+  async getReleaseMetadata(): Promise<DesktopReleaseMetadata> {
+    return await resolveDesktopReleaseMetadata({
+      repoRootHint: this.resolveRepoRootHint(),
+      requestedReleaseVariantId: process.env.LIDLTOOL_DESKTOP_RELEASE_VARIANT?.trim() || null,
+      remoteCatalogUrl: this.resolveRemoteCatalogUrl()
+    });
   }
 
   async startBackend(options: StartBackendOptions = {}): Promise<BackendStatus> {
@@ -83,7 +129,7 @@ export class DesktopRuntime {
     const cfg = this.getConfig();
     const command = this.resolveLidltoolExecutable(options.strictOverride ?? false);
     const args = ["--db", cfg.dbPath, "serve", "--host", "127.0.0.1", "--port", String(this.apiPort)];
-    const env = this.backendProcessEnv(command);
+    const env = await this.backendProcessEnv(command);
 
     this.backendProcess = spawn(command, args, {
       env,
@@ -135,6 +181,12 @@ export class DesktopRuntime {
       return this.getBackendStatus();
     } catch (err) {
       if (spawnError) {
+        if (app.isPackaged) {
+          throw new Error(
+            `Desktop could not start its local service from '${command}'. ${String(spawnError)}. ` +
+              "This installation looks incomplete. Reinstall the app or use a build that includes the local runtime."
+          );
+        }
         throw new Error(
           `Failed to launch backend executable '${command}'. ${String(spawnError)}. ` +
             "Run `npm run backend:prepare` in apps/desktop or set LIDLTOOL_EXECUTABLE."
@@ -384,6 +436,94 @@ export class DesktopRuntime {
     };
   }
 
+  async listReceiptPluginPacks(): Promise<ReceiptPluginPackListResult> {
+    const releaseContext = await this.resolveReleaseContext();
+    return await this.receiptPluginPackManager.listPacks({
+      trustPolicy: releaseContext.trustPolicy,
+      catalogEntries: releaseContext.metadata.discovery_catalog.entries
+    });
+  }
+
+  async installReceiptPluginPackFromDialog(): Promise<ReceiptPluginPackInstallResult | null> {
+    const result = await dialog.showOpenDialog({
+      properties: ["openFile"],
+      filters: [
+        { name: "Receipt Plugin Packs", extensions: ["zip", "lidltool-plugin"] },
+        { name: "All Files", extensions: ["*"] }
+      ]
+    });
+    const filePath = result.filePaths[0];
+    if (result.canceled || !filePath) {
+      return null;
+    }
+    return await this.installReceiptPluginPackFromFile(filePath);
+  }
+
+  async installReceiptPluginPackFromFile(filePath: string): Promise<ReceiptPluginPackInstallResult> {
+    const releaseContext = await this.resolveReleaseContext();
+    const installResult = await this.receiptPluginPackManager.installFromFile(filePath, {
+      installSource: "manual_file",
+      trustPolicy: releaseContext.trustPolicy,
+      catalogEntries: releaseContext.metadata.discovery_catalog.entries
+    });
+    const restart = installResult.pack.enabled;
+    const backendStatus = restart ? await this.restartBackendForPluginChange() : null;
+    return {
+      action: installResult.action,
+      pack: installResult.pack,
+      restartedBackend: restart,
+      backendStatus
+    };
+  }
+
+  async installReceiptPluginPackFromCatalogEntry(
+    payload: ReceiptPluginCatalogInstallRequest
+  ): Promise<ReceiptPluginPackInstallResult> {
+    const releaseContext = await this.resolveReleaseContext();
+    const entry = this.findCatalogDesktopPackEntry(releaseContext.metadata.discovery_catalog.entries, payload.entryId);
+    const installResult = await this.receiptPluginPackManager.installFromUrl(entry, {
+      trustPolicy: releaseContext.trustPolicy,
+      catalogEntries: releaseContext.metadata.discovery_catalog.entries
+    });
+    const restart = installResult.pack.enabled;
+    const backendStatus = restart ? await this.restartBackendForPluginChange() : null;
+    return {
+      action: installResult.action,
+      pack: installResult.pack,
+      restartedBackend: restart,
+      backendStatus
+    };
+  }
+
+  async setReceiptPluginPackEnabled(
+    pluginId: string,
+    enabled: boolean
+  ): Promise<ReceiptPluginPackToggleResult> {
+    const releaseContext = await this.resolveReleaseContext();
+    const pack = await this.receiptPluginPackManager.setEnabled(pluginId, enabled, {
+      trustPolicy: releaseContext.trustPolicy,
+      catalogEntries: releaseContext.metadata.discovery_catalog.entries
+    });
+    const backendStatus = await this.restartBackendForPluginChange();
+    const refreshed = await this.findReceiptPluginPack(pack.pluginId);
+    return {
+      pack: refreshed ?? pack,
+      restartedBackend: backendStatus !== null,
+      backendStatus
+    };
+  }
+
+  async uninstallReceiptPluginPack(pluginId: string): Promise<ReceiptPluginPackUninstallResult> {
+    const { removedPath } = await this.receiptPluginPackManager.uninstall(pluginId);
+    const backendStatus = await this.restartBackendForPluginChange();
+    return {
+      pluginId,
+      removedPath,
+      restartedBackend: backendStatus !== null,
+      backendStatus
+    };
+  }
+
   async shutdown(): Promise<void> {
     await this.stopBackend();
   }
@@ -589,7 +729,7 @@ export class DesktopRuntime {
     args: string[],
     source: CommandLogEvent["source"]
   ): Promise<CommandResult> {
-    const env = this.backendProcessEnv(command);
+    const env = await this.backendProcessEnv(command);
 
     return await new Promise<CommandResult>((resolve, reject) => {
       const proc = spawn(command, args, {
@@ -618,6 +758,43 @@ export class DesktopRuntime {
         for (const line of splitLines(text)) {
           this.emitLog({ stream: "stderr", line, source });
         }
+      });
+
+      proc.on("close", (code) => {
+        resolve({
+          ok: code === 0,
+          command,
+          args,
+          exitCode: code,
+          stdout: stdout.trim(),
+          stderr: stderr.trim()
+        });
+      });
+    });
+  }
+
+  private async runCommandCapture(command: string, args: string[]): Promise<CommandResult> {
+    const env = await this.backendProcessEnv(command);
+
+    return await new Promise<CommandResult>((resolve, reject) => {
+      const proc = spawn(command, args, {
+        env,
+        stdio: "pipe"
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      proc.on("error", (err) => {
+        reject(err);
+      });
+
+      proc.stdout.on("data", (chunk) => {
+        stdout += chunk.toString("utf-8");
+      });
+
+      proc.stderr.on("data", (chunk) => {
+        stderr += chunk.toString("utf-8");
       });
 
       proc.on("close", (code) => {
@@ -663,14 +840,25 @@ export class DesktopRuntime {
     }
   }
 
-  private backendProcessEnv(command: string): NodeJS.ProcessEnv {
+  private async backendProcessEnv(command: string): Promise<NodeJS.ProcessEnv> {
     const cfg = this.getConfig();
     const env: NodeJS.ProcessEnv = { ...process.env };
+    const releaseContext = await this.resolveReleaseContext();
+    const runtimePolicy = await this.receiptPluginPackManager.getRuntimePolicy({
+      trustPolicy: releaseContext.trustPolicy,
+      catalogEntries: releaseContext.metadata.discovery_catalog.entries
+    });
     env.LIDLTOOL_FRONTEND_DIST = this.resolveFrontendDist();
     env.LIDLTOOL_REPO_ROOT = this.resolveRepoRootHint();
     env.LIDLTOOL_DB = cfg.dbPath;
     env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY =
       env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY || this.resolveCredentialEncryptionKey(cfg.userDataDir);
+    env.LIDLTOOL_CONNECTOR_PLUGIN_PATHS = runtimePolicy.activePluginSearchPaths.join(",");
+    env.LIDLTOOL_CONNECTOR_EXTERNAL_RUNTIME_ENABLED = runtimePolicy.activePluginSearchPaths.length > 0 ? "true" : "false";
+    env.LIDLTOOL_CONNECTOR_EXTERNAL_RECEIPT_PLUGINS_ENABLED =
+      runtimePolicy.activePluginSearchPaths.length > 0 ? "true" : "false";
+    env.LIDLTOOL_CONNECTOR_EXTERNAL_OFFER_PLUGINS_ENABLED = "false";
+    env.LIDLTOOL_CONNECTOR_EXTERNAL_ALLOWED_TRUST_CLASSES = runtimePolicy.allowedTrustClasses.join(",");
     if (!env.PLAYWRIGHT_BROWSERS_PATH && this.shouldUseInVenvPlaywrightBrowsers(command)) {
       env.PLAYWRIGHT_BROWSERS_PATH = "0";
     }
@@ -696,6 +884,77 @@ export class DesktopRuntime {
     return generated;
   }
 
+  private receiptPluginStorageDir(): string {
+    return join(app.getPath("userData"), "plugins", "receipt-packs");
+  }
+
+  private async restartBackendForPluginChange(): Promise<BackendStatus | null> {
+    const wasRunning = this.backendProcess !== null;
+    if (!wasRunning) {
+      return null;
+    }
+    await this.stopBackend();
+    return await this.startBackend();
+  }
+
+  private async findReceiptPluginPack(pluginId: string): Promise<ReceiptPluginPackInfo | null> {
+    const releaseContext = await this.resolveReleaseContext();
+    const packs = await this.receiptPluginPackManager.listPacks({
+      trustPolicy: releaseContext.trustPolicy,
+      catalogEntries: releaseContext.metadata.discovery_catalog.entries
+    });
+    return packs.packs.find((pack) => pack.pluginId === pluginId) ?? null;
+  }
+
+  private async resolveReleaseContext() {
+    return await resolveDesktopReleaseContext({
+      repoRootHint: this.resolveRepoRootHint(),
+      requestedReleaseVariantId: process.env.LIDLTOOL_DESKTOP_RELEASE_VARIANT?.trim() || null,
+      remoteCatalogUrl: this.resolveRemoteCatalogUrl()
+    });
+  }
+
+  private async validateReceiptPluginManifest(manifestPath: string): Promise<ValidatedManifestSnapshot> {
+    const command = this.resolvePythonExecutable();
+    const script = `
+import json
+import sys
+from pathlib import Path
+
+import lidltool
+from lidltool.connectors.plugin_policy import evaluate_plugin_compatibility
+from lidltool.connectors.sdk.manifest import ConnectorManifest
+
+manifest = ConnectorManifest.model_validate_json(Path(sys.argv[1]).read_text(encoding="utf-8"))
+compatibility = evaluate_plugin_compatibility(manifest, host_kind="electron", core_version=lidltool.__version__)
+print(json.dumps({
+    "pluginId": manifest.plugin_id,
+    "sourceId": manifest.source_id,
+    "displayName": manifest.display_name,
+    "pluginVersion": manifest.plugin_version,
+    "pluginFamily": manifest.plugin_family,
+    "runtimeKind": manifest.runtime_kind,
+    "pluginOrigin": manifest.plugin_origin,
+    "trustClass": manifest.trust_class,
+    "entrypoint": manifest.entrypoint,
+    "supportedHostKinds": list(manifest.compatibility.supported_host_kinds),
+    "minCoreVersion": manifest.compatibility.min_core_version,
+    "maxCoreVersion": manifest.compatibility.max_core_version,
+    "compatibilityStatus": "compatible" if compatibility.compatible else "incompatible",
+    "compatibilityReason": compatibility.reason,
+}))
+`.trim();
+    const result = await this.runCommandCapture(command, ["-c", script, manifestPath]);
+    if (!result.ok) {
+      throw new Error(result.stderr || result.stdout || "Manifest validation failed.");
+    }
+    try {
+      return JSON.parse(result.stdout) as ValidatedManifestSnapshot;
+    } catch (error) {
+      throw new Error(`Manifest validation returned invalid JSON: ${String(error)}`);
+    }
+  }
+
   private resolveRepoRootHint(): string {
     const override = process.env.LIDLTOOL_REPO_ROOT?.trim();
     if (override) {
@@ -709,6 +968,28 @@ export class DesktopRuntime {
     return resolve(app.getAppPath(), "vendor", "backend");
   }
 
+  private resolveRemoteCatalogUrl(): string | null {
+    const raw = process.env.LIDLTOOL_DESKTOP_CATALOG_URL?.trim();
+    return raw ? raw : null;
+  }
+
+  private findCatalogDesktopPackEntry(
+    entries: DesktopReleaseMetadata["discovery_catalog"]["entries"],
+    entryId: string
+  ): ConnectorCatalogEntry {
+    const entry = entries.find((candidate) => candidate.entry_id === entryId);
+    if (!entry || entry.entry_type !== "desktop_pack") {
+      throw new Error(`Trusted desktop pack catalog entry was not found: ${entryId}`);
+    }
+    if (entry.availability.blocked_by_policy) {
+      throw new Error(entry.availability.block_reason ?? `Catalog entry ${entryId} is blocked.`);
+    }
+    if (entry.install_methods.includes("download_url") === false || !entry.download_url) {
+      throw new Error(`Catalog entry ${entryId} does not support trusted URL install.`);
+    }
+    return entry;
+  }
+
   private resolveFrontendDist(): string {
     const override = process.env.LIDLTOOL_FRONTEND_DIST?.trim();
     if (override) {
@@ -720,6 +1001,52 @@ export class DesktopRuntime {
     }
 
     return resolve(app.getAppPath(), "vendor", "frontend", "dist");
+  }
+
+  private inspectBackendCommand(): {
+    command: string;
+    source: DesktopRuntimeDiagnostics["backendCommandSource"];
+    status: DesktopRuntimeDiagnostics["backendCommandStatus"];
+  } {
+    const override = process.env.LIDLTOOL_EXECUTABLE?.trim();
+    if (override) {
+      if (this.isPathLike(override)) {
+        return {
+          command: override,
+          source: "env_override",
+          status: existsSync(override) ? "ready" : "missing"
+        };
+      }
+      return {
+        command: override,
+        source: "env_override",
+        status: "lookup"
+      };
+    }
+
+    const bundledExecutable = this.resolveBundledExecutable();
+    if (bundledExecutable) {
+      return {
+        command: bundledExecutable,
+        source: "bundled",
+        status: "ready"
+      };
+    }
+
+    const managedDevExecutable = this.resolveManagedDevExecutable();
+    if (managedDevExecutable) {
+      return {
+        command: managedDevExecutable,
+        source: "managed_dev",
+        status: "ready"
+      };
+    }
+
+    return {
+      command: process.platform === "win32" ? "lidltool.exe" : "lidltool",
+      source: "path_lookup",
+      status: "lookup"
+    };
   }
 
   private resolveLidltoolExecutable(strictOverride: boolean): string {
@@ -741,6 +1068,28 @@ export class DesktopRuntime {
     }
 
     return process.platform === "win32" ? "lidltool.exe" : "lidltool";
+  }
+
+  private resolvePythonExecutable(): string {
+    if (app.isPackaged) {
+      const bundled =
+        process.platform === "win32"
+          ? join(process.resourcesPath, "backend-venv", "Scripts", "python.exe")
+          : join(process.resourcesPath, "backend-venv", "bin", "python");
+      if (existsSync(bundled)) {
+        return bundled;
+      }
+    }
+
+    const managedDev =
+      process.platform === "win32"
+        ? join(app.getAppPath(), ".backend", "venv", "Scripts", "python.exe")
+        : join(app.getAppPath(), ".backend", "venv", "bin", "python");
+    if (existsSync(managedDev)) {
+      return managedDev;
+    }
+
+    return process.platform === "win32" ? "python" : "python3";
   }
 
   private isPathLike(command: string): boolean {
