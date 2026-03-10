@@ -48,6 +48,18 @@ const FILTER_KEYS = [
   "max_total_cents"
 ] as const;
 
+const ADVANCED_FILTER_KEYS = [
+  "source_kind",
+  "merchant_name",
+  "year",
+  "month",
+  "weekday",
+  "hour",
+  "tz_offset_minutes",
+  "min_total_cents",
+  "max_total_cents"
+] as const;
+
 type SortField =
   | "purchased_at"
   | "store_name"
@@ -120,6 +132,13 @@ function readFilterFormValues(searchParams: URLSearchParams): FilterFormValues {
   };
 }
 
+function hasAdvancedFilterParams(searchParams: URLSearchParams): boolean {
+  return ADVANCED_FILTER_KEYS.some((key) => {
+    const value = searchParams.get(key);
+    return value !== null && value.trim() !== "";
+  });
+}
+
 function readSortField(value: string | null): SortField {
   if (
     value === "purchased_at" ||
@@ -177,6 +196,7 @@ export function TransactionsPage() {
 
   useEffect(() => {
     setFormValues(readFilterFormValues(searchParams));
+    setShowAdvancedFilters((current) => current || hasAdvancedFilterParams(searchParams));
   }, [searchKey]);
 
   const queryValues = useMemo<TransactionsFilters>(
@@ -623,8 +643,9 @@ export function TransactionsPage() {
         <CardContent>
           <form className="grid gap-3 md:grid-cols-5" onSubmit={submitFilters}>
             <div className="space-y-2">
-              <Label>{t("pages.transactions.filter.query")}</Label>
+              <Label htmlFor="transactions-search">{t("pages.transactions.filter.query")}</Label>
               <SearchInput
+                id="transactions-search"
                 value={formValues.query}
                 onChange={(value) =>
                   setFormValues((previous) => ({ ...previous, query: value }))

@@ -406,6 +406,7 @@ export function ChatWorkspacePage() {
               value={threadSearch}
               onChange={setThreadSearch}
               placeholder={t("pages.chatWorkspace.threadSearch.placeholder")}
+              aria-label={t("pages.chatWorkspace.threadSearch.placeholder")}
             />
             {threadsQuery.isPending ? (
               <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingThreads")}</p>
@@ -450,6 +451,7 @@ export function ChatWorkspacePage() {
               value={threadSearch}
               onChange={setThreadSearch}
               placeholder={t("pages.chatWorkspace.threadSearch.placeholder")}
+              aria-label={t("pages.chatWorkspace.threadSearch.placeholder")}
             />
             {threadsQuery.isPending ? (
               <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingThreads")}</p>
@@ -570,6 +572,12 @@ export function ChatWorkspacePage() {
                       <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
                         {t("pages.chatWorkspace.runningAnalysis")} ({TOOL_LABELS[message.toolName ?? ""] ?? message.toolName ?? "tool"})
                       </summary>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {t("pages.chatWorkspace.toolResult", {
+                          tool: message.toolName ?? "tool",
+                          callId: message.toolCallId ? ` (${message.toolCallId})` : ""
+                        })}
+                      </p>
                       {message.uiSpecs.length > 0 ? (
                         <div className="mt-2 space-y-2">
                           {message.uiSpecs.map((spec, index) => (

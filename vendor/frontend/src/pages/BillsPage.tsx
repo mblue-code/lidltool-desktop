@@ -386,7 +386,11 @@ export function BillsPage() {
           <CardTitle>{t("pages.bills.listTitle")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          <Label htmlFor="bills-search" className="sr-only">
+            {t("pages.bills.searchBills")}
+          </Label>
           <SearchInput
+            id="bills-search"
             value={billSearch}
             onChange={setBillSearch}
             placeholder={t("pages.bills.searchBills")}

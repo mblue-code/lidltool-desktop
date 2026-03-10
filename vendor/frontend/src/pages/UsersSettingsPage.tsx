@@ -230,7 +230,7 @@ export function UsersSettingsPage() {
 
   return (
     <section className="space-y-4">
-      <PageHeader title={t("nav.item.users")} />
+      <PageHeader title={t("pages.usersSettings.title")} />
       <Card>
         <CardContent className="space-y-4 pt-6">
           {loading ? <p className="text-sm text-muted-foreground">{t("common.loadingSettings")}</p> : null}

@@ -156,7 +156,7 @@ export function ReliabilityPage() {
 
   return (
     <section className="space-y-4">
-      <PageHeader title={t("nav.item.reliability")} description={t("pages.reliability.description")} />
+      <PageHeader title={t("pages.reliability.title")} description={t("pages.reliability.description")} />
       <Card>
         <CardContent className="pt-6">
           <form className="grid gap-3 md:grid-cols-5" onSubmit={submitFilters}>

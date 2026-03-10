@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, UploadCloud, XCircle } from "lucide-react";
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
-import { Link } from "react-router-dom";
+import { Link, useInRouterContext } from "react-router-dom";
 import { z } from "zod";
 
 import {
@@ -107,6 +107,7 @@ function ocrStatusClass(status: string): string {
 
 export function DocumentsUploadPage() {
   const { t } = useI18n();
+  const inRouterContext = useInRouterContext();
   const [uploadResult, setUploadResult] = useState<DocumentUploadResponse | null>(null);
   const [processResult, setProcessResult] = useState<DocumentProcessResponse | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
@@ -387,9 +388,15 @@ export function DocumentsUploadPage() {
               State: {uploadState}
             </span>
             {uploadState === "done" ? (
-              <Button asChild variant="link" size="sm">
-                <Link to="/review-queue">{t("pages.documentsUpload.reviewDocument")}</Link>
-              </Button>
+              inRouterContext ? (
+                <Button asChild variant="link" size="sm">
+                  <Link to="/review-queue">{t("pages.documentsUpload.reviewDocument")}</Link>
+                </Button>
+              ) : (
+                <Button asChild variant="link" size="sm">
+                  <a href="/review-queue">{t("pages.documentsUpload.reviewDocument")}</a>
+                </Button>
+              )
             ) : null}
           </div>
 

@@ -203,6 +203,7 @@ export function ComparisonsPage() {
             <div className="space-y-1">
               <Label htmlFor="compare-product-search">Find product</Label>
               <SearchInput
+                id="compare-product-search"
                 value={productSearch}
                 onChange={setProductSearch}
                 placeholder="Milk"

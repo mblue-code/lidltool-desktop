@@ -1,24 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { type ComponentProps, useEffect, useRef, useState } from "react";
 import { Loader2, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-type SearchInputProps = {
-  placeholder?: string;
+type SearchInputProps = Omit<ComponentProps<typeof Input>, "value" | "onChange" | "className"> & {
   value: string;
   onChange: (value: string) => void;
   debounceMs?: number;
   isLoading?: boolean;
   className?: string;
+  inputClassName?: string;
 };
 
 export function SearchInput({
-  placeholder,
   value,
   onChange,
   debounceMs = 300,
   isLoading,
-  className
+  className,
+  inputClassName,
+  ...inputProps
 }: SearchInputProps) {
   const [localValue, setLocalValue] = useState(value);
   const onChangeRef = useRef(onChange);
@@ -41,10 +42,10 @@ export function SearchInput({
     <div className={cn("relative", className)}>
       <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <Input
+        {...inputProps}
         value={localValue}
         onChange={(event) => setLocalValue(event.target.value)}
-        placeholder={placeholder}
-        className="pl-8 pr-8"
+        className={cn("pl-8 pr-8", inputClassName)}
       />
       {isLoading ? (
         <Loader2 className="absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />

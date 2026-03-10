@@ -185,6 +185,7 @@ export function ProductsPage() {
             ) : null}
             <Label htmlFor="products-search">Search products</Label>
             <SearchInput
+              id="products-search"
               value={debouncedSearch}
               onChange={(value) => setDebouncedSearch(value.trim())}
               placeholder="Milk, butter, yogurt..."
