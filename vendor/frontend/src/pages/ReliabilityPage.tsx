@@ -7,10 +7,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useI18n } from "@/i18n";
 import { formatDateTime, formatPercent } from "@/utils/format";
 
 const DEFAULT_WINDOW_HOURS = 24;
@@ -68,6 +71,7 @@ function badgeVariantForHealth(isHealthy: boolean): "default" | "secondary" | "d
 }
 
 export function ReliabilityPage() {
+  const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const appliedWindowHours = parseIntFilter(searchParams.get("window_hours"), DEFAULT_WINDOW_HOURS, 1);
   const appliedSyncP95TargetMs = parseIntFilter(
@@ -152,14 +156,9 @@ export function ReliabilityPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.reliability")} description={t("pages.reliability.description")} />
       <Card>
-        <CardHeader>
-          <h2 className="text-2xl font-semibold tracking-tight">Reliability Console</h2>
-          <p className="text-sm text-muted-foreground">
-            Track SLO performance for API endpoint families and inspect per-route health.
-          </p>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="pt-6">
           <form className="grid gap-3 md:grid-cols-5" onSubmit={submitFilters}>
             <div className="space-y-2">
               <Label htmlFor="window-hours">Window (hours)</Label>
@@ -295,13 +294,14 @@ export function ReliabilityPage() {
         <CardContent>
           {loading ? <p className="text-sm text-muted-foreground">Loading endpoint metrics...</p> : null}
           {!loading && data && data.endpoints.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No endpoint metrics in the selected window.</p>
+            <EmptyState title={t("pages.reliability.emptyEndpoints")} />
           ) : null}
           {!loading && data && data.endpoints.length > 0 ? (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Endpoint</TableHead>
+                  <TableHead className="sticky left-0 z-10 bg-background">Endpoint</TableHead>
                   <TableHead>Requests</TableHead>
                   <TableHead>Success</TableHead>
                   <TableHead>Error</TableHead>
@@ -320,7 +320,7 @@ export function ReliabilityPage() {
                     endpoint.p95_duration_ms === null || endpoint.p95_duration_ms <= p95Target;
                   return (
                     <TableRow key={endpoint.route}>
-                      <TableCell className="font-mono text-xs">{endpoint.route}</TableCell>
+                      <TableCell className="sticky left-0 z-10 bg-background font-mono text-xs">{endpoint.route}</TableCell>
                       <TableCell>{endpoint.count}</TableCell>
                       <TableCell>{formatPercent(endpoint.success_rate)}</TableCell>
                       <TableCell>{formatPercent(endpoint.error_rate)}</TableCell>
@@ -341,6 +341,7 @@ export function ReliabilityPage() {
                 })}
               </TableBody>
             </Table>
+            </div>
           ) : null}
         </CardContent>
       </Card>

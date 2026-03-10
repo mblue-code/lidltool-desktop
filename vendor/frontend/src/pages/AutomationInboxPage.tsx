@@ -1,13 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { automationExecutionsQueryOptions } from "@/app/queries";
 import { AutomationExecution } from "@/api/automations";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +27,7 @@ import {
   SelectValue
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useI18n } from "@/i18n";
 import { formatDateTime } from "../utils/format";
 
 const PAGE_SIZE = 25;
@@ -92,6 +95,7 @@ export function AutomationInboxPage() {
   const [ruleTypeFilter, setRuleTypeFilter] = useState(appliedRuleTypeFilter);
   const [selectedExecution, setSelectedExecution] = useState<AutomationExecution | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const { t } = useI18n();
 
   useEffect(() => {
     setStatusFilter(appliedStatusFilter);
@@ -168,11 +172,9 @@ export function AutomationInboxPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.automations")} description={t("pages.automationInbox.title")} />
       <Card>
-        <CardHeader>
-          <h2 className="text-2xl font-semibold tracking-tight">Automation Inbox</h2>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="pt-6">
           <form className="grid gap-3 md:grid-cols-3" onSubmit={submitFilters}>
             <div className="space-y-2">
               <Label htmlFor="inbox-status-filter">Status</Label>
@@ -228,10 +230,11 @@ export function AutomationInboxPage() {
 
       <Card>
         <CardContent className="pt-6">
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Triggered</TableHead>
+                <TableHead className="sticky left-0 z-10 bg-background">Triggered</TableHead>
                 <TableHead>Rule</TableHead>
                 <TableHead>Template</TableHead>
                 <TableHead>Status</TableHead>
@@ -245,7 +248,7 @@ export function AutomationInboxPage() {
             <TableBody>
               {executions.map((execution) => (
                 <TableRow key={execution.id}>
-                  <TableCell>{formatDateTime(execution.triggered_at)}</TableCell>
+                  <TableCell className="sticky left-0 z-10 bg-background">{formatDateTime(execution.triggered_at)}</TableCell>
                   <TableCell>{execution.rule_name || execution.rule_id}</TableCell>
                   <TableCell>{execution.rule_type || "-"}</TableCell>
                   <TableCell>
@@ -264,11 +267,18 @@ export function AutomationInboxPage() {
               ))}
               {executions.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7}>No automation executions yet.</TableCell>
+                  <TableCell colSpan={7}>
+                    <EmptyState
+                      title={t("pages.automationInbox.emptyTitle")}
+                      description={t("pages.automationInbox.emptyDescription")}
+                      action={{ label: t("pages.automationInbox.emptyAction"), href: "/automations" }}
+                    />
+                  </TableCell>
                 </TableRow>
               ) : null}
             </TableBody>
           </Table>
+          </div>
 
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-muted-foreground">
@@ -306,6 +316,11 @@ export function AutomationInboxPage() {
             <DialogDescription>
               Inspect the full execution payload for troubleshooting and audit review.
             </DialogDescription>
+            {selectedExecution?.rule_id ? (
+              <Link to="/automations" className="text-sm text-primary underline">
+                {t("pages.automationInbox.editRule")}
+              </Link>
+            ) : null}
           </DialogHeader>
 
           <div className="rounded-md border bg-muted/20 p-3">

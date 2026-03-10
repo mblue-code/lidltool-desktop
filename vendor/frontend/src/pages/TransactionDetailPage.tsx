@@ -278,14 +278,12 @@ export function TransactionDetailPage() {
 
   return (
     <section className="space-y-4">
-      <div className="flex items-center justify-between rounded-lg border bg-card p-4">
-        <h2 className="text-lg font-semibold">{t("pages.transactionDetail.title")}</h2>
-        <Button asChild variant="ghost" size="sm" className="-ml-2">
-          <Link to="/transactions">
-            <ChevronLeft className="mr-1 h-4 w-4" />
-            {t("pages.transactionDetail.back")}
-          </Link>
-        </Button>
+      <div className="flex items-center gap-2 text-sm">
+        <Link to="/receipts" className="text-muted-foreground hover:text-foreground">
+          {t("pages.transactionDetail.breadcrumb.receipts")}
+        </Link>
+        <ChevronLeft className="h-3 w-3 rotate-180 text-muted-foreground" />
+        <span className="font-medium">{t("pages.transactionDetail.title")} #{txId}</span>
       </div>
 
       {loading ? <Skeleton className="h-44 w-full" /> : null}

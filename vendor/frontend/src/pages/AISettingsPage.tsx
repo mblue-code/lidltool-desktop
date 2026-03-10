@@ -9,8 +9,10 @@ import {
   saveAISettings,
   startAIOAuth
 } from "@/api/aiSettings";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -76,6 +78,7 @@ export function AISettingsPage() {
   const [oauthStatus, setOauthStatus] = useState<"idle" | "pending" | "connected" | "error">("idle");
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
 
   useEffect(() => {
     if (!settingsQuery.data || initialized) {
@@ -196,19 +199,26 @@ export function AISettingsPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.aiAssistant")} />
       <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.aiSettings.title")}</CardTitle>
-        </CardHeader>
-        <CardContent className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+        <CardContent className="flex items-center justify-between gap-3 pt-6 text-sm text-muted-foreground">
           <p>{connectionLabel}</p>
           <Button
             variant="destructive"
-            onClick={() => void disconnectMutation.mutateAsync()}
+            onClick={() => setDisconnectOpen(true)}
             disabled={disconnectMutation.isPending}
           >
             {t("common.disconnect")}
           </Button>
+          <ConfirmDialog
+            open={disconnectOpen}
+            onOpenChange={setDisconnectOpen}
+            title={t("pages.aiSettings.disconnectConfirmTitle")}
+            description={t("pages.aiSettings.disconnectConfirmDescription")}
+            variant="destructive"
+            confirmLabel={t("common.disconnect")}
+            onConfirm={() => void disconnectMutation.mutateAsync()}
+          />
         </CardContent>
       </Card>
 

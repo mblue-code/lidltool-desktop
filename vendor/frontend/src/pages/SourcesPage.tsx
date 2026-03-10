@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchSources, patchSourceSharing } from "@/api/sources";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { PageHeader } from "@/components/shared/PageHeader";
 import {
   Select,
   SelectContent,
@@ -52,11 +54,9 @@ export function SourcesPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.sources")} />
       <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.sources.title")}</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="pt-6">
           {errorMessage ? (
             <Alert variant="destructive" className="mb-4">
               <AlertTitle>{t("pages.sources.loadErrorTitle")}</AlertTitle>
@@ -65,12 +65,17 @@ export function SourcesPage() {
           ) : null}
           {statusMessage ? <p className="mb-4 text-sm text-muted-foreground">{statusMessage}</p> : null}
           {sources.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("pages.sources.empty")}</p>
+            <EmptyState
+              title={t("pages.sources.emptyTitle")}
+              description={t("pages.sources.emptyDescription")}
+              action={{ label: t("pages.sources.emptyAction"), href: "/connectors" }}
+            />
           ) : (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t("pages.sources.displayName")}</TableHead>
+                  <TableHead className="sticky left-0 z-10 bg-background">{t("pages.sources.displayName")}</TableHead>
                   <TableHead>{t("pages.sources.owner")}</TableHead>
                   <TableHead>{t("pages.sources.kind")}</TableHead>
                   <TableHead>{t("common.status")}</TableHead>
@@ -81,7 +86,7 @@ export function SourcesPage() {
               <TableBody>
                 {sources.map((source) => (
                   <TableRow key={source.id}>
-                    <TableCell>{source.display_name}</TableCell>
+                    <TableCell className="sticky left-0 z-10 bg-background">{source.display_name}</TableCell>
                     <TableCell>{source.owner_display_name || source.owner_username || "—"}</TableCell>
                     <TableCell>{source.kind}</TableCell>
                     <TableCell>
@@ -112,6 +117,7 @@ export function SourcesPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

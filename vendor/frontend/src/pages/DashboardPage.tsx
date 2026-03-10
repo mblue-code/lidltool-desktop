@@ -10,6 +10,8 @@ import { fetchSources } from "@/api/sources";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { MetricCard } from "@/components/shared/MetricCard";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -29,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { useI18n } from "@/i18n";
 import { resolveApiErrorMessage, resolveApiWarningMessage } from "@/lib/backend-messages";
 import { formatEurFromCents, formatMonthDay, formatMonthName, formatMonthYear, formatPercent } from "../utils/format";
@@ -383,6 +386,7 @@ export function DashboardPage() {
     ledgerParams.set("source_id", selectedRetailerIds[0]);
   }
   const ledgerLink = `/transactions?${ledgerParams.toString()}`;
+  const savingsLedgerLink = `/transactions?${ledgerParams.toString()}&has_discounts=true`;
 
   const trendTitle =
     periodMode === "month"
@@ -458,6 +462,7 @@ export function DashboardPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.overview")} />
       <div className="space-y-4 rounded-lg border bg-card p-4">
         <div className="grid gap-3 md:grid-cols-6">
           <div className="space-y-2">
@@ -705,94 +710,45 @@ export function DashboardPage() {
           </>
         ) : (
           <>
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t("pages.dashboard.card.netSpend")}
-                  </CardTitle>
-                  <span className="rounded-md bg-primary/10 p-1.5 text-primary">
-                    <TrendingDown className="h-3.5 w-3.5" />
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold tabular-nums">
-                  {netSpendCents !== null ? formatEurFromCents(netSpendCents) : "—"}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t("pages.dashboard.card.grossSpend")}
-                  </CardTitle>
-                  <span className="rounded-md bg-muted p-1.5 text-muted-foreground">
-                    <Euro className="h-3.5 w-3.5" />
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold tabular-nums">
-                  {grossSpendCents !== null ? formatEurFromCents(grossSpendCents) : "—"}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t("pages.dashboard.card.savings")}
-                  </CardTitle>
-                  <span className="rounded-md bg-success/10 p-1.5 text-success">
-                    <PiggyBank className="h-3.5 w-3.5" />
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold tabular-nums">
-                  {savingsCents !== null ? formatEurFromCents(savingsCents) : "—"}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t("pages.dashboard.card.savingsRate")}
-                  </CardTitle>
-                  <span className="rounded-md bg-chart-2/10 p-1.5 text-chart-2">
-                    <Percent className="h-3.5 w-3.5" />
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold tabular-nums">{savingsRatePct}</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t("pages.dashboard.card.depositPaid")}
-                  </CardTitle>
-                  <span className="rounded-md bg-amber-500/10 p-1.5 text-amber-600">
-                    <Package className="h-3.5 w-3.5" />
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold tabular-nums">
-                  {depositQuery.data ? formatEurFromCents(depositQuery.data.total_paid_cents) : "—"}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">{t("pages.dashboard.card.depositExcluded")}</p>
-              </CardContent>
-            </Card>
+            <Link to={ledgerLink}>
+              <MetricCard
+                title={t("pages.dashboard.card.netSpend")}
+                value={netSpendCents !== null ? formatEurFromCents(netSpendCents) : "—"}
+                icon={<TrendingDown className="h-3.5 w-3.5" />}
+                iconClassName="bg-primary/10 text-primary"
+              />
+            </Link>
+            <Link to={ledgerLink}>
+              <MetricCard
+                title={t("pages.dashboard.card.grossSpend")}
+                value={grossSpendCents !== null ? formatEurFromCents(grossSpendCents) : "—"}
+                icon={<Euro className="h-3.5 w-3.5" />}
+                iconClassName="bg-muted text-muted-foreground"
+              />
+            </Link>
+            <Link to={savingsLedgerLink}>
+              <MetricCard
+                title={t("pages.dashboard.card.savings")}
+                value={savingsCents !== null ? formatEurFromCents(savingsCents) : "—"}
+                icon={<PiggyBank className="h-3.5 w-3.5" />}
+                iconClassName="bg-success/10 text-success"
+              />
+            </Link>
+            <Link to={savingsLedgerLink}>
+              <MetricCard
+                title={t("pages.dashboard.card.savingsRate")}
+                value={savingsRatePct}
+                icon={<Percent className="h-3.5 w-3.5" />}
+                iconClassName="bg-chart-2/10 text-chart-2"
+              />
+            </Link>
+            <MetricCard
+              title={t("pages.dashboard.card.depositPaid")}
+              value={depositQuery.data ? formatEurFromCents(depositQuery.data.total_paid_cents) : "—"}
+              icon={<Package className="h-3.5 w-3.5" />}
+              iconClassName="bg-amber-500/10 text-amber-600"
+              subtitle={t("pages.dashboard.card.depositExcluded")}
+            />
           </>
         )}
       </section>
@@ -806,7 +762,7 @@ export function DashboardPage() {
             {recurringCalendarQuery.isPending ? (
               <p className="text-sm text-muted-foreground">{t("pages.dashboard.loadingRecurringCalendar")}</p>
             ) : (recurringCalendarQuery.data?.days ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t("pages.dashboard.noRecurringCalendar")}</p>
+              <EmptyState title={t("pages.dashboard.emptyUpcomingBills")} />
             ) : (
               <ul className="space-y-3">
                 {(recurringCalendarQuery.data?.days ?? []).map((day) => (
@@ -842,7 +798,7 @@ export function DashboardPage() {
             {recurringForecastQuery.isPending ? (
               <p className="text-sm text-muted-foreground">{t("pages.dashboard.loadingForecast")}</p>
             ) : (recurringForecastQuery.data?.points ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t("pages.dashboard.noForecast")}</p>
+              <EmptyState title={t("pages.dashboard.emptyForecast")} />
             ) : (
               <ul className="space-y-3">
                 {(recurringForecastQuery.data?.points ?? []).map((point) => {
@@ -878,7 +834,7 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             {trendPoints.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t("pages.dashboard.noTrendPoints")}</p>
+              <EmptyState title={t("pages.dashboard.emptyTrend")} />
             ) : (
               <ul className="space-y-3">
                 {trendPoints.map((point) => {
@@ -934,7 +890,7 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             {breakdownRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t("pages.dashboard.noDiscountRows")}</p>
+              <EmptyState title={t("pages.dashboard.emptyBreakdown")} />
             ) : breakdownDisplay === "chart" ? (
               <ul className="space-y-3">
                 {breakdownRows.map((row) => {
@@ -993,7 +949,7 @@ export function DashboardPage() {
         <CardContent>
           {exportStatus ? <p className="mb-3 text-xs text-muted-foreground">{exportStatus}</p> : null}
           {retailerRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("pages.dashboard.noRetailerRows")}</p>
+            <EmptyState title={t("pages.dashboard.emptyRetailers")} />
           ) : (
             <Table>
               <TableHeader>

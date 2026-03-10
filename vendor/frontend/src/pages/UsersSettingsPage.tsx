@@ -1,10 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useMemo, useState } from "react";
 
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/shared/PageHeader";
 import {
   Dialog,
   DialogContent,
@@ -16,7 +19,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { runSystemBackup, type SystemBackupResult } from "@/api/systemBackup";
 import {
   AgentKey,
   createAgentKey,
@@ -50,33 +52,6 @@ const EMPTY_EDITOR: UserEditorState = {
   isAdmin: false
 };
 
-type DesktopImportResult = {
-  ok: boolean;
-  command: string;
-  args: string[];
-  exitCode: number | null;
-  stdout: string;
-  stderr: string;
-};
-
-type DesktopApiBridge = {
-  runImport: (payload: {
-    backupDir: string;
-    includeDocuments?: boolean;
-    includeToken?: boolean;
-    includeCredentialKey?: boolean;
-    restartBackend?: boolean;
-  }) => Promise<DesktopImportResult>;
-} | null;
-
-function getDesktopApiBridge(): DesktopApiBridge {
-  const desktopApi = (window as unknown as { desktopApi?: DesktopApiBridge }).desktopApi;
-  if (!desktopApi || typeof desktopApi.runImport !== "function") {
-    return null;
-  }
-  return desktopApi;
-}
-
 function toIsoOrUndefined(raw: string): string | undefined {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -97,17 +72,8 @@ export function UsersSettingsPage() {
   const [newKeyLabel, setNewKeyLabel] = useState<string>(() => t("pages.usersSettings.placeholder.keyLabel"));
   const [newKeyExpiresAt, setNewKeyExpiresAt] = useState<string>("");
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
-  const [backupOutputDir, setBackupOutputDir] = useState<string>("");
-  const [backupIncludeDocuments, setBackupIncludeDocuments] = useState<boolean>(true);
-  const [backupIncludeExport, setBackupIncludeExport] = useState<boolean>(true);
-  const [backupResult, setBackupResult] = useState<SystemBackupResult | null>(null);
-  const desktopApi = useMemo(() => getDesktopApiBridge(), []);
-  const [restoreBackupDir, setRestoreBackupDir] = useState<string>("");
-  const [restoreIncludeDocuments, setRestoreIncludeDocuments] = useState<boolean>(true);
-  const [restoreIncludeToken, setRestoreIncludeToken] = useState<boolean>(true);
-  const [restoreIncludeCredentialKey, setRestoreIncludeCredentialKey] = useState<boolean>(true);
-  const [restoreRestartBackend, setRestoreRestartBackend] = useState<boolean>(true);
-  const [restoreResult, setRestoreResult] = useState<DesktopImportResult | null>(null);
+  const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(null);
+  const [confirmRevokeKey, setConfirmRevokeKey] = useState<AgentKey | null>(null);
 
   const meQuery = useQuery({
     queryKey: ["auth-me"],
@@ -155,28 +121,6 @@ export function UsersSettingsPage() {
   });
   const revokeKeyMutation = useMutation({
     mutationFn: (keyId: string) => revokeAgentKey(keyId)
-  });
-  const backupMutation = useMutation({
-    mutationFn: async () =>
-      runSystemBackup({
-        output_dir: backupOutputDir.trim() || undefined,
-        include_documents: backupIncludeDocuments,
-        include_export_json: backupIncludeExport
-      })
-  });
-  const restoreMutation = useMutation({
-    mutationFn: async () => {
-      if (!desktopApi) {
-        throw new Error(t("pages.usersSettings.restoreRuntimeOnly"));
-      }
-      return await desktopApi.runImport({
-        backupDir: restoreBackupDir.trim(),
-        includeDocuments: restoreIncludeDocuments,
-        includeToken: restoreIncludeToken,
-        includeCredentialKey: restoreIncludeCredentialKey,
-        restartBackend: restoreRestartBackend
-      });
-    }
   });
 
   const me = meQuery.data ?? null;
@@ -242,10 +186,8 @@ export function UsersSettingsPage() {
     }
   }
 
-  async function removeUser(userId: string): Promise<void> {
-    if (!window.confirm(t("pages.usersSettings.confirm.deleteUser"))) {
-      return;
-    }
+  async function executeDeleteUser(userId: string): Promise<void> {
+    setConfirmDeleteUserId(null);
     setStatusMessage(null);
     try {
       await deleteUserMutation.mutateAsync(userId);
@@ -274,10 +216,8 @@ export function UsersSettingsPage() {
     }
   }
 
-  async function revokeKey(key: AgentKey): Promise<void> {
-    if (!window.confirm(t("pages.usersSettings.confirm.revokeKey", { label: key.label }))) {
-      return;
-    }
+  async function executeRevokeKey(key: AgentKey): Promise<void> {
+    setConfirmRevokeKey(null);
     setStatusMessage(null);
     try {
       await revokeKeyMutation.mutateAsync(key.key_id);
@@ -288,57 +228,11 @@ export function UsersSettingsPage() {
     }
   }
 
-  async function submitBackup(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (!isAdmin) {
-      setStatusMessage(t("pages.usersSettings.backupAdminOnly"));
-      return;
-    }
-    setStatusMessage(null);
-    setBackupResult(null);
-    try {
-      const result = await backupMutation.mutateAsync();
-      setBackupResult(result);
-      setStatusMessage(t("pages.usersSettings.backupSuccess", { path: result.output_dir }));
-    } catch (error) {
-      setStatusMessage(resolveApiErrorMessage(error, t, t("pages.usersSettings.backupFailed")));
-    }
-  }
-
-  async function submitRestore(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (!isAdmin) {
-      setStatusMessage(t("pages.usersSettings.restoreAdminOnly"));
-      return;
-    }
-    if (!desktopApi) {
-      setStatusMessage(t("pages.usersSettings.restoreRuntimeOnly"));
-      return;
-    }
-    if (!restoreBackupDir.trim()) {
-      setStatusMessage(t("pages.usersSettings.restoreDirectoryRequired"));
-      return;
-    }
-
-    setStatusMessage(null);
-    setRestoreResult(null);
-    try {
-      const result = await restoreMutation.mutateAsync();
-      setRestoreResult(result);
-      setStatusMessage(t("pages.usersSettings.restoreSuccess"));
-      await queryClient.invalidateQueries();
-    } catch (error) {
-      setStatusMessage(resolveApiErrorMessage(error, t, t("pages.usersSettings.restoreFailed")));
-    }
-  }
-
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.users")} />
       <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.usersSettings.title")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 pt-6">
           {loading ? <p className="text-sm text-muted-foreground">{t("common.loadingSettings")}</p> : null}
           {firstError ? (
             <Alert variant="destructive">
@@ -367,10 +261,11 @@ export function UsersSettingsPage() {
             </Button>
           </CardHeader>
           <CardContent>
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t("common.username")}</TableHead>
+                  <TableHead className="sticky left-0 z-10 bg-background">{t("common.username")}</TableHead>
                   <TableHead>{t("common.displayName")}</TableHead>
                   <TableHead>{t("pages.usersSettings.table.admin")}</TableHead>
                   <TableHead>{t("common.created")}</TableHead>
@@ -380,7 +275,7 @@ export function UsersSettingsPage() {
               <TableBody>
                 {users.map((user) => (
                   <TableRow key={user.user_id}>
-                    <TableCell>{user.username}</TableCell>
+                    <TableCell className="sticky left-0 z-10 bg-background">{user.username}</TableCell>
                     <TableCell>{user.display_name || t("pages.usersSettings.noDisplayName")}</TableCell>
                     <TableCell>{user.is_admin ? t("common.yes") : t("common.no")}</TableCell>
                     <TableCell>{formatDateTime(user.created_at)}</TableCell>
@@ -388,7 +283,7 @@ export function UsersSettingsPage() {
                       <Button type="button" size="sm" variant="outline" onClick={() => openEditUser(user)}>
                         {t("common.edit")}
                       </Button>
-                      <Button type="button" size="sm" variant="destructive" onClick={() => void removeUser(user.user_id)}>
+                      <Button type="button" size="sm" variant="destructive" onClick={() => setConfirmDeleteUserId(user.user_id)}>
                         {t("common.delete")}
                       </Button>
                     </TableCell>
@@ -401,6 +296,7 @@ export function UsersSettingsPage() {
                 ) : null}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
       ) : (
@@ -443,10 +339,11 @@ export function UsersSettingsPage() {
             </Button>
           </form>
 
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("common.label")}</TableHead>
+                <TableHead className="sticky left-0 z-10 bg-background">{t("common.label")}</TableHead>
                 <TableHead>{t("common.prefix")}</TableHead>
                 <TableHead>{t("pages.usersSettings.table.status")}</TableHead>
                 <TableHead>{t("pages.usersSettings.table.lastUsed")}</TableHead>
@@ -457,7 +354,7 @@ export function UsersSettingsPage() {
             <TableBody>
               {sortedKeys.map((key) => (
                 <TableRow key={key.key_id}>
-                  <TableCell>{key.label}</TableCell>
+                  <TableCell className="sticky left-0 z-10 bg-background">{key.label}</TableCell>
                   <TableCell>
                     <code className="font-mono text-xs">{key.key_prefix}</code>
                   </TableCell>
@@ -474,7 +371,7 @@ export function UsersSettingsPage() {
                       size="sm"
                       variant="destructive"
                       disabled={!key.is_active || revokeKeyMutation.isPending}
-                      onClick={() => void revokeKey(key)}
+                      onClick={() => setConfirmRevokeKey(key)}
                     >
                       {t("pages.usersSettings.revoke")}
                     </Button>
@@ -488,115 +385,7 @@ export function UsersSettingsPage() {
               ) : null}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.usersSettings.backupTitle")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">{t("pages.usersSettings.backupDescription")}</p>
-          <form className="space-y-3" onSubmit={(event) => void submitBackup(event)}>
-            <div className="space-y-2">
-              <Label htmlFor="backup-output-dir">{t("pages.usersSettings.backupOutputDir")}</Label>
-              <Input
-                id="backup-output-dir"
-                value={backupOutputDir}
-                onChange={(event) => setBackupOutputDir(event.target.value)}
-                placeholder={t("pages.usersSettings.backupOutputPlaceholder")}
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={backupIncludeDocuments}
-                onChange={(event) => setBackupIncludeDocuments(event.target.checked)}
-              />
-              {t("pages.usersSettings.backupIncludeDocuments")}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={backupIncludeExport}
-                onChange={(event) => setBackupIncludeExport(event.target.checked)}
-              />
-              {t("pages.usersSettings.backupIncludeExport")}
-            </label>
-            <Button type="submit" disabled={backupMutation.isPending}>
-              {backupMutation.isPending ? t("pages.usersSettings.backupSubmitting") : t("pages.usersSettings.backupSubmit")}
-            </Button>
-          </form>
-          {backupResult ? (
-            <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(backupResult, null, 2)}</pre>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.usersSettings.restoreTitle")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">{t("pages.usersSettings.restoreDescription")}</p>
-          <form className="space-y-3" onSubmit={(event) => void submitRestore(event)}>
-            <div className="space-y-2">
-              <Label htmlFor="restore-backup-dir">{t("pages.usersSettings.restoreDirectory")}</Label>
-              <Input
-                id="restore-backup-dir"
-                value={restoreBackupDir}
-                onChange={(event) => setRestoreBackupDir(event.target.value)}
-                disabled={!desktopApi}
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={restoreIncludeDocuments}
-                onChange={(event) => setRestoreIncludeDocuments(event.target.checked)}
-                disabled={!desktopApi}
-              />
-              {t("pages.usersSettings.restoreIncludeDocuments")}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={restoreIncludeToken}
-                onChange={(event) => setRestoreIncludeToken(event.target.checked)}
-                disabled={!desktopApi}
-              />
-              {t("pages.usersSettings.restoreIncludeToken")}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={restoreIncludeCredentialKey}
-                onChange={(event) => setRestoreIncludeCredentialKey(event.target.checked)}
-                disabled={!desktopApi}
-              />
-              {t("pages.usersSettings.restoreIncludeCredentialKey")}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={restoreRestartBackend}
-                onChange={(event) => setRestoreRestartBackend(event.target.checked)}
-                disabled={!desktopApi}
-              />
-              {t("pages.usersSettings.restoreRestartBackend")}
-            </label>
-            <Button type="submit" disabled={restoreMutation.isPending || !desktopApi}>
-              {restoreMutation.isPending
-                ? t("pages.usersSettings.restoreSubmitting")
-                : t("pages.usersSettings.restoreSubmit")}
-            </Button>
-          </form>
-          {!desktopApi ? (
-            <p className="text-sm text-muted-foreground">{t("pages.usersSettings.restoreRuntimeOnly")}</p>
-          ) : null}
-          {restoreResult ? (
-            <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(restoreResult, null, 2)}</pre>
-          ) : null}
+          </div>
         </CardContent>
       </Card>
 
@@ -661,6 +450,25 @@ export function UsersSettingsPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={confirmDeleteUserId !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDeleteUserId(null); }}
+        title={t("pages.usersSettings.confirmDeleteTitle")}
+        description={t("pages.usersSettings.confirmDeleteDescription")}
+        variant="destructive"
+        confirmLabel={t("common.delete")}
+        onConfirm={() => { if (confirmDeleteUserId) void executeDeleteUser(confirmDeleteUserId); }}
+      />
+      <ConfirmDialog
+        open={confirmRevokeKey !== null}
+        onOpenChange={(open) => { if (!open) setConfirmRevokeKey(null); }}
+        title={t("pages.usersSettings.confirmRevokeTitle")}
+        description={t("pages.usersSettings.confirmRevokeDescription")}
+        variant="destructive"
+        confirmLabel={t("pages.usersSettings.revoke")}
+        onConfirm={() => { if (confirmRevokeKey) void executeRevokeKey(confirmRevokeKey); }}
+      />
     </section>
   );
 }

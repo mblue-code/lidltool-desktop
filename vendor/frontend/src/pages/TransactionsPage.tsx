@@ -5,14 +5,23 @@ import { Link, useSearchParams } from "react-router-dom";
 
 import { TransactionsFilters, transactionsQueryOptions } from "@/app/queries";
 import { createManualTransaction, ManualTransactionResponse } from "@/api/transactions";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { SearchInput } from "@/components/shared/SearchInput";
 import { useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import { cn } from "@/lib/utils";
@@ -156,8 +165,10 @@ export function TransactionsPage() {
     itemTotalCents: "",
     idempotencyKey: ""
   });
+  const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [manualErrorMessage, setManualErrorMessage] = useState<string | null>(null);
   const [manualSuccess, setManualSuccess] = useState<ManualTransactionResponse | null>(null);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   const searchKey = searchParams.toString();
   const sortField = readSortField(searchParams.get("sort"));
@@ -433,138 +444,177 @@ export function TransactionsPage() {
     return sortDirection === "asc" ? "ascending" : "descending";
   }
 
+  function applyQuickFilter(preset: "thisMonth" | "last7Days" | "highValue"): void {
+    const next = new URLSearchParams();
+    if (preset === "thisMonth") {
+      const now = new Date();
+      next.set("year", String(now.getFullYear()));
+      next.set("month", String(now.getMonth() + 1));
+    } else if (preset === "last7Days") {
+      const now = new Date();
+      const from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const localFrom = new Date(from.getTime() - from.getTimezoneOffset() * 60_000);
+      next.set("purchased_from", localFrom.toISOString().slice(0, 16));
+    } else if (preset === "highValue") {
+      next.set("min_total_cents", "5000");
+    }
+    next.set("offset", "0");
+    applySortIfNeeded(next);
+    setSearchParams(next);
+  }
+
   return (
     <section className="space-y-4">
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle>{t("pages.transactions.manual.title")}</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {t("pages.transactions.manual.description")}
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <form className="grid gap-3 md:grid-cols-6" onSubmit={submitManualTransaction}>
-            <div className="space-y-2">
-              <Label htmlFor="manual-purchased-at">{t("pages.transactions.manual.purchasedAt")}</Label>
-              <Input
-                id="manual-purchased-at"
-                type="datetime-local"
-                value={manualFormValues.purchasedAt}
-                onChange={(event) =>
-                  setManualFormValues((previous) => ({
-                    ...previous,
-                    purchasedAt: event.target.value
-                  }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="manual-merchant">{t("pages.transactions.manual.merchant")}</Label>
-              <Input
-                id="manual-merchant"
-                value={manualFormValues.merchantName}
-                onChange={(event) =>
-                  setManualFormValues((previous) => ({
-                    ...previous,
-                    merchantName: event.target.value
-                  }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="manual-total-cents">{t("pages.transactions.manual.totalCents")}</Label>
-              <Input
-                id="manual-total-cents"
-                type="number"
-                min={0}
-                value={manualFormValues.totalGrossCents}
-                onChange={(event) =>
-                  setManualFormValues((previous) => ({
-                    ...previous,
-                    totalGrossCents: event.target.value
-                  }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="manual-item-name">{t("pages.transactions.manual.itemName")}</Label>
-              <Input
-                id="manual-item-name"
-                value={manualFormValues.itemName}
-                onChange={(event) =>
-                  setManualFormValues((previous) => ({
-                    ...previous,
-                    itemName: event.target.value
-                  }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="manual-item-total-cents">{t("pages.transactions.manual.itemTotalCents")}</Label>
-              <Input
-                id="manual-item-total-cents"
-                type="number"
-                min={0}
-                value={manualFormValues.itemTotalCents}
-                onChange={(event) =>
-                  setManualFormValues((previous) => ({
-                    ...previous,
-                    itemTotalCents: event.target.value
-                  }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="manual-idempotency-key">{t("pages.transactions.manual.idempotencyKey")}</Label>
-              <Input
-                id="manual-idempotency-key"
-                value={manualFormValues.idempotencyKey}
-                onChange={(event) =>
-                  setManualFormValues((previous) => ({
-                    ...previous,
-                    idempotencyKey: event.target.value
-                  }))
-                }
-              />
-            </div>
-            <Button type="submit" className="md:col-span-6 md:w-fit" disabled={manualMutation.isPending}>
-              {manualMutation.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {t("pages.transactions.manual.saving")}
-                </>
-              ) : (
-                t("pages.transactions.manual.submit")
-              )}
-            </Button>
-          </form>
+      <PageHeader title={t("nav.item.receipts")}>
+        <Button onClick={() => setManualDialogOpen(true)}>{t("pages.transactions.addTransaction")}</Button>
+      </PageHeader>
 
-          {manualErrorMessage ? (
-            <Alert variant="destructive">
-              <AlertTitle>{t("pages.transactions.manual.errorTitle")}</AlertTitle>
-              <AlertDescription>{manualErrorMessage}</AlertDescription>
-            </Alert>
-          ) : null}
+      <Dialog open={manualDialogOpen} onOpenChange={setManualDialogOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t("pages.transactions.manual.title")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {t("pages.transactions.manual.description")}
+            </p>
+            <form className="grid gap-3 md:grid-cols-3" onSubmit={submitManualTransaction}>
+              <div className="space-y-2">
+                <Label htmlFor="manual-purchased-at">{t("pages.transactions.manual.purchasedAt")}</Label>
+                <Input
+                  id="manual-purchased-at"
+                  type="datetime-local"
+                  value={manualFormValues.purchasedAt}
+                  onChange={(event) =>
+                    setManualFormValues((previous) => ({
+                      ...previous,
+                      purchasedAt: event.target.value
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-merchant">{t("pages.transactions.manual.merchant")}</Label>
+                <Input
+                  id="manual-merchant"
+                  value={manualFormValues.merchantName}
+                  onChange={(event) =>
+                    setManualFormValues((previous) => ({
+                      ...previous,
+                      merchantName: event.target.value
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-total-cents">{t("pages.transactions.manual.totalCents")}</Label>
+                <Input
+                  id="manual-total-cents"
+                  type="number"
+                  min={0}
+                  value={manualFormValues.totalGrossCents}
+                  onChange={(event) =>
+                    setManualFormValues((previous) => ({
+                      ...previous,
+                      totalGrossCents: event.target.value
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-item-name">{t("pages.transactions.manual.itemName")}</Label>
+                <Input
+                  id="manual-item-name"
+                  value={manualFormValues.itemName}
+                  onChange={(event) =>
+                    setManualFormValues((previous) => ({
+                      ...previous,
+                      itemName: event.target.value
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-item-total-cents">{t("pages.transactions.manual.itemTotalCents")}</Label>
+                <Input
+                  id="manual-item-total-cents"
+                  type="number"
+                  min={0}
+                  value={manualFormValues.itemTotalCents}
+                  onChange={(event) =>
+                    setManualFormValues((previous) => ({
+                      ...previous,
+                      itemTotalCents: event.target.value
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-idempotency-key">{t("pages.transactions.manual.idempotencyKey")}</Label>
+                <Input
+                  id="manual-idempotency-key"
+                  value={manualFormValues.idempotencyKey}
+                  onChange={(event) =>
+                    setManualFormValues((previous) => ({
+                      ...previous,
+                      idempotencyKey: event.target.value
+                    }))
+                  }
+                />
+              </div>
+              <Button type="submit" className="md:col-span-3 md:w-fit" disabled={manualMutation.isPending}>
+                {manualMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t("pages.transactions.manual.saving")}
+                  </>
+                ) : (
+                  t("pages.transactions.manual.submit")
+                )}
+              </Button>
+            </form>
 
-          {manualSuccess ? (
-            <Alert>
-              <CheckCircle2 className="h-4 w-4" />
-              <AlertTitle>{t("pages.transactions.manual.savedTitle")}</AlertTitle>
-              <AlertDescription className="space-y-1">
-                <p>
-                  {manualSuccess.reused ? t("pages.transactions.manual.reused") : t("pages.transactions.manual.created")}{" "}
-                  {t("common.source")}:
-                  {" "}
-                  <span className="font-medium">{manualSuccess.source_id}</span>
-                </p>
-                <Button asChild variant="link" className="h-auto p-0">
-                  <Link to={`/transactions/${manualSuccess.transaction_id}`}>{t("pages.transactions.manual.openDetails")}</Link>
-                </Button>
-              </AlertDescription>
-            </Alert>
-          ) : null}
-        </CardContent>
-      </Card>
+            {manualErrorMessage ? (
+              <Alert variant="destructive">
+                <AlertTitle>{t("pages.transactions.manual.errorTitle")}</AlertTitle>
+                <AlertDescription>{manualErrorMessage}</AlertDescription>
+              </Alert>
+            ) : null}
+
+            {manualSuccess ? (
+              <Alert>
+                <CheckCircle2 className="h-4 w-4" />
+                <AlertTitle>{t("pages.transactions.manual.savedTitle")}</AlertTitle>
+                <AlertDescription className="space-y-1">
+                  <p>
+                    {manualSuccess.reused ? t("pages.transactions.manual.reused") : t("pages.transactions.manual.created")}{" "}
+                    {t("common.source")}:
+                    {" "}
+                    <span className="font-medium">{manualSuccess.source_id}</span>
+                  </p>
+                  <Button asChild variant="link" className="h-auto p-0">
+                    <Link to={`/transactions/${manualSuccess.transaction_id}`}>{t("pages.transactions.manual.openDetails")}</Link>
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <div className="overflow-x-auto">
+        <div className="flex flex-nowrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => applyQuickFilter("thisMonth")}>
+            {t("pages.transactions.quickFilter.thisMonth")}
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => applyQuickFilter("last7Days")}>
+            {t("pages.transactions.quickFilter.last7Days")}
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => applyQuickFilter("highValue")}>
+            {t("pages.transactions.quickFilter.highValue")}
+          </Button>
+        </div>
+      </div>
 
       <Card>
         <CardHeader>
@@ -573,102 +623,13 @@ export function TransactionsPage() {
         <CardContent>
           <form className="grid gap-3 md:grid-cols-5" onSubmit={submitFilters}>
             <div className="space-y-2">
-              <Label htmlFor="query">{t("pages.transactions.filter.query")}</Label>
-              <Input
-                id="query"
+              <Label>{t("pages.transactions.filter.query")}</Label>
+              <SearchInput
                 value={formValues.query}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, query: event.target.value }))
+                onChange={(value) =>
+                  setFormValues((previous) => ({ ...previous, query: value }))
                 }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="source">{t("pages.transactions.filter.source")}</Label>
-              <Input
-                id="source"
-                value={formValues.sourceId}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, sourceId: event.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="source-kind">{t("pages.transactions.filter.sourceKind")}</Label>
-              <Input
-                id="source-kind"
-                value={formValues.sourceKind}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, sourceKind: event.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="merchant">{t("pages.transactions.filter.merchant")}</Label>
-              <Input
-                id="merchant"
-                value={formValues.merchantName}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, merchantName: event.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="year">{t("pages.transactions.filter.year")}</Label>
-              <Input
-                id="year"
-                type="number"
-                value={formValues.year}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, year: event.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="month">{t("pages.transactions.filter.month")}</Label>
-              <Input
-                id="month"
-                type="number"
-                value={formValues.month}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, month: event.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="weekday">{t("pages.transactions.filter.weekday")}</Label>
-              <Input
-                id="weekday"
-                type="number"
-                min={0}
-                max={6}
-                value={formValues.weekday}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, weekday: event.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="hour">{t("pages.transactions.filter.hour")}</Label>
-              <Input
-                id="hour"
-                type="number"
-                min={0}
-                max={23}
-                value={formValues.hour}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, hour: event.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tz-offset-minutes">{t("pages.transactions.filter.tzOffset")}</Label>
-              <Input
-                id="tz-offset-minutes"
-                type="number"
-                value={formValues.tzOffsetMinutes}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, tzOffsetMinutes: event.target.value }))
-                }
+                debounceMs={0}
               />
             </div>
             <div className="space-y-2">
@@ -694,30 +655,133 @@ export function TransactionsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="min-total">{t("pages.transactions.filter.minTotal")}</Label>
+              <Label htmlFor="source">{t("pages.transactions.filter.source")}</Label>
               <Input
-                id="min-total"
-                type="number"
-                value={formValues.minTotal}
+                id="source"
+                value={formValues.sourceId}
                 onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, minTotal: event.target.value }))
+                  setFormValues((previous) => ({ ...previous, sourceId: event.target.value }))
                 }
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="max-total">{t("pages.transactions.filter.maxTotal")}</Label>
-              <Input
-                id="max-total"
-                type="number"
-                value={formValues.maxTotal}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, maxTotal: event.target.value }))
-                }
-              />
+            <div className="self-end flex gap-2">
+              <Button type="submit">
+                {t("pages.transactions.applyFilters")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowAdvancedFilters((prev) => !prev)}
+              >
+                {showAdvancedFilters ? t("pages.transactions.fewerFilters") : t("pages.transactions.moreFilters")}
+              </Button>
             </div>
-            <Button type="submit" className="self-end">
-              {t("pages.transactions.applyFilters")}
-            </Button>
+
+            {showAdvancedFilters ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="source-kind">{t("pages.transactions.filter.sourceKind")}</Label>
+                  <Input
+                    id="source-kind"
+                    value={formValues.sourceKind}
+                    onChange={(event) =>
+                      setFormValues((previous) => ({ ...previous, sourceKind: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="merchant">{t("pages.transactions.filter.merchant")}</Label>
+                  <Input
+                    id="merchant"
+                    value={formValues.merchantName}
+                    onChange={(event) =>
+                      setFormValues((previous) => ({ ...previous, merchantName: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="year">{t("pages.transactions.filter.year")}</Label>
+                  <Input
+                    id="year"
+                    type="number"
+                    value={formValues.year}
+                    onChange={(event) =>
+                      setFormValues((previous) => ({ ...previous, year: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="month">{t("pages.transactions.filter.month")}</Label>
+                  <Input
+                    id="month"
+                    type="number"
+                    value={formValues.month}
+                    onChange={(event) =>
+                      setFormValues((previous) => ({ ...previous, month: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="weekday">{t("pages.transactions.filter.weekday")}</Label>
+                  <Input
+                    id="weekday"
+                    type="number"
+                    min={0}
+                    max={6}
+                    value={formValues.weekday}
+                    onChange={(event) =>
+                      setFormValues((previous) => ({ ...previous, weekday: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="hour">{t("pages.transactions.filter.hour")}</Label>
+                  <Input
+                    id="hour"
+                    type="number"
+                    min={0}
+                    max={23}
+                    value={formValues.hour}
+                    onChange={(event) =>
+                      setFormValues((previous) => ({ ...previous, hour: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="tz-offset-minutes">{t("pages.transactions.filter.tzOffset")}</Label>
+                  <Input
+                    id="tz-offset-minutes"
+                    type="number"
+                    value={formValues.tzOffsetMinutes}
+                    onChange={(event) =>
+                      setFormValues((previous) => ({ ...previous, tzOffsetMinutes: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="min-total">{t("pages.transactions.filter.minTotal")}</Label>
+                  <Input
+                    id="min-total"
+                    type="number"
+                    value={formValues.minTotal}
+                    onChange={(event) =>
+                      setFormValues((previous) => ({ ...previous, minTotal: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="max-total">{t("pages.transactions.filter.maxTotal")}</Label>
+                  <Input
+                    id="max-total"
+                    type="number"
+                    value={formValues.maxTotal}
+                    onChange={(event) =>
+                      setFormValues((previous) => ({ ...previous, maxTotal: event.target.value }))
+                    }
+                  />
+                </div>
+              </>
+            ) : null}
           </form>
 
           {appliedFilters.length > 0 ? (
@@ -755,6 +819,30 @@ export function TransactionsPage() {
       <Card>
         <CardContent className="pt-6">
           {loading ? <Skeleton className="h-52 w-full" /> : null}
+
+          <div className="md:hidden space-y-3">
+            {(data?.items || []).map((item) => (
+              <Link
+                key={item.id}
+                to={`/transactions/${item.id}`}
+                className="block rounded-lg border bg-card p-4 transition-colors hover:bg-muted/40"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{item.store_name || "—"}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {formatDateTime(item.purchased_at)}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="tabular-nums font-semibold">
+                    {formatEurFromCents(item.total_gross_cents)}
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -793,11 +881,26 @@ export function TransactionsPage() {
               ))}
               {data && data.items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6}>{t("pages.transactions.empty")}</TableCell>
+                  <TableCell colSpan={6}>
+                    <EmptyState
+                      title={t("pages.transactions.empty")}
+                      action={appliedFilters.length > 0 ? { label: t("pages.transactions.clearFilters"), onClick: clearFilters } : undefined}
+                    />
+                  </TableCell>
                 </TableRow>
               ) : null}
             </TableBody>
           </Table>
+          </div>
+
+          {data && data.items.length === 0 ? (
+            <div className="md:hidden">
+              <EmptyState
+                title={t("pages.transactions.empty")}
+                action={appliedFilters.length > 0 ? { label: t("pages.transactions.clearFilters"), onClick: clearFilters } : undefined}
+              />
+            </div>
+          ) : null}
 
           <div className="mt-4 flex items-center justify-between">
             <Button type="button" variant="outline" onClick={() => movePage(-PAGE_SIZE)} disabled={offset === 0}>

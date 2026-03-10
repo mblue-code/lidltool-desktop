@@ -2,14 +2,25 @@ import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { createBudgetRule, fetchBudgetRules, fetchBudgetUtilization } from "@/api/analytics";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { useI18n } from "@/i18n";
 import { formatEurFromCents, formatPercent } from "@/utils/format";
 
 export function BudgetPage() {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const [scopeType, setScopeType] = useState<"category" | "source_kind">("category");
   const [scopeValue, setScopeValue] = useState("");
@@ -55,6 +66,7 @@ export function BudgetPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("nav.item.budget")} />
       <Card>
         <CardHeader>
           <CardTitle>Budget Rules</CardTitle>
@@ -63,15 +75,18 @@ export function BudgetPage() {
           <form className="grid gap-3 md:grid-cols-4" onSubmit={submitRule}>
             <div className="space-y-1">
               <Label htmlFor="budget-scope-type">Scope type</Label>
-              <select
-                id="budget-scope-type"
-                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+              <Select
                 value={scopeType}
-                onChange={(event) => setScopeType(event.target.value as "category" | "source_kind")}
+                onValueChange={(value) => setScopeType(value as "category" | "source_kind")}
               >
-                <option value="category">Category</option>
-                <option value="source_kind">Source kind</option>
-              </select>
+                <SelectTrigger id="budget-scope-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="category">Category</SelectItem>
+                  <SelectItem value="source_kind">Source kind</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
               <Label htmlFor="budget-scope-value">Scope value</Label>
@@ -84,15 +99,18 @@ export function BudgetPage() {
             </div>
             <div className="space-y-1">
               <Label htmlFor="budget-period">Period</Label>
-              <select
-                id="budget-period"
-                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+              <Select
                 value={period}
-                onChange={(event) => setPeriod(event.target.value as "monthly" | "annual")}
+                onValueChange={(value) => setPeriod(value as "monthly" | "annual")}
               >
-                <option value="monthly">Monthly</option>
-                <option value="annual">Annual</option>
-              </select>
+                <SelectTrigger id="budget-period">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                  <SelectItem value="annual">Annual</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
               <Label htmlFor="budget-amount">Amount (cents)</Label>
@@ -117,7 +135,10 @@ export function BudgetPage() {
         </CardHeader>
         <CardContent>
           {rules.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No budget rules configured.</p>
+            <EmptyState
+              title="No budget rules configured"
+              description="Create your first budget rule above to start tracking spending limits."
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -149,7 +170,10 @@ export function BudgetPage() {
         </CardHeader>
         <CardContent>
           {utilizationRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No utilization rows available.</p>
+            <EmptyState
+              title="No utilization data"
+              description="Budget utilization will appear here once you have rules and matching transactions."
+            />
           ) : (
             <Table>
               <TableHeader>

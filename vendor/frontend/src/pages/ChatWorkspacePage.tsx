@@ -16,11 +16,18 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SearchInput } from "@/components/shared/SearchInput";
 import { ChatUiRenderer } from "@/chat/ui/ChatUiRenderer";
 import { extractUiSpecsFromContent, messageTextFromContent } from "@/chat/ui/content";
 import { normalizeRuntimeMessagesForPersistence } from "@/chat/ui/runtime-messages";
 import { ChatUiSpec } from "@/chat/ui/spec";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle
+} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { type TranslationKey, useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
@@ -133,10 +140,12 @@ export function ChatWorkspacePage() {
   const { t } = useI18n();
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [isComposingNewThread, setIsComposingNewThread] = useState(false);
+  const [threadSearch, setThreadSearch] = useState("");
   const [input, setInput] = useState("");
   const [draftIdempotencyKey, setDraftIdempotencyKey] = useState<string>(() =>
     createMessageIdempotencyKey()
   );
+  const [threadSheetOpen, setThreadSheetOpen] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [activeToolLabel, setActiveToolLabel] = useState<string | null>(null);
   const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
@@ -354,7 +363,10 @@ export function ChatWorkspacePage() {
     }
   }
 
-  const threads = threadsQuery.data?.items ?? [];
+  const allThreads = threadsQuery.data?.items ?? [];
+  const threads = threadSearch.trim()
+    ? allThreads.filter((thread) => thread.title.toLowerCase().includes(threadSearch.trim().toLowerCase()))
+    : allThreads;
   const threadStatusLabel = (status: "idle" | "streaming" | "failed"): string =>
     t(`pages.chatWorkspace.streamStatus.${status}` as TranslationKey);
 
@@ -378,12 +390,67 @@ export function ChatWorkspacePage() {
         </Button>
       </div>
 
-      <div className="grid min-h-[70vh] gap-4 md:grid-cols-[280px_1fr]">
-        <Card className="overflow-hidden">
+      <div className="md:hidden">
+        <Button variant="outline" onClick={() => setThreadSheetOpen(true)}>
+          {t("pages.chatWorkspace.threadsTitle")}
+        </Button>
+      </div>
+
+      <Sheet open={threadSheetOpen} onOpenChange={setThreadSheetOpen}>
+        <SheetContent side="left" className="w-72 p-0">
+          <SheetHeader className="border-b px-4 py-3">
+            <SheetTitle>{t("pages.chatWorkspace.threadsTitle")}</SheetTitle>
+          </SheetHeader>
+          <div className="max-h-[calc(100dvh-4rem)] space-y-2 overflow-y-auto px-4 py-3">
+            <SearchInput
+              value={threadSearch}
+              onChange={setThreadSearch}
+              placeholder={t("pages.chatWorkspace.threadSearch.placeholder")}
+            />
+            {threadsQuery.isPending ? (
+              <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingThreads")}</p>
+            ) : null}
+            {threads.length === 0 ? <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.noThreads")}</p> : null}
+            {threads.map((thread) => (
+              <button
+                key={thread.thread_id}
+                type="button"
+                onClick={() => {
+                  setSelectedThreadId(thread.thread_id);
+                  setIsComposingNewThread(false);
+                  setThreadSheetOpen(false);
+                }}
+                className={cn(
+                  "w-full rounded-md border p-2 text-left transition-colors",
+                  selectedThreadId === thread.thread_id
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:bg-muted/40"
+                )}
+              >
+                <p className="truncate text-sm font-medium">{thread.title}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(thread.updated_at)}</p>
+                {thread.stream_status !== "idle" ? (
+                  <Badge variant={thread.stream_status === "failed" ? "destructive" : "secondary"} className="mt-2">
+                    {threadStatusLabel(thread.stream_status)}
+                  </Badge>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <div className="grid min-h-[calc(100dvh-10rem)] gap-4 md:grid-cols-[16rem_1fr]">
+        <Card className="hidden md:block overflow-hidden">
           <CardHeader className="border-b py-3">
             <h3 className="text-sm font-semibold">{t("pages.chatWorkspace.threadsTitle")}</h3>
           </CardHeader>
-          <CardContent className="max-h-[70vh] space-y-2 overflow-y-auto py-3">
+          <CardContent className="max-h-[calc(100dvh-14rem)] space-y-2 overflow-y-auto py-3">
+            <SearchInput
+              value={threadSearch}
+              onChange={setThreadSearch}
+              placeholder={t("pages.chatWorkspace.threadSearch.placeholder")}
+            />
             {threadsQuery.isPending ? (
               <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingThreads")}</p>
             ) : null}
@@ -415,7 +482,7 @@ export function ChatWorkspacePage() {
           </CardContent>
         </Card>
 
-        <Card className="flex min-h-[70vh] flex-col">
+        <Card className="flex min-h-[calc(100dvh-10rem)] flex-col">
           <CardHeader className="border-b py-3">
             <div className="flex items-center justify-between gap-2">
               <h3 className="truncate text-sm font-semibold">
@@ -469,13 +536,28 @@ export function ChatWorkspacePage() {
                 <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingConversation")}</p>
               ) : null}
               {displayMessages.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.empty")}</p>
+                <div className="flex flex-col items-center gap-3 py-8">
+                  <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.empty")}</p>
+                  <p className="text-xs font-medium text-muted-foreground">{t("pages.chatWorkspace.suggestions.title")}</p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {(["spending", "compare", "expensive", "trends"] as const).map((key) => (
+                      <Button
+                        key={key}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setInput(t(`pages.chatWorkspace.suggestions.${key}`))}
+                      >
+                        {t(`pages.chatWorkspace.suggestions.${key}`)}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
               ) : null}
               {displayMessages.map((message) => (
                 <div
                   key={message.id}
                   className={cn(
-                    "max-w-[92%] rounded-lg px-3 py-2 text-sm",
+                    "max-w-prose rounded-lg px-3 py-2 text-sm",
                     message.role === "user"
                       ? "ml-auto bg-primary text-primary-foreground"
                       : message.role === "tool"
@@ -486,10 +568,7 @@ export function ChatWorkspacePage() {
                   {message.role === "tool" ? (
                     <details>
                       <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-                        {t("pages.chatWorkspace.toolResult", {
-                          tool: message.toolName ?? "tool",
-                          callId: message.toolCallId ? ` (${message.toolCallId})` : ""
-                        })}
+                        {t("pages.chatWorkspace.runningAnalysis")} ({TOOL_LABELS[message.toolName ?? ""] ?? message.toolName ?? "tool"})
                       </summary>
                       {message.uiSpecs.length > 0 ? (
                         <div className="mt-2 space-y-2">
@@ -499,7 +578,7 @@ export function ChatWorkspacePage() {
                         </div>
                       ) : null}
                       {message.content ? (
-                        <pre className="mt-2 whitespace-pre-wrap text-xs">{message.content}</pre>
+                        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-xs">{message.content}</pre>
                       ) : message.uiSpecs.length === 0 ? (
                         <pre className="mt-2 whitespace-pre-wrap text-xs">{t("pages.chatWorkspace.noOutput")}</pre>
                       ) : null}
