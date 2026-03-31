@@ -17,7 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/shared/SearchInput";
-import { ChatUiRenderer } from "@/chat/ui/ChatUiRenderer";
+import { ExportableChatUiSpec } from "@/chat/ui/ExportableChatUiSpec";
 import { extractUiSpecsFromContent, messageTextFromContent } from "@/chat/ui/content";
 import { normalizeRuntimeMessagesForPersistence } from "@/chat/ui/runtime-messages";
 import { ChatUiSpec } from "@/chat/ui/spec";
@@ -700,7 +700,7 @@ export function ChatWorkspacePage() {
                       {message.uiSpecs.length > 0 ? (
                         <div className="mt-2 space-y-2">
                           {message.uiSpecs.map((spec, index) => (
-                            <ChatUiRenderer key={`${message.id}-ui-${index}`} spec={spec} />
+                            <ExportableChatUiSpec key={`${message.id}-ui-${index}`} spec={spec} />
                           ))}
                         </div>
                       ) : null}

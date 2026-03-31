@@ -15,7 +15,7 @@ import {
   resolveAgentModelSelection,
   writeStoredString
 } from "@/chat/model-selection";
-import { ChatUiRenderer } from "@/chat/ui/ChatUiRenderer";
+import { ExportableChatUiSpec } from "@/chat/ui/ExportableChatUiSpec";
 import {
   extractUiSpecsFromContent,
   extractUiSpecsFromDetails,
@@ -509,7 +509,7 @@ export function ChatPanel({
                     {message.uiSpecs.length > 0 ? (
                       <div className="mt-2 space-y-2">
                         {message.uiSpecs.map((spec, index) => (
-                          <ChatUiRenderer key={`${message.id}-ui-${index}`} spec={spec} />
+                          <ExportableChatUiSpec key={`${message.id}-ui-${index}`} spec={spec} />
                         ))}
                       </div>
                     ) : null}
