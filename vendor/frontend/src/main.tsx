@@ -15,6 +15,7 @@ import "./index.css";
 const DashboardPage = lazy(() => pageLoaders.dashboard().then((module) => ({ default: module.DashboardPage })));
 const ExplorePage = lazy(() => pageLoaders.explore().then((module) => ({ default: module.ExplorePage })));
 const ProductsPage = lazy(() => pageLoaders.products().then((module) => ({ default: module.ProductsPage })));
+const OffersPage = lazy(() => pageLoaders.offers().then((module) => ({ default: module.OffersPage })));
 const ComparisonsPage = lazy(() =>
   pageLoaders.compare().then((module) => ({ default: module.ComparisonsPage }))
 );
@@ -84,6 +85,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
                 <Route index element={<DashboardPage />} />
                 <Route path="explore" element={<ExplorePage />} />
                 <Route path="products" element={<ProductsPage />} />
+                <Route path="offers" element={<OffersPage />} />
                 <Route path="compare" element={<ComparisonsPage />} />
                 <Route path="quality" element={<DataQualityPage />} />
                 <Route path="connectors" element={<ConnectorsPage />} />

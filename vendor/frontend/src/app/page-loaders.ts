@@ -2,6 +2,7 @@ export const pageLoaders = {
   overview: () => import("@/pages/DashboardPage"),
   explore: () => import("@/pages/ExplorePage"),
   products: () => import("@/pages/ProductsPage"),
+  offers: () => import("@/pages/OffersPage"),
   compare: () => import("@/pages/ComparisonsPage"),
   receipts: () => import("@/pages/TransactionsPage"),
   quality: () => import("@/pages/DataQualityPage"),
@@ -30,6 +31,7 @@ const ROUTE_PREFIX_PRELOADERS: Array<{
 }> = [
   { prefix: "/explore", preload: pageLoaders.explore },
   { prefix: "/products", preload: pageLoaders.products },
+  { prefix: "/offers", preload: pageLoaders.offers },
   { prefix: "/compare", preload: pageLoaders.compare },
   { prefix: "/receipts", preload: pageLoaders.receipts },
   { prefix: "/quality", preload: pageLoaders.quality },

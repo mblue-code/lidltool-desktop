@@ -71,6 +71,17 @@ describe("AppShell", () => {
     expect(preloadRouteModuleSpy).toHaveBeenCalledWith("/automations");
   });
 
+  it("prefetches the offers route module when the offers nav link is hovered", () => {
+    const preloadRouteModuleSpy = vi
+      .spyOn(pageLoaders, "preloadRouteModule")
+      .mockImplementation(() => undefined);
+
+    renderShell();
+    fireEvent.mouseEnter(screen.getAllByRole("link", { name: "Offers" })[0]);
+
+    expect(preloadRouteModuleSpy).toHaveBeenCalledWith("/offers");
+  });
+
   it("prefetches route modules when a nav link receives focus", () => {
     const preloadRouteModuleSpy = vi
       .spyOn(pageLoaders, "preloadRouteModule")
