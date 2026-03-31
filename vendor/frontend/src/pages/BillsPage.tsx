@@ -37,6 +37,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
+import { formatCentsForInput, parseEuroInputToCents } from "@/utils/money-input";
 import { formatDate, formatEurFromCents, formatMonthYear } from "@/utils/format";
 
 type BillFormState = {
@@ -47,7 +48,7 @@ type BillFormState = {
   frequency: "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly";
   intervalValue: string;
   amountMode: "fixed" | "variable";
-  amountCents: string;
+  amountInput: string;
   amountTolerancePct: string;
   anchorDate: string;
   active: boolean;
@@ -62,7 +63,7 @@ const EMPTY_FORM: BillFormState = {
   frequency: "monthly",
   intervalValue: "1",
   amountMode: "fixed",
-  amountCents: "",
+  amountInput: "",
   amountTolerancePct: "0.10",
   anchorDate: new Date().toISOString().slice(0, 10),
   active: true,
@@ -102,7 +103,7 @@ function toFormState(bill: RecurringBill): BillFormState {
     frequency: bill.frequency,
     intervalValue: String(bill.interval_value),
     amountMode: bill.amount_cents === null ? "variable" : "fixed",
-    amountCents: bill.amount_cents === null ? "" : String(bill.amount_cents),
+    amountInput: formatCentsForInput(bill.amount_cents),
     amountTolerancePct: String(bill.amount_tolerance_pct),
     anchorDate: bill.anchor_date,
     active: bill.active,
@@ -144,7 +145,8 @@ export function BillsPage() {
 
   const saveBillMutation = useMutation({
     mutationFn: async (payload: BillFormState) => {
-      const amountCents = payload.amountMode === "variable" ? null : Number(payload.amountCents);
+      const amountCents =
+        payload.amountMode === "variable" ? null : parseEuroInputToCents(payload.amountInput);
       const sharedPayload = {
         name: payload.name.trim(),
         merchant_canonical: payload.merchantCanonical.trim() || null,
@@ -290,8 +292,8 @@ export function BillsPage() {
       return;
     }
     if (formState.amountMode === "fixed") {
-      const amount = Number(formState.amountCents);
-      if (!Number.isFinite(amount) || amount <= 0) {
+      const amountCents = parseEuroInputToCents(formState.amountInput);
+      if (amountCents === null || amountCents <= 0) {
         setActionError(t("pages.bills.validation.amountRequired"));
         return;
       }
@@ -710,7 +712,9 @@ export function BillsPage() {
                   onChange={(event) =>
                     setFormState((prev) => ({
                       ...prev,
-                      amountMode: event.target.value as "fixed" | "variable"
+                      amountMode: event.target.value as "fixed" | "variable",
+                      amountInput:
+                        event.target.value === "variable" ? "" : prev.amountInput
                     }))
                   }
                 >
@@ -723,11 +727,12 @@ export function BillsPage() {
                 <Label htmlFor="bill-amount-cents">{t("pages.bills.form.amountCents")}</Label>
                 <Input
                   id="bill-amount-cents"
-                  type="number"
-                  value={formState.amountCents}
+                  type="text"
+                  inputMode="decimal"
+                  value={formState.amountInput}
                   disabled={formState.amountMode === "variable"}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, amountCents: event.target.value }))}
-                  placeholder="1299"
+                  onChange={(event) => setFormState((prev) => ({ ...prev, amountInput: event.target.value }))}
+                  placeholder="12,99"
                 />
               </div>
 

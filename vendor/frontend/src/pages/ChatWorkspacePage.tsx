@@ -3,7 +3,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { createSpendingAgent } from "@/agent";
 import { ALL_TOOLS } from "@/agent/tools";
-import { fetchAIAgentConfig } from "@/api/aiSettings";
+import { fetchAIAgentConfig, type AIAgentConfig } from "@/api/aiSettings";
 import {
   ChatMessage,
   createChatMessage,
@@ -44,6 +44,34 @@ type DisplayMessage = {
 };
 
 const TOOL_LABELS = Object.fromEntries(ALL_TOOLS.map((tool) => [tool.name, tool.label]));
+const MODEL_SELECTION_STORAGE_KEY = "chat.workspace.model-selection.v1";
+
+function readStoredModelSelections(): Record<string, string> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+  try {
+    const raw = window.localStorage.getItem(MODEL_SELECTION_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredModelSelections(next: Record<string, string>): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(MODEL_SELECTION_STORAGE_KEY, JSON.stringify(next));
+}
+
+function enabledModelOptions(config: AIAgentConfig | undefined) {
+  return (config?.available_models ?? []).filter((model) => model.enabled);
+}
 
 function runtimeMessageText(message: any): string {
   if (!message) {
@@ -151,6 +179,10 @@ export function ChatWorkspacePage() {
   const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
   const [pendingAssistantMessage, setPendingAssistantMessage] = useState("");
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [storedModelSelections, setStoredModelSelections] = useState<Record<string, string>>(() =>
+    readStoredModelSelections()
+  );
+  const [draftModelId, setDraftModelId] = useState<string | null>(null);
   const runMessagesRef = useRef<any[]>([]);
   const runStartedAtRef = useRef<number>(0);
 
@@ -158,17 +190,47 @@ export function ChatWorkspacePage() {
     queryKey: ["ai-agent-config"],
     queryFn: fetchAIAgentConfig
   });
+  const availableModels = useMemo(
+    () => enabledModelOptions(configQuery.data),
+    [configQuery.data]
+  );
+  const availableModelIds = useMemo(
+    () => new Set(availableModels.map((model) => model.id)),
+    [availableModels]
+  );
+
+  const selectedModelId = useMemo(() => {
+    const preferredModel = configQuery.data?.preferred_model ?? configQuery.data?.model ?? "";
+    const explicitModel = selectedThreadId
+      ? storedModelSelections[selectedThreadId]
+      : draftModelId;
+    if (explicitModel && availableModelIds.has(explicitModel)) {
+      return explicitModel;
+    }
+    if (availableModelIds.has(preferredModel)) {
+      return preferredModel;
+    }
+    return availableModels[0]?.id ?? preferredModel;
+  }, [
+    availableModelIds,
+    availableModels,
+    configQuery.data?.model,
+    configQuery.data?.preferred_model,
+    draftModelId,
+    selectedThreadId,
+    storedModelSelections
+  ]);
 
   const agent = useMemo(() => {
-    if (!configQuery.data) {
+    if (!configQuery.data || !selectedModelId) {
       return null;
     }
     return createSpendingAgent(
       configQuery.data.proxy_url,
       configQuery.data.auth_token,
-      configQuery.data.model
+      selectedModelId
     );
-  }, [configQuery.data]);
+  }, [configQuery.data, selectedModelId]);
 
   const threadsQuery = useQuery({
     queryKey: ["chat", "threads"],
@@ -195,6 +257,23 @@ export function ChatWorkspacePage() {
       setSelectedThreadId(firstThread.thread_id);
     }
   }, [isComposingNewThread, selectedThreadId, threadsQuery.data?.items]);
+
+  useEffect(() => {
+    if (!configQuery.data) {
+      return;
+    }
+    const preferredModel = configQuery.data.preferred_model;
+    const nextSelections = Object.fromEntries(
+      Object.entries(storedModelSelections).filter(([, modelId]) => availableModelIds.has(modelId))
+    );
+    if (Object.keys(nextSelections).length !== Object.keys(storedModelSelections).length) {
+      setStoredModelSelections(nextSelections);
+      writeStoredModelSelections(nextSelections);
+    }
+    if (!draftModelId || !availableModelIds.has(draftModelId)) {
+      setDraftModelId(preferredModel);
+    }
+  }, [availableModelIds, configQuery.data, draftModelId, storedModelSelections]);
 
   useEffect(() => {
     if (!agent) {
@@ -277,12 +356,18 @@ export function ChatWorkspacePage() {
       setStreamError(t("pages.chatWorkspace.error.configUnavailable"));
       return;
     }
+    const activeModelId = selectedModelId || configQuery.data.preferred_model;
 
     const targetThreadId = selectedThreadId ?? fallbackThreadId();
     if (!selectedThreadId) {
       setSelectedThreadId(targetThreadId);
       setIsComposingNewThread(false);
       await createChatThread({ thread_id: targetThreadId, title: content.slice(0, 60) });
+      setStoredModelSelections((previous) => {
+        const next = { ...previous, [targetThreadId]: activeModelId };
+        writeStoredModelSelections(next);
+        return next;
+      });
     }
     setInput("");
     setStreamError(null);
@@ -314,7 +399,7 @@ export function ChatWorkspacePage() {
       const usage = extractUsage(runMessages);
       await persistChatRun(targetThreadId, {
         messages: persistenceMessages,
-        model_id: configQuery.data.model,
+        model_id: activeModelId,
         latency_ms: elapsedMs,
         status: "ok",
         ...usage
@@ -328,7 +413,7 @@ export function ChatWorkspacePage() {
         const persistenceMessages = normalizeRuntimeMessagesForPersistence(runMessagesRef.current);
         await persistChatRun(targetThreadId, {
           messages: persistenceMessages,
-          model_id: configQuery.data.model,
+          model_id: activeModelId,
           latency_ms: elapsedMs,
           status: "error",
           error: message
@@ -369,6 +454,18 @@ export function ChatWorkspacePage() {
     : allThreads;
   const threadStatusLabel = (status: "idle" | "streaming" | "failed"): string =>
     t(`pages.chatWorkspace.streamStatus.${status}` as TranslationKey);
+
+  function updateSelectedModel(nextModelId: string): void {
+    if (selectedThreadId) {
+      setStoredModelSelections((previous) => {
+        const next = { ...previous, [selectedThreadId]: nextModelId };
+        writeStoredModelSelections(next);
+        return next;
+      });
+      return;
+    }
+    setDraftModelId(nextModelId);
+  }
 
   return (
     <section className="space-y-4">
@@ -487,15 +584,37 @@ export function ChatWorkspacePage() {
         <Card className="flex min-h-[calc(100dvh-10rem)] flex-col">
           <CardHeader className="border-b py-3">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="truncate text-sm font-semibold">
-                {selectedThread?.title ??
-                  (isComposingNewThread ? t("pages.chatWorkspace.thread.new") : t("pages.chatWorkspace.thread.empty"))}
-              </h3>
-              {selectedThread ? (
-                <Badge variant={selectedThread.stream_status === "failed" ? "destructive" : "secondary"}>
-                  {threadStatusLabel(selectedThread.stream_status)}
-                </Badge>
-              ) : null}
+              <div className="min-w-0">
+                <h3 className="truncate text-sm font-semibold">
+                  {selectedThread?.title ??
+                    (isComposingNewThread ? t("pages.chatWorkspace.thread.new") : t("pages.chatWorkspace.thread.empty"))}
+                </h3>
+              </div>
+              <div className="flex items-center gap-2">
+                {availableModels.length > 0 ? (
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{t("pages.chatWorkspace.modelSelector.label")}</span>
+                    <select
+                      aria-label={t("pages.chatWorkspace.modelSelector.label")}
+                      className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"
+                      value={selectedModelId}
+                      onChange={(event) => updateSelectedModel(event.target.value)}
+                      disabled={streaming}
+                    >
+                      {availableModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                {selectedThread ? (
+                  <Badge variant={selectedThread.stream_status === "failed" ? "destructive" : "secondary"}>
+                    {threadStatusLabel(selectedThread.stream_status)}
+                  </Badge>
+                ) : null}
+              </div>
             </div>
           </CardHeader>
 

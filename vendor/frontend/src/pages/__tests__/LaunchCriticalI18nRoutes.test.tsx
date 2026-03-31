@@ -7,6 +7,7 @@ import { I18nProvider } from "@/i18n";
 import { AISettingsPage } from "../AISettingsPage";
 import { ChatWorkspacePage } from "../ChatWorkspacePage";
 import { ConnectorsPage } from "../ConnectorsPage";
+import { OffersPage } from "../OffersPage";
 import { SetupPage } from "../SetupPage";
 import { UsersSettingsPage } from "../UsersSettingsPage";
 
@@ -21,6 +22,12 @@ const mocks = vi.hoisted(() => ({
   cancelConnectorBootstrapMock: vi.fn(),
   startConnectorSyncMock: vi.fn(),
   fetchSourcesMock: vi.fn(),
+  fetchProductsMock: vi.fn(),
+  fetchOfferWatchlistsMock: vi.fn(),
+  fetchOfferAlertsMock: vi.fn(),
+  createOfferWatchlistMock: vi.fn(),
+  refreshOffersMock: vi.fn(),
+  patchOfferAlertMock: vi.fn(),
   fetchAISettingsMock: vi.fn(),
   fetchAIOAuthStatusMock: vi.fn(),
   saveAISettingsMock: vi.fn(),
@@ -60,6 +67,18 @@ vi.mock("@/api/connectors", () => ({
 
 vi.mock("@/api/sources", () => ({
   fetchSources: mocks.fetchSourcesMock
+}));
+
+vi.mock("@/api/products", () => ({
+  fetchProducts: mocks.fetchProductsMock
+}));
+
+vi.mock("@/api/offers", () => ({
+  fetchOfferWatchlists: mocks.fetchOfferWatchlistsMock,
+  fetchOfferAlerts: mocks.fetchOfferAlertsMock,
+  createOfferWatchlist: mocks.createOfferWatchlistMock,
+  refreshOffers: mocks.refreshOffersMock,
+  patchOfferAlert: mocks.patchOfferAlertMock
 }));
 
 vi.mock("@/api/aiSettings", () => ({
@@ -169,6 +188,38 @@ describe("launch-critical route i18n smoke", () => {
     mocks.fetchSourcesMock.mockResolvedValue({
       sources: [{ id: "lidl_plus_de", status: "healthy" }]
     });
+    mocks.fetchProductsMock.mockResolvedValue({
+      items: [
+        {
+          product_id: "coffee-1",
+          canonical_name: "Coffee Beans",
+          brand: "Acme",
+          default_unit: null,
+          category_id: "coffee",
+          gtin_ean: null,
+          alias_count: 2
+        }
+      ],
+      count: 1
+    });
+    mocks.fetchOfferWatchlistsMock.mockResolvedValue({
+      items: [],
+      count: 0,
+      total: 0,
+      limit: 25,
+      offset: 0
+    });
+    mocks.fetchOfferAlertsMock.mockResolvedValue({
+      items: [],
+      count: 0,
+      total: 0,
+      limit: 25,
+      offset: 0,
+      unread_count: 0
+    });
+    mocks.createOfferWatchlistMock.mockResolvedValue({});
+    mocks.refreshOffersMock.mockResolvedValue({});
+    mocks.patchOfferAlertMock.mockResolvedValue({});
     mocks.fetchConnectorCascadeStatusMock.mockResolvedValue({
       status: "idle",
       source_ids: [],
@@ -213,7 +264,20 @@ describe("launch-critical route i18n smoke", () => {
     mocks.fetchAIAgentConfigMock.mockResolvedValue({
       proxy_url: "https://proxy.example.com",
       auth_token: "token",
-      model: "gpt-4o-mini"
+      model: "Qwen/Qwen3.5-0.8B",
+      default_model: "Qwen/Qwen3.5-0.8B",
+      local_model: "Qwen/Qwen3.5-0.8B",
+      preferred_model: "Qwen/Qwen3.5-0.8B",
+      oauth_provider: null,
+      oauth_connected: false,
+      available_models: [
+        {
+          id: "Qwen/Qwen3.5-0.8B",
+          label: "Qwen",
+          source: "local",
+          enabled: true
+        }
+      ]
     });
 
     mocks.fetchCurrentUserMock.mockResolvedValue({
@@ -330,7 +394,7 @@ describe("launch-critical route i18n smoke", () => {
     renderGerman(<ConnectorsPage />);
 
     expect(await screen.findByText("Anbindungen einrichten")).toBeInTheDocument();
-    expect(screen.getByText("Geführte Synchronisierungskaskade")).toBeInTheDocument();
+    expect(screen.getAllByText("Alle synchronisieren").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Quellen öffnen").length).toBeGreaterThan(0);
   });
 
@@ -348,8 +412,8 @@ describe("launch-critical route i18n smoke", () => {
     expect(await screen.findByText("Benutzer und Agent-Schlüssel")).toBeInTheDocument();
     expect(await screen.findByText("Benutzer hinzufügen")).toBeInTheDocument();
     expect(screen.getByText("Schlüssel erstellen")).toBeInTheDocument();
-    expect(screen.getByText("System-Backup")).toBeInTheDocument();
-    expect(screen.getByText("Desktop-Wiederherstellung")).toBeInTheDocument();
+    expect(screen.getByText("Benutzer")).toBeInTheDocument();
+    expect(screen.getByText("Agent-API-Schlüssel")).toBeInTheDocument();
   });
 
   it("renders setup restore copy in german", async () => {
@@ -366,5 +430,13 @@ describe("launch-critical route i18n smoke", () => {
     expect(await screen.findByText("Wochenbudget")).toBeInTheDocument();
     expect(screen.getAllByText("streamt").length).toBeGreaterThan(0);
     expect(screen.getByText("Neuer Chat")).toBeInTheDocument();
+  });
+
+  it("renders offers copy in german", async () => {
+    renderGerman(<OffersPage />);
+
+    expect(await screen.findByText("Watchlist hinzufügen")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Angebote aktualisieren" })).toBeInTheDocument();
+    expect(screen.getByText("Nur konfigurierte Quellen")).toBeInTheDocument();
   });
 });

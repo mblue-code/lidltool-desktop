@@ -29,7 +29,20 @@ const AIOAuthStatusSchema = z.object({
 const AIAgentConfigSchema = z.object({
   proxy_url: z.string(),
   auth_token: z.string(),
-  model: z.string()
+  model: z.string(),
+  default_model: z.string(),
+  local_model: z.string(),
+  preferred_model: z.string(),
+  oauth_provider: z.string().nullable(),
+  oauth_connected: z.boolean(),
+  available_models: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      source: z.enum(["local", "oauth"]),
+      enabled: z.boolean()
+    })
+  )
 });
 
 const DisconnectAISettingsSchema = z.object({

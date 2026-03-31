@@ -35,7 +35,7 @@
   "All sources": "All sources",
   "Amazon": "Amazon",
   "Amount": "Amount",
-  "Amount (cents)": "Amount (cents)",
+  "Amount (cents)": "Amount (EUR)",
   "Amount cents must be a positive number for fixed bills.": "Amount cents must be a positive number for fixed bills.",
   "Amount mode": "Amount mode",
   "Amount tolerance": "Amount tolerance",

@@ -1985,8 +1985,13 @@ def _try_refresh_ai_oauth_token(config: AppConfig, config_path: Path) -> str | N
         return None
 
 
-def _resolve_ai_bearer_token(config: AppConfig, config_path: Path | None = None) -> str | None:
-    oauth_token = get_ai_oauth_access_token(config)
+def _resolve_ai_bearer_token(
+    config: AppConfig,
+    config_path: Path | None = None,
+    *,
+    prefer_oauth: bool = True,
+) -> str | None:
+    oauth_token = get_ai_oauth_access_token(config) if prefer_oauth else None
     if oauth_token:
         expires_at_str = config.ai_oauth_expires_at
         if expires_at_str and config_path:
@@ -2333,6 +2338,51 @@ class ChatRunPersistRequest(BaseModel):
     latency_ms: int | None = None
     status: Literal["ok", "error", "timeout"] = "ok"
     error: str | None = None
+
+
+DEFAULT_LOCAL_CHAT_MODEL = "Qwen/Qwen3.5-0.8B"
+DEFAULT_CHATGPT_CHAT_MODEL = "gpt-5.2-codex"
+
+
+def _configured_local_chat_model(app_config: AppConfig) -> str:
+    model_id = (app_config.ai_model or "").strip()
+    return model_id or DEFAULT_LOCAL_CHAT_MODEL
+
+
+def _chatgpt_oauth_connected(app_config: AppConfig) -> bool:
+    return bool(
+        app_config.ai_oauth_provider == "openai-codex"
+        and get_ai_oauth_access_token(app_config)
+    )
+
+
+def _preferred_chat_model(app_config: AppConfig) -> str:
+    if _chatgpt_oauth_connected(app_config):
+        return DEFAULT_CHATGPT_CHAT_MODEL
+    return _configured_local_chat_model(app_config)
+
+
+def _available_chat_models(app_config: AppConfig) -> list[dict[str, Any]]:
+    local_model = _configured_local_chat_model(app_config)
+    local_label = "Qwen" if "qwen" in local_model.lower() else "Local model"
+    return [
+        {
+            "id": local_model,
+            "label": local_label,
+            "source": "local",
+            "enabled": True,
+        },
+        {
+            "id": DEFAULT_CHATGPT_CHAT_MODEL,
+            "label": "ChatGPT",
+            "source": "oauth",
+            "enabled": _chatgpt_oauth_connected(app_config),
+        },
+    ]
+
+
+def _should_route_stream_via_chatgpt(app_config: AppConfig, model_id: str) -> bool:
+    return _chatgpt_oauth_connected(app_config) and model_id == DEFAULT_CHATGPT_CHAT_MODEL
 
 
 class ComparisonGroupCreateRequest(BaseModel):
@@ -6770,10 +6820,18 @@ finally:
                     required=True,
                 )
                 auth_token = issue_session_token(user=current_user, config=app_config)
+            local_model = _configured_local_chat_model(app_config)
+            preferred_model = _preferred_chat_model(app_config)
             result = {
                 "proxy_url": "",
                 "auth_token": auth_token,
-                "model": app_config.ai_model or "gpt-5.2-codex",
+                "model": preferred_model,
+                "default_model": local_model,
+                "local_model": local_model,
+                "preferred_model": preferred_model,
+                "oauth_provider": app_config.ai_oauth_provider,
+                "oauth_connected": _chatgpt_oauth_connected(app_config),
+                "available_models": _available_chat_models(app_config),
             }
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -7019,17 +7077,25 @@ finally:
             with session_scope(sessions) as session:
                 _authorize_stream_proxy_request(request=request, session=session, config=app_config)
 
-            api_key = _resolve_ai_bearer_token(app_config, context.config_path)
-            if not api_key:
-                raise RuntimeError("AI provider credentials are not configured")
+            selected_model_id = (payload.model.id or "").strip() or _preferred_chat_model(app_config)
 
-            # When using ChatGPT OAuth, route to the Codex Responses API
-            if app_config.ai_oauth_provider == "openai-codex":
+            # When the selected model is the ChatGPT option, route to the Codex Responses API.
+            if _should_route_stream_via_chatgpt(app_config, selected_model_id):
+                api_key = _resolve_ai_bearer_token(
+                    app_config, context.config_path, prefer_oauth=True
+                )
+                if not api_key:
+                    raise RuntimeError("AI provider credentials are not configured")
                 return await _chatgpt_codex_stream(payload=payload, bearer_token=api_key)
 
             base_url = (app_config.ai_base_url or "").strip()
             if not base_url:
                 raise RuntimeError("AI provider base_url is not configured")
+            api_key = _resolve_ai_bearer_token(
+                app_config, context.config_path, prefer_oauth=False
+            )
+            if not api_key:
+                raise RuntimeError("AI provider credentials are not configured")
 
             openai_messages = _to_openai_messages(
                 system_prompt=payload.context.systemPrompt,

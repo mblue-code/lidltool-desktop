@@ -18,6 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useI18n } from "@/i18n";
 import { formatEurFromCents, formatPercent } from "@/utils/format";
+import { parseEuroInputToCents } from "@/utils/money-input";
 
 export function BudgetPage() {
   const { t } = useI18n();
@@ -25,7 +26,8 @@ export function BudgetPage() {
   const [scopeType, setScopeType] = useState<"category" | "source_kind">("category");
   const [scopeValue, setScopeValue] = useState("");
   const [period, setPeriod] = useState<"monthly" | "annual">("monthly");
-  const [amountCents, setAmountCents] = useState("");
+  const [amountInput, setAmountInput] = useState("");
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const rulesQuery = useQuery({
     queryKey: ["budget-rules"],
@@ -39,7 +41,8 @@ export function BudgetPage() {
     mutationFn: createBudgetRule,
     onSuccess: () => {
       setScopeValue("");
-      setAmountCents("");
+      setAmountInput("");
+      setSubmitError(null);
       void queryClient.invalidateQueries({ queryKey: ["budget-rules"] });
       void queryClient.invalidateQueries({ queryKey: ["budget-utilization"] });
     }
@@ -47,15 +50,20 @@ export function BudgetPage() {
 
   function submitRule(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    const amount = Number(amountCents);
-    if (!scopeValue.trim() || !Number.isFinite(amount) || amount <= 0) {
+    if (!scopeValue.trim()) {
       return;
     }
+    const amountCents = parseEuroInputToCents(amountInput);
+    if (amountCents === null || amountCents <= 0) {
+      setSubmitError(t("pages.budget.validation.amountRequired"));
+      return;
+    }
+    setSubmitError(null);
     void createMutation.mutateAsync({
       scope_type: scopeType,
       scope_value: scopeValue.trim(),
       period,
-      amount_cents: Math.floor(amount),
+      amount_cents: amountCents,
       currency: "EUR",
       active: true
     });
@@ -67,6 +75,7 @@ export function BudgetPage() {
   return (
     <section className="space-y-4">
       <PageHeader title={t("nav.item.budget")} />
+      {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
       <Card>
         <CardHeader>
           <CardTitle>Budget Rules</CardTitle>
@@ -93,7 +102,10 @@ export function BudgetPage() {
               <Input
                 id="budget-scope-value"
                 value={scopeValue}
-                onChange={(event) => setScopeValue(event.target.value)}
+                onChange={(event) => {
+                  setScopeValue(event.target.value);
+                  setSubmitError(null);
+                }}
                 placeholder={scopeType === "category" ? "Dairy" : "lidl_de"}
               />
             </div>
@@ -113,13 +125,17 @@ export function BudgetPage() {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="budget-amount">Amount (cents)</Label>
+              <Label htmlFor="budget-amount">{t("pages.budget.form.amountEur")}</Label>
               <Input
                 id="budget-amount"
-                type="number"
-                value={amountCents}
-                onChange={(event) => setAmountCents(event.target.value)}
-                placeholder="10000"
+                type="text"
+                inputMode="decimal"
+                value={amountInput}
+                onChange={(event) => {
+                  setAmountInput(event.target.value);
+                  setSubmitError(null);
+                }}
+                placeholder="12,99"
               />
             </div>
             <Button type="submit" className="md:col-span-4 w-fit" disabled={createMutation.isPending}>

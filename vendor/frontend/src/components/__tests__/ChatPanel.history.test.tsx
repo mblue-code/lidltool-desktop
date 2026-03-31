@@ -1,8 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatPanel } from "@/components/ChatPanel";
+
+const mocks = vi.hoisted(() => ({
+  promptMock: vi.fn(async (_prompt: string) => undefined),
+  createSpendingAgentMock: vi.fn(),
+  fetchAIAgentConfigMock: vi.fn()
+}));
 
 class FakeAgent {
   state: { messages: Array<Record<string, unknown>> } = {
@@ -27,6 +33,7 @@ class FakeAgent {
   }
 
   async prompt(prompt: string): Promise<void> {
+    await mocks.promptMock(prompt);
     const newMessages = [
       { role: "user", content: prompt, timestamp: Date.now() },
       {
@@ -45,19 +52,37 @@ class FakeAgent {
 const fakeAgent = new FakeAgent();
 
 vi.mock("@/agent", () => ({
-  createSpendingAgent: vi.fn(() => fakeAgent)
+  createSpendingAgent: mocks.createSpendingAgentMock
 }));
 
 vi.mock("@/api/aiSettings", () => ({
-  fetchAIAgentConfig: vi.fn(async () => ({
-    proxy_url: "http://localhost",
-    auth_token: "token",
-    model: "gpt-5.2-codex"
-  }))
+  fetchAIAgentConfig: mocks.fetchAIAgentConfigMock
 }));
 
 describe("ChatPanel history behavior", () => {
   const storage = new Map<string, string>();
+
+  beforeEach(() => {
+    mocks.promptMock.mockReset();
+    mocks.promptMock.mockResolvedValue(undefined);
+    mocks.createSpendingAgentMock.mockReset();
+    mocks.createSpendingAgentMock.mockImplementation(() => fakeAgent);
+    mocks.fetchAIAgentConfigMock.mockReset();
+    mocks.fetchAIAgentConfigMock.mockResolvedValue({
+      proxy_url: "http://localhost",
+      auth_token: "token",
+      model: "gpt-5.2-codex",
+      default_model: "Qwen/Qwen3.5-0.8B",
+      local_model: "Qwen/Qwen3.5-0.8B",
+      preferred_model: "gpt-5.2-codex",
+      oauth_connected: true,
+      oauth_provider: "openai-codex",
+      available_models: [
+        { id: "Qwen/Qwen3.5-0.8B", label: "Qwen", source: "local", enabled: true },
+        { id: "gpt-5.2-codex", label: "ChatGPT", source: "oauth", enabled: true }
+      ]
+    });
+  });
 
   function installChatApiFetchStub(): void {
     let createdThreadId: string | null = null;
@@ -212,6 +237,7 @@ describe("ChatPanel history behavior", () => {
   }
 
   afterEach(() => {
+    cleanup();
     storage.clear();
     fakeAgent.clearMessages();
     vi.restoreAllMocks();
@@ -256,5 +282,134 @@ describe("ChatPanel history behavior", () => {
       expect(screen.getByText("first prompt")).toBeInTheDocument();
       expect(screen.getByText("Reply for: first prompt")).toBeInTheDocument();
     });
+  });
+
+  it("defaults to the preferred ChatGPT model and persists that model id", async () => {
+    installLocalStorageStub();
+    installChatApiFetchStub();
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false }
+      }
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ChatPanel
+          open
+          onOpenChange={() => undefined}
+          enabled
+          panelWidth={420}
+          onPanelWidthChange={() => undefined}
+        />
+      </QueryClientProvider>
+    );
+
+    const modelSelect = await screen.findByLabelText("Chat model");
+    expect(modelSelect).toHaveValue("gpt-5.2-codex");
+
+    fireEvent.change(await screen.findByPlaceholderText("Ask about spending, prices, and products..."), {
+      target: { value: "preferred model prompt" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await screen.findByText("Reply for: preferred model prompt");
+
+    const runCall = vi.mocked(fetch).mock.calls.find((call) => {
+      const url = new URL(String(call[0]));
+      return url.pathname.includes("/runs");
+    });
+    expect(runCall).toBeDefined();
+    expect(JSON.parse(String(runCall?.[1]?.body))).toMatchObject({
+      model_id: "gpt-5.2-codex"
+    });
+  });
+
+  it("allows switching back to the local model and persists the override", async () => {
+    installLocalStorageStub();
+    installChatApiFetchStub();
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false }
+      }
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ChatPanel
+          open
+          onOpenChange={() => undefined}
+          enabled
+          panelWidth={420}
+          onPanelWidthChange={() => undefined}
+        />
+      </QueryClientProvider>
+    );
+
+    const modelSelect = await screen.findByLabelText("Chat model");
+    fireEvent.change(modelSelect, { target: { value: "Qwen/Qwen3.5-0.8B" } });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Chat model")).toHaveValue("Qwen/Qwen3.5-0.8B");
+    });
+
+    fireEvent.change(await screen.findByPlaceholderText("Ask about spending, prices, and products..."), {
+      target: { value: "local model prompt" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await screen.findByText("Reply for: local model prompt");
+
+    const runCall = [...vi.mocked(fetch).mock.calls].reverse().find((call) => {
+      const url = new URL(String(call[0]));
+      return url.pathname.includes("/runs");
+    });
+    expect(runCall).toBeDefined();
+    expect(JSON.parse(String(runCall?.[1]?.body))).toMatchObject({
+      model_id: "Qwen/Qwen3.5-0.8B"
+    });
+    expect(storage.get("agent.chat.model.v1")).toBe("Qwen/Qwen3.5-0.8B");
+  });
+
+  it("disables the model selector while a prompt is streaming", async () => {
+    installLocalStorageStub();
+    installChatApiFetchStub();
+    let resolvePrompt: (() => void) | null = null;
+    mocks.promptMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvePrompt = resolve;
+        })
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false }
+      }
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ChatPanel
+          open
+          onOpenChange={() => undefined}
+          enabled
+          panelWidth={420}
+          onPanelWidthChange={() => undefined}
+        />
+      </QueryClientProvider>
+    );
+
+    fireEvent.change(await screen.findByPlaceholderText("Ask about spending, prices, and products..."), {
+      target: { value: "streaming prompt" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Chat model")).toBeDisabled();
+    });
+
+    resolvePrompt?.();
+    await screen.findByText("Reply for: streaming prompt");
+    expect(screen.getByLabelText("Chat model")).not.toBeDisabled();
   });
 });

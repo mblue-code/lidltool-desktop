@@ -86,15 +86,39 @@ describe("BudgetPage", () => {
     renderPage();
 
     fireEvent.change(screen.getByLabelText("Scope value"), { target: { value: "Dairy" } });
-    fireEvent.change(screen.getByLabelText("Amount (cents)"), { target: { value: "2000" } });
+    fireEvent.change(screen.getByLabelText("Amount (EUR)"), { target: { value: "12,99" } });
     fireEvent.click(screen.getByRole("button", { name: "Add budget rule" }));
 
     await waitFor(() => {
-      const calls = vi.mocked(fetch).mock.calls.map((call) => {
+      const postCall = vi.mocked(fetch).mock.calls.find((call) => {
         const url = new URL(String(call[0]));
-        return `${call[1]?.method ?? "GET"} ${url.pathname}`;
+        return `${call[1]?.method ?? "GET"} ${url.pathname}` === "POST /api/v1/analytics/budget-rules";
       });
-      expect(calls.some((entry) => entry === "POST /api/v1/analytics/budget-rules")).toBe(true);
+      expect(postCall).toBeDefined();
+      expect(JSON.parse(String(postCall?.[1]?.body))).toMatchObject({
+        scope_value: "Dairy",
+        amount_cents: 1299,
+        currency: "EUR"
+      });
+    });
+  });
+
+  it("rejects invalid euro precision", async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText("Scope value"), { target: { value: "Dairy" } });
+    fireEvent.change(screen.getByLabelText("Amount (EUR)"), { target: { value: "12,999" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add budget rule" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Enter a positive amount in EUR with at most two decimal places.")
+      ).toBeInTheDocument();
+      const postCalls = vi.mocked(fetch).mock.calls.filter((call) => {
+        const url = new URL(String(call[0]));
+        return `${call[1]?.method ?? "GET"} ${url.pathname}` === "POST /api/v1/analytics/budget-rules";
+      });
+      expect(postCalls).toHaveLength(0);
     });
   });
 });

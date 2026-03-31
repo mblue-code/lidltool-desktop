@@ -7,6 +7,14 @@ import { marked } from "marked";
 import { createSpendingAgent } from "@/agent";
 import { ALL_TOOLS } from "@/agent/tools";
 import { fetchAIAgentConfig } from "@/api/aiSettings";
+import { createChatMessage, createChatThread, patchChatThread, persistChatRun } from "@/api/chat";
+import {
+  CHAT_PANEL_MODEL_STORAGE_KEY,
+  enabledAgentModels,
+  readStoredString,
+  resolveAgentModelSelection,
+  writeStoredString
+} from "@/chat/model-selection";
 import { ChatUiRenderer } from "@/chat/ui/ChatUiRenderer";
 import {
   extractUiSpecsFromContent,
@@ -18,7 +26,6 @@ import {
   sanitizeRuntimeMessagesForModel
 } from "@/chat/ui/runtime-messages";
 import { ChatUiSpec } from "@/chat/ui/spec";
-import { createChatMessage, createChatThread, patchChatThread, persistChatRun } from "@/api/chat";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -46,6 +53,7 @@ type ChatMessage = {
 const STORAGE_KEY = "agent.chat.v1";
 const TOOL_LABELS = Object.fromEntries(ALL_TOOLS.map((tool) => [tool.name, tool.label]));
 const PANEL_WIDTH_MIN = 320;
+const PANEL_WIDTH_MAX = 860;
 
 function generateId(): string {
   const randomUUID = globalThis.crypto?.randomUUID;
@@ -58,7 +66,9 @@ function generateId(): string {
 function extractUsage(messages: any[]): { prompt_tokens?: number; completion_tokens?: number } {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const usage = messages[index]?.usage;
-    if (!usage || typeof usage !== "object") continue;
+    if (!usage || typeof usage !== "object") {
+      continue;
+    }
     const promptTokens = usage.prompt_tokens ?? usage.input;
     const completionTokens = usage.completion_tokens ?? usage.output;
     return {
@@ -68,7 +78,6 @@ function extractUsage(messages: any[]): { prompt_tokens?: number; completion_tok
   }
   return {};
 }
-const PANEL_WIDTH_MAX = 860;
 
 function clampPanelWidth(width: number): number {
   if (!Number.isFinite(width)) {
@@ -102,7 +111,7 @@ function buildChatMessages(messages: any[]): ChatMessage[] {
       const role: ChatMessage["role"] = message.role === "toolResult" ? "tool" : message.role;
       const rawCost = message?.usage?.cost?.total;
       const costText =
-        typeof rawCost === "number" && Number.isFinite(rawCost) ? `${(rawCost * 100).toFixed(1)}¢` : null;
+        typeof rawCost === "number" && Number.isFinite(rawCost) ? `${(rawCost * 100).toFixed(1)}c` : null;
       const uiSpecs =
         role === "tool"
           ? Array.from(
@@ -143,6 +152,7 @@ export function ChatPanel({
   const [lastPrompt, setLastPrompt] = useState<string | null>(null);
   const [lastIdempotencyKey, setLastIdempotencyKey] = useState<string | null>(null);
   const [panelThreadId, setPanelThreadId] = useState<string | null>(null);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const runMessagesRef = useRef<any[]>([]);
   const runStartedAtRef = useRef<number>(0);
@@ -153,23 +163,53 @@ export function ChatPanel({
     enabled: open && enabled
   });
 
-  const agent = useMemo(() => {
+  const modelOptions = useMemo(
+    () => (configQuery.data ? enabledAgentModels(configQuery.data) : []),
+    [configQuery.data]
+  );
+  const activeModelId = useMemo(() => {
     if (!configQuery.data) {
+      return null;
+    }
+    return resolveAgentModelSelection(configQuery.data, selectedModelId);
+  }, [configQuery.data, selectedModelId]);
+
+  const agent = useMemo(() => {
+    if (!configQuery.data || !activeModelId) {
       return null;
     }
     return createSpendingAgent(
       configQuery.data.proxy_url,
       configQuery.data.auth_token,
-      configQuery.data.model,
+      activeModelId,
       { pageContext }
     );
-  }, [configQuery.data, pageContext]);
+  }, [activeModelId, configQuery.data, pageContext]);
+
+  useEffect(() => {
+    if (!configQuery.data) {
+      return;
+    }
+    setSelectedModelId((current) =>
+      resolveAgentModelSelection(
+        configQuery.data,
+        current ?? readStoredString(CHAT_PANEL_MODEL_STORAGE_KEY)
+      )
+    );
+  }, [configQuery.data]);
+
+  useEffect(() => {
+    if (!selectedModelId) {
+      return;
+    }
+    writeStoredString(CHAT_PANEL_MODEL_STORAGE_KEY, selectedModelId);
+  }, [selectedModelId]);
 
   useEffect(() => {
     if (!agent) {
       return;
     }
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = readStoredString(STORAGE_KEY);
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
@@ -234,7 +274,7 @@ export function ChatPanel({
         runMessagesRef.current = Array.isArray(event.messages) ? (event.messages as any[]) : [];
         setIsStreaming(false);
         setMessages(buildChatMessages(agent.state.messages as any[]));
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(agent.state.messages));
+        writeStoredString(STORAGE_KEY, JSON.stringify(agent.state.messages));
       }
     });
   }, [agent]);
@@ -248,7 +288,7 @@ export function ChatPanel({
 
   async function sendPrompt(promptOverride?: string): Promise<void> {
     const promptValue = promptOverride ?? input;
-    if (!agent || !promptValue.trim() || isStreaming) {
+    if (!agent || !activeModelId || !promptValue.trim() || isStreaming) {
       return;
     }
     const prompt = promptValue.trim();
@@ -300,7 +340,7 @@ export function ChatPanel({
       const persistenceMessages = normalizeRuntimeMessagesForPersistence(runMessagesRef.current);
       await persistChatRun(threadId, {
         messages: persistenceMessages,
-        model_id: configQuery.data?.model,
+        model_id: activeModelId,
         latency_ms: elapsedMs,
         status: "ok",
         ...extractUsage(runMessagesRef.current)
@@ -315,19 +355,27 @@ export function ChatPanel({
           const persistenceMessages = normalizeRuntimeMessagesForPersistence(runMessagesRef.current);
           await persistChatRun(threadId, {
             messages: persistenceMessages,
-            model_id: configQuery.data?.model,
+            model_id: activeModelId,
             latency_ms: elapsedMs,
             status: "error",
             error: message
           });
           runPersisted = true;
         } catch {
-          try { await patchChatThread(threadId, { stream_status: "failed" }); } catch { /* ignore */ }
+          try {
+            await patchChatThread(threadId, { stream_status: "failed" });
+          } catch {
+            // Ignore cleanup failures after run persistence fails.
+          }
         }
       }
     } finally {
       if (threadId && !runPersisted) {
-        try { await patchChatThread(threadId, { stream_status: "idle" }); } catch { /* ignore */ }
+        try {
+          await patchChatThread(threadId, { stream_status: "idle" });
+        } catch {
+          // Ignore final cleanup failures.
+        }
       }
       setIsStreaming(false);
       void queryClient.invalidateQueries({ queryKey: ["chat", "threads"] });
@@ -344,7 +392,10 @@ export function ChatPanel({
     setLastPrompt(null);
     setLastIdempotencyKey(null);
     setPanelThreadId(null);
-    window.localStorage.removeItem(STORAGE_KEY);
+    writeStoredString(STORAGE_KEY, "");
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(STORAGE_KEY);
+    }
   }
 
   function startResize(event: ReactMouseEvent<HTMLDivElement>): void {
@@ -399,7 +450,24 @@ export function ChatPanel({
       </div>
       <div className="flex h-full flex-col">
         <header className="flex items-center justify-between border-b px-4 py-3">
-          <h2 className="text-sm font-semibold">AI Assistant</h2>
+          <div className="flex min-w-0 items-center gap-3">
+            <h2 className="text-sm font-semibold">AI Assistant</h2>
+            {enabled && modelOptions.length > 0 && activeModelId ? (
+              <select
+                aria-label="Chat model"
+                className="h-8 max-w-[10rem] rounded-md border bg-background px-2 text-xs"
+                value={activeModelId}
+                disabled={isStreaming}
+                onChange={(event) => setSelectedModelId(event.target.value)}
+              >
+                {modelOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+          </div>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" onClick={startNewChat}>
               New chat
