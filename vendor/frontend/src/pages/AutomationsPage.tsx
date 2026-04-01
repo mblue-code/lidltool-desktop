@@ -28,7 +28,15 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  STICKY_TABLE_COLUMN_CLASS,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from "@/components/ui/table";
 import {
   AutomationRule,
   CreateAutomationRuleRequest,
@@ -464,7 +472,7 @@ export function AutomationsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="sticky left-0 z-10 bg-background">Name</TableHead>
+                <TableHead className={STICKY_TABLE_COLUMN_CLASS}>Name</TableHead>
                 <TableHead>Template</TableHead>
                 <TableHead>Enabled</TableHead>
                 <TableHead>Interval</TableHead>
@@ -479,7 +487,7 @@ export function AutomationsPage() {
                 const intervalSeconds = (schedule?.interval_seconds as number | undefined) ?? 3600;
                 return (
                   <TableRow key={rule.id}>
-                    <TableCell className="sticky left-0 z-10 bg-background">{rule.name}</TableCell>
+                    <TableCell className={STICKY_TABLE_COLUMN_CLASS}>{rule.name}</TableCell>
                     <TableCell>{rule.rule_type.replace(/_/g, " ")}</TableCell>
                     <TableCell>
                       <Badge variant={rule.enabled ? "default" : "secondary"}>

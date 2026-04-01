@@ -13,7 +13,15 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  STICKY_TABLE_COLUMN_CLASS,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from "@/components/ui/table";
 import { useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import { useState } from "react";
@@ -75,7 +83,7 @@ export function SourcesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="sticky left-0 z-10 bg-background">{t("pages.sources.displayName")}</TableHead>
+                  <TableHead className={STICKY_TABLE_COLUMN_CLASS}>{t("pages.sources.displayName")}</TableHead>
                   <TableHead>{t("pages.sources.owner")}</TableHead>
                   <TableHead>{t("pages.sources.kind")}</TableHead>
                   <TableHead>{t("common.status")}</TableHead>
@@ -86,7 +94,7 @@ export function SourcesPage() {
               <TableBody>
                 {sources.map((source) => (
                   <TableRow key={source.id}>
-                    <TableCell className="sticky left-0 z-10 bg-background">{source.display_name}</TableCell>
+                    <TableCell className={STICKY_TABLE_COLUMN_CLASS}>{source.display_name}</TableCell>
                     <TableCell>{source.owner_display_name || source.owner_username || "—"}</TableCell>
                     <TableCell>{source.kind}</TableCell>
                     <TableCell>

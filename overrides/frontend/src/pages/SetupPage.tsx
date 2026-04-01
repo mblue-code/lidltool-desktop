@@ -107,8 +107,8 @@ export function SetupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4">
-      <div className="w-full max-w-sm space-y-6">
+    <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4 dark:bg-transparent">
+      <div className="app-soft-surface w-full max-w-md space-y-6 rounded-[28px] border border-border/70 p-6">
         <div className="space-y-1 text-center">
           <h1 className="text-2xl font-semibold tracking-tight">{t("auth.setup.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("auth.setup.subtitle")}</p>
@@ -164,7 +164,7 @@ export function SetupPage() {
           </Button>
         </form>
 
-        <div className="rounded-md border border-border/60 p-4">
+        <div className="app-soft-surface rounded-md border border-border/60 p-4">
           <p className="mb-2 text-sm font-medium">{t("auth.setup.restoreTitle")}</p>
           <p className="mb-3 text-sm text-muted-foreground">{t("auth.setup.restoreDescription")}</p>
           <form className="space-y-3" onSubmit={(event) => void handleRestoreBackup(event)}>

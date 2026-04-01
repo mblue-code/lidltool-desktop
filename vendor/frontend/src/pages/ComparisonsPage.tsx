@@ -188,7 +188,7 @@ export function ComparisonsPage() {
               <Label htmlFor="compare-group-select">Group</Label>
               <select
                 id="compare-group-select"
-                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
                 value={groupId ?? ""}
                 onChange={(event) => setGroupId(event.target.value || null)}
               >

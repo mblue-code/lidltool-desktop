@@ -795,7 +795,7 @@ export function PatternsPage() {
                   aria-selected={timingView === "yearly"}
                   className={cn(
                     "rounded-md px-3 py-1 text-sm transition",
-                    timingView === "yearly" ? "bg-background text-foreground shadow" : "text-muted-foreground"
+                    timingView === "yearly" ? "bg-card text-foreground shadow backdrop-blur-xl" : "text-muted-foreground"
                   )}
                   onClick={() => setTimingView("yearly")}
                 >
@@ -807,7 +807,7 @@ export function PatternsPage() {
                   aria-selected={timingView === "hourly"}
                   className={cn(
                     "rounded-md px-3 py-1 text-sm transition",
-                    timingView === "hourly" ? "bg-background text-foreground shadow" : "text-muted-foreground"
+                    timingView === "hourly" ? "bg-card text-foreground shadow backdrop-blur-xl" : "text-muted-foreground"
                   )}
                   onClick={() => setTimingView("hourly")}
                 >
@@ -819,7 +819,7 @@ export function PatternsPage() {
                   aria-selected={timingView === "matrix"}
                   className={cn(
                     "rounded-md px-3 py-1 text-sm transition",
-                    timingView === "matrix" ? "bg-background text-foreground shadow" : "text-muted-foreground"
+                    timingView === "matrix" ? "bg-card text-foreground shadow backdrop-blur-xl" : "text-muted-foreground"
                   )}
                   onClick={() => setTimingView("matrix")}
                 >
@@ -832,7 +832,7 @@ export function PatternsPage() {
               <Label htmlFor="patterns-value-mode">Metric</Label>
               <select
                 id="patterns-value-mode"
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                className="app-soft-surface h-9 w-full rounded-md border border-input px-3 text-sm"
                 value={valueMode}
                 onChange={(event) => setValueMode(event.target.value as TimingValueMode)}
               >
@@ -846,7 +846,7 @@ export function PatternsPage() {
               <Label htmlFor="patterns-source-kind">Source</Label>
               <select
                 id="patterns-source-kind"
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                className="app-soft-surface h-9 w-full rounded-md border border-input px-3 text-sm"
                 value={sourceKind}
                 onChange={(event) => setSourceKind(event.target.value)}
               >
@@ -893,7 +893,7 @@ export function PatternsPage() {
               <Label htmlFor="patterns-source-kind-compare">Compare Source</Label>
               <select
                 id="patterns-source-kind-compare"
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                className="app-soft-surface h-9 w-full rounded-md border border-input px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                 value={compareSourceKind}
                 disabled={!compareMode}
                 onChange={(event) => setCompareSourceKind(event.target.value)}

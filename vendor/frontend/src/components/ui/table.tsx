@@ -3,6 +3,9 @@ import * as React from "react"
 import { localizeNode, useI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 
+export const STICKY_TABLE_HEADER_CLASS = "sticky top-0 z-10 app-sticky-surface"
+export const STICKY_TABLE_COLUMN_CLASS = "sticky left-0 z-10 app-sticky-surface"
+
 const Table = React.forwardRef<
   HTMLTableElement,
   React.HTMLAttributes<HTMLTableElement>

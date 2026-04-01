@@ -436,7 +436,7 @@ export function ChatPanel({
 
   return (
     <aside
-      className="fixed bottom-0 right-0 top-0 z-40 w-full border-l bg-background shadow-2xl md:w-[var(--chat-panel-width)]"
+      className="fixed bottom-0 right-0 top-0 z-40 w-full border-l bg-card shadow-2xl backdrop-blur-xl dark:shadow-[0_18px_50px_rgba(0,0,0,0.35)] md:w-[var(--chat-panel-width)]"
       style={panelStyle}
     >
       <div
@@ -455,7 +455,7 @@ export function ChatPanel({
             {enabled && modelOptions.length > 0 && activeModelId ? (
               <select
                 aria-label="Chat model"
-                className="h-8 max-w-[10rem] rounded-md border bg-background px-2 text-xs"
+                className="app-soft-surface h-8 max-w-[10rem] rounded-md border px-2 text-xs"
                 value={activeModelId}
                 disabled={isStreaming}
                 onChange={(event) => setSelectedModelId(event.target.value)}

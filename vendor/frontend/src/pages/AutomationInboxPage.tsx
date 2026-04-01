@@ -26,7 +26,15 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  STICKY_TABLE_COLUMN_CLASS,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from "@/components/ui/table";
 import { useI18n } from "@/i18n";
 import { formatDateTime } from "../utils/format";
 
@@ -234,7 +242,7 @@ export function AutomationInboxPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="sticky left-0 z-10 bg-background">Triggered</TableHead>
+                <TableHead className={STICKY_TABLE_COLUMN_CLASS}>Triggered</TableHead>
                 <TableHead>Rule</TableHead>
                 <TableHead>Template</TableHead>
                 <TableHead>Status</TableHead>
@@ -248,7 +256,7 @@ export function AutomationInboxPage() {
             <TableBody>
               {executions.map((execution) => (
                 <TableRow key={execution.id}>
-                  <TableCell className="sticky left-0 z-10 bg-background">{formatDateTime(execution.triggered_at)}</TableCell>
+                  <TableCell className={STICKY_TABLE_COLUMN_CLASS}>{formatDateTime(execution.triggered_at)}</TableCell>
                   <TableCell>{execution.rule_name || execution.rule_id}</TableCell>
                   <TableCell>{execution.rule_type || "-"}</TableCell>
                   <TableCell>

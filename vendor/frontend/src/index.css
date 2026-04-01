@@ -53,6 +53,17 @@
 
 :root {
     --radius: 0.5rem;
+    --app-background-image: linear-gradient(180deg, oklch(0.99 0 0), oklch(0.97 0.003 258));
+    --app-shell-surface: transparent;
+    --app-header-surface: rgb(255 255 255 / 0.92);
+    --app-soft-surface: rgb(255 255 255 / 0.78);
+    --app-overlay-surface: rgb(255 255 255 / 0.9);
+    --app-sticky-surface: rgb(255 255 255 / 0.94);
+    --app-hero-surface:
+        radial-gradient(circle at top right, rgb(106 158 255 / 0.12), transparent 30%),
+        linear-gradient(145deg, rgb(255 255 255 / 0.88), rgb(244 247 252 / 0.92));
+    --app-soft-shadow: 0 16px 32px rgb(15 23 42 / 0.08);
+    --app-overlay-shadow: 0 24px 60px rgb(15 23 42 / 0.16);
 
     /* Surfaces */
     --background: oklch(0.99 0 0);
@@ -109,25 +120,25 @@
 
 .dark {
     --background: oklch(0.12 0.01 258);
-    --foreground: oklch(0.94 0 0);
-    --card: oklch(0.17 0.02 258);
-    --card-foreground: oklch(0.94 0 0);
-    --popover: oklch(0.17 0.02 258);
-    --popover-foreground: oklch(0.94 0 0);
-    --primary: oklch(0.62 0.22 258);
+    --foreground: oklch(0.96 0.01 85);
+    --card: rgb(15 21 31 / 0.82);
+    --card-foreground: oklch(0.96 0.01 85);
+    --popover: rgb(15 21 31 / 0.94);
+    --popover-foreground: oklch(0.96 0.01 85);
+    --primary: oklch(0.69 0.18 255);
     --primary-foreground: oklch(0.99 0 0);
-    --secondary: oklch(0.25 0.03 258);
-    --secondary-foreground: oklch(0.90 0 0);
-    --muted: oklch(0.22 0.02 258);
-    --muted-foreground: oklch(0.62 0.02 258);
-    --accent: oklch(0.25 0.03 258);
-    --accent-foreground: oklch(0.90 0 0);
+    --secondary: rgb(52 68 92 / 0.9);
+    --secondary-foreground: oklch(0.92 0.01 85);
+    --muted: rgb(23 31 44 / 0.76);
+    --muted-foreground: oklch(0.76 0.01 258);
+    --accent: rgb(40 53 73 / 0.88);
+    --accent-foreground: oklch(0.93 0.01 85);
     --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 12%);
-    --ring: oklch(0.62 0.22 258);
+    --border: rgb(210 226 255 / 0.12);
+    --input: rgb(10 15 24 / 0.88);
+    --ring: oklch(0.69 0.18 255);
 
-    --chart-1: oklch(0.63 0.22 258);
+    --chart-1: oklch(0.69 0.18 255);
     --chart-2: oklch(0.68 0.18 160);
     --chart-3: oklch(0.76 0.16 75);
     --chart-4: oklch(0.65 0.20 295);
@@ -144,14 +155,29 @@
     --info: oklch(0.68 0.18 240);
     --info-foreground: oklch(0.99 0 0);
 
-    --sidebar: oklch(0.13 0.02 258);
-    --sidebar-foreground: oklch(0.82 0.02 258);
-    --sidebar-primary: oklch(0.62 0.22 258);
+    --sidebar: rgb(12 18 28 / 0.8);
+    --sidebar-foreground: oklch(0.88 0.01 258);
+    --sidebar-primary: oklch(0.69 0.18 255);
     --sidebar-primary-foreground: oklch(0.99 0 0);
-    --sidebar-accent: oklch(0.22 0.03 258);
-    --sidebar-accent-foreground: oklch(0.90 0.02 258);
-    --sidebar-border: oklch(1 0 0 / 8%);
-    --sidebar-ring: oklch(0.62 0.22 258);
+    --sidebar-accent: rgb(36 48 67 / 0.88);
+    --sidebar-accent-foreground: oklch(0.92 0.01 258);
+    --sidebar-border: rgb(210 226 255 / 0.1);
+    --sidebar-ring: oklch(0.69 0.18 255);
+    --app-background-image:
+        radial-gradient(circle at top right, rgb(74 154 242 / 0.26), transparent 28%),
+        radial-gradient(circle at 15% 10%, rgb(234 184 98 / 0.16), transparent 24%),
+        linear-gradient(160deg, #10151d 0%, #0b1119 45%, #091018 100%);
+    --app-shell-surface: rgb(6 10 17 / 0.16);
+    --app-header-surface: rgb(12 18 27 / 0.72);
+    --app-soft-surface: rgb(15 21 31 / 0.72);
+    --app-overlay-surface: rgb(15 21 31 / 0.9);
+    --app-sticky-surface: rgb(12 18 27 / 0.82);
+    --app-hero-surface:
+        radial-gradient(circle at top right, rgb(91 171 255 / 0.22), transparent 28%),
+        radial-gradient(circle at 18% 10%, rgb(240 194 125 / 0.08), transparent 24%),
+        linear-gradient(135deg, rgb(19 28 40 / 0.96) 0%, rgb(11 17 26 / 0.96) 100%);
+    --app-soft-shadow: 0 18px 50px rgb(0 0 0 / 0.22);
+    --app-overlay-shadow: 0 24px 72px rgb(0 0 0 / 0.38);
 }
 
 @layer base {
@@ -161,9 +187,38 @@
 
     body {
         @apply bg-background text-foreground antialiased;
+        background-image: var(--app-background-image);
+        background-attachment: fixed;
+        background-position: center;
+        background-size: cover;
     }
 
     #root {
         min-height: 100dvh;
+        isolation: isolate;
+    }
+}
+
+@layer components {
+    .app-soft-surface {
+        background: var(--app-soft-surface);
+        box-shadow: var(--app-soft-shadow);
+        backdrop-filter: blur(18px);
+    }
+
+    .app-overlay-surface {
+        background: var(--app-overlay-surface);
+        box-shadow: var(--app-overlay-shadow);
+        backdrop-filter: blur(24px);
+    }
+
+    .app-sticky-surface {
+        background: var(--app-sticky-surface);
+        backdrop-filter: blur(18px);
+    }
+
+    .app-hero-surface {
+        background: var(--app-hero-surface);
+        box-shadow: var(--app-overlay-shadow);
     }
 }

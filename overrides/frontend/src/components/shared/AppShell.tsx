@@ -708,7 +708,7 @@ export function AppShell({ user }: AppShellProps) {
   }, []);
 
   return (
-    <div className="min-h-screen bg-muted/30">
+    <div className="min-h-screen bg-muted/30 dark:bg-transparent">
       <a
         href="#main-content"
         className="sr-only rounded-md bg-background px-3 py-2 text-sm font-medium focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50"
@@ -716,7 +716,7 @@ export function AppShell({ user }: AppShellProps) {
         {t("app.skipToMain")}
       </a>
 
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen dark:bg-[var(--app-shell-surface)]">
         <aside className="hidden w-64 md:flex md:flex-col" aria-label={t("nav.primary")}>
           <SidebarContent
             user={user}
@@ -740,7 +740,7 @@ export function AppShell({ user }: AppShellProps) {
             } as CSSProperties
           }
         >
-          <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur-sm">
+          <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur-sm dark:bg-[var(--app-header-surface)]">
             <div className="mx-auto flex w-full max-w-7xl items-center gap-3 px-4 py-3 md:px-6">
               <div className="md:hidden">
                 <Sheet>

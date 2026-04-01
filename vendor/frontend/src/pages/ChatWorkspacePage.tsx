@@ -563,7 +563,7 @@ export function ChatWorkspacePage() {
                     <span>{t("pages.chatWorkspace.modelSelector.label")}</span>
                     <select
                       aria-label={t("pages.chatWorkspace.modelSelector.label")}
-                      className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"
+                      className="app-soft-surface h-8 rounded-md border px-2 text-xs text-foreground"
                       value={selectedModelId ?? ""}
                       onChange={(event) => updateSelectedModel(event.target.value)}
                       disabled={streaming}
@@ -649,8 +649,8 @@ export function ChatWorkspacePage() {
                     message.role === "user"
                       ? "ml-auto bg-primary text-primary-foreground"
                       : message.role === "tool"
-                        ? "mr-auto border border-dashed bg-muted/30"
-                        : "mr-auto bg-background"
+                        ? "app-soft-surface mr-auto border border-dashed"
+                        : "mr-auto border border-border/70 bg-card backdrop-blur-xl"
                   )}
                 >
                   {message.role === "tool" ? (

@@ -588,7 +588,7 @@ export function BillsPage() {
                 cell.kind === "blank" ? (
                   <div key={cell.key} className="rounded-md border border-dashed bg-muted/10 p-2" />
                 ) : (
-                  <div key={cell.isoDate} className="rounded-md border bg-background p-2 text-center">
+                  <div key={cell.isoDate} className="app-soft-surface rounded-md border p-2 text-center">
                     <p className="text-sm font-medium">{cell.day}</p>
                     {cell.count > 0 ? (
                       <Badge variant={cell.count > 2 ? "destructive" : "secondary"} className="mt-2">
@@ -665,7 +665,7 @@ export function BillsPage() {
                 <Label htmlFor="bill-frequency">{t("pages.bills.form.frequency")}</Label>
                 <select
                   id="bill-frequency"
-                  className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
                   value={formState.frequency}
                   onChange={(event) =>
                     setFormState((prev) => ({
@@ -707,7 +707,7 @@ export function BillsPage() {
                 <Label htmlFor="bill-amount-mode">{t("pages.bills.form.amountMode")}</Label>
                 <select
                   id="bill-amount-mode"
-                  className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
                   value={formState.amountMode}
                   onChange={(event) =>
                     setFormState((prev) => ({

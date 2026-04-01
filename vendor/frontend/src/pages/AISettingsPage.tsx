@@ -236,7 +236,7 @@ export function AISettingsPage() {
                   <Label htmlFor="ai-provider-preset">{t("common.provider")}</Label>
                   <select
                     id="ai-provider-preset"
-                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                    className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
                     value={activePreset}
                     onChange={(event) => applyPreset(event.target.value)}
                   >

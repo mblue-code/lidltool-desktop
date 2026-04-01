@@ -12,7 +12,15 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  STICKY_TABLE_COLUMN_CLASS,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from "@/components/ui/table";
 import { useI18n } from "@/i18n";
 import { formatDateTime, formatPercent } from "@/utils/format";
 
@@ -301,7 +309,7 @@ export function ReliabilityPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="sticky left-0 z-10 bg-background">Endpoint</TableHead>
+                  <TableHead className={STICKY_TABLE_COLUMN_CLASS}>Endpoint</TableHead>
                   <TableHead>Requests</TableHead>
                   <TableHead>Success</TableHead>
                   <TableHead>Error</TableHead>
@@ -320,7 +328,7 @@ export function ReliabilityPage() {
                     endpoint.p95_duration_ms === null || endpoint.p95_duration_ms <= p95Target;
                   return (
                     <TableRow key={endpoint.route}>
-                      <TableCell className="sticky left-0 z-10 bg-background font-mono text-xs">{endpoint.route}</TableCell>
+                      <TableCell className={`${STICKY_TABLE_COLUMN_CLASS} font-mono text-xs`}>{endpoint.route}</TableCell>
                       <TableCell>{endpoint.count}</TableCell>
                       <TableCell>{formatPercent(endpoint.success_rate)}</TableCell>
                       <TableCell>{formatPercent(endpoint.error_rate)}</TableCell>

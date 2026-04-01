@@ -12,7 +12,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  STICKY_TABLE_HEADER_CLASS,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from "@/components/ui/table";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { useI18n } from "@/i18n";
@@ -23,7 +31,7 @@ import { formatDateTime, formatEurFromCents } from "../utils/format";
 const PAGE_SIZE = 25;
 const DEFAULT_SORT_FIELD = "purchased_at";
 const DEFAULT_SORT_DIRECTION = "desc";
-const STICKY_HEADER_CLASS = "sticky top-0 z-10 bg-background";
+const STICKY_HEADER_CLASS = STICKY_TABLE_HEADER_CLASS;
 
 const FILTER_KEYS = [
   "query",

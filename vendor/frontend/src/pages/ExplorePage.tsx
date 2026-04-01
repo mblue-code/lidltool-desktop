@@ -207,7 +207,7 @@ export function ExplorePage() {
             </Button>
           </div>
           {showSyntaxHelp ? (
-            <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1">
+            <div className="app-soft-surface space-y-1 rounded-md border p-3 text-xs">
               <p className="font-medium">DSL Syntax Reference</p>
               <p><code>SPEND net|gross BY dim1, dim2</code> — aggregate spending</p>
               <p><code>WHERE date BETWEEN YYYY-MM-DD..YYYY-MM-DD</code> — date filter</p>

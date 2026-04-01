@@ -38,7 +38,15 @@ import {
   SheetHeader,
   SheetTitle
 } from "@/components/ui/sheet";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  STICKY_TABLE_COLUMN_CLASS,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
@@ -545,7 +553,7 @@ export function ReviewQueuePage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="sticky left-0 z-10 bg-background">{t("pages.reviewQueue.col.created")}</TableHead>
+                <TableHead className={STICKY_TABLE_COLUMN_CLASS}>{t("pages.reviewQueue.col.created")}</TableHead>
                 <TableHead>{t("pages.reviewQueue.col.merchant")}</TableHead>
                 <TableHead>{t("pages.reviewQueue.col.total")}</TableHead>
                 <TableHead>{t("pages.reviewQueue.col.confidence")}</TableHead>
@@ -559,7 +567,7 @@ export function ReviewQueuePage() {
             <TableBody>
               {queueItems.map((item) => (
                 <TableRow key={item.document_id}>
-                  <TableCell className="sticky left-0 z-10 bg-background">{formatDateTime(item.created_at)}</TableCell>
+                  <TableCell className={STICKY_TABLE_COLUMN_CLASS}>{formatDateTime(item.created_at)}</TableCell>
                   <TableCell>{item.merchant_name || "-"}</TableCell>
                   <TableCell className="tabular-nums">{formatEurFromCents(item.total_gross_cents)}</TableCell>
                   <TableCell className="tabular-nums">{item.transaction_confidence ?? "—"}</TableCell>
