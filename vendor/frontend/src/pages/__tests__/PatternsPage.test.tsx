@@ -234,7 +234,7 @@ describe("PatternsPage", () => {
   it("renders heatmap, velocity and price index sections", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Timing Patterns")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Patterns" })).toBeInTheDocument();
       expect(screen.getByText("Yearly")).toBeInTheDocument();
       expect(screen.getByText("Retailer Price Index (Recent)")).toBeInTheDocument();
       expect(screen.getByText("2026-01")).toBeInTheDocument();

@@ -8,6 +8,8 @@ const __dirname = dirname(__filename);
 const desktopDir = resolve(__dirname, "..");
 const frontendDir = resolve(desktopDir, "vendor", "frontend");
 const frontendOverridesDir = resolve(desktopDir, "overrides", "frontend");
+const sharedDesktopRoutePolicyPath = resolve(desktopDir, "src", "shared", "desktop-route-policy.ts");
+const frontendDesktopRoutePolicyPath = resolve(frontendDir, "src", "lib", "desktop-route-policy.ts");
 
 const aliasFragment = "\"@mariozechner/pi-ai\": resolve(process.cwd(), \"src/shims/pi-ai.ts\"),";
 
@@ -59,6 +61,14 @@ function applyOverrides(sourceDir, destDir) {
   return copied.sort();
 }
 
+function syncSharedDesktopRoutePolicy() {
+  if (!existsSync(sharedDesktopRoutePolicyPath)) {
+    throw new Error(`Shared desktop route policy not found at ${sharedDesktopRoutePolicyPath}.`);
+  }
+
+  cpSync(sharedDesktopRoutePolicyPath, frontendDesktopRoutePolicyPath, { force: true });
+}
+
 const viteTs = resolve(frontendDir, "vite.config.ts");
 const viteJs = resolve(frontendDir, "vite.config.js");
 
@@ -76,6 +86,9 @@ if (tsResult.changed || jsResult.changed) {
 } else {
   console.log("Vendored frontend Vite config already contains browser shim alias.");
 }
+
+syncSharedDesktopRoutePolicy();
+console.log("Synced shared desktop route policy into vendored frontend.");
 
 const overrideFiles = applyOverrides(frontendOverridesDir, frontendDir);
 if (overrideFiles.length > 0) {

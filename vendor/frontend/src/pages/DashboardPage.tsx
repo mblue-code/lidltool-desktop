@@ -200,6 +200,7 @@ function downloadBlob(filename: string, type: string, content: string): boolean 
 export function DashboardPage() {
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [showFilters, setShowFilters] = useState(() => searchParams.toString() !== "");
   const today = new Date();
   const recurringToday = new Date();
   const defaultYear = today.getFullYear();
@@ -462,219 +463,238 @@ export function DashboardPage() {
 
   return (
     <section className="space-y-4">
-      <PageHeader title={t("nav.item.overview")} />
+      <PageHeader title={t("nav.item.overview")} description={t("pages.dashboard.description")}>
+        <Button asChild variant="outline">
+          <Link to="/receipts">{t("nav.item.receipts")}</Link>
+        </Button>
+        <Button asChild>
+          <Link to="/add">{t("nav.item.addReceipt")}</Link>
+        </Button>
+      </PageHeader>
       <div className="space-y-4 rounded-lg border bg-card p-4">
-        <div className="grid gap-3 md:grid-cols-6">
-          <div className="space-y-2">
-            <Label htmlFor="dashboard-period-mode">{t("pages.dashboard.period")}</Label>
-            <Select
-              value={periodMode}
-              onValueChange={(nextMode) => updateSearchParams({ period: nextMode as DashboardPeriodMode })}
-            >
-              <SelectTrigger id="dashboard-period-mode">
-                <SelectValue placeholder={t("pages.dashboard.selectPeriod")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="month">{t("pages.dashboard.period.month")}</SelectItem>
-                <SelectItem value="range">{t("pages.dashboard.period.range")}</SelectItem>
-                <SelectItem value="year">{t("pages.dashboard.period.year")}</SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">
+              {periodMode === "month"
+                ? t("pages.dashboard.showingMonth", { period: monthYearLabel(year, month) })
+                : periodMode === "range"
+                  ? t("pages.dashboard.showingRange", { period: `${monthName(startMonth)}-${monthName(endMonth)} ${year}` })
+                  : t("pages.dashboard.showingYear", { year })}
+            </p>
+            <p className="text-sm text-muted-foreground">{selectedRetailerSummary()}</p>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="dashboard-year">{t("common.year")}</Label>
-            <Input
-              id="dashboard-year"
-              type="number"
-              value={year}
-              min={YEAR_MIN}
-              max={YEAR_MAX}
-              onChange={(event) => {
-                const parsed = Number(event.target.value);
-                if (!Number.isFinite(parsed)) {
-                  return;
-                }
-                updateSearchParams({ year: clampNumber(Math.floor(parsed), YEAR_MIN, YEAR_MAX) });
-              }}
-            />
-          </div>
-
-          {periodMode === "month" ? (
-            <div className="space-y-2">
-              <Label htmlFor="dashboard-month">{t("common.month")}</Label>
-              <Select
-                value={String(month)}
-                onValueChange={(value) => updateSearchParams({ month: clampNumber(Number(value), MONTH_MIN, MONTH_MAX) })}
-              >
-                <SelectTrigger id="dashboard-month">
-                  <SelectValue placeholder={t("pages.dashboard.selectMonth")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: 12 }, (_, index) => (
-                    <SelectItem key={index + 1} value={String(index + 1)}>
-                      {formatMonthName(index + 1)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
-
-          {periodMode === "range" ? (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="dashboard-start-month">{t("common.from")}</Label>
-                <Select
-                  value={String(startMonth)}
-                  onValueChange={(value) =>
-                    updateSearchParams({ startMonth: clampNumber(Number(value), MONTH_MIN, MONTH_MAX) })
-                  }
-                >
-                  <SelectTrigger id="dashboard-start-month">
-                    <SelectValue placeholder={t("pages.dashboard.startMonth")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from({ length: 12 }, (_, index) => (
-                      <SelectItem key={`start-${index + 1}`} value={String(index + 1)}>
-                        {formatMonthName(index + 1)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="dashboard-end-month">{t("common.to")}</Label>
-                <Select
-                  value={String(endMonth)}
-                  onValueChange={(value) =>
-                    updateSearchParams({ endMonth: clampNumber(Number(value), MONTH_MIN, MONTH_MAX) })
-                  }
-                >
-                  <SelectTrigger id="dashboard-end-month">
-                    <SelectValue placeholder={t("pages.dashboard.endMonth")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from({ length: 12 }, (_, index) => (
-                      <SelectItem key={`end-${index + 1}`} value={String(index + 1)}>
-                        {formatMonthName(index + 1)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </>
-          ) : null}
-
-          {periodMode === "year" ? (
-            <div className="space-y-2">
-              <Label>{t("common.window")}</Label>
-              <div className="flex h-10 items-center rounded-md border px-3 text-sm text-muted-foreground">
-                {t("pages.dashboard.janToDec")}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="space-y-2">
-            <Label>{t("pages.dashboard.retailers")}</Label>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" className="w-full justify-start text-left">
-                  {selectedRetailerSummary()}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-72">
-                <DropdownMenuLabel>{t("pages.dashboard.filterRetailers")}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="mx-1 mb-1 w-[calc(100%-0.5rem)] justify-start"
-                  onClick={() => updateSearchParams({ retailers: [] })}
-                >
-                  {t("pages.dashboard.allRetailers")}
-                </Button>
-                {retailerOptions.length === 0 ? (
-                  <p className="px-2 py-1 text-xs text-muted-foreground">{t("pages.dashboard.noRetailers")}</p>
-                ) : (
-                  retailerOptions.map((option) => (
-                    <DropdownMenuCheckboxItem
-                      key={option.id}
-                      checked={selectedRetailerIds.includes(option.id)}
-                      onSelect={(event) => event.preventDefault()}
-                      onCheckedChange={() => toggleRetailer(option.id)}
-                    >
-                      {option.label}
-                    </DropdownMenuCheckboxItem>
-                  ))
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="dashboard-spend-view">{t("pages.dashboard.spendView")}</Label>
-            <Select value={spendView} onValueChange={(nextView) => updateSearchParams({ spend: nextView as SpendView })}>
-              <SelectTrigger id="dashboard-spend-view">
-                <SelectValue placeholder={t("pages.dashboard.selectSpendView")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="net">{t("pages.dashboard.spendView.net")}</SelectItem>
-                <SelectItem value="gross">{t("pages.dashboard.spendView.gross")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="dashboard-discount-view">{t("pages.dashboard.discountView")}</Label>
-            <Select value={view} onValueChange={(nextView) => updateSearchParams({ view: nextView as DiscountView })}>
-              <SelectTrigger id="dashboard-discount-view">
-                <SelectValue placeholder={t("pages.dashboard.selectDiscountView")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="native">{t("pages.dashboard.discountView.native")}</SelectItem>
-                <SelectItem value="normalized">{t("pages.dashboard.discountView.normalized")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {periodMode === "range" ? (
           <div className="flex flex-wrap gap-2">
-            {RANGE_PRESETS.map((preset) => (
-              <Button
-                key={preset.label}
-                type="button"
-                size="sm"
-                variant={startMonth === preset.startMonth && endMonth === preset.endMonth ? "default" : "outline"}
-                onClick={() =>
-                  updateSearchParams({
-                    period: "range",
-                    startMonth: preset.startMonth,
-                    endMonth: preset.endMonth
-                  })
-                }
-              >
-                {preset.label}
-              </Button>
-            ))}
+            <Button type="button" variant="outline" onClick={() => setShowFilters((current) => !current)}>
+              {t(showFilters ? "pages.dashboard.hideFilters" : "pages.dashboard.showFilters")}
+            </Button>
+            <Button asChild>
+              <Link to={ledgerLink}>{t("pages.dashboard.drillDown")}</Link>
+            </Button>
           </div>
-        ) : null}
-
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <p className="text-sm text-muted-foreground">
-            {periodMode === "month"
-              ? t("pages.dashboard.showingMonth", { period: monthYearLabel(year, month) })
-              : periodMode === "range"
-                ? t("pages.dashboard.showingRange", { period: `${monthName(startMonth)}-${monthName(endMonth)} ${year}` })
-                : t("pages.dashboard.showingYear", { year })}
-            {`, ${selectedRetailerSummary()}`}
-          </p>
-          <Button asChild>
-            <Link to={ledgerLink}>{t("pages.dashboard.drillDown")}</Link>
-          </Button>
         </div>
+
+        {showFilters ? (
+          <>
+            <div className="grid gap-3 md:grid-cols-6">
+              <div className="space-y-2">
+                <Label htmlFor="dashboard-period-mode">{t("pages.dashboard.period")}</Label>
+                <Select
+                  value={periodMode}
+                  onValueChange={(nextMode) => updateSearchParams({ period: nextMode as DashboardPeriodMode })}
+                >
+                  <SelectTrigger id="dashboard-period-mode">
+                    <SelectValue placeholder={t("pages.dashboard.selectPeriod")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="month">{t("pages.dashboard.period.month")}</SelectItem>
+                    <SelectItem value="range">{t("pages.dashboard.period.range")}</SelectItem>
+                    <SelectItem value="year">{t("pages.dashboard.period.year")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="dashboard-year">{t("common.year")}</Label>
+                <Input
+                  id="dashboard-year"
+                  type="number"
+                  value={year}
+                  min={YEAR_MIN}
+                  max={YEAR_MAX}
+                  onChange={(event) => {
+                    const parsed = Number(event.target.value);
+                    if (!Number.isFinite(parsed)) {
+                      return;
+                    }
+                    updateSearchParams({ year: clampNumber(Math.floor(parsed), YEAR_MIN, YEAR_MAX) });
+                  }}
+                />
+              </div>
+
+              {periodMode === "month" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="dashboard-month">{t("common.month")}</Label>
+                  <Select
+                    value={String(month)}
+                    onValueChange={(value) => updateSearchParams({ month: clampNumber(Number(value), MONTH_MIN, MONTH_MAX) })}
+                  >
+                    <SelectTrigger id="dashboard-month">
+                      <SelectValue placeholder={t("pages.dashboard.selectMonth")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 12 }, (_, index) => (
+                        <SelectItem key={index + 1} value={String(index + 1)}>
+                          {formatMonthName(index + 1)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+
+              {periodMode === "range" ? (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="dashboard-start-month">{t("common.from")}</Label>
+                    <Select
+                      value={String(startMonth)}
+                      onValueChange={(value) =>
+                        updateSearchParams({ startMonth: clampNumber(Number(value), MONTH_MIN, MONTH_MAX) })
+                      }
+                    >
+                      <SelectTrigger id="dashboard-start-month">
+                        <SelectValue placeholder={t("pages.dashboard.startMonth")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 12 }, (_, index) => (
+                          <SelectItem key={`start-${index + 1}`} value={String(index + 1)}>
+                            {formatMonthName(index + 1)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="dashboard-end-month">{t("common.to")}</Label>
+                    <Select
+                      value={String(endMonth)}
+                      onValueChange={(value) =>
+                        updateSearchParams({ endMonth: clampNumber(Number(value), MONTH_MIN, MONTH_MAX) })
+                      }
+                    >
+                      <SelectTrigger id="dashboard-end-month">
+                        <SelectValue placeholder={t("pages.dashboard.endMonth")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 12 }, (_, index) => (
+                          <SelectItem key={`end-${index + 1}`} value={String(index + 1)}>
+                            {formatMonthName(index + 1)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              ) : null}
+
+              {periodMode === "year" ? (
+                <div className="space-y-2">
+                  <Label>{t("common.window")}</Label>
+                  <div className="flex h-10 items-center rounded-md border px-3 text-sm text-muted-foreground">
+                    {t("pages.dashboard.janToDec")}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                <Label>{t("pages.dashboard.retailers")}</Label>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" variant="outline" className="w-full justify-start text-left">
+                      {selectedRetailerSummary()}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-72">
+                    <DropdownMenuLabel>{t("pages.dashboard.filterRetailers")}</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="mx-1 mb-1 w-[calc(100%-0.5rem)] justify-start"
+                      onClick={() => updateSearchParams({ retailers: [] })}
+                    >
+                      {t("pages.dashboard.allRetailers")}
+                    </Button>
+                    {retailerOptions.length === 0 ? (
+                      <p className="px-2 py-1 text-xs text-muted-foreground">{t("pages.dashboard.noRetailers")}</p>
+                    ) : (
+                      retailerOptions.map((option) => (
+                        <DropdownMenuCheckboxItem
+                          key={option.id}
+                          checked={selectedRetailerIds.includes(option.id)}
+                          onSelect={(event) => event.preventDefault()}
+                          onCheckedChange={() => toggleRetailer(option.id)}
+                        >
+                          {option.label}
+                        </DropdownMenuCheckboxItem>
+                      ))
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="dashboard-spend-view">{t("pages.dashboard.spendView")}</Label>
+                <Select value={spendView} onValueChange={(nextView) => updateSearchParams({ spend: nextView as SpendView })}>
+                  <SelectTrigger id="dashboard-spend-view">
+                    <SelectValue placeholder={t("pages.dashboard.selectSpendView")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="net">{t("pages.dashboard.spendView.net")}</SelectItem>
+                    <SelectItem value="gross">{t("pages.dashboard.spendView.gross")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="dashboard-discount-view">{t("pages.dashboard.discountView")}</Label>
+                <Select value={view} onValueChange={(nextView) => updateSearchParams({ view: nextView as DiscountView })}>
+                  <SelectTrigger id="dashboard-discount-view">
+                    <SelectValue placeholder={t("pages.dashboard.selectDiscountView")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="native">{t("pages.dashboard.discountView.native")}</SelectItem>
+                    <SelectItem value="normalized">{t("pages.dashboard.discountView.normalized")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {periodMode === "range" ? (
+              <div className="flex flex-wrap gap-2">
+                {RANGE_PRESETS.map((preset) => (
+                  <Button
+                    key={preset.label}
+                    type="button"
+                    size="sm"
+                    variant={startMonth === preset.startMonth && endMonth === preset.endMonth ? "default" : "outline"}
+                    onClick={() =>
+                      updateSearchParams({
+                        period: "range",
+                        startMonth: preset.startMonth,
+                        endMonth: preset.endMonth
+                      })
+                    }
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : null}
       </div>
 
       {warnings.length > 0 ? (
@@ -699,7 +719,10 @@ export function DashboardPage() {
         </Alert>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-5">
+      <section className="grid gap-4 md:grid-cols-5" aria-labelledby="dashboard-summary-heading">
+        <h2 id="dashboard-summary-heading" className="sr-only">
+          Dashboard summary
+        </h2>
         {loading ? (
           <>
             <Skeleton className="h-28 rounded-lg" />

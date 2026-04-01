@@ -3,7 +3,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { createSpendingAgent } from "@/agent";
 import { ALL_TOOLS } from "@/agent/tools";
-import { fetchAIAgentConfig, type AIAgentConfig } from "@/api/aiSettings";
+import { fetchAIAgentConfig } from "@/api/aiSettings";
 import {
   ChatMessage,
   createChatMessage,
@@ -17,6 +17,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/shared/SearchInput";
+import {
+  CHAT_WORKSPACE_MODEL_STORAGE_KEY,
+  enabledAgentModels,
+  readStoredModelMap,
+  resolveAgentModelSelection,
+  writeStoredModelMap
+} from "@/chat/model-selection";
 import { ExportableChatUiSpec } from "@/chat/ui/ExportableChatUiSpec";
 import { extractUiSpecsFromContent, messageTextFromContent } from "@/chat/ui/content";
 import { normalizeRuntimeMessagesForPersistence } from "@/chat/ui/runtime-messages";
@@ -44,34 +51,6 @@ type DisplayMessage = {
 };
 
 const TOOL_LABELS = Object.fromEntries(ALL_TOOLS.map((tool) => [tool.name, tool.label]));
-const MODEL_SELECTION_STORAGE_KEY = "chat.workspace.model-selection.v1";
-
-function readStoredModelSelections(): Record<string, string> {
-  if (typeof window === "undefined") {
-    return {};
-  }
-  try {
-    const raw = window.localStorage.getItem(MODEL_SELECTION_STORAGE_KEY);
-    if (!raw) {
-      return {};
-    }
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeStoredModelSelections(next: Record<string, string>): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.setItem(MODEL_SELECTION_STORAGE_KEY, JSON.stringify(next));
-}
-
-function enabledModelOptions(config: AIAgentConfig | undefined) {
-  return (config?.available_models ?? []).filter((model) => model.enabled);
-}
 
 function runtimeMessageText(message: any): string {
   if (!message) {
@@ -180,7 +159,7 @@ export function ChatWorkspacePage() {
   const [pendingAssistantMessage, setPendingAssistantMessage] = useState("");
   const [streamError, setStreamError] = useState<string | null>(null);
   const [storedModelSelections, setStoredModelSelections] = useState<Record<string, string>>(() =>
-    readStoredModelSelections()
+    readStoredModelMap(CHAT_WORKSPACE_MODEL_STORAGE_KEY)
   );
   const [draftModelId, setDraftModelId] = useState<string | null>(null);
   const runMessagesRef = useRef<any[]>([]);
@@ -191,7 +170,7 @@ export function ChatWorkspacePage() {
     queryFn: fetchAIAgentConfig
   });
   const availableModels = useMemo(
-    () => enabledModelOptions(configQuery.data),
+    () => (configQuery.data ? enabledAgentModels(configQuery.data) : []),
     [configQuery.data]
   );
   const availableModelIds = useMemo(
@@ -200,26 +179,14 @@ export function ChatWorkspacePage() {
   );
 
   const selectedModelId = useMemo(() => {
-    const preferredModel = configQuery.data?.preferred_model ?? configQuery.data?.model ?? "";
     const explicitModel = selectedThreadId
       ? storedModelSelections[selectedThreadId]
       : draftModelId;
-    if (explicitModel && availableModelIds.has(explicitModel)) {
-      return explicitModel;
+    if (!configQuery.data) {
+      return null;
     }
-    if (availableModelIds.has(preferredModel)) {
-      return preferredModel;
-    }
-    return availableModels[0]?.id ?? preferredModel;
-  }, [
-    availableModelIds,
-    availableModels,
-    configQuery.data?.model,
-    configQuery.data?.preferred_model,
-    draftModelId,
-    selectedThreadId,
-    storedModelSelections
-  ]);
+    return resolveAgentModelSelection(configQuery.data, explicitModel);
+  }, [configQuery.data, draftModelId, selectedThreadId, storedModelSelections]);
 
   const agent = useMemo(() => {
     if (!configQuery.data || !selectedModelId) {
@@ -262,16 +229,16 @@ export function ChatWorkspacePage() {
     if (!configQuery.data) {
       return;
     }
-    const preferredModel = configQuery.data.preferred_model;
     const nextSelections = Object.fromEntries(
       Object.entries(storedModelSelections).filter(([, modelId]) => availableModelIds.has(modelId))
     );
     if (Object.keys(nextSelections).length !== Object.keys(storedModelSelections).length) {
       setStoredModelSelections(nextSelections);
-      writeStoredModelSelections(nextSelections);
+      writeStoredModelMap(CHAT_WORKSPACE_MODEL_STORAGE_KEY, nextSelections);
     }
-    if (!draftModelId || !availableModelIds.has(draftModelId)) {
-      setDraftModelId(preferredModel);
+    const nextDraftModelId = resolveAgentModelSelection(configQuery.data, draftModelId);
+    if (draftModelId !== nextDraftModelId) {
+      setDraftModelId(nextDraftModelId);
     }
   }, [availableModelIds, configQuery.data, draftModelId, storedModelSelections]);
 
@@ -365,7 +332,7 @@ export function ChatWorkspacePage() {
       await createChatThread({ thread_id: targetThreadId, title: content.slice(0, 60) });
       setStoredModelSelections((previous) => {
         const next = { ...previous, [targetThreadId]: activeModelId };
-        writeStoredModelSelections(next);
+        writeStoredModelMap(CHAT_WORKSPACE_MODEL_STORAGE_KEY, next);
         return next;
       });
     }
@@ -459,7 +426,7 @@ export function ChatWorkspacePage() {
     if (selectedThreadId) {
       setStoredModelSelections((previous) => {
         const next = { ...previous, [selectedThreadId]: nextModelId };
-        writeStoredModelSelections(next);
+        writeStoredModelMap(CHAT_WORKSPACE_MODEL_STORAGE_KEY, next);
         return next;
       });
       return;
@@ -597,7 +564,7 @@ export function ChatWorkspacePage() {
                     <select
                       aria-label={t("pages.chatWorkspace.modelSelector.label")}
                       className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"
-                      value={selectedModelId}
+                      value={selectedModelId ?? ""}
                       onChange={(event) => updateSelectedModel(event.target.value)}
                       disabled={streaming}
                     >

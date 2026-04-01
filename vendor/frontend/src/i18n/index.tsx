@@ -205,7 +205,11 @@ function detectLocaleFromNavigator(): SupportedLocale {
   if (typeof navigator === "undefined") {
     return DEFAULT_LOCALE;
   }
-  return navigator.language.toLowerCase().startsWith("de") ? "de" : "en";
+  const language =
+    typeof navigator.language === "string" && navigator.language.trim().length > 0
+      ? navigator.language
+      : DEFAULT_LOCALE;
+  return language.toLowerCase().startsWith("de") ? "de" : "en";
 }
 
 export function isSupportedLocale(value: string): value is SupportedLocale {
@@ -436,7 +440,7 @@ export function localizeNode(node: ReactNode, locale: SupportedLocale): ReactNod
     return localizeStringPreserveWhitespace(node, locale);
   }
   if (Array.isArray(node)) {
-    return node.map((child) => localizeNode(child, locale));
+    return React.Children.map(node, (child) => localizeNode(child, locale));
   }
   if (!React.isValidElement(node)) {
     return node;

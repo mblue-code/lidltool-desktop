@@ -1,8 +1,8 @@
 import type * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, waitFor } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AutomationsPage } from "@/pages/AutomationsPage";
 import { AutomationInboxPage } from "@/pages/AutomationInboxPage";
@@ -40,6 +40,10 @@ async function expectNoAxeViolations(container: HTMLElement): Promise<void> {
 }
 
 describe("Critical route accessibility (axe)", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.stubGlobal(
@@ -506,17 +510,17 @@ describe("Critical route accessibility (axe)", () => {
   });
 
   it("transactions has no serious accessibility violations", async () => {
-    const { container, getByText } = renderRoute("/transactions", "/transactions", <TransactionsPage />);
+    const { container, getAllByText } = renderRoute("/transactions", "/transactions", <TransactionsPage />);
     await waitFor(() => {
-      expect(getByText("Store One")).toBeInTheDocument();
+      expect(getAllByText("Store One").length).toBeGreaterThan(0);
     });
     await expectNoAxeViolations(container);
   });
 
   it("review queue has no serious accessibility violations", async () => {
-    const { container, getByText } = renderRoute("/review-queue", "/review-queue", <ReviewQueuePage />);
+    const { container, getAllByText } = renderRoute("/review-queue", "/review-queue", <ReviewQueuePage />);
     await waitFor(() => {
-      expect(getByText("Review Store")).toBeInTheDocument();
+      expect(getAllByText("Review Store").length).toBeGreaterThan(0);
     });
     await expectNoAxeViolations(container);
   });
@@ -532,20 +536,20 @@ describe("Critical route accessibility (axe)", () => {
   it("documents upload has no serious accessibility violations", async () => {
     const { container, getByText } = renderRoute("/documents/upload", "/documents/upload", <DocumentsUploadPage />);
     await waitFor(() => {
-      expect(getByText("OCR Document Upload")).toBeInTheDocument();
+      expect(getByText("Drop a receipt here, or choose a file")).toBeInTheDocument();
     });
     await expectNoAxeViolations(container);
   });
 
   it("transaction detail has no serious accessibility violations", async () => {
-    const { container, getByText } = renderRoute(
+    const { container, getByText, getByRole } = renderRoute(
       "/transactions/:transactionId",
       "/transactions/tx-1",
       <TransactionDetailPage />
     );
     await waitFor(() => {
-      expect(getByText("Transaction Detail")).toBeInTheDocument();
       expect(getByText("Store One")).toBeInTheDocument();
+      expect(getByRole("tab", { name: "Overview" })).toBeInTheDocument();
     });
     await expectNoAxeViolations(container);
   });
@@ -553,7 +557,6 @@ describe("Critical route accessibility (axe)", () => {
   it("automation inbox has no serious accessibility violations", async () => {
     const { container, getByText } = renderRoute("/automation-inbox", "/automation-inbox", <AutomationInboxPage />);
     await waitFor(() => {
-      expect(getByText("Automation Inbox")).toBeInTheDocument();
       expect(getByText("Inbox Rule")).toBeInTheDocument();
     });
     await expectNoAxeViolations(container);

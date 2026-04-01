@@ -133,6 +133,19 @@ export function getSidePanelPageContext(pathname: string): string | null {
   if (matchesRoute(pathname, "/chat")) {
     return null;
   }
+  if (pathname.startsWith("/transactions/")) {
+    const transactionId = pathname.split("/")[2]?.trim();
+    if (transactionId) {
+      return [
+        "Page context: Transaction Detail.",
+        `Current transaction id: ${transactionId}.`,
+        "The user is inspecting one receipt with line items, totals, discounts, and metadata.",
+        "Before answering any factual question about this receipt, call get_transaction_detail with the current transaction id.",
+        "If the user asks about similar baskets or time windows, use search_transactions in addition to the detail lookup.",
+        "Never invent VAT, items, totals, discounts, or pfand. If a field is absent in tool output, say it is absent."
+      ].join(" ");
+    }
+  }
   for (const rule of ROUTE_CONTEXT_RULES) {
     if (matchesRoute(pathname, rule.prefix)) {
       return rule.context;

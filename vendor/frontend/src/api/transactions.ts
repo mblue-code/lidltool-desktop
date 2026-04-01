@@ -171,6 +171,7 @@ const ManualTransactionResponseSchema = z.object({
 });
 
 export type TransactionListResponse = z.infer<typeof TransactionListResponseSchema>;
+export type TransactionListItem = z.infer<typeof TransactionListItemSchema>;
 export type TransactionDetailResponse = z.infer<typeof TransactionDetailResponseSchema>;
 export type TransactionHistoryResponse = z.infer<typeof TransactionHistoryResponseSchema>;
 export type TransactionOverrideResponse = z.infer<typeof TransactionOverrideResponseSchema>;

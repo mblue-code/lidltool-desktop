@@ -9,6 +9,7 @@ const desktopDir = resolve(__dirname, "..");
 const backendDir = resolve(desktopDir, "vendor", "backend");
 const httpServerPath = resolve(backendDir, "src", "lidltool", "api", "http_server.py");
 const backupRestorePath = resolve(backendDir, "src", "lidltool", "ops", "backup_restore.py");
+const lifecyclePath = resolve(backendDir, "src", "lidltool", "connectors", "lifecycle.py");
 
 function replaceOnce(source, searchValue, replaceValue, label) {
   if (!source.includes(searchValue)) {
@@ -29,12 +30,14 @@ function patchBackupRestore(current) {
     );
   }
 
-  next = replaceOnce(
-    next,
-    "    if config.document_storage_path.exists():\n",
-    "    if include_documents and config.document_storage_path.exists():\n",
-    backupRestorePath
-  );
+  if (!next.includes("    if include_documents and config.document_storage_path.exists():\n")) {
+    next = replaceOnce(
+      next,
+      "    if config.document_storage_path.exists():\n",
+      "    if include_documents and config.document_storage_path.exists():\n",
+      backupRestorePath
+    );
+  }
 
   return next;
 }
@@ -81,7 +84,22 @@ function patchHttpServer(current) {
   return next;
 }
 
-if (!existsSync(httpServerPath) || !existsSync(backupRestorePath)) {
+function patchLifecycle(current) {
+  let next = current;
+
+  if (!next.includes('if origin == "local_path":')) {
+    next = replaceOnce(
+      next,
+      '    if origin == "builtin":\n        return True, True\n',
+      '    if origin == "builtin":\n        return True, True\n    if origin == "local_path":\n        # In Electron, explicit pack enablement in the control center is the install toggle.\n        # When a desktop-managed pack is present on the active plugin path, it should already\n        # behave as installed and enabled in the lifecycle layer.\n        return True, True\n',
+      lifecyclePath
+    );
+  }
+
+  return next;
+}
+
+if (!existsSync(httpServerPath) || !existsSync(backupRestorePath) || !existsSync(lifecyclePath)) {
   throw new Error(`Vendored backend sources not found under ${backendDir}. Run 'npm run vendor:sync' first.`);
 }
 
@@ -91,4 +109,7 @@ writeFileSync(backupRestorePath, patchedBackupRestore, "utf-8");
 const patchedHttpServer = patchHttpServer(readFileSync(httpServerPath, "utf-8"));
 writeFileSync(httpServerPath, patchedHttpServer, "utf-8");
 
-console.log("Patched vendored backend with desktop backup endpoint support.");
+const patchedLifecycle = patchLifecycle(readFileSync(lifecyclePath, "utf-8"));
+writeFileSync(lifecyclePath, patchedLifecycle, "utf-8");
+
+console.log("Patched vendored backend with desktop backup endpoint support and desktop lifecycle alignment.");

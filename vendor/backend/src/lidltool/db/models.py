@@ -260,6 +260,33 @@ class SourceAccount(Base):
     jobs: Mapped[list[IngestionJob]] = relationship(back_populates="source_account")
 
 
+class ConnectorLifecycleState(Base):
+    __tablename__ = "connector_lifecycle_state"
+
+    source_id: Mapped[str] = mapped_column(String, primary_key=True)
+    plugin_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    install_origin: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    installed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    desired_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class ConnectorConfigState(Base):
+    __tablename__ = "connector_config_state"
+
+    source_id: Mapped[str] = mapped_column(String, primary_key=True)
+    plugin_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    public_config_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    secret_config_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class IngestionJob(Base):
     __tablename__ = "ingestion_jobs"
 

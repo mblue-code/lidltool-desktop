@@ -42,6 +42,26 @@ export interface DesktopRuntimeDiagnostics {
   backendCommandStatus: DesktopRuntimeAssetStatus;
 }
 
+export type DesktopRouteAvailability = "enabled" | "adapted" | "preview" | "unsupported";
+export type DesktopRouteReason =
+  | "desktop_override"
+  | "desktop_preview"
+  | "desktop_out_of_scope"
+  | "scheduler_host_required"
+  | "operator_surface";
+
+export interface DesktopRouteCapability {
+  route: string;
+  availability: DesktopRouteAvailability;
+  navVisible: boolean;
+  redirectTo: string | null;
+  reason: DesktopRouteReason | null;
+}
+
+export interface DesktopCapabilities {
+  routes: DesktopRouteCapability[];
+}
+
 export interface CommandResult {
   ok: boolean;
   command: string;

@@ -5,6 +5,7 @@ import type {
   BackupRequest,
   CommandLogEvent,
   CommandResult,
+  DesktopCapabilities,
   DesktopReleaseMetadata,
   DesktopRuntimeDiagnostics,
   DesktopLocale,
@@ -20,6 +21,7 @@ import type {
 
 const api = {
   getConfig: async (): Promise<BackendConfig> => await ipcRenderer.invoke("desktop:get-config"),
+  getCapabilities: async (): Promise<DesktopCapabilities> => await ipcRenderer.invoke("desktop:capabilities:get"),
   getLocale: async (): Promise<DesktopLocale> => await ipcRenderer.invoke("desktop:locale:get"),
   getBootError: async (): Promise<string | null> => await ipcRenderer.invoke("desktop:boot-error:get"),
   getBackendStatus: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:status"),

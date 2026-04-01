@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,9 +12,13 @@ import { SetupPage } from "../SetupPage";
 import { UsersSettingsPage } from "../UsersSettingsPage";
 
 const mocks = vi.hoisted(() => ({
+  fetchConnectorsMock: vi.fn(),
+  fetchConnectorConfigMock: vi.fn(),
+  reloadConnectorsMock: vi.fn(),
   fetchConnectorCascadeStatusMock: vi.fn(),
   fetchConnectorBootstrapStatusMock: vi.fn(),
   fetchConnectorSyncStatusMock: vi.fn(),
+  submitConnectorConfigMock: vi.fn(),
   startConnectorCascadeMock: vi.fn(),
   cancelConnectorCascadeMock: vi.fn(),
   retryConnectorCascadeMock: vi.fn(),
@@ -47,9 +52,13 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/api/connectors", () => ({
+  fetchConnectors: mocks.fetchConnectorsMock,
+  fetchConnectorConfig: mocks.fetchConnectorConfigMock,
+  reloadConnectors: mocks.reloadConnectorsMock,
   fetchConnectorCascadeStatus: mocks.fetchConnectorCascadeStatusMock,
   fetchConnectorBootstrapStatus: mocks.fetchConnectorBootstrapStatusMock,
   fetchConnectorSyncStatus: mocks.fetchConnectorSyncStatusMock,
+  submitConnectorConfig: mocks.submitConnectorConfigMock,
   startConnectorCascade: mocks.startConnectorCascadeMock,
   cancelConnectorCascade: mocks.cancelConnectorCascadeMock,
   retryConnectorCascade: mocks.retryConnectorCascadeMock,
@@ -132,7 +141,7 @@ const IDLE_SYNC = {
   can_cancel: false
 };
 
-function renderGerman(ui: JSX.Element): void {
+function renderGerman(ui: ReactElement): void {
   window.localStorage.setItem("app.locale", "de");
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -168,6 +177,140 @@ describe("launch-critical route i18n smoke", () => {
 
     mocks.fetchSourcesMock.mockResolvedValue({
       sources: [{ id: "lidl_plus_de", status: "healthy" }]
+    });
+    mocks.fetchConnectorsMock.mockResolvedValue({
+      generated_at: "2026-04-01T09:00:00Z",
+      viewer: { is_admin: true },
+      operator_actions: {
+        can_reload: true,
+        can_rescan: true
+      },
+      summary: {
+        total_connectors: 1,
+        by_status: {
+          ready: 1
+        }
+      },
+      connectors: [
+        {
+          source_id: "lidl_plus_de",
+          plugin_id: "builtin.lidl_plus_de",
+          display_name: "Lidl Plus",
+          origin: "builtin",
+          origin_label: "Built-in",
+          runtime_kind: "builtin",
+          install_origin: "builtin",
+          install_state: "installed",
+          enable_state: "enabled",
+          config_state: "not_required",
+          maturity: "working",
+          maturity_label: "Working",
+          supports_bootstrap: true,
+          supports_sync: true,
+          supports_live_session: true,
+          supports_live_session_bootstrap: true,
+          trust_class: "official",
+          status_detail: null,
+          last_sync_summary: "1 new receipt",
+          last_synced_at: "2026-04-01T08:00:00Z",
+          ui: {
+            status: "ready",
+            visibility: "default",
+            description: "Desktop-ready connector.",
+            actions: {
+              primary: { kind: "sync_now", enabled: true },
+              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+              operator: {
+                full_sync: true,
+                rescan: true,
+                reload: true,
+                install: false,
+                enable: false,
+                disable: false,
+                uninstall: false,
+                configure: false,
+                manual_commands: {
+                  sync: "lidltool sync"
+                }
+              }
+            }
+          },
+          actions: {
+            primary: { kind: "sync_now", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: false,
+              manual_commands: {
+                sync: "lidltool sync"
+              }
+            }
+          },
+          advanced: {
+            source_exists: true,
+            stale: false,
+            stale_reason: null,
+            auth_state: "connected",
+            latest_sync_output: [],
+            latest_bootstrap_output: [],
+            latest_sync_status: "idle",
+            latest_bootstrap_status: "idle",
+            block_reason: null,
+            policy: {
+              blocked: false,
+              block_reason: null,
+              status: "enabled",
+              status_detail: null,
+              trust_class: "official",
+              external_runtime_enabled: false,
+              external_receipt_plugins_enabled: false,
+              allowed_trust_classes: []
+            },
+            release: {
+              maturity: "working",
+              label: "Working",
+              support_posture: "Usable",
+              description: "Desktop-ready connector.",
+              default_visibility: "default",
+              graduation_requirements: []
+            },
+            origin: {
+              kind: "builtin",
+              runtime_kind: "builtin",
+              search_path: null,
+              origin_path: null,
+              origin_directory: null
+            },
+            diagnostics: [],
+            manual_commands: {
+              sync: "lidltool sync"
+            }
+          }
+        }
+      ]
+    });
+    mocks.fetchConnectorConfigMock.mockResolvedValue({
+      source_id: "lidl_plus_de",
+      plugin_id: "builtin.lidl_plus_de",
+      display_name: "Lidl Plus",
+      install_origin: "builtin",
+      config_state: "not_required",
+      fields: []
+    });
+    mocks.reloadConnectorsMock.mockResolvedValue({});
+    mocks.submitConnectorConfigMock.mockResolvedValue({
+      source_id: "lidl_plus_de",
+      plugin_id: "builtin.lidl_plus_de",
+      display_name: "Lidl Plus",
+      install_origin: "builtin",
+      config_state: "not_required",
+      fields: []
     });
     mocks.fetchConnectorCascadeStatusMock.mockResolvedValue({
       status: "idle",
@@ -213,7 +356,20 @@ describe("launch-critical route i18n smoke", () => {
     mocks.fetchAIAgentConfigMock.mockResolvedValue({
       proxy_url: "https://proxy.example.com",
       auth_token: "token",
-      model: "gpt-4o-mini"
+      model: "gpt-4o-mini",
+      default_model: "gpt-4o-mini",
+      local_model: "gpt-4o-mini",
+      preferred_model: "gpt-4o-mini",
+      oauth_provider: null,
+      oauth_connected: false,
+      available_models: [
+        {
+          id: "gpt-4o-mini",
+          label: "GPT-4o mini",
+          source: "local",
+          enabled: true
+        }
+      ]
     });
 
     mocks.fetchCurrentUserMock.mockResolvedValue({
@@ -283,6 +439,40 @@ describe("launch-critical route i18n smoke", () => {
     Object.defineProperty(window, "desktopApi", {
       configurable: true,
       value: {
+        getReleaseMetadata: vi.fn().mockResolvedValue({
+          active_release_variant: { display_name: "Desktop Universal Shell" },
+          selected_market_profile: { display_name: "Germany" },
+          discovery_catalog: {
+            entries: [
+              {
+                entry_id: "connector.builtin.lidl_plus_de",
+                entry_type: "connector",
+                display_name: "Lidl Plus",
+                summary: "Official connector",
+                description: null,
+                trust_class: "official",
+                current_version: "1.0.0",
+                support_policy: {
+                  display_name: "Official",
+                  ui_label: "Official",
+                  diagnostics_expectation: "Project-maintained desktop path.",
+                  update_expectations: "Ships with desktop releases.",
+                  maintainer_support: "Project-maintained."
+                },
+                official_bundle_ids: ["official.de_receipts_core"],
+                market_profile_ids: ["dach_starter"],
+                release_variant_ids: ["desktop_universal_shell"],
+                install_methods: ["built_in"],
+                plugin_id: "builtin.lidl_plus_de",
+                source_id: "lidl_plus_de"
+              }
+            ]
+          }
+        }),
+        listReceiptPlugins: vi.fn().mockResolvedValue({
+          packs: [],
+          activePluginSearchPaths: []
+        }),
         runImport: vi.fn().mockResolvedValue({
           ok: true,
           command: "desktop:import",
@@ -329,9 +519,9 @@ describe("launch-critical route i18n smoke", () => {
   it("renders connectors copy in german", async () => {
     renderGerman(<ConnectorsPage />);
 
-    expect(await screen.findByText("Anbindungen einrichten")).toBeInTheDocument();
-    expect(screen.getByText("Geführte Synchronisierungskaskade")).toBeInTheDocument();
-    expect(screen.getAllByText("Quellen öffnen").length).toBeGreaterThan(0);
+    expect(await screen.findByText("Anbindungen")).toBeInTheDocument();
+    expect(screen.getByText("Desktop pack management stays native")).toBeInTheDocument();
+    expect(await screen.findByText("Lidl Plus")).toBeInTheDocument();
   });
 
   it("renders ai settings copy in german", async () => {

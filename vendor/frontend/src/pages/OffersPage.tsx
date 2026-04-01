@@ -251,7 +251,7 @@ export function OffersPage() {
       <PageHeader title={t("nav.item.offers")} description={t("pages.offers.description")}>
         <Button
           variant="outline"
-          onClick={() => refreshMutation.mutate()}
+          onClick={() => refreshMutation.mutate(undefined)}
           disabled={refreshMutation.isPending}
         >
           {refreshMutation.isPending ? (
@@ -451,7 +451,7 @@ export function OffersPage() {
                             {entry.min_discount_percent !== null && entry.min_discount_percent !== undefined ? (
                               <div>
                                 {t("pages.offers.watchlists.minDiscount", {
-                                  value: formatDiscountLabel(entry.min_discount_percent)
+                                  value: formatDiscountLabel(entry.min_discount_percent) ?? ""
                                 })}
                               </div>
                             ) : null}

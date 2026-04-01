@@ -10,7 +10,11 @@ from lidltool.connectors.auth.auth_capabilities import (
     ConnectorAuthCapabilities,
     infer_auth_capabilities,
 )
-from lidltool.connectors.sdk.version import MANIFEST_SCHEMA_VERSION
+from lidltool.connectors.sdk.version import (
+    MANIFEST_SCHEMA_VERSION,
+    OFFER_CONNECTOR_API_VERSION,
+    RECEIPT_CONNECTOR_API_VERSION,
+)
 
 PluginFamily = Literal["receipt", "offer"]
 RuntimeKind = Literal[
@@ -201,6 +205,63 @@ class ConnectorPolicy(BaseModel):
     ai: ConnectorAiPolicy = Field(default_factory=ConnectorAiPolicy)
 
 
+class ConnectorConfigField(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    label: str
+    description: str | None = None
+    input_kind: Literal["text", "password", "url", "number", "boolean"] = "text"
+    required: bool = False
+    sensitive: bool = False
+    placeholder: str | None = None
+    default_value: str | int | float | bool | None = None
+    operator_only: bool = False
+
+    @field_validator("key", "label", "description", "placeholder", mode="before")
+    @classmethod
+    def _normalize_strings(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("config field values must be strings")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("config field values must be non-empty strings")
+        return normalized
+
+    @field_validator("key")
+    @classmethod
+    def _validate_key(cls, value: str) -> str:
+        allowed = set("abcdefghijklmnopqrstuvwxyz0123456789._-")
+        if any(char not in allowed for char in value):
+            raise ValueError("config field keys must use lowercase letters, digits, '.', '_' or '-'")
+        return value
+
+
+class ConnectorConfigSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fields: tuple[ConnectorConfigField, ...] = ()
+
+    @field_validator("fields", mode="before")
+    @classmethod
+    def _normalize_fields(cls, value: Any) -> tuple[ConnectorConfigField, ...]:
+        if value is None:
+            return ()
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("config fields must be a list or tuple")
+        normalized: list[ConnectorConfigField] = []
+        seen: set[str] = set()
+        for item in value:
+            field = item if isinstance(item, ConnectorConfigField) else ConnectorConfigField.model_validate(item)
+            if field.key in seen:
+                raise ValueError(f"duplicate config field key: {field.key}")
+            seen.add(field.key)
+            normalized.append(field)
+        return tuple(normalized)
+
+
 class ReceiptActionDeclarations(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -328,6 +389,7 @@ class ConnectorManifest(BaseModel):
     install_status: InstallStatus
     compatibility: ConnectorCompatibility = Field(default_factory=ConnectorCompatibility)
     policy: ConnectorPolicy = Field(default_factory=ConnectorPolicy)
+    config_schema: ConnectorConfigSchema | None = None
     builtin_cli: BuiltinConnectorCli | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -354,6 +416,21 @@ class ConnectorManifest(BaseModel):
         if not normalized:
             raise ValueError("manifest fields must be non-empty strings")
         return normalized
+
+    @field_validator("connector_api_version")
+    @classmethod
+    def _validate_connector_api_version(cls, value: str, info: Any) -> str:
+        plugin_family = info.data.get("plugin_family", "receipt")
+        expected = (
+            OFFER_CONNECTOR_API_VERSION
+            if plugin_family == "offer"
+            else RECEIPT_CONNECTOR_API_VERSION
+        )
+        if value != expected:
+            raise ValueError(
+                f"connector_api_version must be '{expected}' for plugin_family='{plugin_family}'"
+            )
+        return value
 
     @field_validator("plugin_id", "source_id")
     @classmethod
@@ -421,6 +498,15 @@ class ConnectorManifest(BaseModel):
         if isinstance(value, ConnectorAuthCapabilities):
             return value
         return ConnectorAuthCapabilities.model_validate(value)
+
+    @field_validator("config_schema", mode="before")
+    @classmethod
+    def _normalize_config_schema(cls, value: Any) -> ConnectorConfigSchema | None:
+        if value is None:
+            return None
+        if isinstance(value, ConnectorConfigSchema):
+            return value
+        return ConnectorConfigSchema.model_validate(value)
 
     @model_validator(mode="after")
     def _validate_manifest(self) -> ConnectorManifest:

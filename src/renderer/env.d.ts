@@ -6,6 +6,7 @@ import type {
   BackupRequest,
   CommandLogEvent,
   CommandResult,
+  DesktopCapabilities,
   DesktopReleaseMetadata,
   DesktopRuntimeDiagnostics,
   DesktopLocale,
@@ -23,6 +24,7 @@ declare global {
   interface Window {
     desktopApi: {
       getConfig: () => Promise<BackendConfig>;
+      getCapabilities: () => Promise<DesktopCapabilities>;
       getLocale: () => Promise<DesktopLocale>;
       getBootError: () => Promise<string | null>;
       getBackendStatus: () => Promise<BackendStatus>;

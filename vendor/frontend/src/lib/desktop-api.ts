@@ -1,3 +1,29 @@
+export type DesktopRouteAvailability = "enabled" | "adapted" | "preview" | "unsupported";
+export type DesktopRouteReason =
+  | "desktop_override"
+  | "desktop_preview"
+  | "desktop_out_of_scope"
+  | "scheduler_host_required"
+  | "operator_surface";
+
+export type DesktopRouteCapability = {
+  route: string;
+  availability: DesktopRouteAvailability;
+  navVisible: boolean;
+  redirectTo: string | null;
+  reason: DesktopRouteReason | null;
+};
+
+export type DesktopCapabilities = {
+  routes: DesktopRouteCapability[];
+};
+
+export type DesktopConnectorTrustClass =
+  | "official"
+  | "community_verified"
+  | "community_unsigned"
+  | "local_custom";
+
 export type DesktopImportResult = {
   ok: boolean;
   command: string;
@@ -7,7 +33,62 @@ export type DesktopImportResult = {
   stderr: string;
 };
 
-export type DesktopApiBridge = {
+export type DesktopConnectorCatalogEntry = {
+  entry_id: string;
+  entry_type: "connector" | "bundle" | "desktop_pack";
+  display_name: string;
+  summary: string;
+  description: string | null;
+  trust_class: DesktopConnectorTrustClass;
+  current_version: string | null;
+  support_policy: {
+    display_name: string;
+    ui_label: string;
+    diagnostics_expectation: string;
+    update_expectations: string;
+    maintainer_support: string;
+  } | null;
+  official_bundle_ids: string[];
+  market_profile_ids: string[];
+  release_variant_ids: string[];
+  install_methods: Array<"built_in" | "manual_import" | "manual_mount" | "download_url">;
+  plugin_id?: string;
+  source_id?: string;
+};
+
+export type DesktopReleaseMetadata = {
+  active_release_variant: {
+    display_name: string;
+  };
+  selected_market_profile: {
+    display_name: string;
+  };
+  discovery_catalog: {
+    entries: DesktopConnectorCatalogEntry[];
+  };
+};
+
+export type DesktopReceiptPluginPackInfo = {
+  pluginId: string;
+  sourceId: string;
+  displayName: string;
+  version: string;
+  trustClass: DesktopConnectorTrustClass;
+  enabled: boolean;
+  status: "enabled" | "disabled" | "invalid" | "incompatible" | "revoked";
+  trustStatus: "trusted" | "unsigned" | "signature_invalid" | "revoked" | "incompatible";
+  trustReason: string | null;
+  compatibilityReason: string | null;
+  installedVia: "manual_file" | "catalog_url";
+  catalogEntryId: string | null;
+};
+
+export type DesktopReceiptPluginPackListResult = {
+  packs: DesktopReceiptPluginPackInfo[];
+  activePluginSearchPaths: string[];
+};
+
+type DesktopImportBridge = {
   runImport: (payload: {
     backupDir: string;
     includeDocuments?: boolean;
@@ -15,7 +96,18 @@ export type DesktopApiBridge = {
     includeCredentialKey?: boolean;
     restartBackend?: boolean;
   }) => Promise<DesktopImportResult>;
-} | null;
+};
+
+type DesktopCapabilityBridge = {
+  getCapabilities: () => Promise<DesktopCapabilities>;
+};
+
+type DesktopConnectorBridge = {
+  getReleaseMetadata: () => Promise<DesktopReleaseMetadata>;
+  listReceiptPlugins: () => Promise<DesktopReceiptPluginPackListResult>;
+};
+
+export type DesktopApiBridge = (DesktopImportBridge & Partial<DesktopCapabilityBridge>) | null;
 
 export function getDesktopApiBridge(): DesktopApiBridge {
   const desktopApi = (window as unknown as { desktopApi?: DesktopApiBridge }).desktopApi;
@@ -23,4 +115,29 @@ export function getDesktopApiBridge(): DesktopApiBridge {
     return null;
   }
   return desktopApi;
+}
+
+export function getDesktopCapabilityBridge(): DesktopCapabilityBridge | null {
+  const desktopApi = (window as unknown as { desktopApi?: Partial<DesktopCapabilityBridge> }).desktopApi;
+  if (!desktopApi || typeof desktopApi.getCapabilities !== "function") {
+    return null;
+  }
+  return {
+    getCapabilities: () => desktopApi.getCapabilities!()
+  };
+}
+
+export function getDesktopConnectorBridge(): DesktopConnectorBridge | null {
+  const desktopApi = (window as unknown as { desktopApi?: Partial<DesktopConnectorBridge> }).desktopApi;
+  if (
+    !desktopApi ||
+    typeof desktopApi.getReleaseMetadata !== "function" ||
+    typeof desktopApi.listReceiptPlugins !== "function"
+  ) {
+    return null;
+  }
+  return {
+    getReleaseMetadata: () => desktopApi.getReleaseMetadata!(),
+    listReceiptPlugins: () => desktopApi.listReceiptPlugins!()
+  };
 }

@@ -374,11 +374,13 @@ describe("ChatPanel history behavior", () => {
   it("disables the model selector while a prompt is streaming", async () => {
     installLocalStorageStub();
     installChatApiFetchStub();
-    let resolvePrompt: (() => void) | null = null;
+    let resolvePrompt: () => void = () => {
+      throw new Error("Expected prompt resolution callback to be registered.");
+    };
     mocks.promptMock.mockImplementation(
       () =>
-        new Promise<void>((resolve) => {
-          resolvePrompt = resolve;
+        new Promise<undefined>((resolve) => {
+          resolvePrompt = () => resolve(undefined);
         })
     );
     const queryClient = new QueryClient({
@@ -408,7 +410,7 @@ describe("ChatPanel history behavior", () => {
       expect(screen.getByLabelText("Chat model")).toBeDisabled();
     });
 
-    resolvePrompt?.();
+    resolvePrompt();
     await screen.findByText("Reply for: streaming prompt");
     expect(screen.getByLabelText("Chat model")).not.toBeDisabled();
   });

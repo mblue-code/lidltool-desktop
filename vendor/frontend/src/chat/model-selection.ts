@@ -1,7 +1,7 @@
 import type { AIAgentConfig } from "@/api/aiSettings";
 
 export const CHAT_PANEL_MODEL_STORAGE_KEY = "agent.chat.model.v1";
-export const CHAT_WORKSPACE_MODEL_STORAGE_KEY = "chat.workspace.model.v1";
+export const CHAT_WORKSPACE_MODEL_STORAGE_KEY = "chat.workspace.model-selection.v1";
 
 export function enabledAgentModels(config: AIAgentConfig) {
   return config.available_models.filter((model) => model.enabled);

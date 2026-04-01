@@ -146,8 +146,8 @@ describe("TransactionsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Store Small")).toBeInTheDocument();
-      expect(screen.getByText("Store Large")).toBeInTheDocument();
+      expect(screen.getAllByText("Store Small").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Store Large").length).toBeGreaterThan(0);
     });
     const detailLinks = screen.getAllByRole("link", { name: "Details" });
     expect(detailLinks[0]).toHaveAttribute("href", "/transactions/tx-small");
@@ -251,53 +251,30 @@ describe("TransactionsPage", () => {
     expect(latestRequest).toContain("tz_offset_minutes=120");
   });
 
-  it("submits one-off purchase form and shows success state", async () => {
-    renderTransactionsRoute("/transactions");
+  it("prefers explicit purchased date ranges over inherited year and month filters", async () => {
+    renderTransactionsRoute("/transactions?year=2026&month=3");
 
-    fireEvent.change(screen.getByLabelText("Purchased at (one-off)"), {
-      target: { value: "2026-02-20T10:30" }
-    });
-    fireEvent.change(screen.getByLabelText("Merchant (one-off)"), {
-      target: { value: "MediaMarkt" }
-    });
-    fireEvent.change(screen.getByLabelText("Total cents (one-off)"), {
-      target: { value: "199900" }
-    });
-    fireEvent.change(screen.getByLabelText("Item (optional)"), {
-      target: { value: "Laptop" }
-    });
-    fireEvent.change(screen.getByLabelText("Item total cents (optional)"), {
-      target: { value: "199900" }
-    });
-    fireEvent.change(screen.getByLabelText("Idempotency key (optional)"), {
-      target: { value: "manual-laptop-1" }
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Add one-off purchase" }));
+    const purchasedFrom = await screen.findByLabelText("Purchased from");
+    fireEvent.change(purchasedFrom, { target: { value: "2023-01-01T00:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Transaction saved")).toBeInTheDocument();
-      expect(screen.getByText(/New transaction created\./)).toBeInTheDocument();
-      expect(screen.getByText("manual_entry")).toBeInTheDocument();
+      expect(screen.getByTestId("transactions-location-search")).toHaveTextContent(
+        /\?purchased_from=2023-01-01T00%3A00&offset=0/
+      );
     });
 
-    const postCall = vi.mocked(fetch).mock.calls.find((call) => {
-      const url = new URL(String(call[0]));
-      const method = (call[1]?.method || "GET").toUpperCase();
-      return url.pathname === "/api/v1/transactions/manual" && method === "POST";
-    });
-    expect(postCall).toBeDefined();
+    const latestRequest = latestFetchUrl();
+    expect(latestRequest).toContain("purchased_from=2023-01-01T00%3A00");
+    expect(latestRequest).not.toContain("year=2026");
+    expect(latestRequest).not.toContain("month=3");
+  });
 
-    const body = JSON.parse(String(postCall?.[1]?.body));
-    expect(body).toMatchObject({
-      merchant_name: "MediaMarkt",
-      total_gross_cents: 199900,
-      idempotency_key: "manual-laptop-1"
-    });
-    expect(Array.isArray(body.items)).toBe(true);
-    expect(body.items[0]).toMatchObject({
-      name: "Laptop",
-      line_total_cents: 199900
+  it("routes everyday users to the unified add receipt flow", async () => {
+    renderTransactionsRoute("/transactions");
+
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: "Add Receipt" })).toHaveAttribute("href", "/add");
     });
   });
 });

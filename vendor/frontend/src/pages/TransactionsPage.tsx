@@ -1,21 +1,14 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, Loader2, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowDown, ArrowUp, ArrowUpDown, X } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { TransactionsFilters, transactionsQueryOptions } from "@/app/queries";
-import { createManualTransaction, ManualTransactionResponse } from "@/api/transactions";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -44,18 +37,6 @@ const FILTER_KEYS = [
   "month",
   "purchased_from",
   "purchased_to",
-  "min_total_cents",
-  "max_total_cents"
-] as const;
-
-const ADVANCED_FILTER_KEYS = [
-  "source_kind",
-  "merchant_name",
-  "year",
-  "month",
-  "weekday",
-  "hour",
-  "tz_offset_minutes",
   "min_total_cents",
   "max_total_cents"
 ] as const;
@@ -91,21 +72,6 @@ type FilterFormValues = {
   maxTotal: string;
 };
 
-type ManualFormValues = {
-  purchasedAt: string;
-  merchantName: string;
-  totalGrossCents: string;
-  itemName: string;
-  itemTotalCents: string;
-  idempotencyKey: string;
-};
-
-function defaultPurchasedAtValue(): string {
-  const now = new Date();
-  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
-}
-
 function readNumberParam(value: string | null): number | undefined {
   if (!value) {
     return undefined;
@@ -132,8 +98,8 @@ function readFilterFormValues(searchParams: URLSearchParams): FilterFormValues {
   };
 }
 
-function hasAdvancedFilterParams(searchParams: URLSearchParams): boolean {
-  return ADVANCED_FILTER_KEYS.some((key) => {
+function hasExpandedFilterParams(searchParams: URLSearchParams): boolean {
+  return FILTER_KEYS.filter((key) => key !== "query").some((key) => {
     const value = searchParams.get(key);
     return value !== null && value.trim() !== "";
   });
@@ -170,23 +136,11 @@ function formatFilterValue(key: (typeof FILTER_KEYS)[number], value: string): st
 }
 
 export function TransactionsPage() {
-  const queryClient = useQueryClient();
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const [formValues, setFormValues] = useState<FilterFormValues>(() =>
     readFilterFormValues(searchParams)
   );
-  const [manualFormValues, setManualFormValues] = useState<ManualFormValues>({
-    purchasedAt: defaultPurchasedAtValue(),
-    merchantName: "",
-    totalGrossCents: "",
-    itemName: "",
-    itemTotalCents: "",
-    idempotencyKey: ""
-  });
-  const [manualDialogOpen, setManualDialogOpen] = useState(false);
-  const [manualErrorMessage, setManualErrorMessage] = useState<string | null>(null);
-  const [manualSuccess, setManualSuccess] = useState<ManualTransactionResponse | null>(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   const searchKey = searchParams.toString();
@@ -196,7 +150,7 @@ export function TransactionsPage() {
 
   useEffect(() => {
     setFormValues(readFilterFormValues(searchParams));
-    setShowAdvancedFilters((current) => current || hasAdvancedFilterParams(searchParams));
+    setShowAdvancedFilters((current) => current || hasExpandedFilterParams(searchParams));
   }, [searchKey]);
 
   const queryValues = useMemo<TransactionsFilters>(
@@ -254,23 +208,6 @@ export function TransactionsPage() {
   }, [searchKey, searchParams, t]);
 
   const { data, error, isPending, isFetching } = useQuery(transactionsQueryOptions(queryValues));
-  const manualMutation = useMutation({
-    mutationFn: createManualTransaction,
-    onSuccess: async (result) => {
-      setManualSuccess(result);
-      setManualErrorMessage(null);
-      setManualFormValues({
-        purchasedAt: defaultPurchasedAtValue(),
-        merchantName: "",
-        totalGrossCents: "",
-        itemName: "",
-        itemTotalCents: "",
-        idempotencyKey: ""
-      });
-      await queryClient.invalidateQueries({ queryKey: ["transactions"] });
-    }
-  });
-
   const loading = isPending || isFetching;
   const errorMessage = error ? resolveApiErrorMessage(error, t, t("pages.transactions.loadError")) : null;
 
@@ -284,6 +221,11 @@ export function TransactionsPage() {
   function submitFilters(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     const next = new URLSearchParams();
+    const purchasedFrom = formValues.purchasedFrom.trim();
+    const purchasedTo = formValues.purchasedTo.trim();
+    const year = formValues.year.trim();
+    const month = formValues.month.trim();
+    const hasExplicitDateRange = purchasedFrom || purchasedTo;
     if (formValues.query.trim()) {
       next.set("query", formValues.query.trim());
     }
@@ -305,17 +247,20 @@ export function TransactionsPage() {
     if (formValues.merchantName.trim()) {
       next.set("merchant_name", formValues.merchantName.trim());
     }
-    if (formValues.year.trim()) {
-      next.set("year", formValues.year.trim());
-    }
-    if (formValues.month.trim()) {
-      next.set("month", formValues.month.trim());
-    }
-    if (formValues.purchasedFrom.trim()) {
-      next.set("purchased_from", formValues.purchasedFrom.trim());
-    }
-    if (formValues.purchasedTo.trim()) {
-      next.set("purchased_to", formValues.purchasedTo.trim());
+    if (hasExplicitDateRange) {
+      if (purchasedFrom) {
+        next.set("purchased_from", purchasedFrom);
+      }
+      if (purchasedTo) {
+        next.set("purchased_to", purchasedTo);
+      }
+    } else {
+      if (year) {
+        next.set("year", year);
+      }
+      if (month) {
+        next.set("month", month);
+      }
     }
     if (formValues.minTotal.trim()) {
       next.set("min_total_cents", formValues.minTotal.trim());
@@ -365,67 +310,6 @@ export function TransactionsPage() {
     next.set("offset", "0");
     applySortIfNeeded(next);
     setSearchParams(next);
-  }
-
-  async function submitManualTransaction(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    setManualErrorMessage(null);
-    setManualSuccess(null);
-
-    const purchasedDate = new Date(manualFormValues.purchasedAt);
-    if (Number.isNaN(purchasedDate.valueOf())) {
-      setManualErrorMessage(t("pages.transactions.manual.invalidDate"));
-      return;
-    }
-    const merchantName = manualFormValues.merchantName.trim();
-    if (!merchantName) {
-      setManualErrorMessage(t("pages.transactions.manual.merchantRequired"));
-      return;
-    }
-    const totalGrossCents = Number(manualFormValues.totalGrossCents);
-    if (!Number.isInteger(totalGrossCents) || totalGrossCents < 0) {
-      setManualErrorMessage(t("pages.transactions.manual.totalInvalid"));
-      return;
-    }
-
-    const itemName = manualFormValues.itemName.trim();
-    const itemTotalRaw = manualFormValues.itemTotalCents.trim();
-    if ((itemName && !itemTotalRaw) || (!itemName && itemTotalRaw)) {
-      setManualErrorMessage(t("pages.transactions.manual.itemPairRequired"));
-      return;
-    }
-
-    let itemTotalCents: number | null = null;
-    if (itemTotalRaw) {
-      const parsed = Number(itemTotalRaw);
-      if (!Number.isInteger(parsed) || parsed < 0) {
-        setManualErrorMessage(t("pages.transactions.manual.itemTotalInvalid"));
-        return;
-      }
-      itemTotalCents = parsed;
-    }
-
-    try {
-      await manualMutation.mutateAsync({
-        purchased_at: purchasedDate.toISOString(),
-        merchant_name: merchantName,
-        total_gross_cents: totalGrossCents,
-        idempotency_key: manualFormValues.idempotencyKey.trim() || undefined,
-        items:
-          itemName && itemTotalCents !== null
-            ? [
-                {
-                  name: itemName,
-                  line_total_cents: itemTotalCents,
-                  qty: 1,
-                  line_no: 1
-                }
-              ]
-            : undefined
-      });
-    } catch (mutationError) {
-      setManualErrorMessage(resolveApiErrorMessage(mutationError, t, t("pages.transactions.manual.createFailed")));
-    }
   }
 
   function renderSortButton(field: SortField, label: string) {
@@ -485,142 +369,11 @@ export function TransactionsPage() {
 
   return (
     <section className="space-y-4">
-      <PageHeader title={t("nav.item.receipts")}>
-        <Button onClick={() => setManualDialogOpen(true)}>{t("pages.transactions.addTransaction")}</Button>
+      <PageHeader title={t("nav.item.receipts")} description={t("pages.transactions.description")}>
+        <Button asChild>
+          <Link to="/add">{t("nav.item.addReceipt")}</Link>
+        </Button>
       </PageHeader>
-
-      <Dialog open={manualDialogOpen} onOpenChange={setManualDialogOpen}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{t("pages.transactions.manual.title")}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {t("pages.transactions.manual.description")}
-            </p>
-            <form className="grid gap-3 md:grid-cols-3" onSubmit={submitManualTransaction}>
-              <div className="space-y-2">
-                <Label htmlFor="manual-purchased-at">{t("pages.transactions.manual.purchasedAt")}</Label>
-                <Input
-                  id="manual-purchased-at"
-                  type="datetime-local"
-                  value={manualFormValues.purchasedAt}
-                  onChange={(event) =>
-                    setManualFormValues((previous) => ({
-                      ...previous,
-                      purchasedAt: event.target.value
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manual-merchant">{t("pages.transactions.manual.merchant")}</Label>
-                <Input
-                  id="manual-merchant"
-                  value={manualFormValues.merchantName}
-                  onChange={(event) =>
-                    setManualFormValues((previous) => ({
-                      ...previous,
-                      merchantName: event.target.value
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manual-total-cents">{t("pages.transactions.manual.totalCents")}</Label>
-                <Input
-                  id="manual-total-cents"
-                  type="number"
-                  min={0}
-                  value={manualFormValues.totalGrossCents}
-                  onChange={(event) =>
-                    setManualFormValues((previous) => ({
-                      ...previous,
-                      totalGrossCents: event.target.value
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manual-item-name">{t("pages.transactions.manual.itemName")}</Label>
-                <Input
-                  id="manual-item-name"
-                  value={manualFormValues.itemName}
-                  onChange={(event) =>
-                    setManualFormValues((previous) => ({
-                      ...previous,
-                      itemName: event.target.value
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manual-item-total-cents">{t("pages.transactions.manual.itemTotalCents")}</Label>
-                <Input
-                  id="manual-item-total-cents"
-                  type="number"
-                  min={0}
-                  value={manualFormValues.itemTotalCents}
-                  onChange={(event) =>
-                    setManualFormValues((previous) => ({
-                      ...previous,
-                      itemTotalCents: event.target.value
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manual-idempotency-key">{t("pages.transactions.manual.idempotencyKey")}</Label>
-                <Input
-                  id="manual-idempotency-key"
-                  value={manualFormValues.idempotencyKey}
-                  onChange={(event) =>
-                    setManualFormValues((previous) => ({
-                      ...previous,
-                      idempotencyKey: event.target.value
-                    }))
-                  }
-                />
-              </div>
-              <Button type="submit" className="md:col-span-3 md:w-fit" disabled={manualMutation.isPending}>
-                {manualMutation.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {t("pages.transactions.manual.saving")}
-                  </>
-                ) : (
-                  t("pages.transactions.manual.submit")
-                )}
-              </Button>
-            </form>
-
-            {manualErrorMessage ? (
-              <Alert variant="destructive">
-                <AlertTitle>{t("pages.transactions.manual.errorTitle")}</AlertTitle>
-                <AlertDescription>{manualErrorMessage}</AlertDescription>
-              </Alert>
-            ) : null}
-
-            {manualSuccess ? (
-              <Alert>
-                <CheckCircle2 className="h-4 w-4" />
-                <AlertTitle>{t("pages.transactions.manual.savedTitle")}</AlertTitle>
-                <AlertDescription className="space-y-1">
-                  <p>
-                    {manualSuccess.reused ? t("pages.transactions.manual.reused") : t("pages.transactions.manual.created")}{" "}
-                    {t("common.source")}:
-                    {" "}
-                    <span className="font-medium">{manualSuccess.source_id}</span>
-                  </p>
-                  <Button asChild variant="link" className="h-auto p-0">
-                    <Link to={`/transactions/${manualSuccess.transaction_id}`}>{t("pages.transactions.manual.openDetails")}</Link>
-                  </Button>
-                </AlertDescription>
-              </Alert>
-            ) : null}
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <div className="overflow-x-auto">
         <div className="flex flex-nowrap gap-2">
@@ -641,7 +394,7 @@ export function TransactionsPage() {
           <CardTitle>{t("pages.transactions.title")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-3 md:grid-cols-5" onSubmit={submitFilters}>
+          <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]" onSubmit={submitFilters}>
             <div className="space-y-2">
               <Label htmlFor="transactions-search">{t("pages.transactions.filter.query")}</Label>
               <SearchInput
@@ -651,38 +404,6 @@ export function TransactionsPage() {
                   setFormValues((previous) => ({ ...previous, query: value }))
                 }
                 debounceMs={0}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="purchased-from">{t("pages.transactions.filter.purchasedFrom")}</Label>
-              <Input
-                id="purchased-from"
-                type="datetime-local"
-                value={formValues.purchasedFrom}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, purchasedFrom: event.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="purchased-to">{t("pages.transactions.filter.purchasedTo")}</Label>
-              <Input
-                id="purchased-to"
-                type="datetime-local"
-                value={formValues.purchasedTo}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, purchasedTo: event.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="source">{t("pages.transactions.filter.source")}</Label>
-              <Input
-                id="source"
-                value={formValues.sourceId}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, sourceId: event.target.value }))
-                }
               />
             </div>
             <div className="self-end flex gap-2">
@@ -701,22 +422,54 @@ export function TransactionsPage() {
             {showAdvancedFilters ? (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="source-kind">{t("pages.transactions.filter.sourceKind")}</Label>
-                  <Input
-                    id="source-kind"
-                    value={formValues.sourceKind}
-                    onChange={(event) =>
-                      setFormValues((previous) => ({ ...previous, sourceKind: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
                   <Label htmlFor="merchant">{t("pages.transactions.filter.merchant")}</Label>
                   <Input
                     id="merchant"
                     value={formValues.merchantName}
                     onChange={(event) =>
                       setFormValues((previous) => ({ ...previous, merchantName: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="purchased-from">{t("pages.transactions.filter.purchasedFrom")}</Label>
+                  <Input
+                    id="purchased-from"
+                    type="datetime-local"
+                    value={formValues.purchasedFrom}
+                    onChange={(event) =>
+                      setFormValues((previous) => ({ ...previous, purchasedFrom: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="purchased-to">{t("pages.transactions.filter.purchasedTo")}</Label>
+                  <Input
+                    id="purchased-to"
+                    type="datetime-local"
+                    value={formValues.purchasedTo}
+                    onChange={(event) =>
+                      setFormValues((previous) => ({ ...previous, purchasedTo: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="source">{t("pages.transactions.filter.source")}</Label>
+                  <Input
+                    id="source"
+                    value={formValues.sourceId}
+                    onChange={(event) =>
+                      setFormValues((previous) => ({ ...previous, sourceId: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="source-kind">{t("pages.transactions.filter.sourceKind")}</Label>
+                  <Input
+                    id="source-kind"
+                    value={formValues.sourceKind}
+                    onChange={(event) =>
+                      setFormValues((previous) => ({ ...previous, sourceKind: event.target.value }))
                     }
                   />
                 </div>

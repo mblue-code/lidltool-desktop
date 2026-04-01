@@ -44,6 +44,8 @@ Run all commands from `apps/desktop`.
   - Expected: restored DB/user data is usable immediately in full UI after restore.
   - Verify full app backup flow: navigate to `System -> Users`, run **Create backup bundle**, and confirm result payload includes output directory + manifest path.
   - Verify full app restore flow: navigate to `System -> Users`, run **Restore backup bundle**, and confirm result payload indicates restore success.
+  - Verify unsupported desktop URLs redirect safely: open `/offers`, `/automations`, `/automation-inbox`, and `/reliability` directly.
+  - Expected: each request lands on `/` with desktop handoff messaging instead of rendering the unsupported page.
 - [ ] Failure fallback path: launch with bad executable override, e.g.:
   - macOS/Linux: `LIDLTOOL_EXECUTABLE=/does/not/exist <launch app>`
   - Windows (PowerShell): `$env:LIDLTOOL_EXECUTABLE='C:\\does\\not\\exist.exe'; <launch app>`

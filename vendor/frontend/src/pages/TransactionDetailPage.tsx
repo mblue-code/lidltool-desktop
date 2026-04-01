@@ -10,6 +10,11 @@ import { transactionDetailQueryOptions } from "@/app/queries";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  CategoryPresentation,
+  CATEGORY_OPTIONS,
+  formatCategoryOptionLabel
+} from "@/components/shared/CategoryPresentation";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +47,7 @@ import {
 import { formatDateTime, formatEurFromCents } from "../utils/format";
 
 const NO_ITEM_VALUE = "__no_item__";
+const NO_CATEGORY_VALUE = "__no_category__";
 
 const overrideFormSchema = z.object({
   mode: z.enum(["local", "global", "both"]),
@@ -65,7 +71,7 @@ function supportsInlinePreview(mimeType: string): boolean {
 
 export function TransactionDetailPage() {
   const { transactionId } = useParams();
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const txId = transactionId ?? null;
   const [mutationStatus, setMutationStatus] = useState<string | null>(null);
   const [sharingStatus, setSharingStatus] = useState<string | null>(null);
@@ -127,6 +133,7 @@ export function TransactionDetailPage() {
   });
 
   const selectedItemId = form.watch("itemId");
+  const selectedMode = form.watch("mode");
   const selectedDocument = detail?.documents[0] ?? null;
   const previewUrl = useMemo(
     () => (selectedDocument ? buildDocumentPreviewUrl(selectedDocument.id) : null),
@@ -135,6 +142,7 @@ export function TransactionDetailPage() {
   const documentMimeType = selectedDocument?.mime_type ?? "";
   const canPreviewInline = documentMimeType ? supportsInlinePreview(documentMimeType) : false;
   const useImagePreview = documentMimeType.toLowerCase().startsWith("image/");
+  const selectedItem = detail?.items.find((candidate) => candidate.id === selectedItemId) ?? null;
 
   useEffect(() => {
     setPreviewFailed(false);
@@ -209,6 +217,24 @@ export function TransactionDetailPage() {
     if (Object.keys(transactionCorrections).length === 0 && itemCorrections.length === 0) {
       setMutationStatus(t("pages.transactionDetail.override.noChanges"));
       return;
+    }
+
+    if (
+      values.itemId &&
+      itemCorrections.length > 0 &&
+      (values.mode === "global" || values.mode === "both") &&
+      selectedItem
+    ) {
+      const confirmed = window.confirm(
+        t("pages.transactionDetail.override.confirmGlobalCategory", {
+          itemName: selectedItem.name,
+          sourceName: detail.transaction.source_id
+        })
+      );
+      if (!confirmed) {
+        setMutationStatus(t("pages.transactionDetail.override.globalCancelled"));
+        return;
+      }
     }
 
     setMutationStatus(t("pages.transactionDetail.override.applying"));
@@ -484,6 +510,9 @@ export function TransactionDetailPage() {
                         <SelectItem value="both">{t("pages.transactionDetail.override.mode.both")}</SelectItem>
                       </SelectContent>
                     </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {t(`pages.transactionDetail.override.modeHelp.${selectedMode}`)}
+                    </p>
                   </div>
 
                   <div className="space-y-2">
@@ -528,7 +557,10 @@ export function TransactionDetailPage() {
                         });
                       }}
                     >
-                      <SelectTrigger id="override-item">
+                      <SelectTrigger
+                        id="override-item"
+                        aria-label={t("pages.transactionDetail.override.item")}
+                      >
                         <SelectValue placeholder={t("pages.transactionDetail.override.selectItem")} />
                       </SelectTrigger>
                       <SelectContent>
@@ -547,11 +579,46 @@ export function TransactionDetailPage() {
 
                   <div className="space-y-2">
                     <Label htmlFor="item-category">{t("pages.transactionDetail.override.itemCategory")}</Label>
-                    <Input id="item-category" {...form.register("itemCategory")} />
+                    <Select
+                      value={form.watch("itemCategory") || NO_CATEGORY_VALUE}
+                      onValueChange={(value) => {
+                        form.setValue("itemCategory", value === NO_CATEGORY_VALUE ? "" : value, {
+                          shouldDirty: true,
+                          shouldValidate: true
+                        });
+                      }}
+                      disabled={!selectedItemId}
+                    >
+                      <SelectTrigger id="item-category" aria-label={t("pages.transactionDetail.override.itemCategory")}>
+                        <SelectValue placeholder={t("pages.transactionDetail.override.selectCategory")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_CATEGORY_VALUE}>{t("pages.transactionDetail.override.clearCategory")}</SelectItem>
+                        {CATEGORY_OPTIONS.map((category) => (
+                          <SelectItem value={category} key={category}>
+                            {formatCategoryOptionLabel(category, locale)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     {form.formState.errors.itemCategory ? (
                       <p className="text-xs text-destructive">{form.formState.errors.itemCategory.message}</p>
                     ) : null}
                   </div>
+
+                  {selectedItem && (selectedMode === "global" || selectedMode === "both") ? (
+                    <div className="space-y-2 md:col-span-3">
+                      <Alert>
+                        <AlertTitle>{t("pages.transactionDetail.override.globalScopeTitle")}</AlertTitle>
+                        <AlertDescription>
+                          {t("pages.transactionDetail.override.globalScopeDescription", {
+                            itemName: selectedItem.name,
+                            sourceName: detail.transaction.source_id
+                          })}
+                        </AlertDescription>
+                      </Alert>
+                    </div>
+                  ) : null}
 
                   <Button type="submit" className="self-end" disabled={!isOwner || overridesMutation.isPending}>
                     {overridesMutation.isPending ? t("pages.transactionDetail.override.applying") : t("pages.transactionDetail.override.submit")}
@@ -587,7 +654,9 @@ export function TransactionDetailPage() {
                         <TableCell className="tabular-nums">{item.line_no}</TableCell>
                         <TableCell>{item.name}</TableCell>
                         <TableCell className="tabular-nums">{item.qty}</TableCell>
-                        <TableCell>{item.category || "—"}</TableCell>
+                        <TableCell>
+                          <CategoryPresentation category={item.category} locale={locale} />
+                        </TableCell>
                         <TableCell className="tabular-nums">{formatEurFromCents(item.line_total_cents)}</TableCell>
                       </TableRow>
                     ))}

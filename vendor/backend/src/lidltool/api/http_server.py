@@ -72,6 +72,7 @@ from lidltool.analytics.queries import (
     dashboard_savings_breakdown,
     dashboard_totals,
     dashboard_trends,
+    export_receipts,
     review_queue,
     review_queue_detail,
     search_transactions,
@@ -138,6 +139,14 @@ from lidltool.connectors.auth.auth_orchestration import (
     start_connector_command_session,
     terminate_connector_bootstrap,
 )
+from lidltool.connectors.discovery import connector_discovery_payload
+from lidltool.connectors.lifecycle import (
+    connector_lifecycle_record_payload,
+    install_connector,
+    set_connector_enabled,
+    uninstall_connector,
+    update_connector_config,
+)
 from lidltool.connectors.runtime.execution import ConnectorExecutionService
 from lidltool.db.audit import list_transaction_history
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
@@ -162,6 +171,7 @@ from lidltool.ingest.manual_ingest import (
     ManualTransactionInput,
 )
 from lidltool.ingest.overrides import OverrideService
+from lidltool.ops import backup_database
 from lidltool.recurring.service import RecurringBillsService
 from lidltool.reliability.metrics import compute_endpoint_slo_summary, record_endpoint_metric
 from lidltool.storage.document_storage import DocumentStorage, DocumentStorageError
@@ -2523,12 +2533,27 @@ class ConnectorCascadeRetryRequest(BaseModel):
     include_skipped: bool = True
 
 
+class ConnectorConfigUpdateRequest(BaseModel):
+    values: dict[str, Any] = Field(default_factory=dict)
+    clear_secret_keys: list[str] = Field(default_factory=list)
+
+
+class ConnectorUninstallRequest(BaseModel):
+    purge_config: bool = False
+
+
 class TransactionSharingRequest(BaseModel):
     family_share_mode: Literal["receipt", "items", "none", "inherit"]
 
 
 class TransactionItemSharingRequest(BaseModel):
     family_shared: bool
+
+
+class SystemBackupRequest(BaseModel):
+    output_dir: str | None = None
+    include_documents: bool = True
+    include_export_json: bool = True
 
 
 UploadFormFile = Annotated[UploadFile, File(...)]
@@ -3272,6 +3297,120 @@ def create_app() -> FastAPI:
                 session.delete(user)
                 result = {"user_id": user_id, "deleted": True}
             return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/system/backup")
+    def run_system_backup(
+        request: Request,
+        payload: SystemBackupRequest,
+        db: str | None = None,
+        config: str | None = None,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request, db=db, config_path=config)
+            app_config = context.config
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(context.sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                _require_admin(current_user)
+
+                timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
+                if payload.output_dir and payload.output_dir.strip():
+                    output_dir = Path(payload.output_dir.strip()).expanduser().resolve()
+                else:
+                    output_dir = (app_config.config_dir / "desktop-backups" / f"backup-{timestamp}").resolve()
+
+                output_dir.mkdir(parents=True, exist_ok=True)
+                if any(output_dir.iterdir()):
+                    raise RuntimeError(f"backup output directory must be empty: {output_dir}")
+
+                backup_result = backup_database(
+                    app_config, output_dir, include_documents=payload.include_documents
+                )
+                copied: list[str] = [str(backup_result.db_artifact)]
+                skipped: list[str] = []
+
+                token_artifact: str | None = None
+                if backup_result.token_artifact:
+                    token_artifact = str(backup_result.token_artifact)
+                    copied.append(token_artifact)
+                else:
+                    skipped.append("token file not found")
+
+                documents_artifact: str | None = None
+                if payload.include_documents:
+                    if backup_result.documents_artifact:
+                        documents_artifact = str(backup_result.documents_artifact)
+                        copied.append(documents_artifact)
+                    else:
+                        skipped.append("documents directory not found")
+                else:
+                    skipped.append("documents excluded by request")
+
+                credential_key_artifact: str | None = None
+                credential_key = (
+                    os.getenv("LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY")
+                    or app_config.credential_encryption_key
+                )
+                if credential_key and credential_key.strip():
+                    key_artifact = output_dir / "credential_encryption_key.txt"
+                    key_artifact.write_text(f"{credential_key.strip()}\n", encoding="utf-8")
+                    credential_key_artifact = str(key_artifact)
+                    copied.append(credential_key_artifact)
+                else:
+                    skipped.append("credential encryption key not available")
+
+                export_artifact: str | None = None
+                export_records: int | None = None
+                if payload.include_export_json:
+                    export_payload = export_receipts(session)
+                    export_file = output_dir / "receipts-export.json"
+                    export_file.write_text(
+                        json.dumps(export_payload, indent=2, default=str), encoding="utf-8"
+                    )
+                    export_artifact = str(export_file)
+                    export_records = len(export_payload)
+                    copied.append(export_artifact)
+
+                manifest_path = output_dir / "backup-manifest.json"
+                manifest_payload = {
+                    "created_at": datetime.now(tz=UTC).isoformat(),
+                    "requested_by_user_id": current_user.user_id,
+                    "provider": backup_result.provider,
+                    "output_dir": str(output_dir),
+                    "db_artifact": str(backup_result.db_artifact),
+                    "token_artifact": token_artifact,
+                    "documents_artifact": documents_artifact,
+                    "credential_key_artifact": credential_key_artifact,
+                    "export_artifact": export_artifact,
+                    "export_records": export_records,
+                    "include_documents": payload.include_documents,
+                    "include_export_json": payload.include_export_json,
+                    "copied": copied,
+                    "skipped": skipped,
+                }
+                manifest_path.write_text(
+                    json.dumps(manifest_payload, indent=2), encoding="utf-8"
+                )
+                copied.append(str(manifest_path))
+
+                result = {
+                    "provider": backup_result.provider,
+                    "output_dir": str(output_dir),
+                    "db_artifact": str(backup_result.db_artifact),
+                    "token_artifact": token_artifact,
+                    "documents_artifact": documents_artifact,
+                    "credential_key_artifact": credential_key_artifact,
+                    "export_artifact": export_artifact,
+                    "export_records": export_records,
+                    "manifest_path": str(manifest_path),
+                    "copied": copied,
+                    "skipped": skipped,
+                }
+            return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -5368,6 +5507,225 @@ def create_app() -> FastAPI:
                 )
                 result = list_sources(session, config=app_config, visibility=visibility)
             return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/connectors")
+    def get_connectors(
+        request: Request,
+        db: str | None = None,
+        config: str | None = None,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request, db=db, config_path=config)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                auth_service = _connector_auth_service(app, config=app_config)
+                result = connector_discovery_payload(
+                    app,
+                    session,
+                    auth_service=auth_service,
+                    config=app_config,
+                    viewer_is_admin=current_user.is_admin,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/connectors/rescan")
+    def rescan_connectors(
+        request: Request,
+        db: str | None = None,
+        config: str | None = None,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request, db=db, config_path=config)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                _require_admin(current_user)
+                auth_service = _connector_auth_service(app, config=app_config)
+                result = connector_discovery_payload(
+                    app,
+                    session,
+                    auth_service=auth_service,
+                    config=app_config,
+                    viewer_is_admin=current_user.is_admin,
+                )
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/connectors/reload")
+    def reload_connectors(
+        request: Request,
+        db: str | None = None,
+        config: str | None = None,
+    ) -> Any:
+        return rescan_connectors(request=request, db=db, config=config)
+
+    @app.post("/api/v1/connectors/{source_id}/install")
+    def post_connector_install(
+        request: Request,
+        source_id: str,
+        db: str | None = None,
+        config: str | None = None,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request, db=db, config_path=config)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                _require_admin(current_user)
+                result = install_connector(
+                    session,
+                    source_id=source_id,
+                    config=app_config,
+                )
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/connectors/{source_id}/enable")
+    def post_connector_enable(
+        request: Request,
+        source_id: str,
+        db: str | None = None,
+        config: str | None = None,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request, db=db, config_path=config)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                _require_admin(current_user)
+                result = set_connector_enabled(
+                    session,
+                    source_id=source_id,
+                    enabled=True,
+                    config=app_config,
+                )
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/connectors/{source_id}/disable")
+    def post_connector_disable(
+        request: Request,
+        source_id: str,
+        db: str | None = None,
+        config: str | None = None,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request, db=db, config_path=config)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                _require_admin(current_user)
+                result = set_connector_enabled(
+                    session,
+                    source_id=source_id,
+                    enabled=False,
+                    config=app_config,
+                )
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/connectors/{source_id}/uninstall")
+    def post_connector_uninstall(
+        request: Request,
+        source_id: str,
+        payload: ConnectorUninstallRequest | None = None,
+        db: str | None = None,
+        config: str | None = None,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request, db=db, config_path=config)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                _require_admin(current_user)
+                result = uninstall_connector(
+                    session,
+                    source_id=source_id,
+                    purge_config=bool(payload.purge_config) if payload is not None else False,
+                    config=app_config,
+                )
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/connectors/{source_id}/config")
+    def get_connector_config(
+        request: Request,
+        source_id: str,
+        db: str | None = None,
+        config: str | None = None,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request, db=db, config_path=config)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                _require_admin(current_user)
+                result = connector_lifecycle_record_payload(
+                    session,
+                    source_id=source_id,
+                    config=app_config,
+                )
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/connectors/{source_id}/config")
+    def post_connector_config(
+        request: Request,
+        source_id: str,
+        payload: ConnectorConfigUpdateRequest,
+        db: str | None = None,
+        config: str | None = None,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request, db=db, config_path=config)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                _require_admin(current_user)
+                result = update_connector_config(
+                    session,
+                    source_id=source_id,
+                    config=app_config,
+                    values=payload.values,
+                    clear_secret_keys=list(payload.clear_secret_keys),
+                )
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 

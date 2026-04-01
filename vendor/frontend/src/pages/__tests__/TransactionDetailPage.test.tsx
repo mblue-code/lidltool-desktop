@@ -32,6 +32,8 @@ describe("TransactionDetailPage", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    vi.spyOn(window, "confirm").mockImplementation(() => true);
     overrideResultPayload = {
       transaction_id: "tx-1",
       mode: "local",
@@ -110,7 +112,7 @@ describe("TransactionDetailPage", () => {
                   qty: 1,
                   unit: "pcs",
                   line_total_cents: 199,
-                  category: "dairy"
+                  category: "groceries:beverages"
                 }
               ],
               discounts: [
@@ -150,7 +152,7 @@ describe("TransactionDetailPage", () => {
 
     expect(screen.getByRole("link", { name: /Open document/i })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Apply override" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply correction" }));
 
     await waitFor(() => {
       expect(
@@ -169,10 +171,10 @@ describe("TransactionDetailPage", () => {
     fireEvent.change(screen.getByLabelText("Merchant Name"), {
       target: { value: "Lidl Updated" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Apply override" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply correction" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Overrides applied.")).toBeInTheDocument();
+      expect(screen.getByText("Corrections applied.")).toBeInTheDocument();
     });
 
     const patchCall = vi
@@ -184,6 +186,78 @@ describe("TransactionDetailPage", () => {
       transaction_corrections?: { merchant_name?: string };
     };
     expect(body.transaction_corrections?.merchant_name).toBe("Lidl Updated");
+  });
+
+  it("submits item category corrections from the dropdown using canonical category ids", async () => {
+    renderTransactionDetail();
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "Item" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Item" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Milk" }));
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Item Category" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Groceries / Dairy" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply correction" }));
+
+    await waitFor(() => {
+      expect(
+        vi.mocked(fetch).mock.calls.some((call) => String(call[0]).includes("/overrides"))
+      ).toBe(true);
+    });
+
+    const patchCall = vi
+      .mocked(fetch)
+      .mock.calls.find((call) => String(call[0]).includes("/overrides"));
+    expect(patchCall).toBeDefined();
+    const body = JSON.parse(String(patchCall?.[1]?.body || "{}")) as {
+      item_corrections?: Array<{ item_id: string; corrections?: { category?: string } }>;
+    };
+    expect(body.item_corrections?.[0]?.item_id).toBe("item-1");
+    expect(body.item_corrections?.[0]?.corrections?.category).toBe("groceries:dairy");
+  });
+
+  it("asks for confirmation before creating a global exact-name category rule", async () => {
+    renderTransactionDetail();
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "Mode" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Mode" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Global" }));
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Item" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Milk" }));
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Item Category" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Groceries / Dairy" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          'This will apply the selected category to all items named "Milk" from source "lidl".'
+        )
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply correction" }));
+
+    await waitFor(() => {
+      expect(window.confirm).toHaveBeenCalledWith(
+        'Apply this category to all items named "Milk" from source "lidl"?'
+      );
+    });
+
+    const patchCall = vi
+      .mocked(fetch)
+      .mock.calls.find((call) => String(call[0]).includes("/overrides"));
+    expect(patchCall).toBeDefined();
+    const body = JSON.parse(String(patchCall?.[1]?.body || "{}")) as { mode?: string };
+    expect(body.mode).toBe("global");
   });
 
   it("shows schema validation error when override response payload drifts", async () => {
@@ -199,7 +273,7 @@ describe("TransactionDetailPage", () => {
     fireEvent.change(screen.getByLabelText("Merchant Name"), {
       target: { value: "Lidl Updated" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Apply override" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply correction" }));
 
     await waitFor(() => {
       expect(screen.getByText(/Invalid API payload/)).toBeInTheDocument();
@@ -223,7 +297,10 @@ describe("TransactionDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Line Items")).toBeInTheDocument();
       expect(screen.getByText("Milk")).toBeInTheDocument();
+      expect(screen.getByText("Groceries")).toBeInTheDocument();
+      expect(screen.getByText("Beverages")).toBeInTheDocument();
     });
+    expect(screen.queryByText("groceries:beverages")).not.toBeInTheDocument();
 
     activateTab("Discounts");
     await waitFor(() => {

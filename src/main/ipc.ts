@@ -7,6 +7,7 @@ import type {
   ReceiptPluginCatalogInstallRequest,
   SyncRequest
 } from "@shared/contracts";
+import { DESKTOP_CAPABILITIES } from "@shared/desktop-route-policy";
 import { DesktopRuntime } from "./runtime";
 
 export function registerIpc(
@@ -16,6 +17,7 @@ export function registerIpc(
   setLocale: (locale: DesktopLocale) => DesktopLocale
 ): void {
   ipcMain.handle("desktop:get-config", () => runtime.getConfig());
+  ipcMain.handle("desktop:capabilities:get", () => DESKTOP_CAPABILITIES);
   ipcMain.handle("desktop:locale:get", () => getLocale());
   ipcMain.handle("desktop:boot-error:get", () => getBootError());
   ipcMain.handle("desktop:backend:status", () => runtime.getBackendStatus());

@@ -30,6 +30,48 @@ Sprint 16 focuses on product polish instead of new parity scope.
 - regional edition and market profile context is surfaced more clearly from the existing release metadata
 - partial-runtime states now stay actionable when full frontend assets are missing or release metadata falls back to a safe local shell profile
 
+## Intentional desktop deltas after parity
+
+These desktop-specific differences are still intentional after the parity program and are expected to remain until the
+main app offers a clean upstream equivalent.
+
+- Route capability policy is owned by Electron in `src/shared/desktop-route-policy.ts` and consumed by
+  `overrides/frontend/src/lib/desktop-capabilities.tsx` plus `overrides/frontend/src/main.tsx`.
+  Unsupported routes stay hidden in navigation and direct requests to `/offers`, `/automations`, `/automation-inbox`,
+  and `/reliability` redirect back to `/` with desktop-specific handoff messaging.
+- Bills euro-input flow stays on the vendored `vendor/frontend/src/pages/BillsPage.tsx` plus
+  `vendor/frontend/src/utils/money-input.ts` parsing path.
+  Desktop keeps this stricter euro-input handling because the packaged app still targets local manual entry with
+  comma-or-dot decimal input rather than introducing a separate desktop-only amount widget.
+- Connector lifecycle UI stays close to main, but desktop-owned pack install, trust, and update actions still hand off
+  to the Electron control center from `overrides/frontend/src/pages/ConnectorsPage.tsx`.
+  The full app remains the place for one-off setup and sync, while control-center ownership is preserved for trusted
+  pack management.
+- AI settings stay on a desktop-safe fork of the vendored page and tests.
+  The current desktop page keeps chat-oriented provider controls while continuing to hide OCR-provider management and
+  other self-hosted runtime assumptions.
+- Setup and users settings remain intentional overrides in
+  `overrides/frontend/src/pages/SetupPage.tsx` and `overrides/frontend/src/pages/UsersSettingsPage.tsx`.
+  Those files keep packaged backup/restore flows and desktop runtime affordances that do not exist in the self-hosted
+  product.
+- Backend parity still requires two narrow patch-time desktop adjustments instead of broad file forks:
+  `scripts/patch-vendored-backend.mjs` adds the authenticated system-backup endpoint used by the full UI and aligns
+  desktop-managed `local_path` receipt packs with the connector lifecycle model.
+- Frontend parity still requires one narrow build patch in `scripts/patch-vendored-frontend.mjs` for the
+  `@mariozechner/pi-ai` browser shim and for syncing the Electron-owned route policy into the vendored frontend before
+  build/test.
+
+Residual debt after Sprint 6:
+
+- The route capability contract is now single-sourced inside `apps/desktop`, but the vendored frontend still receives it
+  via patch-time file sync rather than a shared package.
+- Desktop AI settings remain a maintained fork until the upstream app exposes the same desktop-safe provider gating
+  without reintroducing OCR/runtime assumptions.
+- The authenticated system-backup endpoint still lands through a narrow backend patch because it is desktop packaging
+  behavior, not self-hosted server behavior.
+- Deferred parity remains deferred on purpose: OCR runtime parity, offers parity, automations parity, reliability/ops
+  parity, and self-hosted operator workflows.
+
 ## User journey
 
 Typical desktop flow:
