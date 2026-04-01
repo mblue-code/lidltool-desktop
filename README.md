@@ -316,6 +316,14 @@ npm run frontend:build
 npm run dev
 ```
 
+Run the real desktop Electron E2E smoke suite:
+
+```bash
+cd apps/desktop
+npm run test:e2e:prepare
+npm run test:e2e
+```
+
 ## Exact release workflow
 
 Run from `apps/desktop` on the target OS you are releasing for.
@@ -326,6 +334,7 @@ npm run vendor:sync
 npm run frontend:install
 npm run frontend:build
 npm run backend:prepare
+npm run test:e2e
 npm run test:plugin-packs
 npm run test:release-metadata
 npm run typecheck

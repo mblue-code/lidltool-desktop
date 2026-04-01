@@ -5,6 +5,11 @@ import { registerIpc } from "./ipc";
 import { applyDesktopMenu, loadDesktopLocale, persistDesktopLocale } from "./i18n";
 import { DesktopRuntime } from "./runtime";
 
+const userDataOverride = process.env.LIDLTOOL_DESKTOP_USER_DATA_DIR?.trim();
+if (userDataOverride) {
+  app.setPath("userData", userDataOverride);
+}
+
 let mainWindow: BrowserWindow | null = null;
 const runtime = new DesktopRuntime();
 let latestBootError: string | null = null;

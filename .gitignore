@@ -7,3 +7,6 @@ build/backend-venv
 build/backend-src
 vendor/frontend/node_modules
 vendor/frontend/dist
+output/playwright
+playwright-report
+test-results

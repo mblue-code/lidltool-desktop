@@ -18,6 +18,10 @@
     "dev:full": "npm run vendor:sync && npm run frontend:install && npm run backend:prepare && npm run frontend:build && electron-vite dev",
     "build": "npm run i18n:sync-shell && npm run assets:sync && electron-vite build",
     "build:full-ui": "npm run frontend:install && npm run frontend:build && npm run assets:sync && electron-vite build",
+    "test:e2e:prepare": "npm run backend:prepare && npm run frontend:build && npm run build",
+    "test:e2e": "playwright test --config=playwright.config.ts",
+    "test:e2e:headed": "playwright test --headed --config=playwright.config.ts",
+    "test:e2e:full": "npm run test:e2e:prepare && npm run test:e2e",
     "test:control-center": "node --test --experimental-strip-types tests/control-center-model.test.ts",
     "test:plugin-packs": "node --test --experimental-strip-types tests/receipt-plugin-packs.test.ts",
     "test:release-metadata": "node --test --experimental-strip-types tests/release-metadata.test.ts",
@@ -87,6 +91,7 @@
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/node": "^22.13.14",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

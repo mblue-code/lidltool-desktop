@@ -32,6 +32,20 @@ import { resolveDesktopReleaseContext, resolveDesktopReleaseMetadata } from "./r
 
 const DEFAULT_PORT = 18765;
 
+function resolveApiPort(defaultPort = DEFAULT_PORT): number {
+  const rawPort = process.env.LIDLTOOL_DESKTOP_API_PORT?.trim();
+  if (!rawPort) {
+    return defaultPort;
+  }
+
+  const parsedPort = Number.parseInt(rawPort, 10);
+  if (!Number.isInteger(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+    return defaultPort;
+  }
+
+  return parsedPort;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -51,6 +65,10 @@ interface StartBackendOptions {
   strictOverride?: boolean;
 }
 
+interface BackendEnvOptions {
+  includePluginRuntimePolicy?: boolean;
+}
+
 export class DesktopRuntime {
   private backendProcess: ChildProcessWithoutNullStreams | null = null;
   private backendStartedAt: string | null = null;
@@ -60,7 +78,7 @@ export class DesktopRuntime {
     validateManifest: async (manifestPath) => await this.validateReceiptPluginManifest(manifestPath)
   });
 
-  constructor(port = DEFAULT_PORT) {
+  constructor(port = resolveApiPort()) {
     this.apiPort = port;
   }
 
@@ -112,7 +130,9 @@ export class DesktopRuntime {
     return await resolveDesktopReleaseMetadata({
       repoRootHint: this.resolveRepoRootHint(),
       requestedReleaseVariantId: process.env.LIDLTOOL_DESKTOP_RELEASE_VARIANT?.trim() || null,
-      remoteCatalogUrl: this.resolveRemoteCatalogUrl()
+      remoteCatalogUrl: this.resolveRemoteCatalogUrl(),
+      trustedCatalogOverride: this.resolveTrustedCatalogOverride(),
+      trustRootsOverride: this.resolveTrustRootsOverride()
     });
   }
 
@@ -773,8 +793,12 @@ export class DesktopRuntime {
     });
   }
 
-  private async runCommandCapture(command: string, args: string[]): Promise<CommandResult> {
-    const env = await this.backendProcessEnv(command);
+  private async runCommandCapture(
+    command: string,
+    args: string[],
+    options: BackendEnvOptions = {}
+  ): Promise<CommandResult> {
+    const env = await this.backendProcessEnv(command, options);
 
     return await new Promise<CommandResult>((resolve, reject) => {
       const proc = spawn(command, args, {
@@ -840,25 +864,33 @@ export class DesktopRuntime {
     }
   }
 
-  private async backendProcessEnv(command: string): Promise<NodeJS.ProcessEnv> {
+  private async backendProcessEnv(command: string, options: BackendEnvOptions = {}): Promise<NodeJS.ProcessEnv> {
     const cfg = this.getConfig();
     const env: NodeJS.ProcessEnv = { ...process.env };
-    const releaseContext = await this.resolveReleaseContext();
-    const runtimePolicy = await this.receiptPluginPackManager.getRuntimePolicy({
-      trustPolicy: releaseContext.trustPolicy,
-      catalogEntries: releaseContext.metadata.discovery_catalog.entries
-    });
     env.LIDLTOOL_FRONTEND_DIST = this.resolveFrontendDist();
     env.LIDLTOOL_REPO_ROOT = this.resolveRepoRootHint();
     env.LIDLTOOL_DB = cfg.dbPath;
     env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY =
       env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY || this.resolveCredentialEncryptionKey(cfg.userDataDir);
-    env.LIDLTOOL_CONNECTOR_PLUGIN_PATHS = runtimePolicy.activePluginSearchPaths.join(",");
-    env.LIDLTOOL_CONNECTOR_EXTERNAL_RUNTIME_ENABLED = runtimePolicy.activePluginSearchPaths.length > 0 ? "true" : "false";
-    env.LIDLTOOL_CONNECTOR_EXTERNAL_RECEIPT_PLUGINS_ENABLED =
-      runtimePolicy.activePluginSearchPaths.length > 0 ? "true" : "false";
-    env.LIDLTOOL_CONNECTOR_EXTERNAL_OFFER_PLUGINS_ENABLED = "false";
-    env.LIDLTOOL_CONNECTOR_EXTERNAL_ALLOWED_TRUST_CLASSES = runtimePolicy.allowedTrustClasses.join(",");
+    if (options.includePluginRuntimePolicy === false) {
+      env.LIDLTOOL_CONNECTOR_PLUGIN_PATHS = "";
+      env.LIDLTOOL_CONNECTOR_EXTERNAL_RUNTIME_ENABLED = "false";
+      env.LIDLTOOL_CONNECTOR_EXTERNAL_RECEIPT_PLUGINS_ENABLED = "false";
+      env.LIDLTOOL_CONNECTOR_EXTERNAL_OFFER_PLUGINS_ENABLED = "false";
+      env.LIDLTOOL_CONNECTOR_EXTERNAL_ALLOWED_TRUST_CLASSES = "";
+    } else {
+      const releaseContext = await this.resolveReleaseContext();
+      const runtimePolicy = await this.receiptPluginPackManager.getRuntimePolicy({
+        trustPolicy: releaseContext.trustPolicy,
+        catalogEntries: releaseContext.metadata.discovery_catalog.entries
+      });
+      env.LIDLTOOL_CONNECTOR_PLUGIN_PATHS = runtimePolicy.activePluginSearchPaths.join(",");
+      env.LIDLTOOL_CONNECTOR_EXTERNAL_RUNTIME_ENABLED = runtimePolicy.activePluginSearchPaths.length > 0 ? "true" : "false";
+      env.LIDLTOOL_CONNECTOR_EXTERNAL_RECEIPT_PLUGINS_ENABLED =
+        runtimePolicy.activePluginSearchPaths.length > 0 ? "true" : "false";
+      env.LIDLTOOL_CONNECTOR_EXTERNAL_OFFER_PLUGINS_ENABLED = "false";
+      env.LIDLTOOL_CONNECTOR_EXTERNAL_ALLOWED_TRUST_CLASSES = runtimePolicy.allowedTrustClasses.join(",");
+    }
     if (!env.PLAYWRIGHT_BROWSERS_PATH && this.shouldUseInVenvPlaywrightBrowsers(command)) {
       env.PLAYWRIGHT_BROWSERS_PATH = "0";
     }
@@ -910,7 +942,9 @@ export class DesktopRuntime {
     return await resolveDesktopReleaseContext({
       repoRootHint: this.resolveRepoRootHint(),
       requestedReleaseVariantId: process.env.LIDLTOOL_DESKTOP_RELEASE_VARIANT?.trim() || null,
-      remoteCatalogUrl: this.resolveRemoteCatalogUrl()
+      remoteCatalogUrl: this.resolveRemoteCatalogUrl(),
+      trustedCatalogOverride: this.resolveTrustedCatalogOverride(),
+      trustRootsOverride: this.resolveTrustRootsOverride()
     });
   }
 
@@ -944,7 +978,9 @@ print(json.dumps({
     "compatibilityReason": compatibility.reason,
 }))
 `.trim();
-    const result = await this.runCommandCapture(command, ["-c", script, manifestPath]);
+    const result = await this.runCommandCapture(command, ["-c", script, manifestPath], {
+      includePluginRuntimePolicy: false
+    });
     if (!result.ok) {
       throw new Error(result.stderr || result.stdout || "Manifest validation failed.");
     }
@@ -971,6 +1007,26 @@ print(json.dumps({
   private resolveRemoteCatalogUrl(): string | null {
     const raw = process.env.LIDLTOOL_DESKTOP_CATALOG_URL?.trim();
     return raw ? raw : null;
+  }
+
+  private resolveTrustRootsOverride(): unknown | undefined {
+    return this.readJsonOverrideFromPath("LIDLTOOL_DESKTOP_TRUST_ROOTS_PATH", "Desktop trust roots override");
+  }
+
+  private resolveTrustedCatalogOverride(): unknown | undefined {
+    return this.readJsonOverrideFromPath("LIDLTOOL_DESKTOP_TRUSTED_CATALOG_PATH", "Desktop trusted catalog override");
+  }
+
+  private readJsonOverrideFromPath(envName: string, label: string): unknown | undefined {
+    const overridePath = process.env[envName]?.trim();
+    if (!overridePath) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(readFileSync(overridePath, "utf-8"));
+    } catch (error) {
+      throw new Error(`${label} could not be loaded from ${overridePath}. ${String(error)}`);
+    }
   }
 
   private findCatalogDesktopPackEntry(
