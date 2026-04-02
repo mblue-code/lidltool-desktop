@@ -530,14 +530,11 @@ export function UsersSettingsPage() {
           {backupResult ? (
             <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(backupResult, null, 2)}</pre>
           ) : null}
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.usersSettings.restoreTitle")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+          <div className="app-section-divider space-y-1">
+            <h3 className="font-semibold leading-none tracking-tight">{t("pages.usersSettings.restoreTitle")}</h3>
+          </div>
+
           <p className="text-sm text-muted-foreground">{t("pages.usersSettings.restoreDescription")}</p>
           <form className="space-y-3" onSubmit={(event) => void submitRestore(event)}>
             <div className="space-y-2">

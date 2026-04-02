@@ -448,26 +448,24 @@ export function ConnectorsPage() {
       </Alert>
 
       {desktopContextQuery.data?.releaseMetadata ? (
-        <Card>
-          <CardContent className="grid gap-4 pt-6 md:grid-cols-3">
-            <div>
-              <p className="text-xs uppercase text-muted-foreground">Edition</p>
-              <p className="font-medium">
-                {desktopContextQuery.data.releaseMetadata.active_release_variant.display_name}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs uppercase text-muted-foreground">Market profile</p>
-              <p className="font-medium">
-                {desktopContextQuery.data.releaseMetadata.selected_market_profile.display_name}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs uppercase text-muted-foreground">Active pack paths</p>
-              <p className="font-medium">{activePluginSearchPaths.length}</p>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="app-section-divider grid gap-4 md:grid-cols-3">
+          <div>
+            <p className="text-xs uppercase text-muted-foreground">Edition</p>
+            <p className="font-medium">
+              {desktopContextQuery.data.releaseMetadata.active_release_variant.display_name}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs uppercase text-muted-foreground">Market profile</p>
+            <p className="font-medium">
+              {desktopContextQuery.data.releaseMetadata.selected_market_profile.display_name}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs uppercase text-muted-foreground">Active pack paths</p>
+            <p className="font-medium">{activePluginSearchPaths.length}</p>
+          </div>
+        </div>
       ) : null}
 
       {feedback ? (
@@ -623,14 +621,14 @@ export function ConnectorsPage() {
       </div>
 
       {inactivePacks.length > 0 ? (
-        <Card className="border-border/60 bg-card/85">
-          <CardHeader>
-            <CardTitle>Stored receipt packs</CardTitle>
-            <CardDescription>
+        <div className="app-section-divider space-y-4">
+          <div className="space-y-1.5">
+            <h2 className="font-semibold leading-none tracking-tight">Stored receipt packs</h2>
+            <p className="text-sm text-muted-foreground">
               These packs are installed in desktop storage but are not active in the current full-app runtime.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+            </p>
+          </div>
+          <div className="divide-y divide-border/60">
             {inactivePacks.map((pack) => {
               const catalogEntry =
                 (pack.catalogEntryId
@@ -639,7 +637,7 @@ export function ConnectorsPage() {
                 catalogEntries.find((entry) => entry.plugin_id === pack.pluginId) ??
                 null;
               return (
-                <div key={pack.pluginId} className="rounded-lg border border-border/60 bg-background/60 p-4">
+                <div key={pack.pluginId} className="space-y-3 py-4 first:pt-0">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
                       <p className="font-medium">{pack.displayName}</p>
@@ -653,15 +651,15 @@ export function ConnectorsPage() {
                     </div>
                   </div>
                   {catalogEntry?.support_policy ? (
-                    <p className="mt-3 text-sm text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       {catalogEntry.support_policy.maintainer_support} {catalogEntry.support_policy.update_expectations}
                     </p>
                   ) : null}
                 </div>
               );
             })}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : null}
 
       <Dialog open={setupState !== null} onOpenChange={(open) => (!open ? closeSetup() : undefined)}>

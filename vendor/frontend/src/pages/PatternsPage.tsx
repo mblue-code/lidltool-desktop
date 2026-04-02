@@ -778,224 +778,221 @@ export function PatternsPage() {
   return (
     <section className="space-y-4">
       <PageHeader title={t("nav.item.patterns")} />
-      <Card>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <div className="space-y-2 xl:col-span-3">
-              <Label htmlFor="patterns-timing-view">View</Label>
-              <div
-                id="patterns-timing-view"
-                role="tablist"
-                aria-label="Timing view"
-                className="grid w-full grid-cols-3 gap-1 rounded-lg bg-muted p-1 md:w-auto"
-              >
-                <button
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="space-y-2 xl:col-span-3">
+          <Label htmlFor="patterns-timing-view">View</Label>
+          <div
+            id="patterns-timing-view"
+            role="tablist"
+            aria-label="Timing view"
+            className="grid w-full grid-cols-3 gap-1 rounded-lg bg-muted p-1 md:w-auto"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={timingView === "yearly"}
+              className={cn(
+                "rounded-md px-3 py-1 text-sm transition",
+                timingView === "yearly" ? "bg-card text-foreground shadow backdrop-blur-xl" : "text-muted-foreground"
+              )}
+              onClick={() => setTimingView("yearly")}
+            >
+              Yearly
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={timingView === "hourly"}
+              className={cn(
+                "rounded-md px-3 py-1 text-sm transition",
+                timingView === "hourly" ? "bg-card text-foreground shadow backdrop-blur-xl" : "text-muted-foreground"
+              )}
+              onClick={() => setTimingView("hourly")}
+            >
+              Hourly
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={timingView === "matrix"}
+              className={cn(
+                "rounded-md px-3 py-1 text-sm transition",
+                timingView === "matrix" ? "bg-card text-foreground shadow backdrop-blur-xl" : "text-muted-foreground"
+              )}
+              onClick={() => setTimingView("matrix")}
+            >
+              Weekday x Hour
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="patterns-value-mode">Metric</Label>
+          <select
+            id="patterns-value-mode"
+            className="app-soft-surface h-9 w-full rounded-md border border-input px-3 text-sm"
+            value={valueMode}
+            onChange={(event) => setValueMode(event.target.value as TimingValueMode)}
+          >
+            <option value="net">Net spend</option>
+            <option value="gross">Gross spend</option>
+            <option value="count">Order count</option>
+          </select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="patterns-source-kind">Source</Label>
+          <select
+            id="patterns-source-kind"
+            className="app-soft-surface h-9 w-full rounded-md border border-input px-3 text-sm"
+            value={sourceKind}
+            onChange={(event) => setSourceKind(event.target.value)}
+          >
+            <option value={ALL_SOURCES_VALUE}>All sources</option>
+            {sourceOptions.map((option) => (
+              <option key={option.kind} value={option.kind}>
+                {option.label} ({option.kind})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2 self-end pb-2">
+          <Switch
+            id="patterns-compare-mode"
+            checked={compareMode}
+            onCheckedChange={(checked) => setCompareMode(checked)}
+            aria-label="Toggle compare mode"
+          />
+          <Label htmlFor="patterns-compare-mode">Compare mode</Label>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="patterns-date-from">From</Label>
+          <Input
+            id="patterns-date-from"
+            type="date"
+            value={fromDate}
+            onChange={(event) => setFromDate(event.target.value)}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="patterns-date-to">To</Label>
+          <Input
+            id="patterns-date-to"
+            type="date"
+            value={toDate}
+            onChange={(event) => setToDate(event.target.value)}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="patterns-source-kind-compare">Compare Source</Label>
+          <select
+            id="patterns-source-kind-compare"
+            className="app-soft-surface h-9 w-full rounded-md border border-input px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+            value={compareSourceKind}
+            disabled={!compareMode}
+            onChange={(event) => setCompareSourceKind(event.target.value)}
+          >
+            {sourceOptions.length === 0 ? (
+              <option value={ALL_SOURCES_VALUE}>No sources available</option>
+            ) : (
+              sourceOptions.map((option) => (
+                <option key={`compare-${option.kind}`} value={option.kind}>
+                  {option.label} ({option.kind})
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+      </div>
+
+      <div className="md:hidden">
+        <MobileSummary data={primaryTimingData} />
+      </div>
+      <div className={cn("hidden md:grid gap-4", compareMode && "md:grid-cols-2")}>
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="text-base">
+                {compareMode ? `Source A: ${primarySourceLabel}` : primarySourceLabel}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Button
                   type="button"
-                  role="tab"
-                  aria-selected={timingView === "yearly"}
-                  className={cn(
-                    "rounded-md px-3 py-1 text-sm transition",
-                    timingView === "yearly" ? "bg-card text-foreground shadow backdrop-blur-xl" : "text-muted-foreground"
-                  )}
-                  onClick={() => setTimingView("yearly")}
+                  variant="outline"
+                  size="sm"
+                  disabled={!primaryTimingData}
+                  onClick={() =>
+                    primaryTimingData ? void exportPanelAsCsv(primaryCsvContext, primaryTimingData) : undefined
+                  }
                 >
-                  Yearly
-                </button>
-                <button
+                  Export CSV
+                </Button>
+                <Button
                   type="button"
-                  role="tab"
-                  aria-selected={timingView === "hourly"}
-                  className={cn(
-                    "rounded-md px-3 py-1 text-sm transition",
-                    timingView === "hourly" ? "bg-card text-foreground shadow backdrop-blur-xl" : "text-muted-foreground"
-                  )}
-                  onClick={() => setTimingView("hourly")}
+                  variant="outline"
+                  size="sm"
+                  disabled={!primaryTimingData}
+                  onClick={() => void exportPanelAsPng(primaryCsvContext, primaryPanelRef.current)}
                 >
-                  Hourly
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={timingView === "matrix"}
-                  className={cn(
-                    "rounded-md px-3 py-1 text-sm transition",
-                    timingView === "matrix" ? "bg-card text-foreground shadow backdrop-blur-xl" : "text-muted-foreground"
-                  )}
-                  onClick={() => setTimingView("matrix")}
-                >
-                  Weekday x Hour
-                </button>
+                  Export PNG
+                </Button>
               </div>
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="patterns-value-mode">Metric</Label>
-              <select
-                id="patterns-value-mode"
-                className="app-soft-surface h-9 w-full rounded-md border border-input px-3 text-sm"
-                value={valueMode}
-                onChange={(event) => setValueMode(event.target.value as TimingValueMode)}
-              >
-                <option value="net">Net spend</option>
-                <option value="gross">Gross spend</option>
-                <option value="count">Order count</option>
-              </select>
+          </CardHeader>
+          <CardContent>
+            <div ref={primaryPanelRef} className="space-y-2">
+              {timingView === "yearly" && renderYearlyPanel(yearlyPrimaryQuery, primarySourceLabel, primarySourceParam)}
+              {timingView === "hourly" && renderHourlyPanel(hourlyPrimaryQuery, primarySourceLabel, primarySourceParam)}
+              {timingView === "matrix" && renderMatrixPanel(matrixPrimaryQuery, primarySourceLabel, primarySourceParam)}
             </div>
+          </CardContent>
+        </Card>
 
-            <div className="space-y-2">
-              <Label htmlFor="patterns-source-kind">Source</Label>
-              <select
-                id="patterns-source-kind"
-                className="app-soft-surface h-9 w-full rounded-md border border-input px-3 text-sm"
-                value={sourceKind}
-                onChange={(event) => setSourceKind(event.target.value)}
-              >
-                <option value={ALL_SOURCES_VALUE}>All sources</option>
-                {sourceOptions.map((option) => (
-                  <option key={option.kind} value={option.kind}>
-                    {option.label} ({option.kind})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2 self-end pb-2">
-              <Switch
-                id="patterns-compare-mode"
-                checked={compareMode}
-                onCheckedChange={(checked) => setCompareMode(checked)}
-                aria-label="Toggle compare mode"
-              />
-              <Label htmlFor="patterns-compare-mode">Compare mode</Label>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="patterns-date-from">From</Label>
-              <Input
-                id="patterns-date-from"
-                type="date"
-                value={fromDate}
-                onChange={(event) => setFromDate(event.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="patterns-date-to">To</Label>
-              <Input
-                id="patterns-date-to"
-                type="date"
-                value={toDate}
-                onChange={(event) => setToDate(event.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="patterns-source-kind-compare">Compare Source</Label>
-              <select
-                id="patterns-source-kind-compare"
-                className="app-soft-surface h-9 w-full rounded-md border border-input px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-                value={compareSourceKind}
-                disabled={!compareMode}
-                onChange={(event) => setCompareSourceKind(event.target.value)}
-              >
-                {sourceOptions.length === 0 ? (
-                  <option value={ALL_SOURCES_VALUE}>No sources available</option>
-                ) : (
-                  sourceOptions.map((option) => (
-                    <option key={`compare-${option.kind}`} value={option.kind}>
-                      {option.label} ({option.kind})
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-          </div>
-
-          <div className="md:hidden">
-            <MobileSummary data={primaryTimingData} />
-          </div>
-          <div className={cn("hidden md:grid gap-4", compareMode && "md:grid-cols-2")}>
-            <Card>
-              <CardHeader>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <CardTitle className="text-base">
-                    {compareMode ? `Source A: ${primarySourceLabel}` : primarySourceLabel}
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!primaryTimingData}
-                      onClick={() =>
-                        primaryTimingData ? void exportPanelAsCsv(primaryCsvContext, primaryTimingData) : undefined
-                      }
-                    >
-                      Export CSV
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!primaryTimingData}
-                      onClick={() => void exportPanelAsPng(primaryCsvContext, primaryPanelRef.current)}
-                    >
-                      Export PNG
-                    </Button>
-                  </div>
+        {compareMode ? (
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="text-base">Source B: {secondarySourceLabel}</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!secondaryTimingData}
+                    onClick={() =>
+                      secondaryTimingData ? void exportPanelAsCsv(secondaryCsvContext, secondaryTimingData) : undefined
+                    }
+                  >
+                    Export CSV
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!secondaryTimingData}
+                    onClick={() => void exportPanelAsPng(secondaryCsvContext, secondaryPanelRef.current)}
+                  >
+                    Export PNG
+                  </Button>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div ref={primaryPanelRef} className="space-y-2">
-                  {timingView === "yearly" && renderYearlyPanel(yearlyPrimaryQuery, primarySourceLabel, primarySourceParam)}
-                  {timingView === "hourly" && renderHourlyPanel(hourlyPrimaryQuery, primarySourceLabel, primarySourceParam)}
-                  {timingView === "matrix" && renderMatrixPanel(matrixPrimaryQuery, primarySourceLabel, primarySourceParam)}
-                </div>
-              </CardContent>
-            </Card>
-
-            {compareMode ? (
-              <Card>
-                <CardHeader>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <CardTitle className="text-base">Source B: {secondarySourceLabel}</CardTitle>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={!secondaryTimingData}
-                        onClick={() =>
-                          secondaryTimingData ? void exportPanelAsCsv(secondaryCsvContext, secondaryTimingData) : undefined
-                        }
-                      >
-                        Export CSV
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={!secondaryTimingData}
-                        onClick={() => void exportPanelAsPng(secondaryCsvContext, secondaryPanelRef.current)}
-                      >
-                        Export PNG
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div ref={secondaryPanelRef} className="space-y-2">
-                    {timingView === "yearly" && renderYearlyPanel(yearlyCompareQuery, secondarySourceLabel, secondarySourceParam)}
-                    {timingView === "hourly" && renderHourlyPanel(hourlyCompareQuery, secondarySourceLabel, secondarySourceParam)}
-                    {timingView === "matrix" && renderMatrixPanel(matrixCompareQuery, secondarySourceLabel, secondarySourceParam)}
-                  </div>
-                </CardContent>
-              </Card>
-            ) : null}
-          </div>
-          {exportStatus ? <p className="text-xs text-muted-foreground">{exportStatus}</p> : null}
-        </CardContent>
-      </Card>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div ref={secondaryPanelRef} className="space-y-2">
+                {timingView === "yearly" && renderYearlyPanel(yearlyCompareQuery, secondarySourceLabel, secondarySourceParam)}
+                {timingView === "hourly" && renderHourlyPanel(hourlyCompareQuery, secondarySourceLabel, secondarySourceParam)}
+                {timingView === "matrix" && renderMatrixPanel(matrixCompareQuery, secondarySourceLabel, secondarySourceParam)}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+      </div>
+      {exportStatus ? <p className="text-xs text-muted-foreground">{exportStatus}</p> : null}
 
       <Card>
         <CardHeader>

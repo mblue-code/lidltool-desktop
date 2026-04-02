@@ -29,6 +29,7 @@ import {
   type LucideIcon
 } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useTheme } from "next-themes";
 
 import { fetchAISettings } from "@/api/aiSettings";
 import { fetchConnectorSyncStatus, type ConnectorSyncStatus } from "@/api/connectors";
@@ -170,7 +171,7 @@ function advancedDescription(locale: "en" | "de"): string {
 function syncBannerStatusLabel(locale: "en" | "de", status: ConnectorSyncStatus["status"]): string {
   if (locale === "de") {
     if (status === "running") {
-      return "Lauft";
+      return "Läuft";
     }
     if (status === "succeeded") {
       return "Fertig";
@@ -202,7 +203,7 @@ function syncBannerWaitingLabel(locale: "en" | "de"): string {
 }
 
 function syncBannerOpenConnectorsLabel(locale: "en" | "de"): string {
-  return locale === "de" ? "Anbindungen offnen" : "Open connectors";
+  return locale === "de" ? "Anbindungen öffnen" : "Open connectors";
 }
 
 function parseSyncProgress(status: ConnectorSyncStatus): ParsedSyncProgress {
@@ -399,15 +400,15 @@ function NavItems({ groups }: { groups: NavGroup[] }) {
                 onFocus={() => preloadRouteModule(item.to)}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    "flex items-start gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium leading-snug transition-colors",
                     isActive
                       ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
                       : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                   )
                 }
               >
-                <item.icon className="h-4 w-4 shrink-0" />
-                {t(item.labelKey)}
+                <item.icon className="mt-0.5 h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1 whitespace-normal">{t(item.labelKey)}</span>
               </NavLink>
             ))}
           </div>
@@ -468,10 +469,10 @@ function SidebarContent({
           <div className="mt-6 border-t border-sidebar-border pt-4">
             <Button
               variant="ghost"
-              className="w-full justify-between text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            className="h-auto w-full items-start justify-between gap-3 whitespace-normal px-3 py-2.5 text-left leading-snug text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               onClick={onToggleAdvancedNav}
             >
-              <span>{advancedToggleLabel(locale, showAdvancedNav)}</span>
+            <span className="min-w-0 flex-1 whitespace-normal">{advancedToggleLabel(locale, showAdvancedNav)}</span>
               <SlidersHorizontal className="h-4 w-4" />
             </Button>
             {showAdvancedNav ? (
@@ -539,6 +540,7 @@ export function AppShell({ user }: AppShellProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const desktopCapabilities = useDesktopCapabilities();
+  const { theme, setTheme } = useTheme();
   const navItems = useMemo(
     () =>
       [...PRIMARY_NAV_GROUPS, ...ADVANCED_NAV_GROUPS]
@@ -717,7 +719,7 @@ export function AppShell({ user }: AppShellProps) {
       </a>
 
       <div className="flex min-h-screen dark:bg-[var(--app-shell-surface)]">
-        <aside className="hidden w-64 md:flex md:flex-col" aria-label={t("nav.primary")}>
+        <aside className="hidden w-72 xl:w-80 md:flex md:flex-col" aria-label={t("nav.primary")}>
           <SidebarContent
             user={user}
             onLogout={handleLogout}
@@ -749,7 +751,7 @@ export function AppShell({ user }: AppShellProps) {
                       <Menu className="h-5 w-5" />
                     </Button>
                   </SheetTrigger>
-                  <SheetContent side="left" className="w-72 p-0">
+                  <SheetContent side="left" className="w-80 max-w-[85vw] p-0">
                     <SidebarContent
                       user={user}
                       onLogout={handleLogout}
@@ -780,13 +782,13 @@ export function AppShell({ user }: AppShellProps) {
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" aria-label={preferencesLabel(locale)}>
+                    <Button variant="outline" size="sm" aria-label={t("app.header.preferences")}>
                       <SlidersHorizontal className="h-4 w-4" />
-                      <span className="hidden sm:inline">{preferencesLabel(locale)}</span>
+                      <span className="hidden sm:inline">{t("app.header.preferences")}</span>
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-64">
-                    <DropdownMenuLabel>{preferencesLabel(locale)}</DropdownMenuLabel>
+                  <DropdownMenuContent align="end" sideOffset={8} className="w-72 sm:w-80">
+                    <DropdownMenuLabel>{t("app.header.preferences")}</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>{t("app.header.language")}</DropdownMenuLabel>
                     <DropdownMenuRadioGroup
@@ -799,6 +801,20 @@ export function AppShell({ user }: AppShellProps) {
                     >
                       <DropdownMenuRadioItem value="en">{t("app.language.english")}</DropdownMenuRadioItem>
                       <DropdownMenuRadioItem value="de">{t("app.language.german")}</DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>{t("app.header.theme")}</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                      value={theme ?? "system"}
+                      onValueChange={(nextTheme) => {
+                        if (nextTheme === "light" || nextTheme === "dark" || nextTheme === "system") {
+                          setTheme(nextTheme);
+                        }
+                      }}
+                    >
+                      <DropdownMenuRadioItem value="system">{t("app.theme.system")}</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="light">{t("app.theme.light")}</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="dark">{t("app.theme.dark")}</DropdownMenuRadioItem>
                     </DropdownMenuRadioGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>{t("app.header.scope")}</DropdownMenuLabel>

@@ -153,6 +153,16 @@ export function OffersPage() {
 
   const watchlists = watchlistsQuery.data?.items ?? [];
   const alerts = alertsQuery.data?.items ?? [];
+  const productCatalogCount = productsQuery.data?.items?.length ?? 0;
+  const unreadAlertsCount = useMemo(
+    () =>
+      alerts.filter((entry) => {
+        const read =
+          entry.read_at !== null && entry.read_at !== undefined ? true : entry.read === true;
+        return !read;
+      }).length,
+    [alerts]
+  );
 
   useEffect(() => {
     if (!selectedProductId) {
@@ -268,6 +278,13 @@ export function OffersPage() {
         <AlertTitle>{t("pages.offers.banner.title")}</AlertTitle>
         <AlertDescription>{t("pages.offers.banner.description")}</AlertDescription>
       </Alert>
+
+      <section className="rounded-xl border border-border/60 app-dashboard-surface grid divide-y md:divide-y-0 md:divide-x divide-border/40 md:grid-cols-4">
+        <Metric label={t("pages.offers.watchlists.title")} value={watchlists.length} />
+        <Metric label={t("pages.offers.alerts.title")} value={alerts.length} />
+        <Metric label={t("pages.offers.alerts.unread")} value={unreadAlertsCount} />
+        <Metric label={t("nav.item.products")} value={productCatalogCount} />
+      </section>
 
       <Card>
         <CardHeader>
@@ -549,5 +566,15 @@ export function OffersPage() {
         </CardContent>
       </Card>
     </section>
+  );
+}
+
+function Metric(props: { label: string; value: number | string; detail?: string }) {
+  return (
+    <div className="px-4 py-3">
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">{props.label}</p>
+      <p className="mt-2 text-2xl font-semibold">{props.value}</p>
+      {props.detail ? <p className="mt-1 text-xs text-muted-foreground">{props.detail}</p> : null}
+    </div>
   );
 }

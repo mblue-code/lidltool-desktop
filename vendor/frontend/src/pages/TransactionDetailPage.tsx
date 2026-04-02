@@ -449,9 +449,9 @@ export function TransactionDetailPage() {
                     {detail.items.length === 0 ? (
                       <p className="text-sm text-muted-foreground">{t("pages.transactionDetail.noShareableItems")}</p>
                     ) : (
-                      <div className="space-y-2 rounded-md border p-3">
+                      <div className="space-y-2">
                         {detail.items.map((item) => (
-                          <label key={item.id} className="flex items-center justify-between gap-3">
+                          <label key={item.id} className="flex items-center justify-between gap-3 py-1">
                             <span className="text-sm">
                               {item.name}{" "}
                               <span className="text-muted-foreground">
@@ -473,14 +473,10 @@ export function TransactionDetailPage() {
                 ) : null}
 
                 {sharingStatus ? <p className="text-sm text-muted-foreground">{sharingStatus}</p> : null}
-              </CardContent>
-            </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>{t("pages.transactionDetail.overrides")}</CardTitle>
-              </CardHeader>
-              <CardContent>
+                <div className="app-section-divider space-y-3">
+                  <h3 className="font-semibold leading-none tracking-tight">{t("pages.transactionDetail.overrides")}</h3>
+                </div>
                 {!isOwner ? (
                   <p className="mb-3 text-sm text-muted-foreground">
                     {t("pages.transactionDetail.overridesDisabled")}

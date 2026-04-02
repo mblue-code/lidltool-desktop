@@ -129,24 +129,24 @@ describe("DocumentsUploadPage", () => {
     const file = new File(["fake"], "receipt.png", { type: "image/png" });
     fireEvent.change(fileInput, { target: { files: [file] } });
 
-    fireEvent.click(screen.getByRole("button", { name: "Upload document" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upload and process" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Document uploaded. You can now trigger OCR processing.")).toBeInTheDocument();
-      expect(screen.getByText("Status queued")).toBeInTheDocument();
+      expect(screen.getByText("Receipt uploaded. OCR is starting automatically.")).toBeInTheDocument();
+      expect(screen.getByText("queued")).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Trigger OCR process" }));
 
     await waitFor(() => {
       expect(screen.getByText("OCR processing triggered. Status will update automatically.")).toBeInTheDocument();
-      expect(screen.getByText("Status processing")).toBeInTheDocument();
+      expect(screen.getByText("processing")).toBeInTheDocument();
     });
 
     await waitFor(
       () => {
-        expect(screen.getByText("Status completed")).toBeInTheDocument();
-        expect(screen.getByText("State: done")).toBeInTheDocument();
+        expect(screen.getByText("completed")).toBeInTheDocument();
+        expect(screen.getByText("Complete")).toBeInTheDocument();
       },
       { timeout: 7000 }
     );
@@ -162,18 +162,18 @@ describe("DocumentsUploadPage", () => {
     const file = new File(["fake"], "receipt.png", { type: "image/png" });
     fireEvent.change(fileInput, { target: { files: [file] } });
 
-    fireEvent.click(screen.getByRole("button", { name: "Upload document" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upload and process" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Document uploaded. You can now trigger OCR processing.")).toBeInTheDocument();
-      expect(screen.getByText("Status queued")).toBeInTheDocument();
+      expect(screen.getByText("Receipt uploaded. OCR is starting automatically.")).toBeInTheDocument();
+      expect(screen.getByText("queued")).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Trigger OCR process" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Status failed")).toBeInTheDocument();
-      expect(screen.getByText("State: error")).toBeInTheDocument();
+      expect(screen.getByText("failed")).toBeInTheDocument();
+      expect(screen.getByText("Failed")).toBeInTheDocument();
     });
   });
 
@@ -188,7 +188,7 @@ describe("DocumentsUploadPage", () => {
     fireEvent.change(screen.getByLabelText("Metadata JSON"), {
       target: { value: "{invalid-json" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Upload document" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upload and process" }));
 
     await waitFor(() => {
       expect(screen.getByText("Metadata must be valid JSON.")).toBeInTheDocument();
@@ -209,7 +209,7 @@ describe("DocumentsUploadPage", () => {
     fireEvent.change(fileInput, { target: { files: [file] } });
     fireEvent.change(screen.getByLabelText("Source"), { target: { value: "" } });
 
-    fireEvent.click(screen.getByRole("button", { name: "Upload document" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upload and process" }));
 
     await waitFor(() => {
       expect(screen.getByText("Source is required.")).toBeInTheDocument();

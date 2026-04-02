@@ -57,7 +57,7 @@ export function AppProviders({ children }: AppProvidersProps) {
 
   return (
     <I18nProvider>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem enableColorScheme>
         <QueryClientProvider client={queryClient}>
           <AccessScopeProvider>
             <AppProvidersContent>{children}</AppProvidersContent>

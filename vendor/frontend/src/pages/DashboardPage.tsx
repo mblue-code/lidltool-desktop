@@ -32,7 +32,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { useI18n } from "@/i18n";
+import { type TranslationKey, useI18n } from "@/i18n";
 import { resolveApiErrorMessage, resolveApiWarningMessage } from "@/lib/backend-messages";
 import { formatEurFromCents, formatMonthDay, formatMonthName, formatMonthYear, formatPercent } from "../utils/format";
 
@@ -57,15 +57,18 @@ const YEAR_MIN = 2020;
 const YEAR_MAX = 2100;
 const MONTH_MIN = 1;
 const MONTH_MAX = 12;
-const RANGE_PRESETS: Array<{ label: string; startMonth: number; endMonth: number }> = [
+const RANGE_PRESETS: Array<{ label?: string; labelKey?: TranslationKey; startMonth: number; endMonth: number }> = [
   { label: "Q1", startMonth: 1, endMonth: 3 },
   { label: "Q2", startMonth: 4, endMonth: 6 },
   { label: "Q3", startMonth: 7, endMonth: 9 },
   { label: "Q4", startMonth: 10, endMonth: 12 },
   { label: "H1", startMonth: 1, endMonth: 6 },
   { label: "H2", startMonth: 7, endMonth: 12 },
-  { label: "Full year", startMonth: 1, endMonth: 12 }
+  { labelKey: "pages.dashboard.period.year", startMonth: 1, endMonth: 12 }
 ];
+const DASHBOARD_SURFACE_CLASS = "app-dashboard-surface border-border/60";
+const DASHBOARD_SURFACE_STRONG_CLASS = "app-dashboard-surface-strong border-border/60";
+const DASHBOARD_CONTROL_CLASS = "app-dashboard-control border-border/70 text-foreground shadow-none";
 
 function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -471,31 +474,30 @@ export function DashboardPage() {
           <Link to="/add">{t("nav.item.addReceipt")}</Link>
         </Button>
       </PageHeader>
-      <div className="space-y-4 rounded-lg border bg-card p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="space-y-1">
-            <p className="text-sm font-medium">
-              {periodMode === "month"
-                ? t("pages.dashboard.showingMonth", { period: monthYearLabel(year, month) })
-                : periodMode === "range"
-                  ? t("pages.dashboard.showingRange", { period: `${monthName(startMonth)}-${monthName(endMonth)} ${year}` })
-                  : t("pages.dashboard.showingYear", { year })}
-            </p>
-            <p className="text-sm text-muted-foreground">{selectedRetailerSummary()}</p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => setShowFilters((current) => !current)}>
-              {t(showFilters ? "pages.dashboard.hideFilters" : "pages.dashboard.showFilters")}
-            </Button>
-            <Button asChild>
-              <Link to={ledgerLink}>{t("pages.dashboard.drillDown")}</Link>
-            </Button>
-          </div>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-1">
+          <p className="text-sm font-medium">
+            {periodMode === "month"
+              ? t("pages.dashboard.showingMonth", { period: monthYearLabel(year, month) })
+              : periodMode === "range"
+                ? t("pages.dashboard.showingRange", { period: `${monthName(startMonth)}-${monthName(endMonth)} ${year}` })
+                : t("pages.dashboard.showingYear", { year })}
+          </p>
+          <p className="text-sm text-muted-foreground">{selectedRetailerSummary()}</p>
         </div>
 
-        {showFilters ? (
-          <>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => setShowFilters((current) => !current)}>
+            {t(showFilters ? "pages.dashboard.hideFilters" : "pages.dashboard.showFilters")}
+          </Button>
+          <Button asChild size="sm">
+            <Link to={ledgerLink}>{t("pages.dashboard.drillDown")}</Link>
+          </Button>
+        </div>
+      </div>
+
+      {showFilters ? (
+        <div className="space-y-3">
             <div className="grid gap-3 md:grid-cols-6">
               <div className="space-y-2">
                 <Label htmlFor="dashboard-period-mode">{t("pages.dashboard.period")}</Label>
@@ -503,7 +505,7 @@ export function DashboardPage() {
                   value={periodMode}
                   onValueChange={(nextMode) => updateSearchParams({ period: nextMode as DashboardPeriodMode })}
                 >
-                  <SelectTrigger id="dashboard-period-mode">
+                  <SelectTrigger id="dashboard-period-mode" className={DASHBOARD_CONTROL_CLASS}>
                     <SelectValue placeholder={t("pages.dashboard.selectPeriod")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -522,6 +524,7 @@ export function DashboardPage() {
                   value={year}
                   min={YEAR_MIN}
                   max={YEAR_MAX}
+                  className={DASHBOARD_CONTROL_CLASS}
                   onChange={(event) => {
                     const parsed = Number(event.target.value);
                     if (!Number.isFinite(parsed)) {
@@ -539,7 +542,7 @@ export function DashboardPage() {
                     value={String(month)}
                     onValueChange={(value) => updateSearchParams({ month: clampNumber(Number(value), MONTH_MIN, MONTH_MAX) })}
                   >
-                    <SelectTrigger id="dashboard-month">
+                    <SelectTrigger id="dashboard-month" className={DASHBOARD_CONTROL_CLASS}>
                       <SelectValue placeholder={t("pages.dashboard.selectMonth")} />
                     </SelectTrigger>
                     <SelectContent>
@@ -563,7 +566,7 @@ export function DashboardPage() {
                         updateSearchParams({ startMonth: clampNumber(Number(value), MONTH_MIN, MONTH_MAX) })
                       }
                     >
-                      <SelectTrigger id="dashboard-start-month">
+                      <SelectTrigger id="dashboard-start-month" className={DASHBOARD_CONTROL_CLASS}>
                         <SelectValue placeholder={t("pages.dashboard.startMonth")} />
                       </SelectTrigger>
                       <SelectContent>
@@ -583,7 +586,7 @@ export function DashboardPage() {
                         updateSearchParams({ endMonth: clampNumber(Number(value), MONTH_MIN, MONTH_MAX) })
                       }
                     >
-                      <SelectTrigger id="dashboard-end-month">
+                      <SelectTrigger id="dashboard-end-month" className={DASHBOARD_CONTROL_CLASS}>
                         <SelectValue placeholder={t("pages.dashboard.endMonth")} />
                       </SelectTrigger>
                       <SelectContent>
@@ -601,7 +604,7 @@ export function DashboardPage() {
               {periodMode === "year" ? (
                 <div className="space-y-2">
                   <Label>{t("common.window")}</Label>
-                  <div className="flex h-10 items-center rounded-md border px-3 text-sm text-muted-foreground">
+                  <div className="flex h-9 items-center rounded-md border border-border/70 bg-[var(--app-dashboard-control)] px-3 text-sm text-foreground/85">
                     {t("pages.dashboard.janToDec")}
                   </div>
                 </div>
@@ -611,11 +614,15 @@ export function DashboardPage() {
                 <Label>{t("pages.dashboard.retailers")}</Label>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button type="button" variant="outline" className="w-full justify-start text-left">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={`w-full justify-start text-left ${DASHBOARD_CONTROL_CLASS}`}
+                    >
                       {selectedRetailerSummary()}
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-72">
+                  <DropdownMenuContent align="start" className={`w-72 ${DASHBOARD_SURFACE_STRONG_CLASS}`}>
                     <DropdownMenuLabel>{t("pages.dashboard.filterRetailers")}</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <Button
@@ -648,7 +655,7 @@ export function DashboardPage() {
               <div className="space-y-2">
                 <Label htmlFor="dashboard-spend-view">{t("pages.dashboard.spendView")}</Label>
                 <Select value={spendView} onValueChange={(nextView) => updateSearchParams({ spend: nextView as SpendView })}>
-                  <SelectTrigger id="dashboard-spend-view">
+                  <SelectTrigger id="dashboard-spend-view" className={DASHBOARD_CONTROL_CLASS}>
                     <SelectValue placeholder={t("pages.dashboard.selectSpendView")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -661,7 +668,7 @@ export function DashboardPage() {
               <div className="space-y-2">
                 <Label htmlFor="dashboard-discount-view">{t("pages.dashboard.discountView")}</Label>
                 <Select value={view} onValueChange={(nextView) => updateSearchParams({ view: nextView as DiscountView })}>
-                  <SelectTrigger id="dashboard-discount-view">
+                  <SelectTrigger id="dashboard-discount-view" className={DASHBOARD_CONTROL_CLASS}>
                     <SelectValue placeholder={t("pages.dashboard.selectDiscountView")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -676,7 +683,7 @@ export function DashboardPage() {
               <div className="flex flex-wrap gap-2">
                 {RANGE_PRESETS.map((preset) => (
                   <Button
-                    key={preset.label}
+                    key={preset.labelKey ?? preset.label}
                     type="button"
                     size="sm"
                     variant={startMonth === preset.startMonth && endMonth === preset.endMonth ? "default" : "outline"}
@@ -688,14 +695,13 @@ export function DashboardPage() {
                       })
                     }
                   >
-                    {preset.label}
+                    {preset.labelKey ? t(preset.labelKey) : preset.label}
                   </Button>
                 ))}
               </div>
             ) : null}
-          </>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {warnings.length > 0 ? (
         <Alert>
@@ -719,20 +725,23 @@ export function DashboardPage() {
         </Alert>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-5" aria-labelledby="dashboard-summary-heading">
+      <section
+        className="rounded-xl border border-border/60 app-dashboard-surface"
+        aria-labelledby="dashboard-summary-heading"
+      >
         <h2 id="dashboard-summary-heading" className="sr-only">
           Dashboard summary
         </h2>
         {loading ? (
-          <>
-            <Skeleton className="h-28 rounded-lg" />
-            <Skeleton className="h-28 rounded-lg" />
-            <Skeleton className="h-28 rounded-lg" />
-            <Skeleton className="h-28 rounded-lg" />
-            <Skeleton className="h-28 rounded-lg" />
-          </>
+          <div className="grid gap-4 p-4 lg:grid-cols-3 2xl:grid-cols-5">
+            <Skeleton className="h-20 rounded-lg" />
+            <Skeleton className="h-20 rounded-lg" />
+            <Skeleton className="h-20 rounded-lg" />
+            <Skeleton className="h-20 rounded-lg" />
+            <Skeleton className="h-20 rounded-lg" />
+          </div>
         ) : (
-          <>
+          <div className="grid divide-y lg:divide-y-0 lg:divide-x divide-border/40 lg:grid-cols-3 2xl:grid-cols-5">
             <Link to={ledgerLink}>
               <MetricCard
                 title={t("pages.dashboard.card.netSpend")}
@@ -772,12 +781,12 @@ export function DashboardPage() {
               iconClassName="bg-amber-500/10 text-amber-600"
               subtitle={t("pages.dashboard.card.depositExcluded")}
             />
-          </>
+          </div>
         )}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <Card>
+        <Card className={DASHBOARD_SURFACE_CLASS}>
           <CardHeader>
             <CardTitle className="text-base">{t("pages.dashboard.upcomingBills")}</CardTitle>
           </CardHeader>
@@ -787,11 +796,11 @@ export function DashboardPage() {
             ) : (recurringCalendarQuery.data?.days ?? []).length === 0 ? (
               <EmptyState title={t("pages.dashboard.emptyUpcomingBills")} />
             ) : (
-              <ul className="space-y-3">
+              <ul className="divide-y divide-border/30">
                 {(recurringCalendarQuery.data?.days ?? []).map((day) => (
                   <li
                     key={day.date}
-                    className="flex items-start justify-between rounded-md border bg-muted/20 px-3 py-2"
+                    className="flex items-start justify-between py-2.5"
                   >
                     <div>
                       <p className="text-sm font-medium">
@@ -812,7 +821,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className={DASHBOARD_SURFACE_CLASS}>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">{t("pages.dashboard.forecastTitle")}</CardTitle>
             <CalendarCheck className="h-4 w-4 text-muted-foreground" />
@@ -851,7 +860,7 @@ export function DashboardPage() {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <Card>
+        <Card className={DASHBOARD_SURFACE_CLASS}>
           <CardHeader>
             <CardTitle className="text-base">{trendTitle}</CardTitle>
           </CardHeader>
@@ -957,7 +966,7 @@ export function DashboardPage() {
         </Card>
       </section>
 
-      <Card>
+      <Card className={DASHBOARD_SURFACE_CLASS}>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">{t("pages.dashboard.byRetailer")}</CardTitle>
           <div className="flex gap-2">

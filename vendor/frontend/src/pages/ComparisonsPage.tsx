@@ -166,70 +166,70 @@ export function ComparisonsPage() {
   return (
     <section className="space-y-4">
       <PageHeader title={t("nav.item.comparisons")} />
-      <Card>
-        <CardContent className="space-y-3">
-          <form className="flex gap-2" onSubmit={submitGroup}>
-            <div className="flex-1 space-y-1">
-              <Label htmlFor="compare-group-name">Create group</Label>
-              <Input
-                id="compare-group-name"
-                value={groupName}
-                onChange={(event) => setGroupName(event.target.value)}
-                placeholder="Weekly basket"
-              />
-            </div>
-            <Button type="submit" className="self-end" disabled={createGroupMutation.isPending}>
-              Create
-            </Button>
-          </form>
-
-          <div className="grid gap-2 md:grid-cols-2">
-            <div className="space-y-1">
-              <Label htmlFor="compare-group-select">Group</Label>
-              <select
-                id="compare-group-select"
-                className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
-                value={groupId ?? ""}
-                onChange={(event) => setGroupId(event.target.value || null)}
-              >
-                <option value="">Select group</option>
-                {groups.map((group) => (
-                  <option key={group.group_id} value={group.group_id}>
-                    {group.name} ({group.member_count})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="compare-product-search">Find product</Label>
-              <SearchInput
-                id="compare-product-search"
-                value={productSearch}
-                onChange={setProductSearch}
-                placeholder="Milk"
-                isLoading={productsQuery.isFetching}
-              />
-            </div>
+      <div className="space-y-3">
+        <form className="flex gap-2" onSubmit={submitGroup}>
+          <div className="flex-1 space-y-1">
+            <Label htmlFor="compare-group-name">Create group</Label>
+            <Input
+              id="compare-group-name"
+              value={groupName}
+              onChange={(event) => setGroupName(event.target.value)}
+              placeholder="Weekly basket"
+            />
           </div>
+          <Button type="submit" className="self-end" disabled={createGroupMutation.isPending}>
+            Create
+          </Button>
+        </form>
 
-          {productSearch.trim().length > 0 && !productsQuery.isFetching && products.length === 0 ? (
-            <EmptyState title={t("pages.comparisons.noProductsFound")} description={t("pages.comparisons.noProductsFoundDescription")} />
-          ) : null}
-          {products.length > 0 ? (
-            <div className="space-y-2 rounded-md border p-3">
-              <p className="text-sm font-medium">Search results</p>
-              <div className="flex flex-wrap gap-2">
-                {products.slice(0, 8).map((product) => (
-                  <Button
-                    key={product.product_id}
-                    size="sm"
-                    variant={selectedProductId === product.product_id ? "default" : "outline"}
-                    onClick={() => setSelectedProductId(product.product_id)}
-                  >
-                    {product.canonical_name}
-                  </Button>
-                ))}
-              </div>
+        <div className="grid gap-2 md:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="compare-group-select">Group</Label>
+            <select
+              id="compare-group-select"
+              className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
+              value={groupId ?? ""}
+              onChange={(event) => setGroupId(event.target.value || null)}
+            >
+              <option value="">Select group</option>
+              {groups.map((group) => (
+                <option key={group.group_id} value={group.group_id}>
+                  {group.name} ({group.member_count})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="compare-product-search">Find product</Label>
+            <SearchInput
+              id="compare-product-search"
+              value={productSearch}
+              onChange={setProductSearch}
+              placeholder="Milk"
+              isLoading={productsQuery.isFetching}
+            />
+          </div>
+        </div>
+
+        {productSearch.trim().length > 0 && !productsQuery.isFetching && products.length === 0 ? (
+          <EmptyState title={t("pages.comparisons.noProductsFound")} description={t("pages.comparisons.noProductsFoundDescription")} />
+        ) : null}
+        {products.length > 0 ? (
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Search results</p>
+            <div className="flex flex-wrap gap-2">
+              {products.slice(0, 8).map((product) => (
+                <Button
+                  key={product.product_id}
+                  size="sm"
+                  variant={selectedProductId === product.product_id ? "default" : "outline"}
+                  onClick={() => setSelectedProductId(product.product_id)}
+                >
+                  {product.canonical_name}
+                </Button>
+              ))}
+            </div>
+            <div className="flex gap-2">
               <Button
                 variant="outline"
                 onClick={() => void addMemberMutation.mutateAsync()}
@@ -241,9 +241,9 @@ export function ComparisonsPage() {
                 Add selected product to basket
               </Button>
             </div>
-          ) : null}
-        </CardContent>
-      </Card>
+          </div>
+        ) : null}
+      </div>
 
       <Card>
         <CardHeader>

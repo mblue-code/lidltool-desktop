@@ -16,7 +16,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -412,14 +412,11 @@ export function DocumentsUploadPage() {
               <AlertDescription>{errorMessage}</AlertDescription>
             </Alert>
           ) : null}
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.documentsUpload.timelineTitle")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+          <div className="app-section-divider space-y-4">
+            <h2 className="font-semibold leading-none tracking-tight">{t("pages.documentsUpload.timelineTitle")}</h2>
+          </div>
+
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="font-mono text-xs">
               {uploadResult?.document_id ? `doc: ${uploadResult.document_id}` : t("pages.documentsUpload.noDocument")}

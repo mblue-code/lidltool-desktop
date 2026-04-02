@@ -426,7 +426,7 @@ export function ConnectorsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Connectors"
+        title={t("nav.item.connectors")}
         description="Use the shared lifecycle model for one-off setup and sync, while pack install and trust management stay in the desktop control center."
       >
         <Button
@@ -440,7 +440,7 @@ export function ConnectorsPage() {
       </PageHeader>
 
       <Alert>
-        <AlertTitle>Desktop pack management stays native</AlertTitle>
+        <AlertTitle>{t("pages.connectors.desktopPackAlertTitle")}</AlertTitle>
         <AlertDescription>
           Install, update, disable, and remove receipt packs in the desktop control center. If you need that surface from the
           full app, use the desktop app menu and choose <strong>Reload control center</strong>.
@@ -493,11 +493,12 @@ export function ConnectorsPage() {
 
           return (
           <Card key={connector.source_id} className="border-border/60 bg-card/85 shadow-sm">
-            <CardHeader className="space-y-3 border-b border-border/50 bg-background/40">
+              <CardContent className="space-y-0 p-0">
+                <div className="space-y-3 border-b border-border/50 bg-background/40 p-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <CardTitle className="text-lg">{connector.display_name}</CardTitle>
-                    <CardDescription>{connector.ui.description}</CardDescription>
+                    <h2 className="text-lg font-semibold text-foreground">{connector.display_name}</h2>
+                    <p className="text-sm text-muted-foreground">{connector.ui.description}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Badge>{connectorStatusLabel(connector)}</Badge>
@@ -516,8 +517,8 @@ export function ConnectorsPage() {
                     </AlertDescription>
                   </Alert>
                 ) : null}
-              </CardHeader>
-              <CardContent className="space-y-4 bg-card/70">
+                </div>
+                <div className="space-y-4 bg-card/70 p-6">
                 <div className="grid gap-2 text-sm text-muted-foreground">
                   <p>
                     <strong className="text-foreground">Install state:</strong> {connector.install_state}
@@ -616,6 +617,7 @@ export function ConnectorsPage() {
                     Manual fallback: <code>{connector.advanced.manual_commands.sync}</code>
                   </p>
                 ) : null}
+                </div>
               </CardContent>
             </Card>
           );
@@ -630,7 +632,8 @@ export function ConnectorsPage() {
               These packs are installed in desktop storage but are not active in the current full-app runtime.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="p-0">
+            <div className="divide-y divide-border/60">
             {inactivePacks.map((pack) => {
               const catalogEntry =
                 (pack.catalogEntryId
@@ -639,10 +642,10 @@ export function ConnectorsPage() {
                 catalogEntries.find((entry) => entry.plugin_id === pack.pluginId) ??
                 null;
               return (
-                <div key={pack.pluginId} className="rounded-lg border border-border/60 bg-background/60 p-4">
+                <div key={pack.pluginId} className="px-6 py-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
-                      <p className="font-medium">{pack.displayName}</p>
+                      <p className="font-medium text-foreground">{pack.displayName}</p>
                       <p className="text-sm text-muted-foreground">
                         {packStateLabel(pack)}. {pack.trustReason ?? pack.compatibilityReason ?? "Manage this pack in the control center."}
                       </p>
@@ -660,6 +663,7 @@ export function ConnectorsPage() {
                 </div>
               );
             })}
+            </div>
           </CardContent>
         </Card>
       ) : null}
@@ -691,58 +695,64 @@ export function ConnectorsPage() {
               <p className="text-sm text-muted-foreground">{t("pages.connectors.noExtraSettings")}</p>
             ) : null}
 
-            {setupDialogFields.map((field) => (
-              <div key={field.key} className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <Label htmlFor={`connector-field-${field.key}`}>{field.label}</Label>
-                  {field.sensitive && field.has_value ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() =>
-                        setClearSecretKeys((current) =>
-                          current.includes(field.key)
-                            ? current.filter((item) => item !== field.key)
-                            : [...current, field.key]
-                        )
-                      }
-                      >
-                      {clearSecretKeys.includes(field.key)
-                        ? t("pages.connectors.keepSavedValue")
-                        : t("pages.connectors.clearSavedValue")}
-                    </Button>
-                  ) : null}
-                </div>
+            {setupDialogFields.length > 0 ? (
+              <div className="divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/60 bg-background/60">
+                {setupDialogFields.map((field) => (
+                  <div key={field.key} className="space-y-2 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <Label htmlFor={`connector-field-${field.key}`}>{field.label}</Label>
+                      {field.sensitive && field.has_value ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setClearSecretKeys((current) =>
+                              current.includes(field.key)
+                                ? current.filter((item) => item !== field.key)
+                                : [...current, field.key]
+                            )
+                          }
+                        >
+                          {clearSecretKeys.includes(field.key)
+                            ? t("pages.connectors.keepSavedValue")
+                            : t("pages.connectors.clearSavedValue")}
+                        </Button>
+                      ) : null}
+                    </div>
 
-                {field.input_kind === "boolean" ? (
-                  <div className="flex items-center gap-3 rounded-md border px-3 py-2">
-                    <Switch
-                      id={`connector-field-${field.key}`}
-                      checked={Boolean(setupValues[field.key])}
-                      onCheckedChange={(checked) =>
-                        setSetupValues((current) => ({ ...current, [field.key]: checked }))
-                      }
-                    />
-                    <span className="text-sm text-muted-foreground">
-                      {field.description ?? t("pages.connectors.toggleRuntimeSetting")}
-                    </span>
+                    {field.input_kind === "boolean" ? (
+                      <div className="flex items-center gap-3">
+                        <Switch
+                          id={`connector-field-${field.key}`}
+                          checked={Boolean(setupValues[field.key])}
+                          onCheckedChange={(checked) =>
+                            setSetupValues((current) => ({ ...current, [field.key]: checked }))
+                          }
+                        />
+                        <span className="text-sm text-muted-foreground">
+                          {field.description ?? t("pages.connectors.toggleRuntimeSetting")}
+                        </span>
+                      </div>
+                    ) : (
+                      <Input
+                        id={`connector-field-${field.key}`}
+                        type={field.input_kind === "password" ? "password" : field.input_kind}
+                        value={typeof setupValues[field.key] === "string" ? String(setupValues[field.key]) : ""}
+                        placeholder={field.placeholder ?? ""}
+                        onChange={(event) =>
+                          setSetupValues((current) => ({ ...current, [field.key]: event.target.value }))
+                        }
+                      />
+                    )}
+
+                    {field.description && field.input_kind !== "boolean" ? (
+                      <p className="text-xs text-muted-foreground">{field.description}</p>
+                    ) : null}
                   </div>
-                ) : (
-                  <Input
-                    id={`connector-field-${field.key}`}
-                    type={field.input_kind === "password" ? "password" : field.input_kind}
-                    value={typeof setupValues[field.key] === "string" ? String(setupValues[field.key]) : ""}
-                    placeholder={field.placeholder ?? ""}
-                    onChange={(event) =>
-                      setSetupValues((current) => ({ ...current, [field.key]: event.target.value }))
-                    }
-                  />
-                )}
-
-                {field.description ? <p className="text-xs text-muted-foreground">{field.description}</p> : null}
+                ))}
               </div>
-            ))}
+            ) : null}
           </div>
 
           <DialogFooter>

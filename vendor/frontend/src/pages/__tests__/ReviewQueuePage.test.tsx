@@ -121,7 +121,6 @@ describe("ReviewQueuePage", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     const detailByDocumentId: Record<string, ReviewDetailFixture> = {
       "doc-1": buildDetailFixture("doc-1", "tx-1", "My Store", [
@@ -315,10 +314,11 @@ describe("ReviewQueuePage", () => {
     await waitFor(() => {
       expect(screen.getByText("Review Queue")).toBeInTheDocument();
       expect(screen.getByText("Review Detail")).toBeInTheDocument();
-      expect(screen.getByText("My Store")).toBeInTheDocument();
+      expect(screen.getAllByText("My Store").length).toBeGreaterThan(0);
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Approve this document?" })).getByRole("button", { name: "Approve" }));
 
     await waitFor(() => {
       expect(screen.getByText('Review status updated to "approved".')).toBeInTheDocument();
@@ -346,12 +346,12 @@ describe("ReviewQueuePage", () => {
       target: { value: "OCR mismatch" }
     });
     fireEvent.click(within(detailDialog).getByRole("button", { name: "Reject" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Reject this document?" })).getByRole("button", { name: "Reject" }));
 
     await waitFor(() => {
       expect(screen.getByText('Review status updated to "rejected".')).toBeInTheDocument();
     });
 
-    expect(window.confirm).toHaveBeenCalledWith("Reject this document from the review queue?");
     const rejectCall = vi
       .mocked(fetch)
       .mock.calls.find((call) => String(call[0]).includes("/api/v1/review-queue/doc-1/reject"));
@@ -366,7 +366,6 @@ describe("ReviewQueuePage", () => {
   });
 
   it("skips reject mutation when confirmation is cancelled", async () => {
-    vi.mocked(window.confirm).mockReturnValueOnce(false);
     renderReviewQueueRoute();
 
     await waitFor(() => {
@@ -374,6 +373,7 @@ describe("ReviewQueuePage", () => {
     });
 
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Reject" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Reject this document?" })).getByRole("button", { name: "Cancel" }));
 
     const rejectCalls = vi
       .mocked(fetch)
@@ -494,7 +494,7 @@ describe("ReviewQueuePage", () => {
     renderReviewQueueRoute("/review-queue?status=approved");
 
     await waitFor(() => {
-      expect(screen.getByText("No documents matched the selected filters.")).toBeInTheDocument();
+      expect(screen.getAllByText("No documents matched the selected filters.").length).toBeGreaterThan(0);
       expect(screen.getByText("Showing 0 of 0")).toBeInTheDocument();
     });
   });

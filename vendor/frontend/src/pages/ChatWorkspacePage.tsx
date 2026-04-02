@@ -469,42 +469,48 @@ export function ChatWorkspacePage() {
           <SheetHeader className="border-b px-4 py-3">
             <SheetTitle>{t("pages.chatWorkspace.threadsTitle")}</SheetTitle>
           </SheetHeader>
-          <div className="max-h-[calc(100dvh-4rem)] space-y-2 overflow-y-auto px-4 py-3">
-            <SearchInput
-              value={threadSearch}
-              onChange={setThreadSearch}
-              placeholder={t("pages.chatWorkspace.threadSearch.placeholder")}
-              aria-label={t("pages.chatWorkspace.threadSearch.placeholder")}
-            />
-            {threadsQuery.isPending ? (
-              <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingThreads")}</p>
+          <div className="flex max-h-[calc(100dvh-4rem)] flex-col overflow-hidden px-4 py-3">
+            <div className="space-y-2 pb-3">
+              <SearchInput
+                value={threadSearch}
+                onChange={setThreadSearch}
+                placeholder={t("pages.chatWorkspace.threadSearch.placeholder")}
+                aria-label={t("pages.chatWorkspace.threadSearch.placeholder")}
+              />
+              {threadsQuery.isPending ? (
+                <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingThreads")}</p>
+              ) : null}
+              {threads.length === 0 ? <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.noThreads")}</p> : null}
+            </div>
+            {threads.length > 0 ? (
+              <div className="min-h-0 flex-1 divide-y divide-border overflow-y-auto rounded-md border">
+                {threads.map((thread) => (
+                  <button
+                    key={thread.thread_id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedThreadId(thread.thread_id);
+                      setIsComposingNewThread(false);
+                      setThreadSheetOpen(false);
+                    }}
+                    className={cn(
+                      "w-full px-3 py-2.5 text-left transition-colors",
+                      selectedThreadId === thread.thread_id
+                        ? "bg-primary/5"
+                        : "hover:bg-muted/40"
+                    )}
+                  >
+                    <p className="truncate text-sm font-medium">{thread.title}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(thread.updated_at)}</p>
+                    {thread.stream_status !== "idle" ? (
+                      <Badge variant={thread.stream_status === "failed" ? "destructive" : "secondary"} className="mt-2">
+                        {threadStatusLabel(thread.stream_status)}
+                      </Badge>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
             ) : null}
-            {threads.length === 0 ? <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.noThreads")}</p> : null}
-            {threads.map((thread) => (
-              <button
-                key={thread.thread_id}
-                type="button"
-                onClick={() => {
-                  setSelectedThreadId(thread.thread_id);
-                  setIsComposingNewThread(false);
-                  setThreadSheetOpen(false);
-                }}
-                className={cn(
-                  "w-full rounded-md border p-2 text-left transition-colors",
-                  selectedThreadId === thread.thread_id
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:bg-muted/40"
-                )}
-              >
-                <p className="truncate text-sm font-medium">{thread.title}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(thread.updated_at)}</p>
-                {thread.stream_status !== "idle" ? (
-                  <Badge variant={thread.stream_status === "failed" ? "destructive" : "secondary"} className="mt-2">
-                    {threadStatusLabel(thread.stream_status)}
-                  </Badge>
-                ) : null}
-              </button>
-            ))}
           </div>
         </SheetContent>
       </Sheet>
@@ -514,41 +520,47 @@ export function ChatWorkspacePage() {
           <CardHeader className="border-b py-3">
             <h3 className="text-sm font-semibold">{t("pages.chatWorkspace.threadsTitle")}</h3>
           </CardHeader>
-          <CardContent className="max-h-[calc(100dvh-14rem)] space-y-2 overflow-y-auto py-3">
-            <SearchInput
-              value={threadSearch}
-              onChange={setThreadSearch}
-              placeholder={t("pages.chatWorkspace.threadSearch.placeholder")}
-              aria-label={t("pages.chatWorkspace.threadSearch.placeholder")}
-            />
-            {threadsQuery.isPending ? (
-              <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingThreads")}</p>
+          <CardContent className="flex max-h-[calc(100dvh-14rem)] flex-col overflow-hidden p-0">
+            <div className="space-y-2 border-b px-3 py-3">
+              <SearchInput
+                value={threadSearch}
+                onChange={setThreadSearch}
+                placeholder={t("pages.chatWorkspace.threadSearch.placeholder")}
+                aria-label={t("pages.chatWorkspace.threadSearch.placeholder")}
+              />
+              {threadsQuery.isPending ? (
+                <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingThreads")}</p>
+              ) : null}
+              {threads.length === 0 ? <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.noThreads")}</p> : null}
+            </div>
+            {threads.length > 0 ? (
+              <div className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
+                {threads.map((thread) => (
+                  <button
+                    key={thread.thread_id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedThreadId(thread.thread_id);
+                      setIsComposingNewThread(false);
+                    }}
+                    className={cn(
+                      "w-full px-3 py-2.5 text-left transition-colors",
+                      selectedThreadId === thread.thread_id
+                        ? "bg-primary/5"
+                        : "hover:bg-muted/40"
+                    )}
+                  >
+                    <p className="truncate text-sm font-medium">{thread.title}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(thread.updated_at)}</p>
+                    {thread.stream_status !== "idle" ? (
+                      <Badge variant={thread.stream_status === "failed" ? "destructive" : "secondary"} className="mt-2">
+                        {threadStatusLabel(thread.stream_status)}
+                      </Badge>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
             ) : null}
-            {threads.length === 0 ? <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.noThreads")}</p> : null}
-            {threads.map((thread) => (
-              <button
-                key={thread.thread_id}
-                type="button"
-                onClick={() => {
-                  setSelectedThreadId(thread.thread_id);
-                  setIsComposingNewThread(false);
-                }}
-                className={cn(
-                  "w-full rounded-md border p-2 text-left transition-colors",
-                  selectedThreadId === thread.thread_id
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:bg-muted/40"
-                )}
-              >
-                <p className="truncate text-sm font-medium">{thread.title}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(thread.updated_at)}</p>
-                {thread.stream_status !== "idle" ? (
-                  <Badge variant={thread.stream_status === "failed" ? "destructive" : "secondary"} className="mt-2">
-                    {threadStatusLabel(thread.stream_status)}
-                  </Badge>
-                ) : null}
-              </button>
-            ))}
           </CardContent>
         </Card>
 

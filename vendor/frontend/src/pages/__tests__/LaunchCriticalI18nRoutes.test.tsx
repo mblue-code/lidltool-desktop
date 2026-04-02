@@ -520,7 +520,7 @@ describe("launch-critical route i18n smoke", () => {
     renderGerman(<ConnectorsPage />);
 
     expect(await screen.findByText("Anbindungen")).toBeInTheDocument();
-    expect(screen.getByText("Desktop pack management stays native")).toBeInTheDocument();
+    expect(screen.getByText("Desktop-Paketverwaltung bleibt nativ")).toBeInTheDocument();
     expect(await screen.findByText("Lidl Plus")).toBeInTheDocument();
   });
 

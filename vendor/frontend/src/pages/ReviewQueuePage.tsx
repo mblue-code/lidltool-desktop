@@ -440,51 +440,47 @@ export function ReviewQueuePage() {
     <section className="space-y-4">
       <PageHeader title={t("pages.reviewQueue.title")} />
 
-      <Card>
-        <CardContent className="pt-6">
-          <form className="grid gap-3 md:grid-cols-4" onSubmit={applyFilters}>
-            <div className="space-y-2">
-              <Label htmlFor="review-queue-status">{t("pages.reviewQueue.filter.status")}</Label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger id="review-queue-status">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="needs_review">{t("pages.reviewQueue.filter.needsReview")}</SelectItem>
-                  <SelectItem value="approved">{t("pages.reviewQueue.filter.approved")}</SelectItem>
-                  <SelectItem value="rejected">{t("pages.reviewQueue.filter.rejected")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="threshold">
-                {t("pages.reviewQueue.filter.threshold")}
-              </Label>
-              <Input
-                id="threshold"
-                type="number"
-                min={0}
-                max={1}
-                step="0.01"
-                value={thresholdFilter}
-                onChange={(event) => setThresholdFilter(event.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">{t("pages.reviewQueue.thresholdHint")}</p>
-            </div>
-            <div className="self-end flex gap-2">
-              <Button type="submit">{t("pages.reviewQueue.applyFilters")}</Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setBatchApproveOpen(true)}
-                disabled={highConfidenceItems.length === 0}
-              >
-                {t("pages.reviewQueue.batchApprove")}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <form className="grid gap-3 md:grid-cols-4" onSubmit={applyFilters}>
+        <div className="space-y-2">
+          <Label htmlFor="review-queue-status">{t("pages.reviewQueue.filter.status")}</Label>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger id="review-queue-status">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="needs_review">{t("pages.reviewQueue.filter.needsReview")}</SelectItem>
+              <SelectItem value="approved">{t("pages.reviewQueue.filter.approved")}</SelectItem>
+              <SelectItem value="rejected">{t("pages.reviewQueue.filter.rejected")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="threshold">
+            {t("pages.reviewQueue.filter.threshold")}
+          </Label>
+          <Input
+            id="threshold"
+            type="number"
+            min={0}
+            max={1}
+            step="0.01"
+            value={thresholdFilter}
+            onChange={(event) => setThresholdFilter(event.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">{t("pages.reviewQueue.thresholdHint")}</p>
+        </div>
+        <div className="self-end flex gap-2">
+          <Button type="submit">{t("pages.reviewQueue.applyFilters")}</Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setBatchApproveOpen(true)}
+            disabled={highConfidenceItems.length === 0}
+          >
+            {t("pages.reviewQueue.batchApprove")}
+          </Button>
+        </div>
+      </form>
 
       <ConfirmDialog
         open={batchApproveOpen}
@@ -506,47 +502,50 @@ export function ReviewQueuePage() {
 
       <Card>
         <CardContent className="pt-6">
-          <div className="md:hidden space-y-3">
-            {queueItems.map((item) => (
-              <div
-                key={item.document_id}
-                className="rounded-lg border bg-card p-4 space-y-2"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{item.merchant_name || "-"}</span>
-                  <span className="text-sm text-muted-foreground">
-                    {formatDateTime(item.created_at)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="tabular-nums font-semibold">
-                    {formatEurFromCents(item.total_gross_cents)}
-                  </span>
-                  <div className="flex flex-wrap gap-1">
-                    <Badge className={cn("text-xs", reviewStatusClass(item.review_status))}>
-                      {item.review_status.replace(/_/g, " ")}
-                    </Badge>
-                    <Badge className={cn("text-xs", ocrStatusClass(item.ocr_status))}>
-                      {item.ocr_status}
-                    </Badge>
+          <div className="md:hidden">
+            {queueItems.length > 0 ? (
+              <div className="divide-y divide-border rounded-lg border">
+                {queueItems.map((item) => (
+                  <div
+                    key={item.document_id}
+                    className="space-y-2 p-4"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{item.merchant_name || "-"}</span>
+                      <span className="text-sm text-muted-foreground">
+                        {formatDateTime(item.created_at)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="tabular-nums font-semibold">
+                        {formatEurFromCents(item.total_gross_cents)}
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge className={cn("text-xs", reviewStatusClass(item.review_status))}>
+                          {item.review_status.replace(/_/g, " ")}
+                        </Badge>
+                        <Badge className={cn("text-xs", ocrStatusClass(item.ocr_status))}>
+                          {item.ocr_status}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-sm text-muted-foreground">
+                      <span>{t("pages.reviewQueue.col.confidence")}: {item.transaction_confidence ?? "—"}</span>
+                      <span>{t("pages.reviewQueue.col.ocr")}: {item.ocr_confidence ?? "—"}</span>
+                    </div>
+                    <Button variant="outline" size="sm" asChild className="w-full">
+                      <Link to={`/review-queue/${item.document_id}?${linkSearch}`}>{t("pages.reviewQueue.open")}</Link>
+                    </Button>
                   </div>
-                </div>
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
-                  <span>{t("pages.reviewQueue.col.confidence")}: {item.transaction_confidence ?? "—"}</span>
-                  <span>{t("pages.reviewQueue.col.ocr")}: {item.ocr_confidence ?? "—"}</span>
-                </div>
-                <Button variant="outline" size="sm" asChild className="w-full">
-                  <Link to={`/review-queue/${item.document_id}?${linkSearch}`}>{t("pages.reviewQueue.open")}</Link>
-                </Button>
+                ))}
               </div>
-            ))}
-            {queueItems.length === 0 ? (
+            ) : (
               <EmptyState
                 title={t("pages.reviewQueue.empty")}
                 description={t("pages.reviewQueue.emptyDescription")}
                 action={{ label: t("pages.reviewQueue.uploadReceipts"), href: "/imports/ocr" }}
               />
-            ) : null}
+            )}
           </div>
 
           <div className="hidden md:block overflow-x-auto">

@@ -203,7 +203,9 @@ describe("OffersPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save watchlist" }));
 
     expect(
-      await screen.findByText("The watchlist could not be saved. Choose a product or enter a text query.")
+      await screen.findByText(
+        "Watchlist entries need a product or free-text query, and numeric filters must be valid."
+      )
     ).toBeInTheDocument();
   });
 });

@@ -132,48 +132,41 @@ export function ExplorePage() {
   return (
     <section className="space-y-4">
       <PageHeader title={t("nav.item.explore")} />
-      <Card>
-        <CardHeader>
-          <CardTitle>Explore Workbench</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form className="grid gap-3 md:grid-cols-4" onSubmit={submit}>
-            <div className="space-y-1">
-              <Label htmlFor="explore-metrics">Metrics (comma separated)</Label>
-              <Input id="explore-metrics" value={metrics} onChange={(event) => setMetrics(event.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="explore-dimensions">Dimensions (comma separated)</Label>
-              <Input
-                id="explore-dimensions"
-                value={dimensions}
-                onChange={(event) => setDimensions(event.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="explore-date-from">From</Label>
-              <Input id="explore-date-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="explore-date-to">To</Label>
-              <Input id="explore-date-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
-            </div>
-            <div className="flex gap-2 md:col-span-4">
-              <Button type="submit" disabled={runMutation.isPending}>
-                Run query
-              </Button>
-              <Input
-                placeholder="Saved query name"
-                value={saveName}
-                onChange={(event) => setSaveName(event.target.value)}
-              />
-              <Button type="button" variant="outline" onClick={saveCurrentQuery} disabled={saveMutation.isPending}>
-                Save query
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <form className="grid gap-3 md:grid-cols-4" onSubmit={submit}>
+        <div className="space-y-1">
+          <Label htmlFor="explore-metrics">Metrics (comma separated)</Label>
+          <Input id="explore-metrics" value={metrics} onChange={(event) => setMetrics(event.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="explore-dimensions">Dimensions (comma separated)</Label>
+          <Input
+            id="explore-dimensions"
+            value={dimensions}
+            onChange={(event) => setDimensions(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="explore-date-from">From</Label>
+          <Input id="explore-date-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="explore-date-to">To</Label>
+          <Input id="explore-date-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+        </div>
+        <div className="flex gap-2 md:col-span-4">
+          <Button type="submit" disabled={runMutation.isPending}>
+            Run query
+          </Button>
+          <Input
+            placeholder="Saved query name"
+            value={saveName}
+            onChange={(event) => setSaveName(event.target.value)}
+          />
+          <Button type="button" variant="outline" onClick={saveCurrentQuery} disabled={saveMutation.isPending}>
+            Save query
+          </Button>
+        </div>
+      </form>
 
       <Card>
         <CardHeader>

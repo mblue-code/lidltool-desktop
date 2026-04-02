@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 type MetricCardProps = {
@@ -9,41 +8,38 @@ type MetricCardProps = {
   iconClassName?: string;
   subtitle?: string;
   trend?: { direction: "up" | "down" | "flat"; label: string };
+  className?: string;
 };
 
-export function MetricCard({ title, value, icon, iconClassName, subtitle, trend }: MetricCardProps) {
+export function MetricCard({ title, value, icon, iconClassName, subtitle, trend, className }: MetricCardProps) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {title}
-          </CardTitle>
-          {icon ? (
-            <span className={cn("rounded-md p-1.5", iconClassName)}>
-              {icon}
-            </span>
-          ) : null}
-        </div>
-      </CardHeader>
-      <CardContent>
-        <p className="text-2xl font-bold tabular-nums">{value}</p>
-        {trend ? (
-          <p
-            className={cn(
-              "mt-1 text-xs font-medium",
-              trend.direction === "up" && "text-success",
-              trend.direction === "down" && "text-destructive",
-              trend.direction === "flat" && "text-muted-foreground"
-            )}
-          >
-            {trend.label}
-          </p>
+    <div className={cn("space-y-1.5 px-4 py-3", className)}>
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          {title}
+        </p>
+        {icon ? (
+          <span className={cn("rounded-md p-1.5", iconClassName)}>
+            {icon}
+          </span>
         ) : null}
-        {subtitle ? (
-          <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
-        ) : null}
-      </CardContent>
-    </Card>
+      </div>
+      <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground">{value}</p>
+      {trend ? (
+        <p
+          className={cn(
+            "text-xs font-medium",
+            trend.direction === "up" && "text-success",
+            trend.direction === "down" && "text-destructive",
+            trend.direction === "flat" && "text-muted-foreground"
+          )}
+        >
+          {trend.label}
+        </p>
+      ) : null}
+      {subtitle ? (
+        <p className="text-xs text-muted-foreground/90">{subtitle}</p>
+      ) : null}
+    </div>
   );
 }

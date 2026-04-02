@@ -29,35 +29,33 @@ export function DataQualityPage() {
   return (
     <section className="space-y-4">
       <PageHeader title={t("nav.item.dataQuality")} />
-      <Card>
-        <CardContent className="grid gap-3 pt-6 md:grid-cols-3">
-          <div className="rounded-md border p-3">
-            <p className="text-sm text-muted-foreground">Unmatched items</p>
-            <p className="text-2xl font-semibold">{unmatchedQuery.data?.count ?? 0}</p>
+      <div className="flex flex-wrap items-end gap-6">
+        <div>
+          <p className="text-sm text-muted-foreground">Unmatched items</p>
+          <p className="text-2xl font-semibold">{unmatchedQuery.data?.count ?? 0}</p>
+        </div>
+        <div>
+          <p className="text-sm text-muted-foreground">Low-confidence OCR docs</p>
+          <p className="text-2xl font-semibold">{lowConfidenceQuery.data?.count ?? 0}</p>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="quality-threshold">OCR threshold</Label>
+          <div className="flex gap-2">
+            <Input
+              id="quality-threshold"
+              value={threshold}
+              onChange={(event) => setThreshold(event.target.value)}
+              type="number"
+              min="0"
+              max="1"
+              step="0.01"
+            />
+            <Button variant="outline" onClick={() => lowConfidenceQuery.refetch()}>
+              Refresh
+            </Button>
           </div>
-          <div className="rounded-md border p-3">
-            <p className="text-sm text-muted-foreground">Low-confidence OCR docs</p>
-            <p className="text-2xl font-semibold">{lowConfidenceQuery.data?.count ?? 0}</p>
-          </div>
-          <div className="space-y-1 rounded-md border p-3">
-            <Label htmlFor="quality-threshold">OCR threshold</Label>
-            <div className="flex gap-2">
-              <Input
-                id="quality-threshold"
-                value={threshold}
-                onChange={(event) => setThreshold(event.target.value)}
-                type="number"
-                min="0"
-                max="1"
-                step="0.01"
-              />
-              <Button variant="outline" onClick={() => lowConfidenceQuery.refetch()}>
-                Refresh
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       <Card>
         <CardHeader>

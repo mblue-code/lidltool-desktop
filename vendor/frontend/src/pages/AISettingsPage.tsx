@@ -201,29 +201,29 @@ export function AISettingsPage() {
     <section className="space-y-4">
       <PageHeader title={t("nav.item.aiAssistant")} />
       <Card>
-        <CardContent className="flex items-center justify-between gap-3 pt-6 text-sm text-muted-foreground">
-          <p>{connectionLabel}</p>
-          <Button
-            variant="destructive"
-            onClick={() => setDisconnectOpen(true)}
-            disabled={disconnectMutation.isPending}
-          >
-            {t("common.disconnect")}
-          </Button>
-          <ConfirmDialog
-            open={disconnectOpen}
-            onOpenChange={setDisconnectOpen}
-            title={t("pages.aiSettings.disconnectConfirmTitle")}
-            description={t("pages.aiSettings.disconnectConfirmDescription")}
-            variant="destructive"
-            confirmLabel={t("common.disconnect")}
-            onConfirm={() => void disconnectMutation.mutateAsync()}
-          />
-        </CardContent>
-      </Card>
+        <CardContent className="space-y-0 pt-6">
+          <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+            <p>{connectionLabel}</p>
+            <Button
+              variant="destructive"
+              onClick={() => setDisconnectOpen(true)}
+              disabled={disconnectMutation.isPending}
+            >
+              {t("common.disconnect")}
+            </Button>
+            <ConfirmDialog
+              open={disconnectOpen}
+              onOpenChange={setDisconnectOpen}
+              title={t("pages.aiSettings.disconnectConfirmTitle")}
+              description={t("pages.aiSettings.disconnectConfirmDescription")}
+              variant="destructive"
+              confirmLabel={t("common.disconnect")}
+              onConfirm={() => void disconnectMutation.mutateAsync()}
+            />
+          </div>
 
-      <Card>
-        <CardContent className="pt-6">
+          <div className="app-section-divider" />
+
           <Tabs defaultValue="api-key" className="space-y-4">
             <TabsList>
               <TabsTrigger value="api-key">{t("pages.aiSettings.tab.apiKey")}</TabsTrigger>

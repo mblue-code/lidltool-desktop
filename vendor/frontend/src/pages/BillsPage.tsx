@@ -358,7 +358,7 @@ export function BillsPage() {
       {actionStatus ? <p className="text-sm text-muted-foreground">{actionStatus}</p> : null}
       {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
 
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="rounded-xl border border-border/60 app-dashboard-surface grid divide-y sm:divide-y-0 sm:divide-x divide-border/40 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title={t("pages.bills.metric.monthlyCommitted")}
           value={overviewQuery.data ? formatEurFromCents(overviewQuery.data.monthly_committed_cents) : "-"}
@@ -491,11 +491,11 @@ export function BillsPage() {
             ) : (occurrencesQuery.data?.items ?? []).length === 0 ? (
               <p className="text-sm text-muted-foreground">{t("pages.bills.noOccurrences")}</p>
             ) : (
-              <div className="space-y-2">
+              <div className="divide-y divide-border/40">
                 {(occurrencesQuery.data?.items ?? []).map((occurrence) => (
                   <div
                     key={occurrence.id}
-                    className="flex flex-col gap-2 rounded-md border p-3 md:flex-row md:items-center md:justify-between"
+                    className="flex flex-col gap-2 py-3 md:flex-row md:items-center md:justify-between"
                   >
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">

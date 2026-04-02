@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -397,12 +397,7 @@ export function TransactionsPage() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.transactions.title")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]" onSubmit={submitFilters}>
+      <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]" onSubmit={submitFilters}>
             <div className="space-y-2">
               <Label htmlFor="transactions-search">{t("pages.transactions.filter.query")}</Label>
               <SearchInput
@@ -564,32 +559,30 @@ export function TransactionsPage() {
                 </div>
               </>
             ) : null}
-          </form>
+      </form>
 
-          {appliedFilters.length > 0 ? (
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              {appliedFilters.map((filter) => (
-                <Badge key={filter.key} variant="secondary" className="gap-1 pr-1">
-                  <span>
-                    {filter.label}: {filter.value}
-                  </span>
-                  <button
-                    type="button"
-                    className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-foreground"
-                    onClick={() => removeFilter(filter.key)}
-                    aria-label={t("pages.transactions.removeFilter", { label: filter.label })}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </Badge>
-              ))}
-              <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
-                {t("pages.transactions.clearFilters")}
-              </Button>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+      {appliedFilters.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {appliedFilters.map((filter) => (
+            <Badge key={filter.key} variant="secondary" className="gap-1 pr-1">
+              <span>
+                {filter.label}: {filter.value}
+              </span>
+              <button
+                type="button"
+                className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => removeFilter(filter.key)}
+                aria-label={t("pages.transactions.removeFilter", { label: filter.label })}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
+          <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
+            {t("pages.transactions.clearFilters")}
+          </Button>
+        </div>
+      ) : null}
 
       {errorMessage ? (
         <Alert variant="destructive">
@@ -599,15 +592,15 @@ export function TransactionsPage() {
       ) : null}
 
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="pt-5">
           {loading ? <Skeleton className="h-52 w-full" /> : null}
 
-          <div className="md:hidden space-y-3">
+          <div className="md:hidden divide-y divide-border/40">
             {(data?.items || []).map((item) => (
               <Link
                 key={item.id}
                 to={`/transactions/${item.id}`}
-                className="block rounded-lg border bg-card p-4 transition-colors hover:bg-muted/40"
+                className="block py-3 transition-colors hover:bg-muted/30"
               >
                 <div className="flex items-center justify-between">
                   <span className="font-medium">{item.store_name || "—"}</span>

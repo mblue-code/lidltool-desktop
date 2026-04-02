@@ -165,63 +165,59 @@ export function ReliabilityPage() {
   return (
     <section className="space-y-4">
       <PageHeader title={t("pages.reliability.title")} description={t("pages.reliability.description")} />
-      <Card>
-        <CardContent className="pt-6">
-          <form className="grid gap-3 md:grid-cols-5" onSubmit={submitFilters}>
-            <div className="space-y-2">
-              <Label htmlFor="window-hours">Window (hours)</Label>
-              <Input
-                id="window-hours"
-                type="number"
-                min={1}
-                step={1}
-                value={windowHours}
-                onChange={(event) => setWindowHours(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="sync-p95-target">Sync p95 target (ms)</Label>
-              <Input
-                id="sync-p95-target"
-                type="number"
-                min={1}
-                step={1}
-                value={syncP95TargetMs}
-                onChange={(event) => setSyncP95TargetMs(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="analytics-p95-target">Analytics p95 target (ms)</Label>
-              <Input
-                id="analytics-p95-target"
-                type="number"
-                min={1}
-                step={1}
-                value={analyticsP95TargetMs}
-                onChange={(event) => setAnalyticsP95TargetMs(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="min-success-rate">Minimum success rate</Label>
-              <Input
-                id="min-success-rate"
-                type="number"
-                min={0}
-                max={1}
-                step={0.001}
-                value={minSuccessRate}
-                onChange={(event) => setMinSuccessRate(event.target.value)}
-              />
-            </div>
-            <div className="flex gap-2 self-end">
-              <Button type="submit">Apply</Button>
-              <Button type="button" variant="outline" onClick={resetFilters}>
-                Reset
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <form className="grid gap-3 md:grid-cols-5" onSubmit={submitFilters}>
+        <div className="space-y-2">
+          <Label htmlFor="window-hours">Window (hours)</Label>
+          <Input
+            id="window-hours"
+            type="number"
+            min={1}
+            step={1}
+            value={windowHours}
+            onChange={(event) => setWindowHours(event.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="sync-p95-target">Sync p95 target (ms)</Label>
+          <Input
+            id="sync-p95-target"
+            type="number"
+            min={1}
+            step={1}
+            value={syncP95TargetMs}
+            onChange={(event) => setSyncP95TargetMs(event.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="analytics-p95-target">Analytics p95 target (ms)</Label>
+          <Input
+            id="analytics-p95-target"
+            type="number"
+            min={1}
+            step={1}
+            value={analyticsP95TargetMs}
+            onChange={(event) => setAnalyticsP95TargetMs(event.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="min-success-rate">Minimum success rate</Label>
+          <Input
+            id="min-success-rate"
+            type="number"
+            min={0}
+            max={1}
+            step={0.001}
+            value={minSuccessRate}
+            onChange={(event) => setMinSuccessRate(event.target.value)}
+          />
+        </div>
+        <div className="flex gap-2 self-end">
+          <Button type="submit">Apply</Button>
+          <Button type="button" variant="outline" onClick={resetFilters}>
+            Reset
+          </Button>
+        </div>
+      </form>
 
       {errorMessage ? (
         <Alert variant="destructive">

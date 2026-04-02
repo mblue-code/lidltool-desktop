@@ -181,8 +181,17 @@ export function AutomationInboxPage() {
   return (
     <section className="space-y-4">
       <PageHeader title={t("nav.item.automations")} description={t("pages.automationInbox.title")} />
+
+      {loading ? <p className="text-sm text-muted-foreground">Loading execution history...</p> : null}
+      {errorMessage ? (
+        <Alert variant="destructive">
+          <AlertTitle>Failed to load automation inbox</AlertTitle>
+          <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
+      ) : null}
+
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="space-y-0 pt-6">
           <form className="grid gap-3 md:grid-cols-3" onSubmit={submitFilters}>
             <div className="space-y-2">
               <Label htmlFor="inbox-status-filter">Status</Label>
@@ -225,19 +234,9 @@ export function AutomationInboxPage() {
               </Button>
             </div>
           </form>
-        </CardContent>
-      </Card>
 
-      {loading ? <p className="text-sm text-muted-foreground">Loading execution history...</p> : null}
-      {errorMessage ? (
-        <Alert variant="destructive">
-          <AlertTitle>Failed to load automation inbox</AlertTitle>
-          <AlertDescription>{errorMessage}</AlertDescription>
-        </Alert>
-      ) : null}
+          <div className="app-section-divider" />
 
-      <Card>
-        <CardContent className="pt-6">
           <div className="overflow-x-auto">
           <Table>
             <TableHeader>

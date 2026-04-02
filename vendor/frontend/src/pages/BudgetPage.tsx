@@ -73,16 +73,17 @@ export function BudgetPage() {
   const utilizationRows = utilizationQuery.data?.rows ?? [];
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-6">
       <PageHeader title={t("nav.item.budget")} />
       {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
+
       <Card>
         <CardHeader>
-          <CardTitle>Budget Rules</CardTitle>
+          <CardTitle className="text-base">Budget Rules</CardTitle>
         </CardHeader>
-        <CardContent>
-          <form className="grid gap-3 md:grid-cols-4" onSubmit={submitRule}>
-            <div className="space-y-1">
+        <CardContent className="space-y-6">
+          <form className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={submitRule}>
+            <div className="space-y-2">
               <Label htmlFor="budget-scope-type">Scope type</Label>
               <Select
                 value={scopeType}
@@ -97,7 +98,7 @@ export function BudgetPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <Label htmlFor="budget-scope-value">Scope value</Label>
               <Input
                 id="budget-scope-value"
@@ -109,7 +110,7 @@ export function BudgetPage() {
                 placeholder={scopeType === "category" ? "Dairy" : "lidl_de"}
               />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <Label htmlFor="budget-period">Period</Label>
               <Select
                 value={period}
@@ -124,7 +125,7 @@ export function BudgetPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <Label htmlFor="budget-amount">{t("pages.budget.form.amountEur")}</Label>
               <Input
                 id="budget-amount"
@@ -138,88 +139,83 @@ export function BudgetPage() {
                 placeholder="12,99"
               />
             </div>
-            <Button type="submit" className="md:col-span-4 w-fit" disabled={createMutation.isPending}>
-              Add budget rule
-            </Button>
+            <div className="md:col-span-2 xl:col-span-4">
+              <Button type="submit" disabled={createMutation.isPending}>
+                Add budget rule
+              </Button>
+            </div>
           </form>
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Configured Rules</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {rules.length === 0 ? (
-            <EmptyState
-              title="No budget rules configured"
-              description="Create your first budget rule above to start tracking spending limits."
-            />
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Scope</TableHead>
-                  <TableHead>Value</TableHead>
-                  <TableHead>Period</TableHead>
-                  <TableHead>Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rules.map((rule) => (
-                  <TableRow key={rule.rule_id}>
-                    <TableCell>{rule.scope_type}</TableCell>
-                    <TableCell>{rule.scope_value}</TableCell>
-                    <TableCell>{rule.period}</TableCell>
-                    <TableCell>{formatEurFromCents(rule.amount_cents)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Budget Utilization</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {utilizationRows.length === 0 ? (
-            <EmptyState
-              title="No utilization data"
-              description="Budget utilization will appear here once you have rules and matching transactions."
-            />
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Scope</TableHead>
-                  <TableHead>Budget</TableHead>
-                  <TableHead>Spent</TableHead>
-                  <TableHead>Remaining</TableHead>
-                  <TableHead>Utilization</TableHead>
-                  <TableHead>Projected</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {utilizationRows.map((row) => (
-                  <TableRow key={row.rule_id}>
-                    <TableCell>
-                      {row.scope_type}:{row.scope_value}
-                    </TableCell>
-                    <TableCell>{formatEurFromCents(row.budget_cents)}</TableCell>
-                    <TableCell>{formatEurFromCents(row.spent_cents)}</TableCell>
-                    <TableCell>{formatEurFromCents(row.remaining_cents)}</TableCell>
-                    <TableCell>{formatPercent(row.utilization)}</TableCell>
-                    <TableCell>
-                      {formatEurFromCents(row.projected_spent_cents)} ({formatPercent(row.projected_utilization)})
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div>
+              <h3 className="mb-3 text-sm font-medium">Configured Rules</h3>
+              {rules.length === 0 ? (
+                <EmptyState
+                  title="No budget rules configured"
+                  description="Create your first budget rule above to start tracking spending limits."
+                />
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Scope</TableHead>
+                      <TableHead>Value</TableHead>
+                      <TableHead>Period</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rules.map((rule) => (
+                      <TableRow key={rule.rule_id}>
+                        <TableCell>{rule.scope_type}</TableCell>
+                        <TableCell>{rule.scope_value}</TableCell>
+                        <TableCell>{rule.period}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatEurFromCents(rule.amount_cents)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+            <div>
+              <h3 className="mb-3 text-sm font-medium">Budget Utilization</h3>
+              {utilizationRows.length === 0 ? (
+                <EmptyState
+                  title="No utilization data"
+                  description="Budget utilization will appear here once you have rules and matching transactions."
+                />
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Scope</TableHead>
+                      <TableHead className="text-right">Budget</TableHead>
+                      <TableHead className="text-right">Spent</TableHead>
+                      <TableHead className="text-right">Remaining</TableHead>
+                      <TableHead className="text-right">Utilization</TableHead>
+                      <TableHead className="text-right">Projected</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {utilizationRows.map((row) => (
+                      <TableRow key={row.rule_id}>
+                        <TableCell>
+                          {row.scope_type}:{row.scope_value}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{formatEurFromCents(row.budget_cents)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatEurFromCents(row.spent_cents)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatEurFromCents(row.remaining_cents)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatPercent(row.utilization)}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatEurFromCents(row.projected_spent_cents)} ({formatPercent(row.projected_utilization)})
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
     </section>

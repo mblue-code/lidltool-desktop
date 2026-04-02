@@ -165,7 +165,7 @@ export function ProductsPage() {
         ) : null}
       </PageHeader>
       <Card>
-        <CardContent>
+        <CardContent className="space-y-4 pt-6">
           <div className="space-y-3">
             {clusterProgress ? (
               <div className="space-y-1">
@@ -192,14 +192,11 @@ export function ProductsPage() {
               isLoading={productsQuery.isFetching}
             />
           </div>
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Matches</CardTitle>
-        </CardHeader>
-        <CardContent>
+          <div className="app-section-divider">
+            <h3 className="font-semibold leading-none tracking-tight">Matches</h3>
+          </div>
+
           {productRows.length === 0 ? (
             <EmptyState title="No products found" description={debouncedSearch ? "Try a different search term." : undefined} />
           ) : (
@@ -245,28 +242,25 @@ export function ProductsPage() {
       </Card>
 
       {selectedProduct ? (
-        <>
-          <Card>
-            <CardHeader>
-              <CardTitle>{selectedProduct.canonical_name}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
+        <Card>
+          <CardHeader>
+            <CardTitle>{selectedProduct.canonical_name}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-0">
+            <div className="space-y-2 text-sm">
               <p>Brand: {selectedProduct.brand ?? "-"}</p>
               <p>Default unit: {selectedProduct.default_unit ?? "-"}</p>
               <p>GTIN/EAN: {selectedProduct.gtin_ean ?? "-"}</p>
               <p>Aliases: {selectedAliases.length}</p>
-            </CardContent>
-          </Card>
+            </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Price Series (Monthly)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {selectedPricePoints.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No price points available.</p>
-              ) : (
-                <div className="overflow-x-auto">
+            <div className="app-section-divider space-y-3">
+              <h3 className="font-semibold leading-none tracking-tight">Price Series (Monthly)</h3>
+            </div>
+            {selectedPricePoints.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No price points available.</p>
+            ) : (
+              <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -287,20 +281,16 @@ export function ProductsPage() {
                     ))}
                   </TableBody>
                 </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              </div>
+            )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Purchases</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {selectedPurchases.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No purchases found.</p>
-              ) : (
-                <div className="overflow-x-auto">
+            <div className="app-section-divider space-y-3">
+              <h3 className="font-semibold leading-none tracking-tight">Purchases</h3>
+            </div>
+            {selectedPurchases.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No purchases found.</p>
+            ) : (
+              <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -323,11 +313,10 @@ export function ProductsPage() {
                     ))}
                   </TableBody>
                 </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       ) : null}
     </section>
   );
