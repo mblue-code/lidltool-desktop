@@ -39,8 +39,9 @@ const AIAgentConfigSchema = z.object({
     z.object({
       id: z.string(),
       label: z.string(),
-      source: z.enum(["local", "oauth"]),
-      enabled: z.boolean()
+      source: z.enum(["local", "api", "oauth"]),
+      enabled: z.boolean(),
+      description: z.string().optional()
     })
   )
 });

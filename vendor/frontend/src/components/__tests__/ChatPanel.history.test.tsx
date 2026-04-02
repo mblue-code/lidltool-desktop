@@ -71,15 +71,27 @@ describe("ChatPanel history behavior", () => {
     mocks.fetchAIAgentConfigMock.mockResolvedValue({
       proxy_url: "http://localhost",
       auth_token: "token",
-      model: "gpt-5.2-codex",
+      model: "Qwen/Qwen3.5-0.8B",
       default_model: "Qwen/Qwen3.5-0.8B",
       local_model: "Qwen/Qwen3.5-0.8B",
-      preferred_model: "gpt-5.2-codex",
+      preferred_model: "Qwen/Qwen3.5-0.8B",
       oauth_connected: true,
       oauth_provider: "openai-codex",
       available_models: [
-        { id: "Qwen/Qwen3.5-0.8B", label: "Qwen", source: "local", enabled: true },
-        { id: "gpt-5.2-codex", label: "ChatGPT", source: "oauth", enabled: true }
+        {
+          id: "Qwen/Qwen3.5-0.8B",
+          label: "Local Qwen (tiny)",
+          source: "local",
+          enabled: true,
+          description: "Very small local fallback model. Private and easy to run, but weaker for deeper analysis."
+        },
+        {
+          id: "gpt-5.2-codex",
+          label: "ChatGPT",
+          source: "oauth",
+          enabled: true,
+          description: "Uses your ChatGPT sign-in. Good for stronger reasoning when you choose it."
+        }
       ]
     });
   });
@@ -284,7 +296,7 @@ describe("ChatPanel history behavior", () => {
     });
   });
 
-  it("defaults to the preferred ChatGPT model and persists that model id", async () => {
+  it("defaults to the local model even when ChatGPT is connected and persists that model id", async () => {
     installLocalStorageStub();
     installChatApiFetchStub();
     const queryClient = new QueryClient({
@@ -306,7 +318,10 @@ describe("ChatPanel history behavior", () => {
     );
 
     const modelSelect = await screen.findByLabelText("Chat model");
-    expect(modelSelect).toHaveValue("gpt-5.2-codex");
+    expect(modelSelect).toHaveValue("Qwen/Qwen3.5-0.8B");
+    expect(
+      screen.getByText("Very small local fallback model. Private and easy to run, but weaker for deeper analysis.")
+    ).toBeInTheDocument();
 
     fireEvent.change(await screen.findByPlaceholderText("Ask about spending, prices, and products..."), {
       target: { value: "preferred model prompt" }
@@ -321,11 +336,11 @@ describe("ChatPanel history behavior", () => {
     });
     expect(runCall).toBeDefined();
     expect(JSON.parse(String(runCall?.[1]?.body))).toMatchObject({
-      model_id: "gpt-5.2-codex"
+      model_id: "Qwen/Qwen3.5-0.8B"
     });
   });
 
-  it("allows switching back to the local model and persists the override", async () => {
+  it("allows switching to ChatGPT and persists the override", async () => {
     installLocalStorageStub();
     installChatApiFetchStub();
     const queryClient = new QueryClient({
@@ -347,10 +362,10 @@ describe("ChatPanel history behavior", () => {
     );
 
     const modelSelect = await screen.findByLabelText("Chat model");
-    fireEvent.change(modelSelect, { target: { value: "Qwen/Qwen3.5-0.8B" } });
+    fireEvent.change(modelSelect, { target: { value: "gpt-5.2-codex" } });
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Chat model")).toHaveValue("Qwen/Qwen3.5-0.8B");
+      expect(screen.getByLabelText("Chat model")).toHaveValue("gpt-5.2-codex");
     });
 
     fireEvent.change(await screen.findByPlaceholderText("Ask about spending, prices, and products..."), {
@@ -366,9 +381,9 @@ describe("ChatPanel history behavior", () => {
     });
     expect(runCall).toBeDefined();
     expect(JSON.parse(String(runCall?.[1]?.body))).toMatchObject({
-      model_id: "Qwen/Qwen3.5-0.8B"
+      model_id: "gpt-5.2-codex"
     });
-    expect(storage.get("agent.chat.model.v1")).toBe("Qwen/Qwen3.5-0.8B");
+    expect(storage.get("agent.chat.model.v1")).toBe("gpt-5.2-codex");
   });
 
   it("disables the model selector while a prompt is streaming", async () => {

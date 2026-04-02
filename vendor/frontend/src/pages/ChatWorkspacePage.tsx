@@ -187,6 +187,10 @@ export function ChatWorkspacePage() {
     }
     return resolveAgentModelSelection(configQuery.data, explicitModel);
   }, [configQuery.data, draftModelId, selectedThreadId, storedModelSelections]);
+  const selectedModel = useMemo(
+    () => availableModels.find((model) => model.id === selectedModelId) ?? null,
+    [availableModels, selectedModelId]
+  );
 
   const agent = useMemo(() => {
     if (!configQuery.data || !selectedModelId) {
@@ -550,12 +554,22 @@ export function ChatWorkspacePage() {
 
         <Card className="flex min-h-[calc(100dvh-10rem)] flex-col">
           <CardHeader className="border-b py-3">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <h3 className="truncate text-sm font-semibold">
                   {selectedThread?.title ??
                     (isComposingNewThread ? t("pages.chatWorkspace.thread.new") : t("pages.chatWorkspace.thread.empty"))}
                 </h3>
+                {selectedModel?.description ? (
+                  <p
+                    className={cn(
+                      "mt-1 text-xs",
+                      selectedModel.source === "local" ? "text-amber-700" : "text-muted-foreground"
+                    )}
+                  >
+                    {selectedModel.description}
+                  </p>
+                ) : null}
               </div>
               <div className="flex items-center gap-2">
                 {availableModels.length > 0 ? (
@@ -563,7 +577,7 @@ export function ChatWorkspacePage() {
                     <span>{t("pages.chatWorkspace.modelSelector.label")}</span>
                     <select
                       aria-label={t("pages.chatWorkspace.modelSelector.label")}
-                      className="app-soft-surface h-8 rounded-md border px-2 text-xs text-foreground"
+                      className="app-soft-surface h-8 max-w-[14rem] rounded-md border px-2 text-xs text-foreground"
                       value={selectedModelId ?? ""}
                       onChange={(event) => updateSelectedModel(event.target.value)}
                       disabled={streaming}

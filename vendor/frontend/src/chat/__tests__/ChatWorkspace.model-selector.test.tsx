@@ -254,19 +254,31 @@ describe("ChatWorkspacePage model selector", () => {
     });
   });
 
-  it("prefers ChatGPT when connected and allows switching back to the local model", async () => {
+  it("keeps the local model as default when ChatGPT is connected and still allows switching", async () => {
     mocks.fetchAIAgentConfigMock.mockResolvedValue({
       proxy_url: "http://localhost",
       auth_token: "token",
-      model: "gpt-5.2-codex",
+      model: "Qwen/Qwen3.5-0.8B",
       default_model: "Qwen/Qwen3.5-0.8B",
       local_model: "Qwen/Qwen3.5-0.8B",
-      preferred_model: "gpt-5.2-codex",
+      preferred_model: "Qwen/Qwen3.5-0.8B",
       oauth_provider: "openai-codex",
       oauth_connected: true,
       available_models: [
-        { id: "Qwen/Qwen3.5-0.8B", label: "Qwen", source: "local", enabled: true },
-        { id: "gpt-5.2-codex", label: "ChatGPT", source: "oauth", enabled: true }
+        {
+          id: "Qwen/Qwen3.5-0.8B",
+          label: "Local Qwen (tiny)",
+          source: "local",
+          enabled: true,
+          description: "Very small local fallback model. Private and easy to run, but weaker for deeper analysis."
+        },
+        {
+          id: "gpt-5.2-codex",
+          label: "ChatGPT",
+          source: "oauth",
+          enabled: true,
+          description: "Uses your ChatGPT sign-in. Good for stronger reasoning when you choose it."
+        }
       ]
     });
 
@@ -407,15 +419,18 @@ describe("ChatWorkspacePage model selector", () => {
     renderPage();
 
     const modelSelect = await screen.findByLabelText("Model");
-    expect(modelSelect).toHaveValue("gpt-5.2-codex");
+    expect(modelSelect).toHaveValue("Qwen/Qwen3.5-0.8B");
+    expect(
+      screen.getByText("Very small local fallback model. Private and easy to run, but weaker for deeper analysis.")
+    ).toBeInTheDocument();
 
-    fireEvent.change(modelSelect, { target: { value: "Qwen/Qwen3.5-0.8B" } });
+    fireEvent.change(modelSelect, { target: { value: "gpt-5.2-codex" } });
     await waitFor(() => {
-      expect(screen.getByLabelText("Model")).toHaveValue("Qwen/Qwen3.5-0.8B");
+      expect(screen.getByLabelText("Model")).toHaveValue("gpt-5.2-codex");
       expect(mocks.createSpendingAgentMock).toHaveBeenLastCalledWith(
         "http://localhost",
         "token",
-        "Qwen/Qwen3.5-0.8B"
+        "gpt-5.2-codex"
       );
     });
 
@@ -431,12 +446,12 @@ describe("ChatWorkspacePage model selector", () => {
       });
       expect(runCall).toBeDefined();
       expect(JSON.parse(String(runCall?.[1]?.body))).toMatchObject({
-        model_id: "Qwen/Qwen3.5-0.8B"
+        model_id: "gpt-5.2-codex"
       });
     });
 
     expect(JSON.parse(storage.get("chat.workspace.model-selection.v1") ?? "{}")).toMatchObject({
-      t1: "Qwen/Qwen3.5-0.8B"
+      t1: "gpt-5.2-codex"
     });
   });
 });

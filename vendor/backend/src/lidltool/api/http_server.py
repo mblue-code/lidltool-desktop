@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import ipaddress
 import json
 import logging
 import os
@@ -2354,6 +2355,28 @@ DEFAULT_LOCAL_CHAT_MODEL = "Qwen/Qwen3.5-0.8B"
 DEFAULT_CHATGPT_CHAT_MODEL = "gpt-5.2-codex"
 
 
+def _is_local_hostname(hostname: str | None) -> bool:
+    if not hostname:
+        return False
+    normalized = hostname.strip().lower()
+    if normalized in {"localhost", "127.0.0.1", "::1", "host.docker.internal"}:
+        return True
+    if normalized.endswith(".local") or "." not in normalized:
+        return True
+    try:
+        parsed = ipaddress.ip_address(normalized)
+    except ValueError:
+        return False
+    return parsed.is_loopback or parsed.is_private or parsed.is_link_local
+
+
+def _configured_provider_source(app_config: AppConfig) -> Literal["local", "api"]:
+    base_url = (app_config.ai_base_url or "").strip()
+    if not base_url:
+        return "local"
+    return "local" if _is_local_hostname(urlparse(base_url).hostname) else "api"
+
+
 def _configured_local_chat_model(app_config: AppConfig) -> str:
     model_id = (app_config.ai_model or "").strip()
     return model_id or DEFAULT_LOCAL_CHAT_MODEL
@@ -2367,26 +2390,42 @@ def _chatgpt_oauth_connected(app_config: AppConfig) -> bool:
 
 
 def _preferred_chat_model(app_config: AppConfig) -> str:
-    if _chatgpt_oauth_connected(app_config):
-        return DEFAULT_CHATGPT_CHAT_MODEL
     return _configured_local_chat_model(app_config)
 
 
 def _available_chat_models(app_config: AppConfig) -> list[dict[str, Any]]:
     local_model = _configured_local_chat_model(app_config)
-    local_label = "Qwen" if "qwen" in local_model.lower() else "Local model"
+    provider_source = _configured_provider_source(app_config)
+    if provider_source == "local":
+        if "qwen" in local_model.lower():
+            configured_label = "Local Qwen (tiny)"
+            configured_description = (
+                "Very small local fallback model. Private and easy to run, but weaker for deeper analysis."
+            )
+        else:
+            configured_label = "Local model"
+            configured_description = (
+                "Runs against your current local model setup. Local keeps data on this machine."
+            )
+    else:
+        configured_label = "Configured API model"
+        configured_description = (
+            "Uses the API model from AI Settings. This is usually stronger than the tiny local fallback."
+        )
     return [
         {
             "id": local_model,
-            "label": local_label,
-            "source": "local",
+            "label": configured_label,
+            "source": provider_source,
             "enabled": True,
+            "description": configured_description,
         },
         {
             "id": DEFAULT_CHATGPT_CHAT_MODEL,
             "label": "ChatGPT",
             "source": "oauth",
             "enabled": _chatgpt_oauth_connected(app_config),
+            "description": "Uses your ChatGPT sign-in. Good for stronger reasoning when you choose it.",
         },
     ]
 

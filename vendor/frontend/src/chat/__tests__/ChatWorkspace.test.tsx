@@ -161,20 +161,32 @@ describe("ChatWorkspacePage", () => {
     expect(await screen.findByLabelText("Model")).toHaveValue("Qwen/Qwen3.5-0.8B");
   });
 
-  it("defaults to ChatGPT when OAuth is connected", async () => {
+  it("keeps the local model as default when ChatGPT is connected", async () => {
     const aiSettingsModule = await import("@/api/aiSettings");
     vi.mocked(aiSettingsModule.fetchAIAgentConfig).mockResolvedValueOnce({
       proxy_url: "http://localhost",
       auth_token: "token",
-      model: "gpt-5.2-codex",
+      model: "Qwen/Qwen3.5-0.8B",
       default_model: "Qwen/Qwen3.5-0.8B",
       local_model: "Qwen/Qwen3.5-0.8B",
-      preferred_model: "gpt-5.2-codex",
+      preferred_model: "Qwen/Qwen3.5-0.8B",
       oauth_provider: "openai-codex",
       oauth_connected: true,
       available_models: [
-        { id: "Qwen/Qwen3.5-0.8B", label: "Qwen", source: "local", enabled: true },
-        { id: "gpt-5.2-codex", label: "ChatGPT", source: "oauth", enabled: true }
+        {
+          id: "Qwen/Qwen3.5-0.8B",
+          label: "Local Qwen (tiny)",
+          source: "local",
+          enabled: true,
+          description: "Very small local fallback model. Private and easy to run, but weaker for deeper analysis."
+        },
+        {
+          id: "gpt-5.2-codex",
+          label: "ChatGPT",
+          source: "oauth",
+          enabled: true,
+          description: "Uses your ChatGPT sign-in. Good for stronger reasoning when you choose it."
+        }
       ]
     });
 
@@ -190,23 +202,38 @@ describe("ChatWorkspacePage", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByLabelText("Model")).toHaveValue("gpt-5.2-codex");
+    expect(await screen.findByLabelText("Model")).toHaveValue("Qwen/Qwen3.5-0.8B");
+    expect(
+      screen.getByText("Very small local fallback model. Private and easy to run, but weaker for deeper analysis.")
+    ).toBeInTheDocument();
   });
 
-  it("allows switching back to the local model and persists that model id", async () => {
+  it("allows switching to ChatGPT and persists that model id", async () => {
     const aiSettingsModule = await import("@/api/aiSettings");
     vi.mocked(aiSettingsModule.fetchAIAgentConfig).mockResolvedValueOnce({
       proxy_url: "http://localhost",
       auth_token: "token",
-      model: "gpt-5.2-codex",
+      model: "Qwen/Qwen3.5-0.8B",
       default_model: "Qwen/Qwen3.5-0.8B",
       local_model: "Qwen/Qwen3.5-0.8B",
-      preferred_model: "gpt-5.2-codex",
+      preferred_model: "Qwen/Qwen3.5-0.8B",
       oauth_provider: "openai-codex",
       oauth_connected: true,
       available_models: [
-        { id: "Qwen/Qwen3.5-0.8B", label: "Qwen", source: "local", enabled: true },
-        { id: "gpt-5.2-codex", label: "ChatGPT", source: "oauth", enabled: true }
+        {
+          id: "Qwen/Qwen3.5-0.8B",
+          label: "Local Qwen (tiny)",
+          source: "local",
+          enabled: true,
+          description: "Very small local fallback model. Private and easy to run, but weaker for deeper analysis."
+        },
+        {
+          id: "gpt-5.2-codex",
+          label: "ChatGPT",
+          source: "oauth",
+          enabled: true,
+          description: "Uses your ChatGPT sign-in. Good for stronger reasoning when you choose it."
+        }
       ]
     });
 
@@ -353,7 +380,7 @@ describe("ChatWorkspacePage", () => {
     );
 
     const modelSelect = await screen.findByLabelText("Model");
-    fireEvent.change(modelSelect, { target: { value: "Qwen/Qwen3.5-0.8B" } });
+    fireEvent.change(modelSelect, { target: { value: "gpt-5.2-codex" } });
     fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products, or trends/), {
       target: { value: "hello" }
     });
@@ -368,7 +395,7 @@ describe("ChatWorkspacePage", () => {
     });
     expect(runCall).toBeDefined();
     expect(JSON.parse(String(runCall?.[1]?.body))).toMatchObject({
-      model_id: "Qwen/Qwen3.5-0.8B"
+      model_id: "gpt-5.2-codex"
     });
   });
 

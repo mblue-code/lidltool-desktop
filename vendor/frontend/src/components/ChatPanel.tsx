@@ -173,6 +173,10 @@ export function ChatPanel({
     }
     return resolveAgentModelSelection(configQuery.data, selectedModelId);
   }, [configQuery.data, selectedModelId]);
+  const activeModel = useMemo(
+    () => modelOptions.find((option) => option.id === activeModelId) ?? null,
+    [activeModelId, modelOptions]
+  );
 
   const agent = useMemo(() => {
     if (!configQuery.data || !activeModelId) {
@@ -449,33 +453,45 @@ export function ChatPanel({
         <span className="mx-auto w-px bg-border/80 transition-colors hover:bg-primary/70" />
       </div>
       <div className="flex h-full flex-col">
-        <header className="flex items-center justify-between border-b px-4 py-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <h2 className="text-sm font-semibold">AI Assistant</h2>
-            {enabled && modelOptions.length > 0 && activeModelId ? (
-              <select
-                aria-label="Chat model"
-                className="app-soft-surface h-8 max-w-[10rem] rounded-md border px-2 text-xs"
-                value={activeModelId}
-                disabled={isStreaming}
-                onChange={(event) => setSelectedModelId(event.target.value)}
-              >
-                {modelOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            ) : null}
+        <header className="border-b px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <h2 className="text-sm font-semibold">AI Assistant</h2>
+              {enabled && modelOptions.length > 0 && activeModelId ? (
+                <select
+                  aria-label="Chat model"
+                  className="app-soft-surface h-8 max-w-[14rem] rounded-md border px-2 text-xs"
+                  value={activeModelId}
+                  disabled={isStreaming}
+                  onChange={(event) => setSelectedModelId(event.target.value)}
+                >
+                  {modelOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={startNewChat}>
+                New chat
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={startNewChat}>
-              New chat
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
-              Close
-            </Button>
-          </div>
+          {enabled && activeModel?.description ? (
+            <p
+              className={cn(
+                "mt-2 text-xs",
+                activeModel.source === "local" ? "text-amber-700" : "text-muted-foreground"
+              )}
+            >
+              {activeModel.description}
+            </p>
+          ) : null}
         </header>
 
         <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
