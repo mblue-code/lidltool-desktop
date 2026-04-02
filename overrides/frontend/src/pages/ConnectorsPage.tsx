@@ -269,7 +269,7 @@ export function ConnectorsPage() {
   const bootstrapMutation = useMutation({
     mutationFn: (sourceId: string) => startConnectorBootstrap(sourceId),
     onSuccess: async (_result, sourceId) => {
-      setFeedback(`Setup started for ${sourceId}.`);
+      setFeedback(t("pages.connectors.feedback.setupStarted", { name: sourceId }));
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
     },
     onError: (error) => {
@@ -281,7 +281,11 @@ export function ConnectorsPage() {
     mutationFn: ({ sourceId, full }: { sourceId: string; full: boolean }) =>
       startConnectorSync(sourceId, full),
     onSuccess: async (_result, { sourceId, full }) => {
-      setFeedback(full ? `Full sync started for ${sourceId}.` : `Sync started for ${sourceId}.`);
+      setFeedback(
+        full
+          ? t("pages.connectors.feedback.fullSyncStarted", { name: sourceId })
+          : t("pages.connectors.feedback.syncStarted", { name: sourceId })
+      );
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
     },
     onError: (error) => {
@@ -292,7 +296,7 @@ export function ConnectorsPage() {
   const reloadMutation = useMutation({
     mutationFn: reloadConnectors,
     onSuccess: async () => {
-      setFeedback("Connector registry refreshed.");
+      setFeedback(t("pages.connectors.feedback.registryReloaded"));
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
@@ -414,7 +418,7 @@ export function ConnectorsPage() {
     if (setupState.mode !== "configure") {
       await bootstrapMutation.mutateAsync(connector.source_id);
     } else {
-      setFeedback(`Saved settings for ${connector.display_name}.`);
+      setFeedback(t("pages.connectors.feedback.settingsSaved", { name: connector.display_name }));
     }
     closeSetup();
   }
@@ -488,8 +492,8 @@ export function ConnectorsPage() {
             compareVersions(pack.version, catalogEntry.current_version) < 0;
 
           return (
-            <Card key={connector.source_id}>
-              <CardHeader className="space-y-3">
+          <Card key={connector.source_id} className="border-border/60 bg-card/85 shadow-sm">
+            <CardHeader className="space-y-3 border-b border-border/50 bg-background/40">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1">
                     <CardTitle className="text-lg">{connector.display_name}</CardTitle>
@@ -513,7 +517,7 @@ export function ConnectorsPage() {
                   </Alert>
                 ) : null}
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-4 bg-card/70">
                 <div className="grid gap-2 text-sm text-muted-foreground">
                   <p>
                     <strong className="text-foreground">Install state:</strong> {connector.install_state}
@@ -619,7 +623,7 @@ export function ConnectorsPage() {
       </div>
 
       {inactivePacks.length > 0 ? (
-        <Card>
+        <Card className="border-border/60 bg-card/85">
           <CardHeader>
             <CardTitle>Stored receipt packs</CardTitle>
             <CardDescription>
@@ -635,7 +639,7 @@ export function ConnectorsPage() {
                 catalogEntries.find((entry) => entry.plugin_id === pack.pluginId) ??
                 null;
               return (
-                <div key={pack.pluginId} className="rounded-lg border p-4">
+                <div key={pack.pluginId} className="rounded-lg border border-border/60 bg-background/60 p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
                       <p className="font-medium">{pack.displayName}</p>
@@ -665,13 +669,13 @@ export function ConnectorsPage() {
           <DialogHeader>
             <DialogTitle>
               {setupState?.mode === "configure"
-                ? `Settings for ${setupState.connector.display_name}`
-                : `Set up ${setupState?.connector.display_name ?? "connector"}`}
+                ? t("pages.connectors.dialog.settingsTitle", { name: setupState.connector.display_name })
+                : t("pages.connectors.dialog.setupTitle", { name: setupState?.connector.display_name ?? "connector" })}
             </DialogTitle>
             <DialogDescription>
               {setupState?.mode === "configure"
-                ? "Update saved connector settings for this desktop profile."
-                : "Save any required settings, then continue into the connector bootstrap flow."}
+                ? t("pages.connectors.dialog.settingsDescription")
+                : t("pages.connectors.dialog.setupDescription")}
             </DialogDescription>
           </DialogHeader>
 
@@ -679,12 +683,12 @@ export function ConnectorsPage() {
             {setupConfigQuery.isLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Loading connector settings…
+                {t("pages.connectors.loadingSettings")}
               </div>
             ) : null}
 
             {!setupConfigQuery.isLoading && setupDialogFields.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No extra settings are required for this connector.</p>
+              <p className="text-sm text-muted-foreground">{t("pages.connectors.noExtraSettings")}</p>
             ) : null}
 
             {setupDialogFields.map((field) => (
@@ -703,8 +707,10 @@ export function ConnectorsPage() {
                             : [...current, field.key]
                         )
                       }
-                    >
-                      {clearSecretKeys.includes(field.key) ? "Keep saved value" : "Clear saved value"}
+                      >
+                      {clearSecretKeys.includes(field.key)
+                        ? t("pages.connectors.keepSavedValue")
+                        : t("pages.connectors.clearSavedValue")}
                     </Button>
                   ) : null}
                 </div>
@@ -719,7 +725,7 @@ export function ConnectorsPage() {
                       }
                     />
                     <span className="text-sm text-muted-foreground">
-                      {field.description ?? "Toggle this setting for the local connector runtime."}
+                      {field.description ?? t("pages.connectors.toggleRuntimeSetting")}
                     </span>
                   </div>
                 ) : (
@@ -750,7 +756,7 @@ export function ConnectorsPage() {
               {configMutation.isPending || bootstrapMutation.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
-              {setupState?.mode === "configure" ? "Save settings" : "Save and continue"}
+              {setupState?.mode === "configure" ? t("pages.connectors.saveSettings") : t("pages.connectors.saveAndContinue")}
             </Button>
           </DialogFooter>
         </DialogContent>
