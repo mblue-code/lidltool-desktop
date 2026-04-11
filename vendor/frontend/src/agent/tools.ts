@@ -59,7 +59,7 @@ const renderUiTool: AgentTool<any> = {
   label: "Render UI",
   description: `Render structured UI components in chat. Allowed components: ${CHAT_UI_COMPONENT_NAMES.join(
     ", "
-  )}. Use this to present charts/graphs/tables/cards instead of long text dumps.`,
+  )}. Prefer this for trends, comparisons, rankings, breakdowns, and metric summaries instead of long text dumps. LineChart supports either {x, y, data} for one series, {x, y: ["seriesA", "seriesB"], data} for quick multi-series overlays, or {x, series: [{key, label, color?}], data} for labeled multi-series overlays. The result appears as an expandable visual artifact with PNG and JSON export.`,
   parameters: RenderUiParams,
   execute: async (_toolCallId, params) => {
     const parsed = params as { spec?: unknown };
@@ -169,8 +169,9 @@ const CategoryBreakdownParams = Type.Object({
 
 const categoryBreakdownTool: AgentTool<any> = {
   name: "category_breakdown",
-  label: "Category Breakdown",
-  description: "Get savings breakdown by category/type for a period.",
+  label: "Savings Breakdown",
+  description:
+    "Get discount savings breakdown by discount type for a period. This is about loyalty/promotion/markdown savings, not product-category spend.",
   parameters: CategoryBreakdownParams,
   execute: async (_toolCallId, params) => {
     const parsed = params as { year?: number; month?: number; view?: "native" | "normalized" };
@@ -261,8 +262,9 @@ const AggregateItemsParams = Type.Object({
       Type.Literal("source_id"),
       Type.Literal("month"),
       Type.Literal("year"),
-      Type.Literal("name")
-    ], { description: "Optional breakdown: source_id, month, year, or name" })
+      Type.Literal("name"),
+      Type.Literal("category")
+    ], { description: "Optional breakdown: source_id, month, year, name, or category" })
   )
 });
 
@@ -270,7 +272,7 @@ const aggregateItemsTool: AgentTool<any> = {
   name: "aggregate_items",
   label: "Aggregate Spending",
   description:
-    "Compute total spending and quantity for a product name across receipts. Returns grand_total_cents, item_count (number of receipt line items / shopping trips), and total_qty (actual number of units purchased). Use total_qty to answer 'how many X did I buy' and grand_total_cents for spend. Optionally group by source_id, month, year, or name for breakdowns.",
+    "Compute total spending and quantity for receipt line items across purchases. Use query for a name match, or omit it to aggregate everything in the selected period. Returns grand_total_cents/item_count/total_qty for grouped results or total_cents/item_count/total_qty otherwise. Prefer group_by='category' when the user asks for spending by product group or category. Optionally group by source_id, month, year, name, or category.",
   parameters: AggregateItemsParams,
   execute: async (_toolCallId, params) => {
     const parsed = params as {
@@ -1040,9 +1042,10 @@ const executePythonTool: AgentTool<any> = {
   }
 };
 
+// The backend keeps /api/v1/tools/exec disabled by default for safety.
+// Do not advertise execute_python unless the host explicitly enables it.
 export const ALL_TOOLS: AgentTool<any>[] = [
   renderUiTool,
-  executePythonTool,
   aggregateItemsTool,
   searchItemsTool,
   searchTransactionsTool,

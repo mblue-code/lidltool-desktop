@@ -53,11 +53,14 @@ from lidltool.ai.clustering import cluster_products_with_llm, get_cluster_job_pr
 from lidltool.ai.config import (
     get_ai_api_key,
     get_ai_oauth_access_token,
+    get_item_categorizer_api_key,
     persist_ai_settings,
+    persist_item_categorizer_settings,
     persist_ocr_settings,
     set_ai_api_key,
     set_ai_oauth_access_token,
     set_ai_oauth_refresh_token,
+    set_item_categorizer_api_key,
 )
 from lidltool.analytics.advanced import (
     basket_compare,
@@ -71,6 +74,7 @@ from lidltool.analytics.advanced import (
     timing_matrix,
     weekday_heatmap,
 )
+from lidltool.analytics.item_categorizer import resolve_item_categorizer_runtime_client
 from lidltool.analytics.recategorization import recategorize_transactions
 from lidltool.analytics.queries import (
     dashboard_retailer_composition,
@@ -578,6 +582,15 @@ def _resolve_request_context(
         raise RuntimeError("http runtime context not initialized")
     request.state.request_context = context
     return context
+
+
+def _reload_request_context_config(context: RequestContext) -> AppConfig:
+    refreshed = build_config(
+        config_path=context.config_path,
+        db_override=context.config.db_path,
+    )
+    context.config = refreshed
+    return refreshed
 
 
 def _disallowed_runtime_override_fields(connection: HTTPConnection) -> list[str]:
@@ -1550,6 +1563,15 @@ def _start_quality_recategorize_job(
         jobs[job.job_id] = job
 
     def _worker() -> None:
+        def _publish_job_progress(summary: Any) -> None:
+            with lock:
+                job.transaction_count = summary.transaction_count
+                job.candidate_item_count = summary.candidate_item_count
+                job.updated_transaction_count = summary.updated_transaction_count
+                job.updated_item_count = summary.updated_item_count
+                job.skipped_transaction_count = summary.skipped_transaction_count
+                job.method_counts = dict(summary.method_counts or {})
+
         with lock:
             job.status = "running"
             job.started_at = datetime.now(tz=UTC)
@@ -1565,6 +1587,7 @@ def _start_quality_recategorize_job(
                     include_suspect_model_items=include_suspect_model_items,
                     max_transactions=max_transactions,
                     require_model_runtime=True,
+                    progress_callback=_publish_job_progress,
                 )
             with lock:
                 job.status = "completed"
@@ -1577,7 +1600,7 @@ def _start_quality_recategorize_job(
                 job.method_counts = dict(summary.method_counts or {})
         except Exception as exc:  # noqa: BLE001
             with lock:
-                job.status = "failed"
+                job.status = "error"
                 job.finished_at = datetime.now(tz=UTC)
                 job.error = str(exc)
 
@@ -2573,7 +2596,35 @@ def _resolve_ai_bearer_token(config: AppConfig, config_path: Path | None = None)
 
 
 DEFAULT_LOCAL_CHAT_MODEL = "qwen3.5:0.8b"
-DEFAULT_CHATGPT_CHAT_MODEL = "gpt-5.2-codex"
+DEFAULT_CHATGPT_CHAT_MODEL = "gpt-5.4"
+DEFAULT_CATEGORIZATION_OAUTH_MODEL = "gpt-5.4-mini"
+CHATGPT_OAUTH_CHAT_MODELS: tuple[tuple[str, str, str], ...] = (
+    (
+        "gpt-5.4",
+        "GPT-5.4",
+        "Current general ChatGPT/Codex subscription model.",
+    ),
+    (
+        "gpt-5.4-mini",
+        "GPT-5.4-Mini",
+        "Smaller and cheaper ChatGPT/Codex subscription model.",
+    ),
+    (
+        "gpt-5.3-codex",
+        "GPT-5.3-Codex",
+        "Codex-tuned ChatGPT subscription model.",
+    ),
+    (
+        "gpt-5.3-codex-spark",
+        "GPT-5.3-Codex-Spark",
+        "Fast Codex-oriented ChatGPT subscription model.",
+    ),
+    (
+        "gpt-5.2",
+        "GPT-5.2",
+        "Earlier GPT-5 generation model still available in your ChatGPT/Codex subscription.",
+    ),
+)
 
 
 def _chatgpt_oauth_connected(app_config: AppConfig) -> bool:
@@ -2591,6 +2642,11 @@ def _configured_local_chat_model(app_config: AppConfig) -> str:
     )
 
 
+def _configured_oauth_chat_model(app_config: AppConfig) -> str:
+    configured = (getattr(app_config, "ai_oauth_model", None) or "").strip()
+    return configured or DEFAULT_CHATGPT_CHAT_MODEL
+
+
 def _configured_api_chat_model(app_config: AppConfig) -> str | None:
     if not app_config.ai_enabled:
         return None
@@ -2600,6 +2656,71 @@ def _configured_api_chat_model(app_config: AppConfig) -> str | None:
     if not base_url or not model or not api_key:
         return None
     return model
+
+
+def _iter_chatgpt_oauth_models(app_config: AppConfig) -> list[tuple[str, str, str]]:
+    models: list[tuple[str, str, str]] = []
+    seen_ids: set[str] = set()
+    configured_model = _configured_oauth_chat_model(app_config)
+    configured_label = configured_model
+    configured_description = "Configured ChatGPT/Codex model via your ChatGPT sign-in."
+    for model_id, label, description in CHATGPT_OAUTH_CHAT_MODELS:
+        if model_id == configured_model:
+            configured_label = label
+            configured_description = description
+            break
+    candidates = [(configured_model, configured_label, configured_description), *CHATGPT_OAUTH_CHAT_MODELS]
+    for model_id, label, description in candidates:
+        normalized_model_id = (model_id or "").strip()
+        if not normalized_model_id or normalized_model_id in seen_ids:
+            continue
+        seen_ids.add(normalized_model_id)
+        models.append((normalized_model_id, label, description))
+    return models
+
+
+def _configured_categorization_model(app_config: AppConfig) -> str:
+    provider = _configured_categorization_provider(app_config)
+    configured_model = (app_config.item_categorizer_model or "").strip()
+    if provider == "oauth_codex":
+        if not configured_model or configured_model == DEFAULT_LOCAL_CHAT_MODEL:
+            return DEFAULT_CATEGORIZATION_OAUTH_MODEL
+        return configured_model
+    if configured_model and configured_model != DEFAULT_LOCAL_CHAT_MODEL:
+        return configured_model
+    return _default_categorization_model(
+        provider=provider,
+        base_url=(app_config.item_categorizer_base_url or app_config.ai_base_url),
+        fallback_model=app_config.ai_model,
+    )
+
+
+def _configured_categorization_provider(app_config: AppConfig) -> str:
+    configured = (getattr(app_config, "item_categorizer_provider", "") or "").strip()
+    if configured:
+        return configured
+    if (app_config.item_categorizer_base_url or "").strip():
+        return "api_compatible"
+    if _chatgpt_oauth_connected(app_config):
+        return "oauth_codex"
+    return "api_compatible"
+
+
+def _default_categorization_model(
+    *,
+    provider: str,
+    base_url: str | None,
+    fallback_model: str | None,
+) -> str:
+    if provider == "oauth_codex":
+        return DEFAULT_CATEGORIZATION_OAUTH_MODEL
+    normalized_base = (base_url or "").strip().lower()
+    if "api.openai.com" in normalized_base:
+        return "gpt-4o-mini"
+    if "api.x.ai" in normalized_base:
+        return "grok-3-mini"
+    fallback = (fallback_model or "").strip()
+    return fallback or "gpt-4o-mini"
 
 
 def _local_chat_model_enabled(app_config: AppConfig) -> bool:
@@ -2653,13 +2774,14 @@ def _available_chat_models(app_config: AppConfig) -> list[dict[str, Any]]:
             else "Local model runtime on your self-hosted stack."
         ),
     )
-    add_model(
-        model_id=DEFAULT_CHATGPT_CHAT_MODEL,
-        label="ChatGPT",
-        source="oauth",
-        enabled=_chatgpt_oauth_connected(app_config),
-        description="Uses your ChatGPT sign-in when connected.",
-    )
+    for model_id, label, description in _iter_chatgpt_oauth_models(app_config):
+        add_model(
+            model_id=model_id,
+            label=label,
+            source="oauth",
+            enabled=_chatgpt_oauth_connected(app_config),
+            description=description,
+        )
     if api_model:
         add_model(
             model_id=api_model,
@@ -2673,9 +2795,15 @@ def _available_chat_models(app_config: AppConfig) -> list[dict[str, Any]]:
 
 def _preferred_chat_model(app_config: AppConfig) -> str:
     available_models = _available_chat_models(app_config)
-    for source in ("local", "oauth", "api"):
-        for model in available_models:
-            if model["enabled"] and model["source"] == source:
+    enabled_models = [model for model in available_models if model["enabled"]]
+    configured_oauth_model = _configured_oauth_chat_model(app_config)
+    if _chatgpt_oauth_connected(app_config):
+        for model in enabled_models:
+            if model["source"] == "oauth" and str(model["id"]) == configured_oauth_model:
+                return configured_oauth_model
+    for source in ("api", "local", "oauth"):
+        for model in enabled_models:
+            if model["source"] == source:
                 return str(model["id"])
     return _configured_local_chat_model(app_config)
 
@@ -2731,7 +2859,10 @@ def _resolve_pi_agent_runtime_for_model(
 
 
 def _should_route_stream_via_chatgpt(app_config: AppConfig, model_id: str) -> bool:
-    return _chatgpt_oauth_connected(app_config) and model_id == DEFAULT_CHATGPT_CHAT_MODEL
+    if not _chatgpt_oauth_connected(app_config):
+        return False
+    normalized_model_id = (model_id or "").strip()
+    return any(candidate_id == normalized_model_id for candidate_id, _, _ in _iter_chatgpt_oauth_models(app_config))
 
 
 def _runtime_model_name(
@@ -2962,6 +3093,18 @@ class AISettingsUpdateRequest(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
     model: str
+
+
+class AIChatSettingsUpdateRequest(BaseModel):
+    oauth_model: str | None = None
+
+
+class AICategorizationSettingsUpdateRequest(BaseModel):
+    enabled: bool = False
+    provider: Literal["oauth_codex", "api_compatible"] = "oauth_codex"
+    model: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
 
 
 class OCRSettingsUpdateRequest(BaseModel):
@@ -4765,7 +4908,7 @@ def create_app(
         group_by: str | None = None,
     ) -> Any:
         """Aggregate receipt line items: returns total spend, count, and optional breakdown.
-        group_by can be 'source_id', 'month', 'year', or 'name'.
+        group_by can be 'source_id', 'month', 'year', 'name', or 'category'.
         """
         with open("/tmp/aggregate_items.log", "a") as _dbg:
             _dbg.write(f"aggregate_items called: query={query!r} from_date={from_date!r} to_date={to_date!r} source_id={source_id!r} group_by={group_by!r}\n")
@@ -4811,6 +4954,8 @@ def create_app(
                     )
                 elif group_by == "name":
                     group_col = TransactionItem.name
+                elif group_by == "category":
+                    group_col = func.coalesce(TransactionItem.category, "uncategorized")
                 else:
                     group_col = None
 
@@ -5747,7 +5892,7 @@ def create_app(
     ) -> Any:
         try:
             context = _resolve_request_context(request)
-            app_config = context.config
+            app_config = _reload_request_context_config(context)
             sessions = context.sessions
             with session_scope(sessions) as session:
                 _require_admin_auth_context(request=request, session=session, config=app_config)
@@ -7986,7 +8131,6 @@ def create_app(
         request: Request,
         from_date: str | None = None,
         to_date: str | None = None,
-        source_ids: str | None = None,
         scope: str = "personal",
     ) -> Any:
         try:
@@ -8003,7 +8147,6 @@ def create_app(
                     session,
                     date_from=_parse_optional_iso_date(from_date),
                     date_to=_parse_optional_iso_date(to_date),
-                    source_ids=_parse_source_ids(source_ids),
                     visibility=visibility,
                 )
             return _response(True, result=result, warnings=warnings, error=None)
@@ -8551,6 +8694,14 @@ finally:
                             local_runtime_status = "unhealthy"
                     except Exception:  # noqa: BLE001
                         local_runtime_status = "unreachable"
+            categorization_runtime_enabled = bool(app_config.item_categorizer_enabled)
+            categorization_provider = _configured_categorization_provider(app_config)
+            categorization_client = (
+                resolve_item_categorizer_runtime_client(app_config)
+                if categorization_runtime_enabled
+                else None
+            )
+            categorization_health = categorization_client.health() if categorization_client is not None else None
             result = {
                 "enabled": api_credentials_ready or oauth_connected or local_runtime_ready,
                 "base_url": app_config.ai_base_url,
@@ -8558,10 +8709,18 @@ finally:
                 "api_key_set": bool(app_config.ai_api_key_encrypted),
                 "oauth_provider": app_config.ai_oauth_provider,
                 "oauth_connected": oauth_connected,
+                "oauth_model": _configured_oauth_chat_model(app_config),
                 "remote_enabled": api_credentials_ready or oauth_connected,
                 "local_runtime_enabled": local_runtime_enabled,
                 "local_runtime_ready": local_runtime_ready,
                 "local_runtime_status": local_runtime_status,
+                "categorization_enabled": categorization_runtime_enabled,
+                "categorization_provider": categorization_provider,
+                "categorization_base_url": app_config.item_categorizer_base_url,
+                "categorization_api_key_set": bool(app_config.item_categorizer_api_key_encrypted),
+                "categorization_model": _configured_categorization_model(app_config),
+                "categorization_runtime_ready": bool(categorization_health and categorization_health.status == "ready"),
+                "categorization_runtime_status": categorization_health.status if categorization_health else "disabled",
             }
             return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -8698,7 +8857,7 @@ finally:
             candidate_api_key = (
                 payload.api_key.strip()
                 if isinstance(payload.api_key, str) and payload.api_key.strip()
-                else get_ai_api_key(app_config)
+                else _resolve_ai_bearer_token(app_config, context.config_path)
             )
 
             if not base_url:
@@ -8739,11 +8898,128 @@ finally:
                 set_ai_api_key(app_config, payload.api_key.strip())
 
             persist_ai_settings(context.config_path, app_config)
+            app_config = _reload_request_context_config(context)
             return _response(
                 True,
                 result={"ok": True, "error": None},
                 error=None,
             )
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/settings/ai/chat")
+    def post_ai_chat_settings(
+        request: Request,
+        payload: AIChatSettingsUpdateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = _reload_request_context_config(context)
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+
+            normalized_oauth_model = (payload.oauth_model or "").strip() or DEFAULT_CHATGPT_CHAT_MODEL
+            app_config.ai_oauth_model = normalized_oauth_model
+            persist_ai_settings(context.config_path, app_config)
+            _reload_request_context_config(context)
+            return _response(True, result={"ok": True, "error": None}, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/settings/ai/categorization")
+    def post_ai_categorization_settings(
+        request: Request,
+        payload: AICategorizationSettingsUpdateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = _reload_request_context_config(context)
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+
+            app_config.item_categorizer_enabled = bool(payload.enabled)
+            app_config.item_categorizer_provider = payload.provider
+
+            if not app_config.item_categorizer_enabled:
+                persist_item_categorizer_settings(context.config_path, app_config)
+                _reload_request_context_config(context)
+                return _response(True, result={"ok": True, "error": None}, error=None)
+
+            if payload.provider == "oauth_codex":
+                if not _chatgpt_oauth_connected(app_config):
+                    return _response(
+                        True,
+                        result={"ok": False, "error": "Connect ChatGPT Codex first to use subscription categorization"},
+                        error=None,
+                    )
+                app_config.item_categorizer_base_url = None
+                set_item_categorizer_api_key(app_config, None)
+                app_config.item_categorizer_allow_remote = True
+                app_config.item_categorizer_model = (
+                    (payload.model or "").strip()
+                    or _default_categorization_model(
+                        provider="oauth_codex",
+                        base_url=None,
+                        fallback_model=app_config.item_categorizer_model,
+                    )
+                )
+                persist_item_categorizer_settings(context.config_path, app_config)
+                _reload_request_context_config(context)
+                return _response(True, result={"ok": True, "error": None}, error=None)
+
+            base_url = (
+                payload.base_url.strip()
+                if isinstance(payload.base_url, str) and payload.base_url.strip()
+                else (app_config.item_categorizer_base_url or app_config.ai_base_url or "").strip()
+            )
+            model = (
+                payload.model.strip()
+                if isinstance(payload.model, str) and payload.model.strip()
+                else _default_categorization_model(
+                    provider="api_compatible",
+                    base_url=base_url,
+                    fallback_model=app_config.ai_model,
+                )
+            )
+            candidate_api_key = (
+                payload.api_key.strip()
+                if isinstance(payload.api_key, str) and payload.api_key.strip()
+                else get_item_categorizer_api_key(app_config)
+                or get_ai_api_key(app_config)
+            )
+            if not base_url:
+                return _response(
+                    True,
+                    result={"ok": False, "error": "base_url is required for API-compatible categorization"},
+                    error=None,
+                )
+            if not candidate_api_key:
+                return _response(
+                    True,
+                    result={"ok": False, "error": "api_key is required for API-compatible categorization"},
+                    error=None,
+                )
+            validated, validation_error = _validate_ai_completion(
+                base_url=base_url,
+                api_key=candidate_api_key,
+                model=model,
+            )
+            if not validated:
+                return _response(
+                    True,
+                    result={"ok": False, "error": validation_error or "provider validation failed"},
+                    error=None,
+                )
+            app_config.item_categorizer_base_url = base_url
+            app_config.item_categorizer_model = model
+            app_config.item_categorizer_allow_remote = True
+            if isinstance(payload.api_key, str):
+                set_item_categorizer_api_key(app_config, payload.api_key.strip() or None)
+            persist_item_categorizer_settings(context.config_path, app_config)
+            _reload_request_context_config(context)
+            return _response(True, result={"ok": True, "error": None}, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -8753,7 +9029,7 @@ finally:
     ) -> Any:
         try:
             context = _resolve_request_context(request)
-            app_config = context.config
+            app_config = _reload_request_context_config(context)
             sessions = context.sessions
             with session_scope(sessions) as session:
                 _require_admin_auth_context(request=request, session=session, config=app_config)
@@ -8767,6 +9043,11 @@ finally:
             set_ai_oauth_refresh_token(app_config, None)
             app_config.ai_oauth_expires_at = None
             persist_ai_settings(context.config_path, app_config)
+            if _configured_categorization_provider(app_config) == "oauth_codex":
+                app_config.item_categorizer_enabled = False
+                app_config.item_categorizer_allow_remote = False
+                persist_item_categorizer_settings(context.config_path, app_config)
+            _reload_request_context_config(context)
 
             return _response(True, result={"ok": True}, error=None)
         except Exception as exc:  # noqa: BLE001

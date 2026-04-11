@@ -19,4 +19,11 @@ describe("CategoryPresentation", () => {
     expect(screen.getByText("Getränke")).toBeInTheDocument();
     expect(screen.queryByText("groceries:beverages")).not.toBeInTheDocument();
   });
+
+  it("renders fish as its own canonical grocery subcategory", () => {
+    render(<CategoryPresentation category="groceries:fish" locale="de" />);
+
+    expect(screen.getAllByText("Lebensmittel").length).toBeGreaterThan(0);
+    expect(screen.getByText("Fisch & Meeresfrüchte")).toBeInTheDocument();
+  });
 });

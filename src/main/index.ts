@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, Menu, shell } from "electron";
 import { join } from "node:path";
 import type { DesktopLocale } from "@shared/contracts";
 import { registerIpc } from "./ipc";
@@ -102,6 +102,73 @@ function createWindow(): BrowserWindow {
   window.webContents.setWindowOpenHandler((details) => {
     void shell.openExternal(details.url);
     return { action: "deny" };
+  });
+
+  window.webContents.on("before-input-event", (event, input) => {
+    const acceleratorPressed = input.meta || input.control;
+    if (!acceleratorPressed || input.type !== "keyDown") {
+      return;
+    }
+    const key = input.key.toLowerCase();
+    if (key === "c") {
+      event.preventDefault();
+      window.webContents.copy();
+      return;
+    }
+    if (key === "v") {
+      event.preventDefault();
+      window.webContents.paste();
+      return;
+    }
+    if (key === "x") {
+      event.preventDefault();
+      window.webContents.cut();
+      return;
+    }
+    if (key === "a") {
+      event.preventDefault();
+      window.webContents.selectAll();
+      return;
+    }
+    if (key === "z") {
+      event.preventDefault();
+      if (input.shift) {
+        window.webContents.redo();
+      } else {
+        window.webContents.undo();
+      }
+    }
+  });
+
+  window.webContents.on("context-menu", (_event, params) => {
+    const template = [];
+    if (params.editFlags.canUndo) {
+      template.push({ role: "undo" as const });
+    }
+    if (params.editFlags.canRedo) {
+      template.push({ role: "redo" as const });
+    }
+    if (params.editFlags.canUndo || params.editFlags.canRedo) {
+      template.push({ type: "separator" as const });
+    }
+    if (params.editFlags.canCut) {
+      template.push({ role: "cut" as const });
+    }
+    if (params.editFlags.canCopy) {
+      template.push({ role: "copy" as const });
+    }
+    if (params.editFlags.canPaste) {
+      template.push({ role: "paste" as const });
+    }
+    if (params.editFlags.canCut || params.editFlags.canCopy || params.editFlags.canPaste) {
+      template.push({ type: "separator" as const });
+    }
+    if (params.editFlags.canSelectAll) {
+      template.push({ role: "selectAll" as const });
+    }
+    if (template.length > 0) {
+      Menu.buildFromTemplate(template).popup({ window });
+    }
   });
 
   void bootIntoFullApp(window);

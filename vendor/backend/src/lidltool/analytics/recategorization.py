@@ -4,7 +4,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from decimal import Decimal
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -46,6 +46,7 @@ def recategorize_transactions(
     include_suspect_model_items: bool = False,
     max_transactions: int | None = None,
     require_model_runtime: bool = True,
+    progress_callback: Callable[[RecategorizationSummary], None] | None = None,
 ) -> RecategorizationSummary:
     summary = RecategorizationSummary(method_counts={})
     model_client = resolve_item_categorizer_runtime_client(config)
@@ -69,11 +70,14 @@ def recategorize_transactions(
 
     transactions = session.execute(stmt).scalars().all()
     summary.transaction_count = len(transactions)
+    _publish_progress(summary, progress_callback)
 
     for transaction in transactions:
         source = session.get(Source, transaction.source_id)
         if source is None:
             summary.skipped_transaction_count += 1
+            _publish_progress(summary, progress_callback)
+            session.commit()
             continue
         bundle = bundle_cache.get(source.id)
         if bundle is None:
@@ -91,8 +95,11 @@ def recategorize_transactions(
         ]
         if not items:
             summary.skipped_transaction_count += 1
+            _publish_progress(summary, progress_callback)
+            session.commit()
             continue
         summary.candidate_item_count += len(items)
+        _publish_progress(summary, progress_callback)
 
         before = {
             item.id: (
@@ -124,13 +131,36 @@ def recategorize_transactions(
             method = (item.category_method or "unknown").strip() or "unknown"
             summary.method_counts[method] = summary.method_counts.get(method, 0) + 1
         if changed_for_transaction <= 0:
+            _publish_progress(summary, progress_callback)
+            session.commit()
             continue
         summary.updated_transaction_count += 1
         summary.updated_item_count += changed_for_transaction
         refresh_observations_for_transaction(session, transaction_id=transaction.id)
+        _publish_progress(summary, progress_callback)
+        session.commit()
 
     summary.method_counts = dict(sorted(Counter(summary.method_counts or {}).items()))
+    _publish_progress(summary, progress_callback)
     return summary
+
+
+def _publish_progress(
+    summary: RecategorizationSummary,
+    callback: Callable[[RecategorizationSummary], None] | None,
+) -> None:
+    if callback is None:
+        return
+    callback(
+        RecategorizationSummary(
+            transaction_count=summary.transaction_count,
+            candidate_item_count=summary.candidate_item_count,
+            updated_transaction_count=summary.updated_transaction_count,
+            updated_item_count=summary.updated_item_count,
+            skipped_transaction_count=summary.skipped_transaction_count,
+            method_counts=dict(summary.method_counts or {}),
+        )
+    )
 
 
 def _should_recategorize_item(

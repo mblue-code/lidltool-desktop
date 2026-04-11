@@ -24,7 +24,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/shared/SearchInput";
-import { ExportableChatUiSpec } from "@/chat/ui/ExportableChatUiSpec";
+import { ChatToolResult } from "@/chat/ui/ChatToolResult";
+import { MarkdownMessage } from "@/chat/ui/MarkdownMessage";
 import { extractUiSpecsFromContent, messageTextFromContent } from "@/chat/ui/content";
 import { normalizeRuntimeMessagesForPersistence } from "@/chat/ui/runtime-messages";
 import { ChatUiSpec } from "@/chat/ui/spec";
@@ -69,6 +70,16 @@ function runtimeMessageText(message: any): string {
     return messageTextFromContent(message.content, "");
   }
   return "";
+}
+
+function streamingPlaceholderText(
+  t: (key: TranslationKey, variables?: Record<string, string | number>) => string,
+  activeToolLabel: string | null
+): string {
+  if (activeToolLabel) {
+    return t("pages.chatWorkspace.workingWithTool", { tool: activeToolLabel });
+  }
+  return t("pages.chatWorkspace.generating");
 }
 
 function toDisplayMessages(messages: ChatMessage[]): DisplayMessage[] {
@@ -637,9 +648,10 @@ export function ChatWorkspacePage() {
               {displayMessages.length === 0 ? (
                 <div className="flex flex-col items-center gap-3 py-8">
                   <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.empty")}</p>
+                  <p className="text-xs text-muted-foreground">{t("chat.shared.visualCapabilityHint")}</p>
                   <p className="text-xs font-medium text-muted-foreground">{t("pages.chatWorkspace.suggestions.title")}</p>
                   <div className="flex flex-wrap justify-center gap-2">
-                    {(["spending", "compare", "expensive", "trends"] as const).map((key) => (
+                    {(["spending", "compare", "expensive", "trends", "visual"] as const).map((key) => (
                       <Button
                         key={key}
                         variant="outline"
@@ -665,37 +677,33 @@ export function ChatWorkspacePage() {
                   )}
                 >
                   {message.role === "tool" ? (
-                    <details>
-                      <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-                        {t("pages.chatWorkspace.runningAnalysis")} ({TOOL_LABELS[message.toolName ?? ""] ?? message.toolName ?? "tool"})
-                      </summary>
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {t("pages.chatWorkspace.toolResult", {
-                          tool: message.toolName ?? "tool",
-                          callId: message.toolCallId ? ` (${message.toolCallId})` : ""
-                        })}
-                      </p>
-                      {message.uiSpecs.length > 0 ? (
-                        <div className="mt-2 space-y-2">
-                          {message.uiSpecs.map((spec, index) => (
-                            <ExportableChatUiSpec key={`${message.id}-ui-${index}`} spec={spec} />
-                          ))}
-                        </div>
-                      ) : null}
-                      {message.content ? (
-                        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-xs">{message.content}</pre>
-                      ) : message.uiSpecs.length === 0 ? (
-                        <pre className="mt-2 whitespace-pre-wrap text-xs">{t("pages.chatWorkspace.noOutput")}</pre>
-                      ) : null}
-                    </details>
+                    <ChatToolResult
+                      header={t("chat.shared.visualAnalysis", {
+                        tool: TOOL_LABELS[message.toolName ?? ""] ?? message.toolName ?? "tool",
+                        callId: message.toolCallId ? ` (${message.toolCallId})` : ""
+                      })}
+                      uiSpecs={message.uiSpecs}
+                      content={message.content}
+                      inlineLabel={t("chat.shared.inlineVisuals")}
+                      rawOutputLabel={t("chat.shared.rawToolOutput")}
+                      noOutputLabel={t("pages.chatWorkspace.noOutput")}
+                    />
+                  ) : message.role === "assistant" ? (
+                    <MarkdownMessage
+                      content={
+                        message.content ||
+                        (streaming ? streamingPlaceholderText(t, activeToolLabel) : "")
+                      }
+                    />
                   ) : (
-                    message.content || (message.role === "assistant" && streaming ? "..." : "")
+                    message.content
                   )}
                 </div>
               ))}
             </div>
 
             <form className="space-y-2" onSubmit={(event) => void handleSend(event)}>
+              <p className="text-xs text-muted-foreground">{t("chat.shared.visualCapabilityHint")}</p>
               <Textarea
                 value={input}
                 onChange={(event) => setInput(event.target.value)}

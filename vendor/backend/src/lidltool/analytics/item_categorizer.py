@@ -15,10 +15,12 @@ from typing import Protocol, runtime_checkable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from lidltool.ai.codex_oauth import complete_text_with_codex_oauth
 from lidltool.ai.item_categorizer import (
     ItemCategorizerSettings,
     resolve_item_categorizer_settings,
 )
+from lidltool.ai.config import get_ai_oauth_access_token
 from lidltool.ai.runtime import (
     JsonCompletionRequest as SharedJsonCompletionRequest,
     ModelRuntime as SharedModelRuntime,
@@ -117,6 +119,12 @@ _PERSONAL_CARE_RE = re.compile(
 _MEAT_RE = re.compile(
     r"\b("
     r"fleisch|wurst|schinken|salami|h[aä]hnchen|chicken|rind|beef|hack"
+    r")\b",
+    re.IGNORECASE,
+)
+_FISH_RE = re.compile(
+    r"\b("
+    r"fisch|lachs|thunfisch|tunfisch|garnelen|garnele|shrimp|shrimps|kabeljau|seelachs|forelle|hering|matjes|makrele"
     r")\b",
     re.IGNORECASE,
 )
@@ -272,9 +280,24 @@ _MEAT_HINTS = (
     "hackfleisch",
     "geschnetzel",
     "schnitz",
-    "garnelen",
     "fleisch",
     "wurst",
+)
+_FISH_HINTS = (
+    "fisch",
+    "lachs",
+    "thunfisch",
+    "tunfisch",
+    "garnelen",
+    "garnele",
+    "shrimp",
+    "shrimps",
+    "kabeljau",
+    "seelachs",
+    "forelle",
+    "hering",
+    "matjes",
+    "makrele",
 )
 _MODEL_RESPONSE_JSON_RE = re.compile(r"```(?:json)?\s*(?P<body>\{.*\})\s*```", re.DOTALL)
 _THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
@@ -313,6 +336,11 @@ TAXONOMY_CATEGORIES: tuple[TaxonomyCategory, ...] = (
         "groceries:bakery",
         "groceries",
         ("bakery", "bread", "breads", "backwaren", "baked_goods"),
+    ),
+    TaxonomyCategory(
+        "groceries:fish",
+        "groceries",
+        ("fish", "seafood", "fisch", "meeresfruechte", "meeresfrüchte"),
     ),
     TaxonomyCategory(
         "groceries:meat",
@@ -509,6 +537,12 @@ def resolve_item_categorizer_runtime_client(config: AppConfig) -> ItemCategorize
     settings = resolve_item_categorizer_settings(config)
     if not settings.enabled:
         return None
+    provider = (getattr(config, "item_categorizer_provider", "") or "").strip()
+    if provider == "oauth_codex":
+        bearer_token = get_ai_oauth_access_token(config)
+        if not bearer_token:
+            return None
+        return ChatGPTOAuthItemCategorizerModelClient(settings=settings, bearer_token=bearer_token)
     runtime = resolve_model_runtime(config, task=RuntimeTask.ITEM_CATEGORIZATION)
     if runtime is None:
         return None
@@ -625,6 +659,75 @@ class RuntimeBackedItemCategorizerModelClient:
             return False
         return prediction.confidence >= self.confidence_threshold
 
+
+class ChatGPTOAuthItemCategorizerModelClient:
+    def __init__(self, *, settings: ItemCategorizerSettings, bearer_token: str) -> None:
+        self._settings = settings
+        self._bearer_token = bearer_token
+        self.model_name = settings.model
+        self.max_batch_size = settings.max_batch_size
+        self.confidence_threshold = settings.confidence_threshold
+        self.ocr_confidence_threshold = settings.ocr_confidence_threshold
+
+    def health(self) -> RuntimeHealth:
+        return RuntimeHealth(
+            task=RuntimeTask.ITEM_CATEGORIZATION,
+            provider="chatgpt_codex_oauth",
+            status="ready" if self._bearer_token else "not_configured",
+            base_url="https://chatgpt.com/backend-api/codex/responses",
+            model=self.model_name,
+            policy=RuntimePolicy.REMOTE_ALLOWED,
+            local_endpoint=False,
+            error=None if self._bearer_token else "missing oauth bearer token",
+        )
+
+    def classify_batch(
+        self,
+        items: Sequence[dict[str, object]],
+    ) -> list[_ModelPrediction | None]:
+        if not items:
+            return []
+        request = JsonCompletionRequest(
+            task=RuntimeTask.ITEM_CATEGORIZATION,
+            system_prompt=_model_system_prompt(),
+            payload={
+                "taxonomy": [entry.name for entry in TAXONOMY_CATEGORIES],
+                "items": list(items),
+            },
+            model=self.model_name,
+            temperature=0,
+            max_tokens=max(512, 128 * len(items)),
+            timeout_s=max(self._settings.timeout_s, 30.0),
+            max_retries=self._settings.max_retries,
+        )
+        started = time.perf_counter()
+        response = complete_text_with_codex_oauth(
+            bearer_token=self._bearer_token,
+            model=request.model,
+            instructions=request.system_prompt,
+            input_items=[
+                {
+                    "role": "user",
+                    "content": json.dumps(request.payload, ensure_ascii=False),
+                }
+            ],
+            timeout_s=request.timeout_s,
+        )
+        latency_ms = response.latency_ms or int((time.perf_counter() - started) * 1000)
+        LOGGER.info(
+            "runtime.success task=%s provider=%s model=%s latency_ms=%s items=%s",
+            request.task.value,
+            "chatgpt_codex_oauth",
+            self.model_name,
+            latency_ms,
+            len(items),
+        )
+        return _parse_model_predictions(response.text, expected=len(items))
+
+    def is_prediction_usable(self, prediction: _ModelPrediction) -> bool:
+        if prediction.confidence is None:
+            return False
+        return prediction.confidence >= self.confidence_threshold
 
 def _skip_model_for_low_confidence(
     *,
@@ -1592,6 +1695,7 @@ def _heuristic_category_result(
         (_BEVERAGES_RE, "groceries:beverages", "beverage_rule", 0.9),
         (_DAIRY_RE, "groceries:dairy", "dairy_rule", 0.9),
         (_BAKERY_RE, "groceries:bakery", "bakery_rule", 0.88),
+        (_FISH_RE, "groceries:fish", "fish_rule", 0.9),
         (_MEAT_RE, "groceries:meat", "meat_rule", 0.88),
         (_FROZEN_RE, "groceries:frozen", "frozen_rule", 0.88),
         (_SNACKS_RE, "groceries:snacks", "snack_rule", 0.86),
@@ -1601,6 +1705,7 @@ def _heuristic_category_result(
         (_HOUSEHOLD_HINTS, "household", "household_rule", 0.9),
         (_PERSONAL_CARE_HINTS, "personal_care", "personal_care_rule", 0.88),
         (_PRODUCE_HINTS, "groceries:produce", "produce_rule", 0.97),
+        (_FISH_HINTS, "groceries:fish", "fish_rule", 0.92),
         (_MEAT_HINTS, "groceries:meat", "meat_rule", 0.9),
         (_DAIRY_HINTS, "groceries:dairy", "dairy_rule", 0.9),
         (_BAKERY_HINTS, "groceries:bakery", "bakery_rule", 0.88),
@@ -1866,7 +1971,7 @@ def _model_system_prompt() -> str:
         "Do not add commentary. Use the closest category from the allowed list. "
         "Use `other` only when the item is genuinely too ambiguous. "
         "Examples: Bauernbrötchen -> groceries:bakery, Gouda Scheiben 48% -> groceries:dairy, "
-        "Feinwaschmit. Color -> household, Hähn.Schw.Steak Kräu -> groceries:meat, "
+        "Feinwaschmit. Color -> household, Lachsfilet -> groceries:fish, Hähn.Schw.Steak Kräu -> groceries:meat, "
         "Champignon weiß -> groceries:produce."
     )
 

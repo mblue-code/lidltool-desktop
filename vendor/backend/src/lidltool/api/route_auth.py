@@ -166,6 +166,8 @@ HTTP_ROUTE_AUTH_MATRIX: tuple[RouteAuthPolicy, ...] = (
     RouteAuthPolicy("DELETE", "/api/v1/query/saved/{query_id}", "authenticated_principal"),
     RouteAuthPolicy("GET", "/api/v1/settings/ai", "admin_only"),
     RouteAuthPolicy("POST", "/api/v1/settings/ai", "admin_only"),
+    RouteAuthPolicy("POST", "/api/v1/settings/ai/chat", "admin_only"),
+    RouteAuthPolicy("POST", "/api/v1/settings/ai/categorization", "admin_only"),
     RouteAuthPolicy("POST", "/api/v1/settings/ai/disconnect", "admin_only"),
     RouteAuthPolicy("POST", "/api/v1/settings/ai/oauth/start", "admin_only"),
     RouteAuthPolicy("GET", "/api/v1/settings/ai/oauth/status", "admin_only"),

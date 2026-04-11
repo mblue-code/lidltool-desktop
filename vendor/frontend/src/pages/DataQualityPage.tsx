@@ -100,7 +100,7 @@ export function DataQualityPage() {
           <p>
             Re-run categorization for items that are still in <code>other</code>, were assigned via
             <code> fallback_other</code>, or were previously labeled by the local model and look suspicious in context.
-            This uses the configured local text runtime and writes results back into the normal transaction path.
+            This uses the configured categorization runtime and writes results back into the normal transaction path.
           </p>
           {recategorizeMutation.isError ? (
             <p className="text-destructive">Failed to start recategorization.</p>

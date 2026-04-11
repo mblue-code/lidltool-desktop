@@ -9,10 +9,18 @@ const AISettingsSchema = z.object({
   api_key_set: z.boolean(),
   oauth_provider: z.string().nullable(),
   oauth_connected: z.boolean(),
+  oauth_model: z.string().optional(),
   remote_enabled: z.boolean(),
   local_runtime_enabled: z.boolean(),
   local_runtime_ready: z.boolean(),
-  local_runtime_status: z.string()
+  local_runtime_status: z.string(),
+  categorization_enabled: z.boolean().optional(),
+  categorization_provider: z.enum(["oauth_codex", "api_compatible"]).optional(),
+  categorization_base_url: z.string().nullable().optional(),
+  categorization_api_key_set: z.boolean().optional(),
+  categorization_model: z.string().optional(),
+  categorization_runtime_ready: z.boolean().optional(),
+  categorization_runtime_status: z.string().optional()
 });
 
 const SaveAISettingsSchema = z.object({
@@ -71,6 +79,22 @@ export async function saveAISettings(payload: {
   model: string;
 }): Promise<SaveAISettingsResult> {
   return apiClient.post("/api/v1/settings/ai", SaveAISettingsSchema, payload);
+}
+
+export async function saveAIChatSettings(payload: {
+  oauth_model?: string;
+}): Promise<SaveAISettingsResult> {
+  return apiClient.post("/api/v1/settings/ai/chat", SaveAISettingsSchema, payload);
+}
+
+export async function saveAICategorizationSettings(payload: {
+  enabled: boolean;
+  provider: "oauth_codex" | "api_compatible";
+  model?: string;
+  base_url?: string;
+  api_key?: string;
+}): Promise<SaveAISettingsResult> {
+  return apiClient.post("/api/v1/settings/ai/categorization", SaveAISettingsSchema, payload);
 }
 
 export async function startAIOAuth(payload: {

@@ -29,6 +29,7 @@ _CATEGORY_TAXONOMY: list[tuple[str, str | None]] = [
     ("groceries:beverages", "groceries"),
     ("groceries:produce", "groceries"),
     ("groceries:bakery", "groceries"),
+    ("groceries:fish", "groceries"),
     ("groceries:meat", "groceries"),
     ("groceries:frozen", "groceries"),
     ("groceries:snacks", "groceries"),

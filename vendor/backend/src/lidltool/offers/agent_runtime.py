@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -10,6 +9,7 @@ from urllib.parse import urljoin
 import httpx
 from bs4 import BeautifulSoup
 
+from lidltool.ai.codex_oauth import complete_text_with_codex_oauth
 from lidltool.ai.config import get_ai_oauth_access_token
 from lidltool.ai.runtime import (
     ChatCompletionRequest,
@@ -345,57 +345,17 @@ def _complete_with_chatgpt_oauth(*, config: AppConfig, prompt: str) -> str:
     bearer_token = (get_ai_oauth_access_token(config) or "").strip()
     if not bearer_token:
         raise RuntimeError("AI assistant credentials are required for offer extraction")
-
-    try:
-        jwt_parts = bearer_token.split(".")
-        jwt_payload = json.loads(base64.urlsafe_b64decode(jwt_parts[1] + "=="))
-        account_id = str(jwt_payload.get("sub") or "")
-    except Exception:  # noqa: BLE001
-        account_id = ""
-
-    request_body = {
-        "model": (config.ai_model or _DEFAULT_MODEL).strip() or _DEFAULT_MODEL,
-        "instructions": (
+    response = complete_text_with_codex_oauth(
+        bearer_token=bearer_token,
+        model=(config.ai_model or _DEFAULT_MODEL).strip() or _DEFAULT_MODEL,
+        instructions=(
             "You extract structured offers from merchant pages. "
             "Return JSON only and do not add markdown fences."
         ),
-        "input": [{"role": "user", "content": prompt}],
-        "store": False,
-        "stream": True,
-    }
-
-    text_parts: list[str] = []
-    with httpx.stream(
-        "POST",
-        "https://chatgpt.com/backend-api/codex/responses",
-        headers={
-            "Authorization": f"Bearer {bearer_token}",
-            "OpenAI-Beta": "responses=experimental",
-            "originator": "codex_cli_rs",
-            "chatgpt-account-id": account_id,
-            "content-type": "application/json",
-        },
-        json=request_body,
-        timeout=120.0,
-    ) as response:
-        response.raise_for_status()
-        for line in response.iter_lines():
-            if isinstance(line, bytes):
-                line = line.decode("utf-8", errors="replace")
-            if not line.startswith("data:"):
-                continue
-            raw = line[5:].strip()
-            if not raw:
-                continue
-            event = json.loads(raw)
-            event_type = str(event.get("type") or "")
-            if event_type == "response.output_text.delta":
-                delta = str(event.get("delta") or "")
-                if delta:
-                    text_parts.append(delta)
-            elif event_type == "response.completed":
-                break
-    return "".join(text_parts).strip()
+        input_items=[{"role": "user", "content": prompt}],
+        timeout_s=120.0,
+    )
+    return response.text
 
 
 def _parse_json_response(text: str) -> Any:

@@ -57,6 +57,39 @@ describe("ExportableChatUiSpec", () => {
     expect(screen.getByText("Downloaded chat_ui_net_spend.json.")).toBeInTheDocument();
   });
 
+  it("renders the artifact shell and opens the larger preview", () => {
+    render(
+      <ExportableChatUiSpec
+        spec={{
+          version: "v1",
+          layout: "stack",
+          elements: [
+            {
+              type: "BarChart",
+              props: {
+                title: "Retailer Spend",
+                x: "store",
+                y: "amount",
+                data: [
+                  { store: "Lidl", amount: 120 },
+                  { store: "dm", amount: 80 }
+                ]
+              }
+            }
+          ]
+        }}
+      />
+    );
+
+    expect(screen.getByText("Visual artifact")).toBeInTheDocument();
+    expect(screen.getByText("1 elements")).toBeInTheDocument();
+    expect(screen.getByText("Chart")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open large" }));
+
+    expect(screen.getByText("Use the larger preview when labels are dense or when you want a cleaner read before exporting.")).toBeInTheDocument();
+  });
+
   it("downloads the rendered ui block as png", async () => {
     render(
       <ExportableChatUiSpec

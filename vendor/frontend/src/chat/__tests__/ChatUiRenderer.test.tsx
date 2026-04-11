@@ -5,7 +5,7 @@ import { ChatUiRenderer } from "@/chat/ui/ChatUiRenderer";
 
 describe("ChatUiRenderer", () => {
   it("renders multiple chart and card components", () => {
-    render(
+    const { container } = render(
       <ChatUiRenderer
         spec={{
           version: "v1",
@@ -85,5 +85,37 @@ describe("ChatUiRenderer", () => {
     expect(screen.getByText("Category Mix")).toBeInTheDocument();
     expect(screen.getByText("Budget Flow")).toBeInTheDocument();
     expect(screen.getByText("Top Items")).toBeInTheDocument();
+    expect(container.querySelector('path[stroke-linecap="butt"]')).toBeTruthy();
+  });
+
+  it("renders multi-series line charts from a y-array spec", () => {
+    const { container } = render(
+      <ChatUiRenderer
+        spec={{
+          version: "v1",
+          layout: "stack",
+          elements: [
+            {
+              type: "LineChart",
+              props: {
+                title: "Egg Price Comparison",
+                x: "month",
+                y: ["boden_10er", "bio_6er"],
+                data: [
+                  { month: "2025-01", boden_10er: 2.29, bio_6er: 2.69 },
+                  { month: "2025-02", boden_10er: 2.39, bio_6er: 2.79 },
+                  { month: "2025-03", boden_10er: 2.49, bio_6er: 2.89 }
+                ]
+              }
+            }
+          ]
+        }}
+      />
+    );
+
+    expect(screen.getByText("Egg Price Comparison")).toBeInTheDocument();
+    expect(screen.getByText("boden_10er")).toBeInTheDocument();
+    expect(screen.getByText("bio_6er")).toBeInTheDocument();
+    expect(container.querySelectorAll("polyline")).toHaveLength(2);
   });
 });

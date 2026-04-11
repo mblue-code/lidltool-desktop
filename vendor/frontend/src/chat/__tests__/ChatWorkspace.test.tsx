@@ -122,7 +122,7 @@ describe("ChatWorkspacePage", () => {
     await screen.findByText("Chat");
     expect(await screen.findAllByText("Existing thread")).toHaveLength(2);
     expect(
-      screen.getByPlaceholderText(/Ask about your spending, products, or trends/)
+      screen.getByPlaceholderText(/Ask about your spending, products/)
     ).toBeInTheDocument();
   });
 
@@ -293,7 +293,7 @@ describe("ChatWorkspacePage", () => {
     );
 
     await screen.findByText("Chat");
-    fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products, or trends/), {
+    fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products/), {
       target: { value: "hello" }
     });
     await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled());
@@ -379,7 +379,7 @@ describe("ChatWorkspacePage", () => {
       </QueryClientProvider>
     );
 
-    await screen.findByText("Tool result: search_transactions (call-1)");
+    await screen.findByText("Visual analysis: Search Receipts (call-1)");
     expect(screen.getByText("[]")).toBeInTheDocument();
   });
 
@@ -509,7 +509,7 @@ describe("ChatWorkspacePage", () => {
     );
 
     await screen.findByText("Chat");
-    fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products, or trends/), {
+    fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products/), {
       target: { value: "hello" }
     });
     await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled());
@@ -677,14 +677,14 @@ describe("ChatWorkspacePage", () => {
     );
 
     await screen.findByText("Chat");
-    fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products, or trends/), {
+    fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products/), {
       target: { value: "hello" }
     });
     await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(postMessageAttempts).toBe(1));
 
-    fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products, or trends/), {
+    fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products/), {
       target: { value: "hello" }
     });
     await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled());

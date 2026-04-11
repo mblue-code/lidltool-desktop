@@ -248,7 +248,7 @@ describe("ChatWorkspacePage model selector", () => {
       );
     });
 
-    fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products, or trends/), {
+    fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products/), {
       target: { value: "hello" }
     });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -443,7 +443,7 @@ describe("ChatWorkspacePage model selector", () => {
       );
     });
 
-    fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products, or trends/), {
+    fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products/), {
       target: { value: "hello" }
     });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));

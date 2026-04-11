@@ -86,6 +86,37 @@ export function applyDesktopMenu(
       submenu: applicationSubmenu
     },
     {
+      label: translateDesktopMessage(locale, "shell.menu.edit"),
+      submenu: [
+        {
+          label: translateDesktopMessage(locale, "shell.menu.undo"),
+          role: "undo"
+        },
+        {
+          label: translateDesktopMessage(locale, "shell.menu.redo"),
+          role: "redo"
+        },
+        { type: "separator" },
+        {
+          label: translateDesktopMessage(locale, "shell.menu.cut"),
+          role: "cut"
+        },
+        {
+          label: translateDesktopMessage(locale, "shell.menu.copy"),
+          role: "copy"
+        },
+        {
+          label: translateDesktopMessage(locale, "shell.menu.paste"),
+          role: "paste"
+        },
+        { type: "separator" },
+        {
+          label: translateDesktopMessage(locale, "shell.menu.selectAll"),
+          role: "selectAll"
+        }
+      ]
+    },
+    {
       label: translateDesktopMessage(locale, "shell.menu.window"),
       submenu: [
         {

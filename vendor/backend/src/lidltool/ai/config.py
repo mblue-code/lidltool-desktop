@@ -139,6 +139,7 @@ def persist_ai_settings(config_path: Path, config: AppConfig) -> None:
             "ai_model": config.ai_model,
             "ai_enabled": config.ai_enabled,
             "ai_oauth_provider": config.ai_oauth_provider,
+            "ai_oauth_model": config.ai_oauth_model,
             "ai_oauth_access_token_encrypted": config.ai_oauth_access_token_encrypted,
             "ai_oauth_refresh_token_encrypted": config.ai_oauth_refresh_token_encrypted,
             "ai_oauth_expires_at": config.ai_oauth_expires_at,
@@ -151,6 +152,7 @@ def persist_item_categorizer_settings(config_path: Path, config: AppConfig) -> N
         config_path,
         {
             "item_categorizer_enabled": config.item_categorizer_enabled,
+            "item_categorizer_provider": config.item_categorizer_provider,
             "item_categorizer_base_url": config.item_categorizer_base_url,
             "item_categorizer_api_key_encrypted": config.item_categorizer_api_key_encrypted,
             "item_categorizer_model": config.item_categorizer_model,

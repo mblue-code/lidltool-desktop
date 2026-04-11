@@ -1,8 +1,6 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import DOMPurify from "dompurify";
-import { marked } from "marked";
 
 import { createSpendingAgent } from "@/agent";
 import { ALL_TOOLS } from "@/agent/tools";
@@ -15,7 +13,8 @@ import {
   resolveAgentModelSelection,
   writeStoredString
 } from "@/chat/model-selection";
-import { ExportableChatUiSpec } from "@/chat/ui/ExportableChatUiSpec";
+import { ChatToolResult } from "@/chat/ui/ChatToolResult";
+import { MarkdownMessage } from "@/chat/ui/MarkdownMessage";
 import {
   extractUiSpecsFromContent,
   extractUiSpecsFromDetails,
@@ -29,6 +28,7 @@ import { ChatUiSpec } from "@/chat/ui/spec";
 import { createChatMessage, createChatThread, patchChatThread, persistChatRun } from "@/api/chat";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 type ChatPanelProps = {
@@ -98,6 +98,16 @@ function messageText(message: any): string {
     return messageTextFromContent(message.content, "\n");
   }
   return messageTextFromContent(message.content, "");
+}
+
+function streamingPlaceholderText(
+  t: ReturnType<typeof useI18n>["t"],
+  activeToolLabel: string | null
+): string {
+  if (activeToolLabel) {
+    return t("pages.chatWorkspace.workingWithTool", { tool: activeToolLabel });
+  }
+  return t("pages.chatWorkspace.generating");
 }
 
 function buildChatMessages(messages: any[]): ChatMessage[] {
@@ -190,6 +200,7 @@ export function ChatPanel({
   onPanelWidthChange,
   pageContext
 }: ChatPanelProps) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -575,29 +586,21 @@ export function ChatPanel({
                 )}
               >
                 {message.role === "assistant" ? (
-                  <div
-                    className="prose prose-sm max-w-none"
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(message.content || "") as string) }}
+                  <MarkdownMessage
+                    content={message.content || (isStreaming ? streamingPlaceholderText(t, activeToolLabel) : "")}
                   />
                 ) : message.role === "tool" ? (
-                  <details>
-                    <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-                      Tool result: {message.toolName ?? "tool"}
-                      {message.toolCallId ? ` (${message.toolCallId})` : ""}
-                    </summary>
-                    {message.uiSpecs.length > 0 ? (
-                      <div className="mt-2 space-y-2">
-                        {message.uiSpecs.map((spec, index) => (
-                          <ExportableChatUiSpec key={`${message.id}-ui-${index}`} spec={spec} />
-                        ))}
-                      </div>
-                    ) : null}
-                    {message.content ? (
-                      <pre className="mt-2 whitespace-pre-wrap text-xs">{message.content}</pre>
-                    ) : message.uiSpecs.length === 0 ? (
-                      <p className="mt-2 text-xs text-muted-foreground">(no output)</p>
-                    ) : null}
-                  </details>
+                  <ChatToolResult
+                    header={t("chat.shared.visualAnalysis", {
+                      tool: message.toolName ?? "tool",
+                      callId: message.toolCallId ? ` (${message.toolCallId})` : ""
+                    })}
+                    uiSpecs={message.uiSpecs}
+                    content={message.content}
+                    inlineLabel={t("chat.shared.inlineVisuals")}
+                    rawOutputLabel={t("chat.shared.rawToolOutput")}
+                    noOutputLabel={t("pages.chatWorkspace.noOutput")}
+                  />
                 ) : (
                   <p>{message.content}</p>
                 )}
@@ -637,10 +640,11 @@ export function ChatPanel({
 
         <div className="border-t px-4 py-3">
           <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">{t("chat.shared.visualCapabilityHint")}</p>
             <Textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="Ask about spending, prices, and products..."
+              placeholder={t("pages.chatWorkspace.placeholder")}
               disabled={!enabled || isStreaming || !agent}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {

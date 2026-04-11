@@ -57,6 +57,7 @@
         "from": "build/backend-venv",
         "to": "backend-venv",
         "filter": [
+          "*",
           "**/*"
         ]
       },

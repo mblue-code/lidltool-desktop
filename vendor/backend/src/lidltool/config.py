@@ -225,6 +225,7 @@ class AppConfig(BaseModel):
     ai_model: str = "grok-3-mini"
     ai_enabled: bool = False
     ai_oauth_provider: str | None = None
+    ai_oauth_model: str | None = None
     ai_oauth_access_token_encrypted: str | None = None
     ai_oauth_refresh_token_encrypted: str | None = None
     ai_oauth_expires_at: str | None = None
@@ -239,6 +240,7 @@ class AppConfig(BaseModel):
     item_categorization_runtime_policy: str = "local_preferred"
     pi_agent_runtime_policy: str = "remote_allowed"
     item_categorizer_enabled: bool = False
+    item_categorizer_provider: str = "oauth_codex"
     item_categorizer_base_url: str | None = None
     item_categorizer_api_key_encrypted: str | None = None
     item_categorizer_model: str = "qwen3.5:0.8b"
@@ -733,6 +735,8 @@ def build_config(config_path: Path | None = None, db_override: Path | None = Non
         env_overrides["ai_base_url"] = os.getenv("LIDLTOOL_AI_BASE_URL")
     if os.getenv("LIDLTOOL_AI_MODEL"):
         env_overrides["ai_model"] = os.getenv("LIDLTOOL_AI_MODEL")
+    if os.getenv("LIDLTOOL_AI_OAUTH_MODEL"):
+        env_overrides["ai_oauth_model"] = os.getenv("LIDLTOOL_AI_OAUTH_MODEL")
     if os.getenv("LIDLTOOL_ITEM_CATEGORIZER_ENABLED"):
         env_overrides["item_categorizer_enabled"] = (
             os.getenv("LIDLTOOL_ITEM_CATEGORIZER_ENABLED", "false").lower() == "true"

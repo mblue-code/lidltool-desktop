@@ -253,7 +253,7 @@ describe("ChatPanel history behavior", () => {
       </QueryClientProvider>
     );
 
-    const textarea = await screen.findByPlaceholderText("Ask about spending, prices, and products...");
+    const textarea = await screen.findByPlaceholderText(/Ask about your spending, products/);
 
     fireEvent.change(textarea, { target: { value: "first prompt" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -270,5 +270,60 @@ describe("ChatPanel history behavior", () => {
       expect(screen.getByText("first prompt")).toBeInTheDocument();
       expect(screen.getByText("Reply for: first prompt")).toBeInTheDocument();
     });
+  });
+
+  it("renders structured tool visuals inline from persisted chat state", async () => {
+    installLocalStorageStub();
+    installChatApiFetchStub();
+    storage.set(
+      "agent.chat.v1",
+      JSON.stringify([
+        {
+          role: "toolResult",
+          toolName: "render_ui",
+          toolCallId: "tool-1",
+          content: [{ type: "text", text: "Rendered 1 UI element(s)." }],
+          details: {
+            ui_spec: {
+              version: "v1",
+              layout: "stack",
+              elements: [
+                {
+                  type: "MetricCard",
+                  props: {
+                    title: "Net Spend",
+                    value: "EUR 42.10",
+                    subtitle: "Last 30 days"
+                  }
+                }
+              ]
+            }
+          },
+          timestamp: Date.now()
+        }
+      ])
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false }
+      }
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ChatPanel
+          open
+          onOpenChange={() => undefined}
+          enabled
+          panelWidth={420}
+          onPanelWidthChange={() => undefined}
+        />
+      </QueryClientProvider>
+    );
+
+    expect((await screen.findAllByText("Net Spend")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Visual artifact")).toBeInTheDocument();
+    expect(screen.queryByText("Rendered 1 UI element(s).")).not.toBeInTheDocument();
   });
 });

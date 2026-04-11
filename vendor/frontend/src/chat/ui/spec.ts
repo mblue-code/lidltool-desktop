@@ -6,6 +6,7 @@ const MAX_TEXT_LENGTH = 500;
 const MAX_TABLE_COLUMNS = 12;
 const MAX_TABLE_ROWS = 120;
 const MAX_DATA_POINTS = 240;
+const MAX_LINE_SERIES = 12;
 const MAX_SANKEY_NODES = 64;
 const MAX_SANKEY_LINKS = 200;
 
@@ -59,12 +60,52 @@ const dataPointSchema = z.record(
   z.union([z.string().max(MAX_TEXT_LENGTH), numberValueSchema])
 );
 
-const lineChartPropsSchema = z.object({
+const lineChartSeriesSchema = z.object({
+  key: shortTextSchema,
+  label: shortTextSchema.optional(),
+  color: z.string().trim().min(1).max(32).optional()
+});
+
+const singleLineChartPropsSchema = z.object({
   title: shortTextSchema.optional(),
   x: shortTextSchema,
   y: shortTextSchema,
   data: z.array(dataPointSchema).min(1).max(MAX_DATA_POINTS)
 });
+
+const multiLineChartKeysPropsSchema = z.object({
+  title: shortTextSchema.optional(),
+  x: shortTextSchema,
+  y: z.array(shortTextSchema).min(1).max(MAX_LINE_SERIES),
+  data: z.array(dataPointSchema).min(1).max(MAX_DATA_POINTS)
+});
+
+const multiLineChartSeriesPropsSchema = z
+  .object({
+    title: shortTextSchema.optional(),
+    x: shortTextSchema,
+    series: z.array(lineChartSeriesSchema).min(1).max(MAX_LINE_SERIES),
+    data: z.array(dataPointSchema).min(1).max(MAX_DATA_POINTS)
+  })
+  .superRefine((value, context) => {
+    const keys = new Set<string>();
+    value.series.forEach((series, index) => {
+      if (keys.has(series.key)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["series", index, "key"],
+          message: `Duplicate line-series key '${series.key}'`
+        });
+      }
+      keys.add(series.key);
+    });
+  });
+
+const lineChartPropsSchema = z.union([
+  singleLineChartPropsSchema,
+  multiLineChartKeysPropsSchema,
+  multiLineChartSeriesPropsSchema
+]);
 
 const barChartPropsSchema = z.object({
   title: shortTextSchema.optional(),
