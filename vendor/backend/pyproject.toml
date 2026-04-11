@@ -19,6 +19,7 @@ dependencies = [
   "uvicorn>=0.35.0",
   "python-multipart>=0.0.20",
   "pypdf>=5.9.0",
+  "PyMuPDF>=1.26.0",
   "SQLAlchemy>=2.0.30",
   "alembic>=1.13.2",
   "playwright>=1.45.0",

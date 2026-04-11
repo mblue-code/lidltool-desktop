@@ -8,6 +8,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from lidltool.analytics.queries import dashboard_totals, dashboard_trends
+from lidltool.config import AppConfig
 from lidltool.db.models import (
     AutomationRule,
     DiscountEvent,
@@ -16,6 +17,7 @@ from lidltool.db.models import (
     Transaction,
     TransactionItem,
 )
+from lidltool.offers.service import run_offer_refresh
 
 
 @dataclass(slots=True)
@@ -44,11 +46,14 @@ def execute_template(
     *,
     rule: AutomationRule,
     triggered_at: datetime,
+    config: AppConfig | None = None,
 ) -> TemplateResult:
     if rule.rule_type == "category_auto_tagging":
         return _category_auto_tagging(session, rule=rule, triggered_at=triggered_at)
     if rule.rule_type == "budget_alert":
         return _budget_alert(session, rule=rule, triggered_at=triggered_at)
+    if rule.rule_type == "offer_refresh":
+        return _offer_refresh(session, rule=rule, triggered_at=triggered_at, config=config)
     if rule.rule_type == "weekly_summary":
         return _weekly_summary(session, rule=rule, triggered_at=triggered_at)
     if rule.rule_type == "recurring_due_soon_alert":
@@ -58,6 +63,36 @@ def execute_template(
     if rule.rule_type == "recurring_amount_spike_alert":
         return _recurring_amount_spike_alert(session, rule=rule, triggered_at=triggered_at)
     raise RuntimeError(f"unknown automation template: {rule.rule_type}")
+
+
+def _offer_refresh(
+    session: Session,
+    *,
+    rule: AutomationRule,
+    triggered_at: datetime,
+    config: AppConfig | None,
+) -> TemplateResult:
+    if config is None:
+        raise RuntimeError("offer_refresh requires automation service config")
+    action = rule.action_config or {}
+    result = run_offer_refresh(
+        session,
+        config=config,
+        source_ids=list(action.get("source_ids") or []),
+        requested_by_user_id=None,
+        trigger_kind="schedule",
+        automation_rule_id=rule.id,
+        discovery_limit=_coerce_int(action.get("discovery_limit"), 0) or None,
+    )
+    status = "success" if result["failure_count"] == 0 else ("failed" if result["success_count"] == 0 else "success")
+    return TemplateResult(
+        status=status,
+        payload={
+            "template": "offer_refresh",
+            "triggered_at": triggered_at.astimezone(UTC).isoformat(),
+            "refresh_run": result,
+        },
+    )
 
 
 def _category_auto_tagging(

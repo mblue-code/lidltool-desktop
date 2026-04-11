@@ -49,11 +49,13 @@ class SubprocessConnectorRuntime:
         manifest: ConnectorManifest,
         working_directory: Path | None = None,
         python_executable: str | None = None,
+        extra_environment: dict[str, str] | None = None,
         plugin_ai_service: PluginAiMediationService | None = None,
     ) -> None:
         self._manifest = manifest
         self._working_directory = working_directory
         self._python_executable = python_executable or sys.executable
+        self._extra_environment = dict(extra_environment or {})
         self._plugin_ai_service = plugin_ai_service
 
     def invoke_action(
@@ -95,7 +97,7 @@ class SubprocessConnectorRuntime:
                     text=True,
                     encoding="utf-8",
                     start_new_session=os.name == "posix",
-                    env=_runtime_environment(extra=bridge_env),
+                    env=_runtime_environment(extra=self._merged_environment(bridge_env)),
                 )
             except OSError as exc:
                 diagnostics.duration_ms = _duration_ms(started)
@@ -258,6 +260,11 @@ class SubprocessConnectorRuntime:
             with contextlib.suppress(subprocess.TimeoutExpired):
                 process.wait(timeout=1.0)
             return True
+
+    def _merged_environment(self, bridge_env: dict[str, str]) -> dict[str, str]:
+        merged = dict(self._extra_environment)
+        merged.update(bridge_env)
+        return merged
 
 
 def _read_stream(stream: TextIO | None, buffer: list[str]) -> None:

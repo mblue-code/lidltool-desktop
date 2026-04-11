@@ -8,7 +8,11 @@ const AISettingsSchema = z.object({
   model: z.string(),
   api_key_set: z.boolean(),
   oauth_provider: z.string().nullable(),
-  oauth_connected: z.boolean()
+  oauth_connected: z.boolean(),
+  remote_enabled: z.boolean(),
+  local_runtime_enabled: z.boolean(),
+  local_runtime_ready: z.boolean(),
+  local_runtime_status: z.string()
 });
 
 const SaveAISettingsSchema = z.object({

@@ -297,7 +297,13 @@ def _validate_items(
                 details={"qty": item.qty},
             )
 
-        if item.unit_price_cents is not None and item.unit_price_cents < 0:
+        allows_negative_deposit_return = bool(item.is_deposit) and item.line_total_cents < 0
+
+        if (
+            item.unit_price_cents is not None
+            and item.unit_price_cents < 0
+            and not allows_negative_deposit_return
+        ):
             report.add_issue(
                 code="negative_unit_price",
                 severity=ValidationSeverity.REJECT,
@@ -305,7 +311,7 @@ def _validate_items(
                 path=f"{item_path}.unit_price_cents",
                 details={"unit_price_cents": item.unit_price_cents},
             )
-        if item.line_total_cents < 0:
+        if item.line_total_cents < 0 and not allows_negative_deposit_return:
             report.add_issue(
                 code="negative_line_total",
                 severity=ValidationSeverity.REJECT,
@@ -433,7 +439,29 @@ def _validate_cross_field_consistency(
     item_total_cents = sum(
         item.line_total_cents for item in normalized_record.items if not bool(item.is_deposit)
     )
-    total_delta = abs(item_total_cents - normalized_record.total_gross_cents)
+    deposit_adjustment_cents = sum(
+        item.line_total_cents for item in normalized_record.items if bool(item.is_deposit)
+    )
+    extracted_discount_total = sum(row.amount_cents for row in discount_rows)
+    candidate_totals = {
+        item_total_cents,
+        item_total_cents + deposit_adjustment_cents,
+    }
+    if extracted_discount_total > 0:
+        candidate_totals.add(max(item_total_cents - extracted_discount_total, 0))
+        candidate_totals.add(
+            max(item_total_cents - extracted_discount_total + deposit_adjustment_cents, 0)
+        )
+    if normalized_record.discount_total_cents > 0:
+        candidate_totals.add(max(item_total_cents - normalized_record.discount_total_cents, 0))
+        candidate_totals.add(
+            max(item_total_cents - normalized_record.discount_total_cents + deposit_adjustment_cents, 0)
+        )
+    matched_total_cents = min(
+        candidate_totals,
+        key=lambda candidate_total: abs(candidate_total - normalized_record.total_gross_cents),
+    )
+    total_delta = abs(matched_total_cents - normalized_record.total_gross_cents)
     if total_delta > _WARN_TOTAL_MISMATCH_CENTS:
         severity = (
             ValidationSeverity.WARN
@@ -448,11 +476,13 @@ def _validate_cross_field_consistency(
             details={
                 "total_gross_cents": normalized_record.total_gross_cents,
                 "item_total_cents": item_total_cents,
+                "deposit_adjustment_cents": deposit_adjustment_cents,
+                "extracted_discount_total_cents": extracted_discount_total,
+                "matched_total_cents": matched_total_cents,
                 "delta_cents": total_delta,
             },
         )
 
-    extracted_discount_total = sum(row.amount_cents for row in discount_rows)
     if normalized_record.discount_total_cents > 0:
         discount_delta = abs(extracted_discount_total - normalized_record.discount_total_cents)
         if discount_delta > _WARN_DISCOUNT_MISMATCH_CENTS:

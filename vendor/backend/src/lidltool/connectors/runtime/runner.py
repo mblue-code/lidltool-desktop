@@ -121,16 +121,35 @@ def main(argv: list[str] | None = None) -> int:
 
 def _load_module(module_ref: str) -> ModuleType:
     if module_ref.endswith(".py") or "/" in module_ref:
-        path = Path(module_ref)
-        if not path.is_absolute():
-            path = Path.cwd() / path
+        path = _resolve_module_path(module_ref)
         spec = importlib.util.spec_from_file_location(f"lidltool_runtime_{abs(hash(path))}", path)
         if spec is None or spec.loader is None:
             raise ImportError(f"unable to load module from {path}")
         module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
         spec.loader.exec_module(module)
         return module
     return importlib.import_module(module_ref)
+
+
+def _resolve_module_path(module_ref: str) -> Path:
+    path = Path(module_ref)
+    if path.is_absolute():
+        return path
+
+    cwd = Path.cwd()
+    direct = (cwd / path).resolve()
+    if direct.exists():
+        return direct
+
+    # Some desktop-installed packs still encode the runtime root inside the entrypoint
+    # even though the subprocess already starts from that directory.
+    if len(path.parts) > 1 and path.parts[0] == cwd.name:
+        trimmed = cwd.joinpath(*path.parts[1:]).resolve()
+        if trimmed.exists():
+            return trimmed
+
+    return direct
 
 
 def _failure_response(

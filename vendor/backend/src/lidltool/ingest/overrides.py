@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from lidltool.analytics.normalization import canonicalize_category_name
 from lidltool.db.audit import record_audit_event
 from lidltool.db.models import (
     Document,
@@ -86,33 +87,53 @@ class OverrideService:
             .order_by(Document.created_at.desc(), Document.id.desc())
             .limit(1)
         ).scalar_one_or_none()
-        if document is None:
-            raise RuntimeError("local overrides require a linked document")
-
         service = CorrectionService(session=self._session)
         transaction_result: dict[str, Any] | None = None
         item_results: list[dict[str, Any]] = []
-        if transaction_corrections:
-            transaction_result = service.correct_transaction(
-                document_id=document.id,
-                corrections=transaction_corrections,
-                actor_id=actor_id,
-                reason=reason,
-            )
-        for item_payload in item_corrections:
-            item_id = str(item_payload.get("item_id", "")).strip()
-            corrections = item_payload.get("corrections")
-            if not item_id or not isinstance(corrections, dict):
-                continue
-            item_results.append(
-                service.correct_item(
-                    document_id=document.id,
-                    item_id=item_id,
-                    corrections=corrections,
+        if document is None:
+            if transaction_corrections:
+                transaction_result = service.correct_transaction_direct(
+                    transaction_id=transaction_id,
+                    corrections=transaction_corrections,
                     actor_id=actor_id,
                     reason=reason,
                 )
-            )
+            for item_payload in item_corrections:
+                item_id = str(item_payload.get("item_id", "")).strip()
+                corrections = item_payload.get("corrections")
+                if not item_id or not isinstance(corrections, dict):
+                    continue
+                item_results.append(
+                    service.correct_item_direct(
+                        transaction_id=transaction_id,
+                        item_id=item_id,
+                        corrections=corrections,
+                        actor_id=actor_id,
+                        reason=reason,
+                    )
+                )
+        else:
+            if transaction_corrections:
+                transaction_result = service.correct_transaction(
+                    document_id=document.id,
+                    corrections=transaction_corrections,
+                    actor_id=actor_id,
+                    reason=reason,
+                )
+            for item_payload in item_corrections:
+                item_id = str(item_payload.get("item_id", "")).strip()
+                corrections = item_payload.get("corrections")
+                if not item_id or not isinstance(corrections, dict):
+                    continue
+                item_results.append(
+                    service.correct_item(
+                        document_id=document.id,
+                        item_id=item_id,
+                        corrections=corrections,
+                        actor_id=actor_id,
+                        reason=reason,
+                    )
+                )
         return {
             "transaction": transaction_result,
             "items": item_results,
@@ -172,16 +193,18 @@ class OverrideService:
             category_override = corrections.get("category")
             if not isinstance(category_override, str) or not category_override.strip():
                 continue
+            normalized_override = canonicalize_category_name(category_override) or category_override.strip()
             item = self._session.get(TransactionItem, item_id)
             if item is None or item.transaction_id != transaction.id:
                 raise RuntimeError("item override target not found on transaction")
             if not item.name.strip():
                 continue
+            exact_item_name = item.name.strip()
             rule = NormalizationRule(
                 rule_type="category_name_regex",
                 source=transaction.source_id,
-                pattern=f"^{re.escape(item.name.strip())}$",
-                replacement=category_override.strip(),
+                pattern=f"^{re.escape(exact_item_name)}$",
+                replacement=normalized_override,
                 priority=10,
                 enabled=True,
                 metadata_json={
@@ -192,6 +215,30 @@ class OverrideService:
             )
             self._session.add(rule)
             self._session.flush()
+            correction_service = CorrectionService(session=self._session)
+            matching_items = (
+                self._session.execute(
+                    select(TransactionItem)
+                    .join(Transaction, TransactionItem.transaction_id == Transaction.id)
+                    .where(
+                        Transaction.source_id == transaction.source_id,
+                        TransactionItem.name == exact_item_name,
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            updated_items = 0
+            for matching_item in matching_items:
+                correction_result = correction_service.correct_item_direct(
+                    transaction_id=matching_item.transaction_id,
+                    item_id=matching_item.id,
+                    corrections={"category": normalized_override},
+                    actor_id=actor_id,
+                    reason=reason or "global exact-name category override",
+                )
+                if correction_result.get("updated_fields"):
+                    updated_items += 1
             record_audit_event(
                 self._session,
                 action="review.global_category_override",
@@ -204,8 +251,9 @@ class OverrideService:
                     "transaction_item_id": item.id,
                     "item_name": item.name,
                     "before": item.category,
-                    "after": category_override.strip(),
+                    "after": normalized_override,
                     "normalization_rule_id": rule.id,
+                    "applied_item_count": updated_items,
                 },
             )
             created.append(
@@ -215,6 +263,7 @@ class OverrideService:
                     "rule_type": rule.rule_type,
                     "pattern": rule.pattern,
                     "replacement": rule.replacement,
+                    "applied_item_count": updated_items,
                 }
             )
 

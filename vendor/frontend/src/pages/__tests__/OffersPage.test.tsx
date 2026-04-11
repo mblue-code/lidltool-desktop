@@ -3,209 +3,352 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { OffersPage } from "@/pages/OffersPage";
+import { OffersPage } from "../OffersPage";
 
-const mocks = vi.hoisted(() => ({
-  fetchProductsMock: vi.fn(),
-  fetchOfferWatchlistsMock: vi.fn(),
-  fetchOfferAlertsMock: vi.fn(),
-  createOfferWatchlistMock: vi.fn(),
-  refreshOffersMock: vi.fn(),
-  patchOfferAlertMock: vi.fn()
+const toastMocks = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn()
 }));
 
-vi.mock("@/api/products", () => ({
-  fetchProducts: mocks.fetchProductsMock
+const aiMocks = vi.hoisted(() => ({
+  fetchAISettings: vi.fn(),
+  fetchAIAgentConfig: vi.fn()
 }));
 
-vi.mock("@/api/offers", () => ({
-  fetchOfferWatchlists: mocks.fetchOfferWatchlistsMock,
-  fetchOfferAlerts: mocks.fetchOfferAlertsMock,
-  createOfferWatchlist: mocks.createOfferWatchlistMock,
-  refreshOffers: mocks.refreshOffersMock,
-  patchOfferAlert: mocks.patchOfferAlertMock
+const offersMocks = vi.hoisted(() => ({
+  deleteOfferSource: vi.fn(),
+  deleteOfferWatchlist: vi.fn(),
+  fetchOfferAlerts: vi.fn(),
+  fetchOfferMatches: vi.fn(),
+  fetchOfferMerchantItems: vi.fn(),
+  fetchOfferRefreshRuns: vi.fn(),
+  fetchOfferSources: vi.fn(),
+  fetchOffersOverview: vi.fn(),
+  fetchOfferWatchlists: vi.fn(),
+  patchOfferAlert: vi.fn(),
+  postOfferRefresh: vi.fn(),
+  updateOfferWatchlist: vi.fn()
+}));
+
+const automationsMocks = vi.hoisted(() => ({
+  fetchAutomationRules: vi.fn()
+}));
+
+const agentMocks = vi.hoisted(() => ({
+  prompt: vi.fn(),
+  subscribe: vi.fn(() => () => undefined),
+  createSpendingAgent: vi.fn()
 }));
 
 vi.mock("sonner", () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn()
-  }
+  toast: toastMocks
 }));
 
-function renderOffersPage(): void {
+vi.mock("@/api/aiSettings", () => ({
+  fetchAISettings: aiMocks.fetchAISettings,
+  fetchAIAgentConfig: aiMocks.fetchAIAgentConfig
+}));
+
+vi.mock("@/api/offers", () => ({
+  deleteOfferSource: offersMocks.deleteOfferSource,
+  deleteOfferWatchlist: offersMocks.deleteOfferWatchlist,
+  fetchOfferAlerts: offersMocks.fetchOfferAlerts,
+  fetchOfferMatches: offersMocks.fetchOfferMatches,
+  fetchOfferMerchantItems: offersMocks.fetchOfferMerchantItems,
+  fetchOfferRefreshRuns: offersMocks.fetchOfferRefreshRuns,
+  fetchOfferSources: offersMocks.fetchOfferSources,
+  fetchOffersOverview: offersMocks.fetchOffersOverview,
+  fetchOfferWatchlists: offersMocks.fetchOfferWatchlists,
+  patchOfferAlert: offersMocks.patchOfferAlert,
+  postOfferRefresh: offersMocks.postOfferRefresh,
+  updateOfferWatchlist: offersMocks.updateOfferWatchlist
+}));
+
+vi.mock("@/api/automations", () => ({
+  fetchAutomationRules: automationsMocks.fetchAutomationRules
+}));
+
+vi.mock("@/agent", () => ({
+  createSpendingAgent: agentMocks.createSpendingAgent
+}));
+
+let testQueryClient: QueryClient | null = null;
+
+function renderOffersPage(): QueryClient {
   const queryClient = new QueryClient({
     defaultOptions: {
-      queries: { retry: false }
+      queries: {
+        retry: false,
+        gcTime: 0
+      },
+      mutations: {
+        retry: false,
+        gcTime: 0
+      }
     }
   });
+  testQueryClient = queryClient;
 
   render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
         <OffersPage />
-      </MemoryRouter>
-    </QueryClientProvider>
+      </QueryClientProvider>
+    </MemoryRouter>
   );
+
+  return queryClient;
 }
 
 describe("OffersPage", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
+    toastMocks.success.mockReset();
+    toastMocks.error.mockReset();
+    aiMocks.fetchAISettings.mockReset();
+    aiMocks.fetchAIAgentConfig.mockReset();
+    offersMocks.deleteOfferSource.mockReset();
+    offersMocks.deleteOfferWatchlist.mockReset();
+    offersMocks.fetchOfferAlerts.mockReset();
+    offersMocks.fetchOfferMatches.mockReset();
+    offersMocks.fetchOfferMerchantItems.mockReset();
+    offersMocks.fetchOfferRefreshRuns.mockReset();
+    offersMocks.fetchOfferSources.mockReset();
+    offersMocks.fetchOffersOverview.mockReset();
+    offersMocks.fetchOfferWatchlists.mockReset();
+    offersMocks.patchOfferAlert.mockReset();
+    offersMocks.postOfferRefresh.mockReset();
+    offersMocks.updateOfferWatchlist.mockReset();
+    automationsMocks.fetchAutomationRules.mockReset();
+    agentMocks.prompt.mockReset();
+    agentMocks.subscribe.mockReset();
+    agentMocks.createSpendingAgent.mockReset();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
 
-    mocks.fetchProductsMock.mockResolvedValue({
-      items: [
-        {
-          product_id: "coffee-1",
-          canonical_name: "Coffee Beans",
-          brand: "Acme",
-          default_unit: null,
-          category_id: "coffee",
-          gtin_ean: null,
-          alias_count: 2
-        },
-        {
-          product_id: "milk-1",
-          canonical_name: "Oat Milk",
-          brand: null,
-          default_unit: null,
-          category_id: "dairy",
-          gtin_ean: null,
-          alias_count: 1
-        },
-        {
-          product_id: "uncategorized-1",
-          canonical_name: "Loose Tea",
-          brand: null,
-          default_unit: null,
-          category_id: null,
-          gtin_ean: null,
-          alias_count: 0
-        }
-      ],
-      count: 3
+    aiMocks.fetchAISettings.mockResolvedValue({
+      enabled: true,
+      base_url: "https://example.test",
+      model: "gpt-5.2-codex",
+      api_key_set: false,
+      oauth_provider: "openai-codex",
+      oauth_connected: true,
+      remote_enabled: true,
+      local_runtime_enabled: false,
+      local_runtime_ready: false,
+      local_runtime_status: "disabled"
     });
-    mocks.fetchOfferWatchlistsMock.mockResolvedValue({
+    aiMocks.fetchAIAgentConfig.mockResolvedValue({
+      proxy_url: "",
+      auth_token: "token",
+      model: "gpt-5.2-codex",
+      default_model: "gpt-5.2-codex",
+      local_model: "gpt-5.2-codex",
+      preferred_model: "gpt-5.2-codex",
+      oauth_provider: "openai-codex",
+      oauth_connected: true,
+      available_models: [
+        {
+          id: "gpt-5.2-codex",
+          label: "GPT-5.2 Codex",
+          source: "oauth",
+          enabled: true,
+          description: "Connected ChatGPT model"
+        }
+      ]
+    });
+    agentMocks.createSpendingAgent.mockReturnValue({
+      prompt: agentMocks.prompt,
+      subscribe: agentMocks.subscribe,
+      state: { messages: [] }
+    });
+    agentMocks.prompt.mockResolvedValue(undefined);
+    agentMocks.subscribe.mockReturnValue(() => undefined);
+    offersMocks.fetchOffersOverview.mockResolvedValue({
+      counts: {
+        watchlists: 0,
+        active_matches: 0,
+        unread_alerts: 0
+      },
+      sources: [],
+      recent_refresh_runs: [],
+      last_refresh_at: null
+    });
+    offersMocks.fetchOfferSources.mockResolvedValue({
       items: [
         {
-          id: "watch-1",
-          product_id: "coffee-1",
-          query_text: null,
-          source_id: "dm_de_offers",
-          min_discount_percent: 20,
-          max_price_cents: 999,
+          id: "source-1",
+          source_id: "rewe_berlin",
+          plugin_id: "agent.user_defined",
+          display_name: "REWE Berlin",
+          merchant_name: "REWE",
+          country_code: "DE",
+          runtime_kind: "agent_url",
+          merchant_url: "https://example.test/rewe-berlin",
           active: true,
-          notes: "Stock up",
-          created_at: "2026-03-01T12:00:00Z",
-          updated_at: "2026-03-01T12:00:00Z",
-          product: {
-            product_id: "coffee-1",
-            canonical_name: "Coffee Beans",
-            brand: "Acme",
-            category_id: "coffee"
-          }
+          notes: null,
+          active_offer_count: 3,
+          total_offer_count: 8,
+          latest_refresh: null
         }
-      ],
-      count: 1
+      ]
     });
-    mocks.fetchOfferAlertsMock.mockResolvedValue({
-      items: [],
+    offersMocks.fetchOfferWatchlists.mockResolvedValue({
+      count: 0,
+      items: []
+    });
+    offersMocks.fetchOfferMatches.mockResolvedValue({
+      count: 0,
+      items: []
+    });
+    offersMocks.fetchOfferAlerts.mockResolvedValue({
+      count: 0,
+      items: []
+    });
+    offersMocks.fetchOfferRefreshRuns.mockResolvedValue({
+      count: 0,
+      items: []
+    });
+    offersMocks.fetchOfferMerchantItems.mockResolvedValue({
+      count: 0,
+      items: []
+    });
+    automationsMocks.fetchAutomationRules.mockResolvedValue({
       count: 0,
       total: 0,
-      limit: 25,
+      limit: 200,
       offset: 0,
-      unread_count: 0
-    });
-    mocks.createOfferWatchlistMock.mockResolvedValue({
-      id: "watch-new",
-      product_id: "coffee-1",
-      query_text: null,
-      source_id: "dm_de_offers",
-      min_discount_percent: 20,
-      max_price_cents: 1299,
-      active: true,
-      notes: "Weekly restock",
-      created_at: "2026-03-01T12:00:00Z",
-      updated_at: "2026-03-01T12:00:00Z"
-    });
-    mocks.refreshOffersMock.mockResolvedValue({});
-    mocks.patchOfferAlertMock.mockResolvedValue({
-      id: "alert-1",
-      title: "Coffee deal",
-      read: true
+      items: []
     });
   });
 
   afterEach(() => {
+    testQueryClient?.clear();
+    testQueryClient = null;
     cleanup();
   });
 
-  it("supports category-first watchlist creation and parses euro input", async () => {
+  it("renders the offer agent workflow when AI is enabled", async () => {
     renderOffersPage();
 
-    expect(await screen.findByText("Configured sources only")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Ask Agent to Set Up Offers")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(agentMocks.createSpendingAgent).toHaveBeenCalled();
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: "Save watchlist" }));
-    expect(await screen.findByText("Choose a product or enter a text query before saving.")).toBeInTheDocument();
+    expect(screen.getByText("Offer setup runs through the AI assistant")).toBeInTheDocument();
+    expect(screen.getByText(/Offer sources:/)).toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByRole("combobox", { name: "Category" }));
-    fireEvent.click(screen.getByRole("option", { name: "coffee (1)" }));
-
-    fireEvent.click(screen.getByRole("combobox", { name: "Product" }));
-    fireEvent.click(screen.getByRole("option", { name: "Acme · Coffee Beans" }));
-
-    fireEvent.change(screen.getByLabelText("Merchant preference"), { target: { value: "dm_de_offers" } });
-    fireEvent.change(screen.getByLabelText("Minimum discount percent"), { target: { value: "20" } });
-    fireEvent.change(screen.getByLabelText("Max price"), { target: { value: "12,99" } });
-    fireEvent.change(screen.getByLabelText("Notes"), { target: { value: "Weekly restock" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save watchlist" }));
+  it("routes setup requests through the offer agent", async () => {
+    renderOffersPage();
 
     await waitFor(() => {
-      expect(mocks.createOfferWatchlistMock).toHaveBeenCalledTimes(1);
+      expect(agentMocks.createSpendingAgent).toHaveBeenCalled();
     });
-    expect(mocks.createOfferWatchlistMock.mock.calls[0]?.[0]).toEqual({
-      product_id: "coffee-1",
-      query_text: undefined,
-      source_id: "dm_de_offers",
-      min_discount_percent: 20,
-      max_price_cents: 1299,
-      notes: "Weekly restock",
-      active: true
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Let agent handle it" })).toBeInTheDocument();
+    });
+
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "Example: Add an offer source for https://www.edeka.de/maerkte/402268/angebote/ and watch for diapers every Monday at 20:00."
+      ),
+      {
+        target: { value: "Watch for oat milk at REWE and refresh every Monday at 08:00." }
+      }
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Let agent handle it" }));
+
+    await waitFor(() => {
+      expect(agentMocks.prompt).toHaveBeenCalledWith(
+        "Watch for oat milk at REWE and refresh every Monday at 08:00."
+      );
     });
   });
 
-  it("allows free-text watchlists without a product selection", async () => {
-    renderOffersPage();
+  it("blocks the assistant workflow when AI is disabled", async () => {
+    aiMocks.fetchAISettings.mockResolvedValueOnce({
+      enabled: false,
+      base_url: null,
+      model: "gpt-5.2-codex",
+      api_key_set: false,
+      oauth_provider: null,
+      oauth_connected: false,
+      remote_enabled: false,
+      local_runtime_enabled: false,
+      local_runtime_ready: false,
+      local_runtime_status: "disabled"
+    });
 
-    fireEvent.change(screen.getByLabelText("Free-text query"), { target: { value: "coffee beans" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save watchlist" }));
+    renderOffersPage();
 
     await waitFor(() => {
-      expect(mocks.createOfferWatchlistMock).toHaveBeenCalledTimes(1);
+      expect(screen.getAllByText("AI assistant required").length).toBeGreaterThan(0);
     });
-    expect(mocks.createOfferWatchlistMock.mock.calls[0]?.[0]).toEqual({
-      product_id: undefined,
-      query_text: "coffee beans",
-      source_id: undefined,
-      min_discount_percent: undefined,
-      max_price_cents: undefined,
-      notes: undefined,
-      active: true
-    });
+
+    expect(screen.getByRole("button", { name: "Refresh selected" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Let agent handle it" })).toBeDisabled();
   });
 
-  it("shows a friendly message when the backend rejects a watchlist save", async () => {
-    mocks.createOfferWatchlistMock.mockRejectedValueOnce({ status: 400 });
+  it("summarizes long refresh failures in the source card", async () => {
+    offersMocks.fetchOfferRefreshRuns.mockResolvedValueOnce({
+      count: 1,
+      items: [
+        {
+          id: "run-1",
+          user_id: null,
+          rule_id: null,
+          trigger_kind: "manual",
+          status: "failed",
+          source_count: 1,
+          source_ids: ["rewe_berlin"],
+          started_at: "2026-04-03T12:24:46.830121+00:00",
+          finished_at: "2026-04-03T12:24:47.205073+00:00",
+          created_at: "2026-04-03T12:24:46.830121+00:00",
+          updated_at: "2026-04-03T12:24:47.205073+00:00",
+          error: "1 source refresh(es) failed",
+          totals: {
+            offers_seen: 0,
+            inserted: 0,
+            updated: 0,
+            blocked: 0,
+            matched: 0,
+            alerts_created: 0
+          },
+          source_results: [
+            {
+              source_id: "rewe_berlin",
+              status: "failed",
+              error:
+                "Client error '403 Forbidden' for url 'https://example.test/rewe-berlin'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403",
+              offers_seen: 0,
+              inserted: 0,
+              updated: 0,
+              blocked: 0,
+              matched: 0,
+              alerts_created: 0
+            }
+          ],
+          success_count: 0,
+          failure_count: 1
+        }
+      ]
+    });
 
     renderOffersPage();
 
-    fireEvent.change(screen.getByLabelText("Free-text query"), { target: { value: "tea" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save watchlist" }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Merchant page blocked the old direct HTTP fetch with 403. Retry after the browser-backed refresh runtime is available."
+        )
+      ).toBeInTheDocument();
+    });
 
     expect(
-      await screen.findByText(
-        "Watchlist entries need a product or free-text query, and numeric filters must be valid."
-      )
-    ).toBeInTheDocument();
+      screen.queryByText(/developer\.mozilla\.org\/en-US\/docs\/Web\/HTTP\/Status\/403/)
+    ).not.toBeInTheDocument();
   });
 });

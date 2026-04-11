@@ -1,11 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { login } from "@/api/auth";
+import { checkSetupRequired, login } from "@/api/auth";
+import { fetchCurrentUser } from "@/api/users";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/i18n";
+import { resolveApiErrorMessage } from "@/lib/backend-messages";
+
+type SetupStatus = boolean | null;
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -14,6 +18,45 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveEntryState() {
+      let setupRequired: SetupStatus = null;
+
+      try {
+        setupRequired = await checkSetupRequired();
+      } catch {
+        setupRequired = null;
+      }
+
+      if (cancelled) return;
+
+      if (setupRequired === true) {
+        navigate("/setup", { replace: true });
+        return;
+      }
+
+      try {
+        await fetchCurrentUser();
+        if (!cancelled) {
+          navigate("/", { replace: true });
+        }
+        return;
+      } catch {
+        if (!cancelled) {
+          setChecking(false);
+        }
+      }
+    }
+
+    void resolveEntryState();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -22,11 +65,19 @@ export function LoginPage() {
     try {
       await login(username.trim(), password);
       navigate("/", { replace: true });
-    } catch {
-      setError(t("auth.login.invalid"));
+    } catch (err) {
+      setError(resolveApiErrorMessage(err, t, t("auth.login.invalid")));
     } finally {
       setBusy(false);
     }
+  }
+
+  if (checking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        {t("common.loading")}
+      </div>
+    );
   }
 
   return (

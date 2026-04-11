@@ -564,12 +564,16 @@ def basket_compare(
     }
 
 
-def list_budget_rules(session: Session) -> dict[str, Any]:
-    rows = session.execute(select(BudgetRule).order_by(BudgetRule.created_at.desc())).scalars().all()
+def list_budget_rules(session: Session, *, user_id: str | None = None) -> dict[str, Any]:
+    stmt = select(BudgetRule)
+    if user_id is not None:
+        stmt = stmt.where(BudgetRule.user_id == user_id)
+    rows = session.execute(stmt.order_by(BudgetRule.created_at.desc())).scalars().all()
     return {
         "items": [
             {
                 "rule_id": row.rule_id,
+                "user_id": row.user_id,
                 "scope_type": row.scope_type,
                 "scope_value": row.scope_value,
                 "period": row.period,
@@ -588,6 +592,7 @@ def list_budget_rules(session: Session) -> dict[str, Any]:
 def create_budget_rule(
     session: Session,
     *,
+    user_id: str,
     scope_type: str,
     scope_value: str,
     period: str,
@@ -600,6 +605,7 @@ def create_budget_rule(
     if period not in {"monthly", "annual"}:
         raise ValueError("period must be one of: monthly, annual")
     rule = BudgetRule(
+        user_id=user_id,
         scope_type=scope_type,
         scope_value=scope_value.strip(),
         period=period,
@@ -611,6 +617,7 @@ def create_budget_rule(
     session.flush()
     return {
         "rule_id": rule.rule_id,
+        "user_id": rule.user_id,
         "scope_type": rule.scope_type,
         "scope_value": rule.scope_value,
         "period": rule.period,
@@ -628,14 +635,16 @@ def budget_utilization(
     year: int | None = None,
     month: int | None = None,
     visibility: VisibilityContext | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     today = _today()
     target_year = year or today.year
     target_month = month or today.month
 
-    rules = session.execute(
-        select(BudgetRule).where(BudgetRule.active.is_(True)).order_by(BudgetRule.scope_type.asc())
-    ).scalars().all()
+    rules_stmt = select(BudgetRule).where(BudgetRule.active.is_(True))
+    if user_id is not None:
+        rules_stmt = rules_stmt.where(BudgetRule.user_id == user_id)
+    rules = session.execute(rules_stmt.order_by(BudgetRule.scope_type.asc())).scalars().all()
     rows: list[dict[str, Any]] = []
     for rule in rules:
         if rule.period == "annual":
@@ -854,10 +863,16 @@ def deposit_analytics(
     *,
     date_from: date | None = None,
     date_to: date | None = None,
+    source_ids: list[str] | None = None,
     visibility: VisibilityContext | None = None,
 ) -> dict[str, Any]:
     """Return deposit (Pfand) totals: paid, returned, net outstanding, and monthly breakdown."""
     start, end = _date_window(date_from, date_to, default_days=365 * 5)
+    normalized_source_ids = (
+        sorted({source_id.strip() for source_id in source_ids if source_id.strip()})
+        if source_ids is not None
+        else None
+    ) or None
 
     vis_ids = visible_transaction_ids_subquery(visibility) if visibility is not None else None
 
@@ -894,6 +909,8 @@ def deposit_analytics(
     )
     if vis_ids is not None:
         stmt = stmt.where(Transaction.id.in_(vis_ids))
+    if normalized_source_ids is not None:
+        stmt = stmt.where(Transaction.source_id.in_(normalized_source_ids))
 
     rows = session.execute(stmt).all()
 

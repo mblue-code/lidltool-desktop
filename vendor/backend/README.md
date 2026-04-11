@@ -2,6 +2,20 @@
 
 Personal data ingestion CLI for Lidl Plus (Germany). Authenticates once via OAuth PKCE, syncs all digital receipts into a local SQLite database, differentiates three discount types, and exposes analytics and export commands.
 
+## Security Posture
+
+- This service is not intended to be exposed directly to the public internet.
+- Supported deployment modes are `localhost-only`, `docker-local`, `private-network/VPN`, and `reverse proxy with TLS`.
+- `LIDLTOOL_HTTP_EXPOSURE_MODE` now makes the supported deployment model explicit. Supported modes are `localhost` (default), `container_localhost`, `private_network`, and `reverse_proxy_tls`.
+- `lidltool serve` binds to `127.0.0.1` by default, and the default Compose mapping stays `127.0.0.1:8000:8000`.
+- Docker-local access is supported through loopback-only published ports. Remote access is supported only through a private-network/VPN boundary or a trusted reverse proxy with TLS.
+- Any non-local exposure mode now requires `LIDLTOOL_OPENCLAW_API_KEY` and `openclaw_auth_mode = "enforce"`.
+- `reverse_proxy_tls` mode requires `LIDLTOOL_HTTP_TRUSTED_PROXY_CIDRS`; trusted proxy CIDRs are rejected in other modes.
+- `LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY`, `LIDLTOOL_OPENCLAW_API_KEY`, and `LIDLTOOL_AUTH_BOOTSTRAP_TOKEN` reject empty/placeholder/short/repetitive values at startup.
+- First-user bootstrap is localhost-only by default. `container_localhost` is also treated as local when the published host port stays loopback-only. Any non-local exposure mode now fails closed until you either finish setup on localhost first or configure `LIDLTOOL_AUTH_BOOTSTRAP_TOKEN` and present it during `/api/v1/auth/setup`.
+- Session cookies use `SameSite=Lax` and are marked `Secure` only for direct HTTPS requests or for explicitly trusted proxy CIDRs that forward `proto=https`.
+- `POST /api/v1/tools/exec` is disabled by default via `http_tools_exec_enabled = false`; if you explicitly enable it, admin authentication is required.
+
 ## Features
 
 - **One-shot auth** — headful browser PKCE flow with `LidlPlusNativeClient`, refresh token stored in encrypted `0600` JSON (`keyring` is optional)
@@ -14,7 +28,73 @@ Personal data ingestion CLI for Lidl Plus (Germany). Authenticates once via OAut
 - **Analytics** — monthly spend totals, top stores, category breakdowns
 - **JSON export** — all receipts as a flat JSON array
 - **OpenCLAW adapter** — stdin/stdout JSON interface for AI tool use
-- **OCR ingestion API (Sprint 13)** — HTTP upload/process/status endpoints with pluggable OCR providers (external API + local Tesseract fallback)
+- **OCR ingestion API (Sprint 13)** — HTTP upload/process/status endpoints with local-first VLM OCR, scanned-PDF rasterization, and review queue integration
+- **Built-in item categorization** — deterministic-first canonical item categorization with a bundled local Qwen 3.5 fallback for unresolved items
+- **Shared local text runtime** — a reusable internal model-runtime subsystem for item categorization today and Pi-agent reuse later, shipped as a Docker sidecar instead of in-process
+
+## Shared Model Runtime
+
+The self-hosted stack ships a bundled local text model runtime as a Docker sidecar. Today it is used by item categorization; the same internal runtime contract is intended to be reused by the Pi agent and other text tasks later.
+
+The current operator knobs remain the `LIDLTOOL_ITEM_CATEGORIZER_*` settings for compatibility. Treat them as shared runtime policy settings, not as feature-specific transport wiring. The categorizer still stays deterministic-first: deposit, source/native category normalization, explicit rules, and product category matches run before the model. If the runtime is unavailable, ingest still falls back cleanly.
+
+Recommended defaults:
+
+```env
+LIDLTOOL_ITEM_CATEGORIZER_ENABLED=true
+LIDLTOOL_ITEM_CATEGORIZER_BASE_URL=http://item-categorizer:8000/v1
+LIDLTOOL_ITEM_CATEGORIZER_MODEL=qwen3.5:0.8b
+LIDLTOOL_ITEM_CATEGORIZER_API_KEY=
+LIDLTOOL_ITEM_CATEGORIZER_TIMEOUT_S=5.0
+LIDLTOOL_ITEM_CATEGORIZER_MAX_RETRIES=0
+LIDLTOOL_ITEM_CATEGORIZER_MAX_BATCH_SIZE=16
+LIDLTOOL_ITEM_CATEGORIZER_CONFIDENCE_THRESHOLD=0.65
+LIDLTOOL_ITEM_CATEGORIZER_OCR_CONFIDENCE_THRESHOLD=0.60
+LIDLTOOL_ITEM_CATEGORIZER_ALLOW_REMOTE=false
+```
+
+The shipped Docker sidecar is an OpenAI-compatible Qwen service, not an Ollama dependency. The base stack serves `Qwen/Qwen3.5-0.8B` internally as `qwen3.5:0.8b` on `http://item-categorizer:8000/v1`, and the NVIDIA override swaps in a faster GPU-backed vLLM variant behind the same contract. If you prefer a different local endpoint such as SGLang or another host-native OpenAI-compatible service, override the base URL and model name.
+
+On Apple Silicon / Mac Mini hosts, the proven deployment path is:
+
+1. Run the app stack in Docker Compose.
+2. Run the local OpenAI-compatible model server natively on macOS.
+3. Point both categorization and chat/local-text traffic at that host runtime.
+
+The included override for that path is:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.item-categorizer-macos-host-mlx.yml up -d
+```
+
+It keeps Docker-first app deployment while routing the shared local-text contract to `http://host.docker.internal:18000/v1` for both ingestion categorization and chat/Pi-agent usage. A proven host-native MLX launch command is:
+
+```bash
+uvx --from mlx-openai-server mlx-openai-server launch \
+  --model-path mlx-community/Qwen3-1.7B-4bit \
+  --model-type lm \
+  --context-length 4096 \
+  --served-model-name mlx-community/Qwen3-1.7B-4bit \
+  --host 127.0.0.1 \
+  --port 18000 \
+  --enable-auto-tool-choice \
+  --tool-call-parser qwen3 \
+  --reasoning-parser qwen3 \
+  --prompt-cache-size 8 \
+  --max-bytes 2147483648 \
+  --max-tokens 1024 \
+  --temperature 0.0
+```
+
+The older ARM64 Docker CPU override is still in the repo for experimentation:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.item-categorizer-apple-silicon.yml up -d
+```
+
+Treat that override as experimental on Apple Silicon. In the March 30, 2026 live validation on a Mac Mini, the host-native MLX path worked; the ARM64 vLLM CPU Docker path did not reach a healthy `/v1/models`.
+
+Remote OpenAI-compatible endpoints are an optional overlay, not the default dependency. Keep `LIDLTOOL_ITEM_CATEGORIZER_ALLOW_REMOTE=false` for self-hosted operation unless you intentionally point the runtime at a trusted remote provider.
 
 ## Requirements
 
@@ -29,6 +109,15 @@ For a distributable one-click desktop path (macOS + Windows), there is now a ded
 - Purpose: host the full self-hosted UI inside Electron while orchestrating local backend/scrapers.
 - Scope: separate desktop packaging/runtime layer that can bundle frontend + backend runtime.
 - Start here: `apps/desktop/README.md`
+
+## Official Market Bundles
+
+Sprint 9 makes official bundle/profile/release metadata explicit and data-driven.
+
+- Canonical strategy doc: `docs/design/market-bundle-release-strategy.md`
+- Canonical catalog: `src/lidltool/connectors/official_market_catalog.json`
+- Self-hosted keeps one universal artifact and uses `connector_market_profile` / `LIDLTOOL_CONNECTOR_MARKET_PROFILE` for curated market defaults.
+- Trust labeling remains explicit: `official`, `community_verified`, `community_unsigned`, `local_custom`.
 
 ## Install
 
@@ -140,10 +229,12 @@ lidltool amazon import --in amazon-orders.json --source amazon_de --store-name A
 
 ### 8. Direct Amazon connector (session auth + live sync)
 
+Direct connector commands now use the generic connector platform entrypoint. Source-specific utility commands such as `lidltool amazon import` and `lidltool amazon cron-example` remain, but auth and sync go through `lidltool connectors ...` with repeatable `--option key=value` flags.
+
 Bootstrap Amazon session once (headful browser):
 
 ```bash
-lidltool amazon auth bootstrap --domain amazon.de
+lidltool connectors auth bootstrap --source-id amazon_de
 ```
 
 This stores Playwright session state at:
@@ -157,10 +248,10 @@ Set `LIDLTOOL_CONFIG_DIR` to move this (and all other session/token files) under
 Run direct sync (fetches orders from Amazon pages, then imports to DB):
 
 ```bash
-lidltool amazon sync --domain amazon.de --years 2 --max-pages-per-year 8
+lidltool connectors sync --source-id amazon_de --full --option years=2 --option max_pages_per_year=8
 ```
 
-If the session expires, re-run `lidltool amazon auth bootstrap`.
+If the session expires, re-run `lidltool connectors auth bootstrap --source-id amazon_de`.
 
 Print cron line for daily Amazon sync:
 
@@ -173,7 +264,7 @@ lidltool amazon cron-example
 Bootstrap REWE session once (headful browser):
 
 ```bash
-lidltool rewe auth bootstrap --domain shop.rewe.de
+lidltool connectors auth bootstrap --source-id rewe_de
 ```
 
 This stores Playwright session state at:
@@ -185,17 +276,17 @@ This stores Playwright session state at:
 Run direct sync (fetches REWE order-history pages and ingests canonically):
 
 ```bash
-lidltool rewe sync --domain shop.rewe.de --max-pages 10
+lidltool connectors sync --source-id rewe_de --full --option max_pages=10
 ```
 
-If the session expires, re-run `lidltool rewe auth bootstrap`.
+If the session expires, re-run `lidltool connectors auth bootstrap --source-id rewe_de`.
 
 ### 10. Direct Kaufland connector (session auth + live sync)
 
 Bootstrap Kaufland session once (headful browser):
 
 ```bash
-lidltool kaufland auth bootstrap --domain www.kaufland.de
+lidltool connectors auth bootstrap --source-id kaufland_de
 ```
 
 This stores Playwright session state at:
@@ -207,17 +298,17 @@ This stores Playwright session state at:
 Run direct sync (fetches Kaufland order-history pages and ingests canonically):
 
 ```bash
-lidltool kaufland sync --domain www.kaufland.de --max-pages 10
+lidltool connectors sync --source-id kaufland_de --full --option max_pages=10
 ```
 
-If the session expires, re-run `lidltool kaufland auth bootstrap`.
+If the session expires, re-run `lidltool connectors auth bootstrap --source-id kaufland_de`.
 
 ### 11. Direct dm connector (session auth + live sync)
 
 Bootstrap dm session once (headful browser):
 
 ```bash
-lidltool dm auth bootstrap --domain www.dm.de
+lidltool connectors auth bootstrap --source-id dm_de
 ```
 
 This stores Playwright session state at:
@@ -229,17 +320,17 @@ This stores Playwright session state at:
 Run direct sync (fetches dm order-history pages and ingests canonically):
 
 ```bash
-lidltool dm sync --domain www.dm.de --max-pages 10
+lidltool connectors sync --source-id dm_de --full --option max_pages=10
 ```
 
-If the session expires, re-run `lidltool dm auth bootstrap`.
+If the session expires, re-run `lidltool connectors auth bootstrap --source-id dm_de`.
 
 ### 12. Direct Rossmann connector (session auth + live sync)
 
 Bootstrap Rossmann session once (headful browser):
 
 ```bash
-lidltool rossmann auth bootstrap --domain www.rossmann.de
+lidltool connectors auth bootstrap --source-id rossmann_de
 ```
 
 This stores Playwright session state at:
@@ -251,20 +342,22 @@ This stores Playwright session state at:
 Run direct sync (fetches Rossmann order-history pages and ingests canonically):
 
 ```bash
-lidltool rossmann sync --domain www.rossmann.de --max-pages 10
+lidltool connectors sync --source-id rossmann_de --full --option max_pages=10
 ```
 
-If the session expires, re-run `lidltool rossmann auth bootstrap`.
+If the session expires, re-run `lidltool connectors auth bootstrap --source-id rossmann_de`.
 
 ### 13. OCR document ingestion API (upload + process + status)
 
 Start the OCR API server:
 
 ```bash
-lidltool serve --host 127.0.0.1 --port 8000
+lidltool serve --port 8000
 ```
 
 `lidltool-ocr-api` remains available as a legacy alias.
+
+By default this binds only to `127.0.0.1` with `LIDLTOOL_HTTP_EXPOSURE_MODE=localhost`. Publishing a port is not an auth boundary. For direct private-network/VPN access, switch to `LIDLTOOL_HTTP_EXPOSURE_MODE=private_network`, bind intentionally (for example `lidltool serve --host 0.0.0.0`), and configure `LIDLTOOL_OPENCLAW_API_KEY`. For TLS reverse-proxy access, use `LIDLTOOL_HTTP_EXPOSURE_MODE=reverse_proxy_tls`, keep or change the bind as appropriate for your proxy topology, configure `LIDLTOOL_OPENCLAW_API_KEY`, and set `LIDLTOOL_HTTP_TRUSTED_PROXY_CIDRS` to the exact proxy source networks.
 
 Start the durable OCR/sync worker (queue consumer):
 
@@ -272,11 +365,15 @@ Start the durable OCR/sync worker (queue consumer):
 lidltool-job-worker --once --db ~/.local/share/lidltool/db.sqlite
 ```
 
+Protected HTTP routes require either an authenticated user session or an approved API-key transport. For non-browser examples below, assume `X-API-Key: <api_key>` is configured.
+
+The HTTP server always uses its configured runtime database and config file. Request-level `db` / `config` overrides are no longer accepted.
+
 Upload an image/PDF receipt:
 
 ```bash
 curl -s -X POST "http://127.0.0.1:8000/api/v1/documents/upload" \
-  -F "db=~/.local/share/lidltool/db.sqlite" \
+  -H "X-API-Key: <api_key>" \
   -F "file=@/path/to/receipt.png;type=image/png"
 ```
 
@@ -284,30 +381,66 @@ Trigger OCR processing:
 
 ```bash
 curl -s -X POST "http://127.0.0.1:8000/api/v1/documents/<document_id>/process" \
-  -F "db=~/.local/share/lidltool/db.sqlite"
+  -H "X-API-Key: <api_key>"
 ```
 
 Poll status:
 
 ```bash
-curl -s "http://127.0.0.1:8000/api/v1/documents/<document_id>/status?db=~/.local/share/lidltool/db.sqlite"
+curl -s "http://127.0.0.1:8000/api/v1/documents/<document_id>/status" \
+  -H "X-API-Key: <api_key>"
 ```
 
-HTTP auth (when `openclaw_auth_mode = "enforce"` and `openclaw_api_key` is configured):
+HTTP auth:
 
 ```bash
-curl -s "http://127.0.0.1:8000/api/v1/reliability/slo?db=~/.local/share/lidltool/db.sqlite" \
+curl -s "http://127.0.0.1:8000/api/v1/reliability/slo" \
   -H "X-API-Key: <api_key>"
 ```
 
 `Authorization: Bearer <api_key>` is also accepted. Query/form `api_key` fields are rejected with `400`.
 
+Docker-first local GLM-OCR deployment:
+
+- `docker-compose.yml` now starts both the main app and the durable ingestion worker, and treats Docker as `container_localhost` mode so local loopback-only container startup works without `LIDLTOOL_OPENCLAW_API_KEY`.
+- The base self-hosted stack no longer assumes a host-native Ollama OCR endpoint. Configure `LIDLTOOL_OCR_GLM_LOCAL_BASE_URL` explicitly for any local OCR runtime, or add the NVIDIA override below.
+- For Linux + NVIDIA Docker, enable the bundled vLLM sidecar with:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ocr-nvidia.yml up -d
+```
+
+- The NVIDIA override serves `zai-org/GLM-OCR` as `glm-ocr` and rewires the app to `http://glm-ocr:8080/v1`.
+
+Public HTTP routes are intentionally minimal:
+
+- `GET /api/v1/health`
+- `GET /api/v1/ready`
+- `GET /api/v1/auth/setup-required`
+- `POST /api/v1/auth/setup`
+- `POST /api/v1/auth/login`
+
+Bootstrap, cookie, and key model:
+
+- `POST /api/v1/auth/setup` remains public only for first-user bootstrap. In `localhost` mode it works only from loopback unless you deliberately configure a bootstrap token. In `container_localhost` mode it works through the loopback-only published Docker port. In `private_network` and `reverse_proxy_tls` mode, startup fails closed until `LIDLTOOL_AUTH_BOOTSTRAP_TOKEN` is configured or setup has already completed.
+- Session cookies stay usable for plain `http://localhost` development and are not marked `Secure` there. They are marked `Secure` on direct HTTPS requests and on trusted reverse-proxy requests with `Forwarded` or `X-Forwarded-Proto` set to `https`.
+- `LIDLTOOL_HTTP_TRUSTED_PROXY_CIDRS` is the only way the server will trust forwarded proto headers. Proxy headers are ignored otherwise.
+- `LIDLTOOL_OPENCLAW_API_KEY` is the service/OpenClaw key for service-level agent access. User-created keys from `/api/v1/auth/keys` are user-scoped agent keys. Session cookies or bearer session tokens are still required for `/api/v1/auth/*` session-management routes, `/api/v1/users*`, and browser VNC/noVNC flows.
+- Rotating `LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY` invalidates existing browser sessions and can make previously encrypted stored credentials unreadable until they are re-authenticated or re-encrypted. Rotate it during maintenance, not casually.
+
 OCR provider routing:
 
-- Preferred provider is configured via `LIDLTOOL_OCR_DEFAULT_PROVIDER` (`external_api` or `tesseract`).
+- Preferred provider is configured via `LIDLTOOL_OCR_DEFAULT_PROVIDER` (`glm_ocr_local`, `openai_compatible`, or `external_api`).
+- `glm_ocr_local` is the self-hosted default and uses `LIDLTOOL_OCR_GLM_LOCAL_BASE_URL` plus `LIDLTOOL_OCR_GLM_LOCAL_MODEL`.
+- There is no longer a host-Ollama default. Set `LIDLTOOL_OCR_GLM_LOCAL_BASE_URL` explicitly for any local OCR runtime.
+- `LIDLTOOL_OCR_GLM_LOCAL_API_MODE=openai_chat_completion` is the default for self-hosted OpenAI-compatible OCR runtimes such as vLLM or SGLang.
+- `LIDLTOOL_OCR_GLM_LOCAL_API_MODE=ollama_generate` remains available only as a compatibility adapter for operators who intentionally use Ollama.
+- Scanned PDFs are now rasterized into page images before they are sent to a VLM provider; PDFs with an embedded text layer still use direct text extraction.
+- `openai_compatible` uses `LIDLTOOL_OCR_OPENAI_BASE_URL`, `LIDLTOOL_OCR_OPENAI_MODEL`, and `LIDLTOOL_OCR_OPENAI_API_KEY`.
+- If those OCR-specific settings are omitted, the provider reuses the app-wide AI settings from `LIDLTOOL_AI_BASE_URL`, `LIDLTOOL_AI_MODEL`, and `LIDLTOOL_AI_API_KEY`.
 - External OCR API is configured via `LIDLTOOL_OCR_EXTERNAL_API_URL` and `LIDLTOOL_OCR_EXTERNAL_API_KEY`.
-- If enabled (`LIDLTOOL_OCR_FALLBACK_ENABLED=true`), failures in the preferred provider fall back to the other provider.
-- Local fallback requires `tesseract` available on `PATH`.
+- If enabled (`LIDLTOOL_OCR_FALLBACK_ENABLED=true`), failures in the preferred provider fall back to `LIDLTOOL_OCR_FALLBACK_PROVIDER`.
+- `tesseract` is no longer supported anywhere in the OCR upload pipeline.
 
 ### 14. OCR review queue API (Sprint 14)
 
@@ -317,19 +450,19 @@ transaction confidence is below `LIDLTOOL_OCR_REVIEW_CONFIDENCE_THRESHOLD` (defa
 List pending review items:
 
 ```bash
-curl -s "http://127.0.0.1:8000/api/v1/review-queue?db=~/.local/share/lidltool/db.sqlite"
+curl -s "http://127.0.0.1:8000/api/v1/review-queue"
 ```
 
 Fetch detailed review payload (document + transaction + items + confidence metadata):
 
 ```bash
-curl -s "http://127.0.0.1:8000/api/v1/review-queue/<document_id>?db=~/.local/share/lidltool/db.sqlite"
+curl -s "http://127.0.0.1:8000/api/v1/review-queue/<document_id>"
 ```
 
 Apply a transaction correction:
 
 ```bash
-curl -s -X PATCH "http://127.0.0.1:8000/api/v1/review-queue/<document_id>/transaction?db=~/.local/share/lidltool/db.sqlite" \
+curl -s -X PATCH "http://127.0.0.1:8000/api/v1/review-queue/<document_id>/transaction" \
   -H "content-type: application/json" \
   -d '{"actor_id":"reviewer-1","reason":"ocr typo","corrections":{"merchant_name":"Corrected Store"}}'
 ```
@@ -337,7 +470,7 @@ curl -s -X PATCH "http://127.0.0.1:8000/api/v1/review-queue/<document_id>/transa
 Approve or reject a review item:
 
 ```bash
-curl -s -X POST "http://127.0.0.1:8000/api/v1/review-queue/<document_id>/approve?db=~/.local/share/lidltool/db.sqlite" \
+curl -s -X POST "http://127.0.0.1:8000/api/v1/review-queue/<document_id>/approve" \
   -H "content-type: application/json" \
   -d '{"actor_id":"reviewer-1","reason":"validated"}'
 ```
@@ -350,7 +483,7 @@ For purchases from merchants where you do not want a full connector, you can ins
 transaction directly:
 
 ```bash
-curl -s -X POST "http://127.0.0.1:8000/api/v1/transactions/manual?db=~/.local/share/lidltool/db.sqlite" \
+curl -s -X POST "http://127.0.0.1:8000/api/v1/transactions/manual" \
   -H "content-type: application/json" \
   -d '{
     "purchased_at":"2026-02-20T10:15:00+00:00",
@@ -369,16 +502,16 @@ Dashboard HTTP endpoints (all return the standard envelope: `ok`, `result`, `war
 
 ```bash
 # Cards (paid/saved totals + savings rate)
-curl -s "http://127.0.0.1:8000/api/v1/dashboard/cards?db=~/.local/share/lidltool/db.sqlite&year=2026&month=2"
+curl -s "http://127.0.0.1:8000/api/v1/dashboard/cards?year=2026&month=2"
 
 # Trends (last N months ending at end_month)
-curl -s "http://127.0.0.1:8000/api/v1/dashboard/trends?db=~/.local/share/lidltool/db.sqlite&year=2026&months_back=6&end_month=2"
+curl -s "http://127.0.0.1:8000/api/v1/dashboard/trends?year=2026&months_back=6&end_month=2"
 
 # Savings breakdown (native or normalized)
-curl -s "http://127.0.0.1:8000/api/v1/dashboard/savings-breakdown?db=~/.local/share/lidltool/db.sqlite&year=2026&month=2&view=normalized"
+curl -s "http://127.0.0.1:8000/api/v1/dashboard/savings-breakdown?year=2026&month=2&view=normalized"
 
 # Savings by retailer composition
-curl -s "http://127.0.0.1:8000/api/v1/dashboard/retailer-composition?db=~/.local/share/lidltool/db.sqlite&year=2026&month=2"
+curl -s "http://127.0.0.1:8000/api/v1/dashboard/retailer-composition?year=2026&month=2"
 ```
 
 OpenClaw action parity is available with:
@@ -435,11 +568,21 @@ All options can be set via CLI flags, a TOML config file (`~/.config/lidltool/co
 | Config file | `LIDLTOOL_CONFIG` | `~/.config/lidltool/config.toml` |
 | Log level | `LIDLTOOL_LOG_LEVEL` | `INFO` |
 | Credential encryption key | `LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY` | _(required for `lidltool serve` unless encryption is explicitly disabled)_ |
+| HTTP exposure mode | `LIDLTOOL_HTTP_EXPOSURE_MODE` | `localhost` |
+| Service/OpenClaw API key | `LIDLTOOL_OPENCLAW_API_KEY` | _(required for `private_network` and `reverse_proxy_tls` exposure)_ |
+| First-user bootstrap token | `LIDLTOOL_AUTH_BOOTSTRAP_TOKEN` | _(required before first-user setup for `private_network` and `reverse_proxy_tls`)_ |
+| Trusted reverse-proxy CIDRs | `LIDLTOOL_HTTP_TRUSTED_PROXY_CIDRS` | `[]` _(required only for `reverse_proxy_tls`)_ |
 | OCR storage path | `LIDLTOOL_DOCUMENT_STORAGE_PATH` | `~/.local/share/lidltool/documents` |
 | OCR max upload (MB) | `LIDLTOOL_MAX_UPLOAD_SIZE_MB` | `12` |
-| OCR default provider | `LIDLTOOL_OCR_DEFAULT_PROVIDER` | `external_api` |
-| OCR fallback enabled | `LIDLTOOL_OCR_FALLBACK_ENABLED` | `true` |
+| OCR default provider | `LIDLTOOL_OCR_DEFAULT_PROVIDER` | `glm_ocr_local` |
+| OCR fallback enabled | `LIDLTOOL_OCR_FALLBACK_ENABLED` | `false` |
 | OCR review confidence threshold | `LIDLTOOL_OCR_REVIEW_CONFIDENCE_THRESHOLD` | `0.80` |
+| OCR GLM local base URL | `LIDLTOOL_OCR_GLM_LOCAL_BASE_URL` | _(unset)_ |
+| OCR GLM local API mode | `LIDLTOOL_OCR_GLM_LOCAL_API_MODE` | `openai_chat_completion` |
+| OCR GLM local model | `LIDLTOOL_OCR_GLM_LOCAL_MODEL` | `glm-ocr` |
+| OCR OpenAI-compatible base URL | `LIDLTOOL_OCR_OPENAI_BASE_URL` | _(unset)_ |
+| OCR OpenAI-compatible model | `LIDLTOOL_OCR_OPENAI_MODEL` | _(unset)_ |
+| OCR OpenAI-compatible API key | `LIDLTOOL_OCR_OPENAI_API_KEY` | _(unset)_ |
 | OCR external API URL | `LIDLTOOL_OCR_EXTERNAL_API_URL` | _(unset)_ |
 | OCR external API key | `LIDLTOOL_OCR_EXTERNAL_API_KEY` | _(unset)_ |
 
@@ -509,6 +652,7 @@ See:
 
 - `docs/api/openclaw-v1-contract.md`
 - `docs/api/openclaw-v1-runbook.md`
+- `docs/connectors-dev-reset-bootstrap.md`
 - `docs/connectors/sdk.md`
 - `docs/ops/incident-triage-playbook-v1.md`
 - `docs/ops/wave1a-operational-readiness-checklist.md`

@@ -20,6 +20,11 @@ class ExternalApiProvider(OcrProvider):
         self._api_key = config.ocr_external_api_key
         self._timeout_s = max(config.ocr_request_timeout_s, 1.0)
 
+    def configuration_error(self) -> str | None:
+        if self._url:
+            return None
+        return "external OCR API URL is not configured"
+
     def extract(
         self,
         *,

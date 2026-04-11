@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useMemo, useState } from "react";
 
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -334,266 +335,253 @@ export function UsersSettingsPage() {
 
   return (
     <section className="space-y-4">
+      <PageHeader title={t("pages.usersSettings.title")} />
       <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.usersSettings.title")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {loading ? <p className="text-sm text-muted-foreground">{t("common.loadingSettings")}</p> : null}
-          {firstError ? (
-            <Alert variant="destructive">
-              <AlertTitle>{t("pages.usersSettings.loadErrorTitle")}</AlertTitle>
-              <AlertDescription>{firstError}</AlertDescription>
-            </Alert>
-          ) : null}
-          {statusMessage ? <p className="text-sm text-muted-foreground">{statusMessage}</p> : null}
-          {revealedKey ? (
-            <Alert>
-              <AlertTitle>{t("pages.usersSettings.newApiKeyTitle")}</AlertTitle>
-              <AlertDescription>
-                <code className="font-mono text-xs">{revealedKey}</code>
-              </AlertDescription>
-            </Alert>
-          ) : null}
-        </CardContent>
-      </Card>
+        <CardContent className="space-y-0 pt-6">
+          <div className="space-y-4">
+            {loading ? <p className="text-sm text-muted-foreground">{t("common.loadingSettings")}</p> : null}
+            {firstError ? (
+              <Alert variant="destructive">
+                <AlertTitle>{t("pages.usersSettings.loadErrorTitle")}</AlertTitle>
+                <AlertDescription>{firstError}</AlertDescription>
+              </Alert>
+            ) : null}
+            {statusMessage ? <p className="text-sm text-muted-foreground">{statusMessage}</p> : null}
+            {revealedKey ? (
+              <Alert>
+                <AlertTitle>{t("pages.usersSettings.newApiKeyTitle")}</AlertTitle>
+                <AlertDescription>
+                  <code className="font-mono text-xs">{revealedKey}</code>
+                </AlertDescription>
+              </Alert>
+            ) : null}
+          </div>
 
-      {isAdmin ? (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>{t("pages.usersSettings.usersTitle")}</CardTitle>
-            <Button type="button" onClick={openCreateUser}>
-              {t("pages.usersSettings.addUser")}
-            </Button>
-          </CardHeader>
-          <CardContent>
+          <div className="app-section-divider">
+            {isAdmin ? (
+              <>
+                <div className="mb-4 flex flex-row flex-wrap items-center justify-between gap-3">
+                  <h2 className="font-semibold leading-none tracking-tight">{t("pages.usersSettings.usersTitle")}</h2>
+                  <Button type="button" onClick={openCreateUser}>
+                    {t("pages.usersSettings.addUser")}
+                  </Button>
+                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t("common.username")}</TableHead>
+                      <TableHead>{t("common.displayName")}</TableHead>
+                      <TableHead>{t("pages.usersSettings.table.admin")}</TableHead>
+                      <TableHead>{t("common.created")}</TableHead>
+                      <TableHead>{t("common.actions")}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {users.map((user) => (
+                      <TableRow key={user.user_id}>
+                        <TableCell>{user.username}</TableCell>
+                        <TableCell>{user.display_name || t("pages.usersSettings.noDisplayName")}</TableCell>
+                        <TableCell>{user.is_admin ? t("common.yes") : t("common.no")}</TableCell>
+                        <TableCell>{formatDateTime(user.created_at)}</TableCell>
+                        <TableCell className="space-x-2">
+                          <Button type="button" size="sm" variant="outline" onClick={() => openEditUser(user)}>
+                            {t("common.edit")}
+                          </Button>
+                          <Button type="button" size="sm" variant="destructive" onClick={() => void removeUser(user.user_id)}>
+                            {t("common.delete")}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {users.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5}>{t("pages.usersSettings.noUsers")}</TableCell>
+                      </TableRow>
+                    ) : null}
+                  </TableBody>
+                </Table>
+              </>
+            ) : (
+              <>
+                <h2 className="font-semibold leading-none tracking-tight">{t("pages.usersSettings.usersTitle")}</h2>
+                <p className="mt-2 text-sm text-muted-foreground">{t("pages.usersSettings.adminOnly")}</p>
+              </>
+            )}
+          </div>
+
+          <div className="app-section-divider space-y-4">
+            <h2 className="font-semibold leading-none tracking-tight">{t("pages.usersSettings.keysTitle")}</h2>
+            <form className="grid gap-3 md:grid-cols-3" onSubmit={(event) => void submitCreateKey(event)}>
+              <div className="space-y-2">
+                <Label htmlFor="key-label">{t("common.label")}</Label>
+                <Input
+                  id="key-label"
+                  value={newKeyLabel}
+                  onChange={(event) => setNewKeyLabel(event.target.value)}
+                  placeholder={t("pages.usersSettings.placeholder.keyLabel")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="key-expiry">{t("pages.usersSettings.field.expiresAtOptional")}</Label>
+                <Input
+                  id="key-expiry"
+                  type="datetime-local"
+                  value={newKeyExpiresAt}
+                  onChange={(event) => setNewKeyExpiresAt(event.target.value)}
+                />
+              </div>
+              <Button type="submit" className="self-end" disabled={createKeyMutation.isPending}>
+                {createKeyMutation.isPending ? t("pages.usersSettings.creatingKey") : t("pages.usersSettings.createKey")}
+              </Button>
+            </form>
+
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t("common.username")}</TableHead>
-                  <TableHead>{t("common.displayName")}</TableHead>
-                  <TableHead>{t("pages.usersSettings.table.admin")}</TableHead>
-                  <TableHead>{t("common.created")}</TableHead>
+                  <TableHead>{t("common.label")}</TableHead>
+                  <TableHead>{t("common.prefix")}</TableHead>
+                  <TableHead>{t("pages.usersSettings.table.status")}</TableHead>
+                  <TableHead>{t("pages.usersSettings.table.lastUsed")}</TableHead>
+                  <TableHead>{t("pages.usersSettings.table.expires")}</TableHead>
                   <TableHead>{t("common.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {users.map((user) => (
-                  <TableRow key={user.user_id}>
-                    <TableCell>{user.username}</TableCell>
-                    <TableCell>{user.display_name || t("pages.usersSettings.noDisplayName")}</TableCell>
-                    <TableCell>{user.is_admin ? t("common.yes") : t("common.no")}</TableCell>
-                    <TableCell>{formatDateTime(user.created_at)}</TableCell>
-                    <TableCell className="space-x-2">
-                      <Button type="button" size="sm" variant="outline" onClick={() => openEditUser(user)}>
-                        {t("common.edit")}
-                      </Button>
-                      <Button type="button" size="sm" variant="destructive" onClick={() => void removeUser(user.user_id)}>
-                        {t("common.delete")}
+                {sortedKeys.map((key) => (
+                  <TableRow key={key.key_id}>
+                    <TableCell>{key.label}</TableCell>
+                    <TableCell>
+                      <code className="font-mono text-xs">{key.key_prefix}</code>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={key.is_active ? "default" : "secondary"}>
+                        {key.is_active ? t("pages.usersSettings.keyStatus.active") : t("pages.usersSettings.keyStatus.revoked")}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{key.last_used_at ? formatDateTime(key.last_used_at) : t("common.never")}</TableCell>
+                    <TableCell>{key.expires_at ? formatDateTime(key.expires_at) : t("common.never")}</TableCell>
+                    <TableCell>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="destructive"
+                        disabled={!key.is_active || revokeKeyMutation.isPending}
+                        onClick={() => void revokeKey(key)}
+                      >
+                        {t("pages.usersSettings.revoke")}
                       </Button>
                     </TableCell>
                   </TableRow>
                 ))}
-                {users.length === 0 ? (
+                {sortedKeys.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5}>{t("pages.usersSettings.noUsers")}</TableCell>
+                    <TableCell colSpan={6}>{t("pages.usersSettings.noKeys")}</TableCell>
                   </TableRow>
                 ) : null}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("pages.usersSettings.usersTitle")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">{t("pages.usersSettings.adminOnly")}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.usersSettings.keysTitle")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <form className="grid gap-3 md:grid-cols-3" onSubmit={(event) => void submitCreateKey(event)}>
-            <div className="space-y-2">
-              <Label htmlFor="key-label">{t("common.label")}</Label>
-              <Input
-                id="key-label"
-                value={newKeyLabel}
-                onChange={(event) => setNewKeyLabel(event.target.value)}
-                placeholder={t("pages.usersSettings.placeholder.keyLabel")}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="key-expiry">{t("pages.usersSettings.field.expiresAtOptional")}</Label>
-              <Input
-                id="key-expiry"
-                type="datetime-local"
-                value={newKeyExpiresAt}
-                onChange={(event) => setNewKeyExpiresAt(event.target.value)}
-              />
-            </div>
-            <Button type="submit" className="self-end" disabled={createKeyMutation.isPending}>
-              {createKeyMutation.isPending ? t("pages.usersSettings.creatingKey") : t("pages.usersSettings.createKey")}
-            </Button>
-          </form>
-
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("common.label")}</TableHead>
-                <TableHead>{t("common.prefix")}</TableHead>
-                <TableHead>{t("pages.usersSettings.table.status")}</TableHead>
-                <TableHead>{t("pages.usersSettings.table.lastUsed")}</TableHead>
-                <TableHead>{t("pages.usersSettings.table.expires")}</TableHead>
-                <TableHead>{t("common.actions")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sortedKeys.map((key) => (
-                <TableRow key={key.key_id}>
-                  <TableCell>{key.label}</TableCell>
-                  <TableCell>
-                    <code className="font-mono text-xs">{key.key_prefix}</code>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={key.is_active ? "default" : "secondary"}>
-                      {key.is_active ? t("pages.usersSettings.keyStatus.active") : t("pages.usersSettings.keyStatus.revoked")}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{key.last_used_at ? formatDateTime(key.last_used_at) : t("common.never")}</TableCell>
-                  <TableCell>{key.expires_at ? formatDateTime(key.expires_at) : t("common.never")}</TableCell>
-                  <TableCell>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="destructive"
-                      disabled={!key.is_active || revokeKeyMutation.isPending}
-                      onClick={() => void revokeKey(key)}
-                    >
-                      {t("pages.usersSettings.revoke")}
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {sortedKeys.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6}>{t("pages.usersSettings.noKeys")}</TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.usersSettings.backupTitle")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">{t("pages.usersSettings.backupDescription")}</p>
-          <form className="space-y-3" onSubmit={(event) => void submitBackup(event)}>
-            <div className="space-y-2">
-              <Label htmlFor="backup-output-dir">{t("pages.usersSettings.backupOutputDir")}</Label>
-              <Input
-                id="backup-output-dir"
-                value={backupOutputDir}
-                onChange={(event) => setBackupOutputDir(event.target.value)}
-                placeholder={t("pages.usersSettings.backupOutputPlaceholder")}
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={backupIncludeDocuments}
-                onChange={(event) => setBackupIncludeDocuments(event.target.checked)}
-              />
-              {t("pages.usersSettings.backupIncludeDocuments")}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={backupIncludeExport}
-                onChange={(event) => setBackupIncludeExport(event.target.checked)}
-              />
-              {t("pages.usersSettings.backupIncludeExport")}
-            </label>
-            <Button type="submit" disabled={backupMutation.isPending}>
-              {backupMutation.isPending ? t("pages.usersSettings.backupSubmitting") : t("pages.usersSettings.backupSubmit")}
-            </Button>
-          </form>
-          {backupResult ? (
-            <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(backupResult, null, 2)}</pre>
-          ) : null}
-
-          <div className="app-section-divider space-y-1">
-            <h3 className="font-semibold leading-none tracking-tight">{t("pages.usersSettings.restoreTitle")}</h3>
           </div>
 
-          <p className="text-sm text-muted-foreground">{t("pages.usersSettings.restoreDescription")}</p>
-          <form className="space-y-3" onSubmit={(event) => void submitRestore(event)}>
-            <div className="space-y-2">
-              <Label htmlFor="restore-backup-dir">{t("pages.usersSettings.restoreDirectory")}</Label>
-              <Input
-                id="restore-backup-dir"
-                value={restoreBackupDir}
-                onChange={(event) => setRestoreBackupDir(event.target.value)}
-                disabled={!desktopApi}
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={restoreIncludeDocuments}
-                onChange={(event) => setRestoreIncludeDocuments(event.target.checked)}
-                disabled={!desktopApi}
-              />
-              {t("pages.usersSettings.restoreIncludeDocuments")}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={restoreIncludeToken}
-                onChange={(event) => setRestoreIncludeToken(event.target.checked)}
-                disabled={!desktopApi}
-              />
-              {t("pages.usersSettings.restoreIncludeToken")}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={restoreIncludeCredentialKey}
-                onChange={(event) => setRestoreIncludeCredentialKey(event.target.checked)}
-                disabled={!desktopApi}
-              />
-              {t("pages.usersSettings.restoreIncludeCredentialKey")}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={restoreRestartBackend}
-                onChange={(event) => setRestoreRestartBackend(event.target.checked)}
-                disabled={!desktopApi}
-              />
-              {t("pages.usersSettings.restoreRestartBackend")}
-            </label>
-            <Button type="submit" disabled={restoreMutation.isPending || !desktopApi}>
-              {restoreMutation.isPending
-                ? t("pages.usersSettings.restoreSubmitting")
-                : t("pages.usersSettings.restoreSubmit")}
-            </Button>
-          </form>
-          {!desktopApi ? (
-            <p className="text-sm text-muted-foreground">{t("pages.usersSettings.restoreRuntimeOnly")}</p>
-          ) : null}
-          {restoreResult ? (
-            <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(restoreResult, null, 2)}</pre>
-          ) : null}
+          <div className="app-section-divider space-y-4">
+            <h2 className="font-semibold leading-none tracking-tight">{t("pages.usersSettings.backupTitle")}</h2>
+            <p className="text-sm text-muted-foreground">{t("pages.usersSettings.backupDescription")}</p>
+            <form className="space-y-3" onSubmit={(event) => void submitBackup(event)}>
+              <div className="space-y-2">
+                <Label htmlFor="backup-output-dir">{t("pages.usersSettings.backupOutputDir")}</Label>
+                <Input
+                  id="backup-output-dir"
+                  value={backupOutputDir}
+                  onChange={(event) => setBackupOutputDir(event.target.value)}
+                  placeholder={t("pages.usersSettings.backupOutputPlaceholder")}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={backupIncludeDocuments}
+                  onChange={(event) => setBackupIncludeDocuments(event.target.checked)}
+                />
+                {t("pages.usersSettings.backupIncludeDocuments")}
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={backupIncludeExport}
+                  onChange={(event) => setBackupIncludeExport(event.target.checked)}
+                />
+                {t("pages.usersSettings.backupIncludeExport")}
+              </label>
+              <Button type="submit" disabled={backupMutation.isPending}>
+                {backupMutation.isPending ? t("pages.usersSettings.backupSubmitting") : t("pages.usersSettings.backupSubmit")}
+              </Button>
+            </form>
+            {backupResult ? (
+              <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(backupResult, null, 2)}</pre>
+            ) : null}
+          </div>
+
+          <div className="app-section-divider space-y-4">
+            <h2 className="font-semibold leading-none tracking-tight">{t("pages.usersSettings.restoreTitle")}</h2>
+            <p className="text-sm text-muted-foreground">{t("pages.usersSettings.restoreDescription")}</p>
+            <form className="space-y-3" onSubmit={(event) => void submitRestore(event)}>
+              <div className="space-y-2">
+                <Label htmlFor="restore-backup-dir">{t("pages.usersSettings.restoreDirectory")}</Label>
+                <Input
+                  id="restore-backup-dir"
+                  value={restoreBackupDir}
+                  onChange={(event) => setRestoreBackupDir(event.target.value)}
+                  disabled={!desktopApi}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={restoreIncludeDocuments}
+                  onChange={(event) => setRestoreIncludeDocuments(event.target.checked)}
+                  disabled={!desktopApi}
+                />
+                {t("pages.usersSettings.restoreIncludeDocuments")}
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={restoreIncludeToken}
+                  onChange={(event) => setRestoreIncludeToken(event.target.checked)}
+                  disabled={!desktopApi}
+                />
+                {t("pages.usersSettings.restoreIncludeToken")}
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={restoreIncludeCredentialKey}
+                  onChange={(event) => setRestoreIncludeCredentialKey(event.target.checked)}
+                  disabled={!desktopApi}
+                />
+                {t("pages.usersSettings.restoreIncludeCredentialKey")}
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={restoreRestartBackend}
+                  onChange={(event) => setRestoreRestartBackend(event.target.checked)}
+                  disabled={!desktopApi}
+                />
+                {t("pages.usersSettings.restoreRestartBackend")}
+              </label>
+              <Button type="submit" disabled={restoreMutation.isPending || !desktopApi}>
+                {restoreMutation.isPending
+                  ? t("pages.usersSettings.restoreSubmitting")
+                  : t("pages.usersSettings.restoreSubmit")}
+              </Button>
+            </form>
+            {!desktopApi ? (
+              <p className="text-sm text-muted-foreground">{t("pages.usersSettings.restoreRuntimeOnly")}</p>
+            ) : null}
+            {restoreResult ? (
+              <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(restoreResult, null, 2)}</pre>
+            ) : null}
+          </div>
         </CardContent>
       </Card>
 

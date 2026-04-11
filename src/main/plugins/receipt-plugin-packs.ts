@@ -361,7 +361,7 @@ export class ReceiptPluginPackManager {
       if (pack.status !== "enabled") {
         continue;
       }
-      activePluginSearchPaths.push(record.installPath);
+      activePluginSearchPaths.push(record.runtimeRoot);
       allowedTrustClasses.add(record.trustClass);
     }
 

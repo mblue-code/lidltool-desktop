@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -16,8 +17,10 @@ from lidltool.analytics.scope import (
     personal_source_filter,
     visible_transaction_ids_subquery,
 )
+from lidltool.analytics.item_categorizer import ensure_category_taxonomy
 from lidltool.config import AppConfig
 from lidltool.connectors.connector_catalog import connector_catalog_payload
+from lidltool.connectors.management import plugin_management_payload
 from lidltool.connectors.market_catalog import self_hosted_market_strategy_payload
 from lidltool.connectors.registry import (
     get_connector_registry,
@@ -27,6 +30,7 @@ from lidltool.connectors.registry import (
 from lidltool.db.models import (
     ComparisonGroup,
     ComparisonGroupMember,
+    Category,
     Document,
     ItemObservation,
     Product,
@@ -139,6 +143,8 @@ def list_sources(
     *,
     config: AppConfig | None = None,
     visibility: VisibilityContext | None = None,
+    include_sensitive_plugin_details: bool = True,
+    include_operator_diagnostics: bool = True,
 ) -> dict[str, Any]:
     registry = get_connector_registry(config)
     stmt = select(Source).options(selectinload(Source.user)).order_by(Source.display_name.asc())
@@ -157,7 +163,12 @@ def list_sources(
                 "status": source.status,
                 "enabled": source.enabled,
                 "family_share_mode": source.family_share_mode,
-                "plugin": source_manifest_payload(source.id, config=config, registry=registry),
+                "plugin": source_manifest_payload(
+                    source.id,
+                    config=config,
+                    registry=registry,
+                    include_sensitive_details=include_sensitive_plugin_details,
+                ),
             }
             for source in rows
         ],
@@ -166,6 +177,12 @@ def list_sources(
             product="self_hosted",
             config=config,
             registry=registry,
+        ),
+        "plugin_management": plugin_management_payload(
+            session,
+            config=config,
+            registry=registry,
+            include_sensitive_details=include_operator_diagnostics,
         ),
         "market_strategy": self_hosted_market_strategy_payload(config),
     }
@@ -178,6 +195,46 @@ def run_workbench_query(
     visibility: VisibilityContext | None = None,
 ) -> dict[str, Any]:
     return run_query(session, query_payload, visibility=visibility)
+
+
+def list_product_categories(session: Session) -> dict[str, Any]:
+    ensure_category_taxonomy(session)
+    rows = session.execute(
+        select(Category).order_by(Category.name.asc(), Category.category_id.asc())
+    ).scalars().all()
+    by_id = {row.category_id: row for row in rows}
+    children: dict[str, list[str]] = defaultdict(list)
+    for row in rows:
+        if row.parent_category_id and row.parent_category_id in by_id:
+            children[row.parent_category_id].append(row.category_id)
+    for child_ids in children.values():
+        child_ids.sort(key=lambda category_id: ((by_id[category_id].name or "").lower(), category_id))
+
+    depth_cache: dict[str, int] = {}
+
+    def _depth(category_id: str) -> int:
+        cached = depth_cache.get(category_id)
+        if cached is not None:
+            return cached
+        row = by_id[category_id]
+        parent_id = row.parent_category_id
+        depth = 0 if parent_id is None or parent_id not in by_id else _depth(parent_id) + 1
+        depth_cache[category_id] = depth
+        return depth
+
+    return {
+        "items": [
+            {
+                "category_id": row.category_id,
+                "name": row.name,
+                "parent_category_id": row.parent_category_id,
+                "depth": _depth(row.category_id),
+                "child_count": len(children.get(row.category_id, [])),
+            }
+            for row in rows
+        ],
+        "count": len(rows),
+    }
 
 
 def list_saved_queries(session: Session) -> dict[str, Any]:
@@ -255,10 +312,36 @@ def search_products(
     *,
     search: str | None = None,
     source_kind: str | None = None,
+    category_id: str | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
+    ensure_category_taxonomy(session)
     stmt = select(Product).options(selectinload(Product.aliases))
     normalized_search = (search or "").strip()
+    normalized_category_id = (category_id or "").strip() or None
+
+    if normalized_category_id is not None:
+        categories = session.execute(
+            select(Category).order_by(Category.name.asc(), Category.category_id.asc())
+        ).scalars().all()
+        by_id = {row.category_id: row for row in categories}
+        children: dict[str, list[str]] = defaultdict(list)
+        for row in categories:
+            if row.parent_category_id and row.parent_category_id in by_id:
+                children[row.parent_category_id].append(row.category_id)
+        if normalized_category_id not in by_id:
+            raise ValueError(f"category not found: {normalized_category_id}")
+
+        descendant_ids = {normalized_category_id}
+        stack = [normalized_category_id]
+        while stack:
+            current = stack.pop()
+            for child_id in children.get(current, []):
+                if child_id in descendant_ids:
+                    continue
+                descendant_ids.add(child_id)
+                stack.append(child_id)
+        stmt = stmt.where(Product.category_id.in_(sorted(descendant_ids)))
 
     def _like_filter(search_term: str) -> Any:
         like_query = f"%{search_term.lower()}%"

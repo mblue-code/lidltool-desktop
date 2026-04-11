@@ -164,13 +164,15 @@ class RewePlaywrightClient:
         if not self._state_file.exists():
             raise ReweReauthRequiredError(
                 f"REWE session state missing: {self._state_file}. "
-                "Run 'lidltool rewe auth bootstrap' first."
+                "Run 'lidltool connectors auth bootstrap --source-id rewe_de' first."
             )
 
         out: list[dict[str, Any]] = []
         seen: set[str] = set()
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=self._headless)
+            from lidltool.connectors.auth.browser_runtime import launch_playwright_chromium
+
+            browser = launch_playwright_chromium(playwright=playwright, headless=self._headless)
             context = browser.new_context(storage_state=str(self._state_file))
             page = context.new_page()
             self._ensure_logged_in(page)
@@ -214,7 +216,7 @@ class RewePlaywrightClient:
         url = str(page.url).lower()
         if "/auth/login" in url or "/login" in url:
             raise ReweReauthRequiredError(
-                "REWE session expired or invalid. Run 'lidltool rewe auth bootstrap' again."
+                "REWE session expired or invalid. Run 'lidltool connectors auth bootstrap --source-id rewe_de' again."
             )
 
 

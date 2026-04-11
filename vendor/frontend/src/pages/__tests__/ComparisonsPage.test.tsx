@@ -163,7 +163,10 @@ describe("ComparisonsPage", () => {
     renderPage();
 
     fireEvent.change(screen.getByLabelText("Find product"), { target: { value: "milk" } });
-    fireEvent.click(await screen.findByRole("button", { name: "Milk 1L" }, { timeout: 3000 }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Milk 1L" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Milk 1L" }));
     fireEvent.click(screen.getByRole("button", { name: "Add selected product to basket" }));
 
     await waitFor(() => {

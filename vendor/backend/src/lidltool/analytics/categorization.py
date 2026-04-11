@@ -31,7 +31,16 @@ def load_compiled_rules(session: Session) -> list[CompiledRule]:
 
 
 def categorize_name(name: str, rules: list[CompiledRule]) -> str | None:
+    match = find_category_rule(item_name=name, rules=rules)
+    return match.category if match is not None else None
+
+
+def find_category_rule(
+    *,
+    item_name: str,
+    rules: list[CompiledRule] | tuple[CompiledRule, ...],
+) -> CompiledRule | None:
     for rule in rules:
-        if rule.pattern.search(name):
-            return rule.category
+        if rule.pattern.search(item_name):
+            return rule
     return None

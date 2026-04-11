@@ -318,7 +318,10 @@ describe("ReviewQueuePage", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Approve this document?" })).getByRole("button", { name: "Approve" }));
+    const approveTitle = await screen.findByText("Approve this document?");
+    const approveDialog = approveTitle.closest('[role="dialog"]');
+    expect(approveDialog).not.toBeNull();
+    fireEvent.click(within(approveDialog as HTMLElement).getByRole("button", { name: "Approve" }));
 
     await waitFor(() => {
       expect(screen.getByText('Review status updated to "approved".')).toBeInTheDocument();
@@ -346,7 +349,10 @@ describe("ReviewQueuePage", () => {
       target: { value: "OCR mismatch" }
     });
     fireEvent.click(within(detailDialog).getByRole("button", { name: "Reject" }));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Reject this document?" })).getByRole("button", { name: "Reject" }));
+    const rejectTitle = await screen.findByText("Reject this document?");
+    const rejectDialog = rejectTitle.closest('[role="dialog"]');
+    expect(rejectDialog).not.toBeNull();
+    fireEvent.click(within(rejectDialog as HTMLElement).getByRole("button", { name: "Reject" }));
 
     await waitFor(() => {
       expect(screen.getByText('Review status updated to "rejected".')).toBeInTheDocument();
@@ -373,7 +379,11 @@ describe("ReviewQueuePage", () => {
     });
 
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Reject" }));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Reject this document?" })).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: "Cancel" }).length).toBeGreaterThan(0);
+    });
+    const cancelButtons = screen.getAllByRole("button", { name: "Cancel" });
+    fireEvent.click(cancelButtons[cancelButtons.length - 1]!);
 
     const rejectCalls = vi
       .mocked(fetch)

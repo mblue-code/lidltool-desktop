@@ -24,7 +24,9 @@ def run_dm_headful_bootstrap(
         account_url = "https://account.dm.de/purchases"
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=False)
+        from lidltool.connectors.auth.browser_runtime import launch_playwright_chromium
+
+        browser = launch_playwright_chromium(playwright=playwright, headless=False)
         context = browser.new_context()
         page = context.new_page()
         page.goto(login_url, wait_until="domcontentloaded")

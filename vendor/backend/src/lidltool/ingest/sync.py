@@ -11,15 +11,19 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from lidltool.analytics.categorization import load_compiled_rules
+from lidltool.analytics.item_categorizer import (
+    CategorizationRequest,
+    categorize_transaction_items,
+    resolve_item_categorizer_runtime_client,
+)
 from lidltool.analytics.normalization import (
     NormalizationBundle,
     load_normalization_bundle,
-    normalize_item_category,
     normalize_merchant_name,
 )
 from lidltool.analytics.observations import rebuild_item_observations
 from lidltool.analytics.product_matcher import auto_match_unmatched_items, resolve_product_for_item
-from lidltool.auth.users import ensure_service_user
+from lidltool.auth.users import SERVICE_USER_ID, ensure_service_user
 from lidltool.config import AppConfig
 from lidltool.connectors.base import Connector
 from lidltool.connectors.lidl_adapter import LidlConnectorAdapter
@@ -57,11 +61,15 @@ LOGGER = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class SyncProgress:
+    stage: str = "initializing"
     pages: int = 0
+    pages_total: int | None = None
+    discovered_receipts: int = 0
     receipts_seen: int = 0
     new_receipts: int = 0
     new_items: int = 0
     skipped_existing: int = 0
+    current_record_ref: str | None = None
 
 
 @dataclass(slots=True)
@@ -86,17 +94,20 @@ class SyncService:
         config: AppConfig,
         connector: Connector | None = None,
         ingestion_job_id: str | None = None,
+        owner_user_id: str | None = None,
     ) -> None:
         self._client = client
         self._session_factory = session_factory
         self._config = config
         self._ingestion_job_id = ingestion_job_id
+        self._owner_user_id = owner_user_id.strip() if owner_user_id else None
         if connector is not None:
             self._connector = connector
         else:
             if client is None:
                 raise ValueError("client is required when connector is not provided")
             self._connector = LidlConnectorAdapter(client=client, page_size=config.page_size)
+        self._item_categorizer_model_client = resolve_item_categorizer_runtime_client(config)
 
     def sync(
         self,
@@ -131,37 +142,76 @@ class SyncService:
             if self._config.receipt_cutoff_days is not None:
                 cutoff = datetime.now(tz=UTC) - timedelta(days=self._config.receipt_cutoff_days)
 
-            source, source_account = _ensure_source_account(session, source_id=self._config.source)
+            source, source_account = _ensure_source_account(
+                session,
+                source_id=self._config.source,
+                owner_user_id=self._owner_user_id,
+            )
+            session.commit()
+            _emit_sync_progress(progress_cb, progress, stage="authenticating")
             self._connector.authenticate()
+            _emit_sync_progress(progress_cb, progress, stage="refreshing_auth")
             self._connector.refresh_auth()
+            _emit_sync_progress(progress_cb, progress, stage="healthcheck")
             health = self._connector.healthcheck()
             if not health.get("healthy", False):
                 raise RuntimeError(str(health.get("error", "connector healthcheck failed")))
-
-            record_refs = self._connector.discover_new_records()
+            _emit_sync_progress(progress_cb, progress, stage="discovering")
+            discover_with_progress = getattr(self._connector, "discover_new_records_with_progress", None)
+            if callable(discover_with_progress):
+                record_refs = discover_with_progress(
+                    progress_cb=lambda page_count, receipt_count: _emit_sync_progress(
+                        progress_cb,
+                        progress,
+                        stage="discovering",
+                        pages=page_count,
+                        discovered_receipts=receipt_count,
+                    )
+                )
+            else:
+                record_refs = self._connector.discover_new_records()
+                _emit_sync_progress(
+                    progress_cb,
+                    progress,
+                    stage="discovering",
+                    discovered_receipts=len(record_refs),
+                )
             if max_pages is not None:
                 max_records = max_pages * max(self._config.page_size, 1)
                 record_refs = record_refs[:max_records]
-                progress.pages = min(
+                progress.pages_total = min(
                     max_pages,
                     max(
                         1, (len(record_refs) + self._config.page_size - 1) // self._config.page_size
                     ),
                 )
             else:
-                progress.pages = max(
+                progress.pages_total = max(
                     1, (len(record_refs) + self._config.page_size - 1) // self._config.page_size
                 )
+            progress.discovered_receipts = len(record_refs)
+            if progress.pages == 0:
+                progress.pages = progress.pages_total or 0
+            _emit_sync_progress(progress_cb, progress, stage="processing")
 
             for receipt_id in record_refs:
                 progress.receipts_seen += 1
+                progress.current_record_ref = receipt_id
                 if not receipt_id:
                     state_warnings.append("Encountered empty receipt reference; skipped")
+                    _emit_sync_progress(progress_cb, progress, stage="processing")
                     continue
 
                 if not full and receipt_exists(session, receipt_id):
+                    _claim_existing_transaction_if_needed(
+                        session,
+                        source=source,
+                        source_transaction_id=receipt_id,
+                    )
                     ingested_streak += 1
                     progress.skipped_existing += 1
+                    session.commit()
+                    _emit_sync_progress(progress_cb, progress, stage="processing")
                     if ingested_streak >= self._config.already_ingested_streak_threshold:
                         break
                     continue
@@ -220,6 +270,8 @@ class SyncService:
                         validation_report.outcome.value,
                         quarantine_row.id,
                     )
+                    session.commit()
+                    _emit_sync_progress(progress_cb, progress, stage="processing")
                     continue
 
                 if validation_report.outcome is ValidationOutcome.WARN:
@@ -247,11 +299,31 @@ class SyncService:
                     fallback_normalized=normalized,
                     extracted_discounts=discounts,
                     normalization_bundle=normalization_bundle,
+                    compiled_rules=rules,
+                    use_model=self._item_categorizer_model_client is not None,
+                    model_client=self._item_categorizer_model_client,
+                    model_batch_size=int(
+                        getattr(self._config, "item_categorizer_max_batch_size", 8) or 8
+                    ),
+                    model_confidence_threshold=float(
+                        getattr(
+                            self._config,
+                            "item_categorizer_confidence_threshold",
+                            getattr(
+                                self._config,
+                                "item_categorizer_low_confidence_threshold",
+                                0.65,
+                            ),
+                        )
+                        or 0.65
+                    ),
                 )
 
                 if receipt_exists(session, normalized.id):
                     ingested_streak += 1
                     progress.skipped_existing += 1
+                    session.commit()
+                    _emit_sync_progress(progress_cb, progress, stage="processing")
                     if (
                         not full
                         and ingested_streak >= self._config.already_ingested_streak_threshold
@@ -262,6 +334,8 @@ class SyncService:
                 if fingerprint_exists(session, normalized.fingerprint):
                     ingested_streak += 1
                     progress.skipped_existing += 1
+                    session.commit()
+                    _emit_sync_progress(progress_cb, progress, stage="processing")
                     continue
 
                 ingested_streak = 0
@@ -309,12 +383,15 @@ class SyncService:
                     newest_seen_id = normalized.id
 
                 if cutoff and normalized.purchased_at < cutoff:
+                    session.commit()
+                    _emit_sync_progress(progress_cb, progress, stage="processing")
                     cutoff_hit = True
                     break
 
-                if progress_cb:
-                    progress_cb(progress)
+                session.commit()
+                _emit_sync_progress(progress_cb, progress, stage="processing")
 
+            _emit_sync_progress(progress_cb, progress, stage="finalizing")
             sync_state.last_success_at = datetime.now(tz=UTC)
             sync_state.last_seen_receipt_at = newest_seen_at
             sync_state.last_seen_receipt_id = newest_seen_id
@@ -350,6 +427,27 @@ class SyncService:
         )
 
 
+def _emit_sync_progress(
+    progress_cb: Callable[[SyncProgress], None] | None,
+    progress: SyncProgress,
+    *,
+    stage: str | None = None,
+    pages: int | None = None,
+    pages_total: int | None = None,
+    discovered_receipts: int | None = None,
+) -> None:
+    if stage is not None:
+        progress.stage = stage
+    if pages is not None:
+        progress.pages = pages
+    if pages_total is not None:
+        progress.pages_total = pages_total
+    if discovered_receipts is not None:
+        progress.discovered_receipts = discovered_receipts
+    if progress_cb is not None:
+        progress_cb(progress)
+
+
 def _extract_receipt_id(summary: dict[str, object]) -> str | None:
     for key in ["id", "receiptId", "ticketId", "uuid"]:
         value = summary.get(key)
@@ -381,13 +479,19 @@ def _upsert_store(
         existing.address = address
 
 
-def _ensure_source_account(session: Session, *, source_id: str) -> tuple[Source, SourceAccount]:
+def _ensure_source_account(
+    session: Session,
+    *,
+    source_id: str,
+    config: AppConfig | None = None,
+    owner_user_id: str | None = None,
+) -> tuple[Source, SourceAccount]:
     service_user = ensure_service_user(session)
     source = session.get(Source, source_id)
     if source is None:
         source = Source(
             id=source_id,
-            user_id=service_user.user_id,
+            user_id=owner_user_id or service_user.user_id,
             kind="connector",
             display_name=source_display_name(source_id, config=config),
             status="healthy",
@@ -396,7 +500,9 @@ def _ensure_source_account(session: Session, *, source_id: str) -> tuple[Source,
         session.add(source)
         session.flush()
     elif source.user_id is None:
-        source.user_id = service_user.user_id
+        source.user_id = owner_user_id or service_user.user_id
+    elif owner_user_id and source.user_id == service_user.user_id:
+        source.user_id = owner_user_id
     account = session.execute(
         select(SourceAccount).where(SourceAccount.source_id == source.id).limit(1)
     ).scalar_one_or_none()
@@ -405,6 +511,21 @@ def _ensure_source_account(session: Session, *, source_id: str) -> tuple[Source,
         session.add(account)
         session.flush()
     return source, account
+
+
+def _claim_existing_transaction_if_needed(
+    session: Session,
+    *,
+    source: Source,
+    source_transaction_id: str,
+) -> None:
+    existing = canonical_transaction_for_source(
+        session,
+        source_id=source.id,
+        source_transaction_id=source_transaction_id,
+    )
+    if existing is not None and existing.user_id in {None, SERVICE_USER_ID}:
+        existing.user_id = source.user_id
 
 
 def _validation_summary_message(
@@ -474,6 +595,11 @@ def _upsert_canonical_transaction(
     fallback_normalized: Any,
     extracted_discounts: list[dict[str, Any]],
     normalization_bundle: NormalizationBundle,
+    compiled_rules: list[Any],
+    use_model: bool,
+    model_client: Any,
+    model_batch_size: int,
+    model_confidence_threshold: float,
 ) -> None:
     source_transaction_id = str(connector_normalized.get("id") or fallback_normalized.id).strip()
     fingerprint = str(
@@ -520,7 +646,7 @@ def _upsert_canonical_transaction(
     payload = make_json_safe(payload)
 
     if existing is not None:
-        if existing.user_id is None:
+        if existing.user_id in {None, SERVICE_USER_ID}:
             existing.user_id = source.user_id
         existing.purchased_at = purchased_at
         existing.merchant_name = merchant_name
@@ -563,6 +689,8 @@ def _upsert_canonical_transaction(
     )
 
     line_to_item: dict[int, TransactionItem] = {}
+    item_rows: list[TransactionItem] = []
+    categorization_requests: list[CategorizationRequest] = []
     connector_items = connector_normalized.get("items")
     items = connector_items if isinstance(connector_items, list) else []
     for index, item in enumerate(items, start=1):
@@ -570,6 +698,7 @@ def _upsert_canonical_transaction(
             continue
         line_no = int(item.get("line_no", index))
         source_item_id = item.get("source_item_id")
+        current_category = str(item.get("category")) if item.get("category") is not None else None
         item_row = TransactionItem(
             transaction_id=transaction.id,
             source_item_id=(
@@ -584,21 +713,49 @@ def _upsert_canonical_transaction(
             ),
             line_total_cents=int(item.get("line_total_cents", 0)),
             is_deposit=bool(item.get("is_deposit", False)),
-            category=normalize_item_category(
-                item_name=str(item.get("name") or f"item_{line_no}"),
-                current_category=(
-                    str(item.get("category")) if item.get("category") is not None else None
-                ),
-                bundle=normalization_bundle,
-            ),
+            category=current_category,
             raw_payload=item,
         )
         match = resolve_product_for_item(session, item=item_row, source=source)
         if match is not None:
             item_row.product_id = match.product_id
+        item_rows.append(item_row)
+        categorization_requests.append(
+            CategorizationRequest(
+                item_name=item_row.name,
+                current_category=current_category,
+                product_id=item_row.product_id,
+                raw_payload=item,
+                merchant_name=merchant_name,
+                source_item_id=item_row.source_item_id,
+                unit=item_row.unit,
+                unit_price_cents=item_row.unit_price_cents,
+                line_total_cents=item_row.line_total_cents,
+            )
+        )
+
+    categorization_results = categorize_transaction_items(
+        session=session,
+        source=source,
+        requests=categorization_requests,
+        normalization_bundle=normalization_bundle,
+        use_model=use_model,
+        model_client=model_client,
+        compiled_rules=compiled_rules,
+        model_confidence_threshold=model_confidence_threshold,
+        model_batch_size=model_batch_size,
+    )
+
+    for item_row, categorization_result in zip(item_rows, categorization_results, strict=True):
+        item_row.category = categorization_result.category_name
+        item_row.category_id = categorization_result.category_id
+        item_row.category_method = categorization_result.method
+        item_row.category_confidence = _to_category_decimal(categorization_result.confidence)
+        item_row.category_source_value = categorization_result.source_value
+        item_row.category_version = categorization_result.version
         session.add(item_row)
         session.flush()
-        line_to_item[line_no] = item_row
+        line_to_item[item_row.line_no] = item_row
 
     for discount in extracted_discounts:
         if not isinstance(discount, dict):
@@ -671,3 +828,9 @@ def _upsert_canonical_transaction(
             transaction.id,
             dedupe_key,
         )
+
+
+def _to_category_decimal(value: float | None) -> Any:
+    if value is None:
+        return None
+    return to_decimal(f"{value:.3f}")

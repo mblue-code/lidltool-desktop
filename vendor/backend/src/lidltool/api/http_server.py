@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
-import ipaddress
 import json
 import logging
 import os
@@ -14,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -41,10 +41,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.sql.elements import ColumnElement, SQLColumnExpression
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.requests import HTTPConnection
 from starlette.types import Scope
 
 from lidltool.ai.clustering import cluster_products_with_llm, get_cluster_job_progress
@@ -52,6 +54,7 @@ from lidltool.ai.config import (
     get_ai_api_key,
     get_ai_oauth_access_token,
     persist_ai_settings,
+    persist_ocr_settings,
     set_ai_api_key,
     set_ai_oauth_access_token,
     set_ai_oauth_refresh_token,
@@ -68,6 +71,7 @@ from lidltool.analytics.advanced import (
     timing_matrix,
     weekday_heatmap,
 )
+from lidltool.analytics.recategorization import recategorize_transactions
 from lidltool.analytics.queries import (
     dashboard_retailer_composition,
     dashboard_savings_breakdown,
@@ -91,6 +95,7 @@ from lidltool.analytics.workbench import (
     get_product_detail,
     get_saved_query,
     list_comparison_groups,
+    list_product_categories,
     list_saved_queries,
     list_sources,
     low_confidence_ocr_quality,
@@ -105,14 +110,83 @@ from lidltool.analytics.workbench import (
 )
 from lidltool.api.auth import (
     SESSION_COOKIE_NAME,
-    _token_secret,
+    AuthenticatedSessionContext,
     clear_session_cookie,
+    get_current_auth_context,
     get_current_user,
+    is_loopback_request,
+    is_session_transport,
     issue_session_token,
     set_session_cookie,
 )
+from lidltool.api.http_state import (
+    ConnectorCascadeSession,
+    ConnectorCascadeSourceState,
+    QualityRecategorizeJobState,
+    VncRuntime,
+    get_ai_oauth_lock,
+    get_automation_scheduler,
+    get_build,
+    get_connector_auth_registry,
+    get_connector_cascade_lock,
+    get_connector_cascade_sessions,
+    get_connector_command_sessions,
+    get_http_rate_limit_buckets,
+    get_http_rate_limit_lock,
+    get_quality_recategorize_jobs,
+    get_quality_recategorize_lock,
+    get_started_at,
+    get_vnc_runtime,
+    initialize_http_api_state,
+    set_vnc_runtime,
+)
+from lidltool.api.http_state import (
+    get_ai_oauth_state as get_http_ai_oauth_state,
+)
+from lidltool.api.http_state import (
+    set_ai_oauth_state as set_http_ai_oauth_state,
+)
+from lidltool.api.openai_payloads import (
+    simple_text_message,
+    stream_options_with_usage,
+)
+from lidltool.api.openai_payloads import (
+    to_openai_messages as _to_openai_messages,
+)
+from lidltool.api.openai_payloads import (
+    to_openai_tools as _to_openai_tools,
+)
+from lidltool.api.route_auth import (
+    HTTP_ROUTE_AUTH_BY_KEY,
+    RouteAuthPolicy,
+    assert_route_auth_policy,
+)
+from lidltool.api.source_models import (
+    build_source_status_payload as _source_status_payload,
+)
+from lidltool.api.source_models import (
+    serialize_connector_bootstrap_payload as _serialize_connector_bootstrap,
+)
+from lidltool.api.source_models import (
+    serialize_source_auth_status,
+)
+from lidltool.api.source_models import (
+    serialize_source_sync_status as _serialize_source_sync_status,
+)
 from lidltool.auth.agent_keys import create_user_agent_key
-from lidltool.auth.user_auth import UserAuthError, decode_token, verify_password
+from lidltool.auth.sessions import (
+    SESSION_MODE_BOTH,
+    SESSION_MODE_COOKIE,
+    SESSION_MODE_TOKEN,
+    SessionClientMetadata,
+    available_auth_transports,
+    create_user_session,
+    list_active_user_sessions,
+    revoke_user_session,
+    revoke_user_sessions_for_user,
+    serialize_user_session,
+)
+from lidltool.auth.user_auth import verify_password
 from lidltool.auth.users import (
     SERVICE_USERNAME,
     create_local_user,
@@ -120,6 +194,15 @@ from lidltool.auth.users import (
     get_user_by_username,
     human_user_count,
     set_user_password,
+)
+from lidltool.budget.service import (
+    create_cashflow_entry,
+    delete_cashflow_entry,
+    get_budget_month,
+    list_cashflow_entries,
+    monthly_budget_summary,
+    update_cashflow_entry,
+    upsert_budget_month,
 )
 from lidltool.automations.scheduler import AutomationScheduler
 from lidltool.automations.service import AutomationService
@@ -136,18 +219,19 @@ from lidltool.connectors.auth.auth_orchestration import (
     ConnectorBootstrapSession,
     any_connector_bootstrap_running,
     connector_bootstrap_is_running,
-    serialize_connector_bootstrap,
     start_connector_command_session,
     terminate_connector_bootstrap,
 )
 from lidltool.connectors.discovery import connector_discovery_payload
 from lidltool.connectors.lifecycle import (
+    assert_connector_operation_allowed,
     connector_lifecycle_record_payload,
     install_connector,
     set_connector_enabled,
     uninstall_connector,
     update_connector_config,
 )
+from lidltool.connectors.management import plugin_management_payload
 from lidltool.connectors.runtime.execution import ConnectorExecutionService
 from lidltool.db.audit import list_transaction_history
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
@@ -161,6 +245,12 @@ from lidltool.db.models import (
     TransactionItem,
     User,
     UserApiKey,
+    UserSession,
+)
+from lidltool.deployment_policy import (
+    HttpExposureMode,
+    evaluate_deployment_policy,
+    resolve_bind_host,
 )
 from lidltool.ingest.corrections import CorrectionService
 from lidltool.ingest.jobs import InvalidJobTransitionError, JobService
@@ -171,8 +261,48 @@ from lidltool.ingest.manual_ingest import (
     ManualItemInput,
     ManualTransactionInput,
 )
+from lidltool.ingest.ocr_source import OCR_SOURCE_ID, ensure_ocr_source
 from lidltool.ingest.overrides import OverrideService
 from lidltool.ops import backup_database
+from lidltool.mobile import (
+    delete_mobile_device,
+    delete_mobile_devices_for_session,
+    list_mobile_devices,
+    upsert_mobile_device,
+)
+from lidltool.offers.service import (
+    create_offer_source,
+    create_watchlist as create_offer_watchlist,
+)
+from lidltool.offers.service import (
+    delete_offer_source,
+    delete_watchlist as delete_offer_watchlist,
+)
+from lidltool.offers.service import (
+    list_alerts as list_offer_alerts,
+)
+from lidltool.offers.service import (
+    list_matches as list_offer_matches,
+    list_merchant_items as list_offer_merchant_items,
+)
+from lidltool.offers.service import (
+    list_offer_sources,
+    offer_overview,
+    run_offer_refresh,
+)
+from lidltool.offers.service import (
+    list_refresh_runs as list_offer_refresh_runs,
+)
+from lidltool.offers.service import (
+    list_watchlists as list_offer_watchlists,
+)
+from lidltool.offers.service import (
+    mark_alert_read as mark_offer_alert_read,
+)
+from lidltool.offers.service import (
+    update_offer_source,
+    update_watchlist as update_offer_watchlist,
+)
 from lidltool.recurring.service import RecurringBillsService
 from lidltool.reliability.metrics import compute_endpoint_slo_summary, record_endpoint_metric
 from lidltool.storage.document_storage import DocumentStorage, DocumentStorageError
@@ -210,6 +340,115 @@ def _serialize_current_user(user: User) -> dict[str, Any]:
     }
 
 
+def _request_client_ip(request: Request) -> str | None:
+    if request.client is None or not request.client.host:
+        return None
+    return request.client.host
+
+
+def _request_auth_context(
+    *,
+    request: Request,
+    session: Session,
+    config: AppConfig,
+    required: bool = True,
+) -> AuthenticatedSessionContext | None:
+    return get_current_auth_context(
+        request=request,
+        session=session,
+        config=config,
+        required=required,
+    )
+
+
+def _request_session_record(
+    *,
+    request: Request,
+    session: Session,
+    config: AppConfig,
+) -> UserSession | None:
+    context = _request_auth_context(
+        request=request,
+        session=session,
+        config=config,
+        required=False,
+    )
+    if context is None:
+        return None
+    return context.session_record
+
+
+def _session_client_metadata(
+    *,
+    request: Request,
+    session_mode: str,
+    device_label: str | None,
+    client_name: str | None,
+    client_platform: str | None,
+) -> SessionClientMetadata:
+    return SessionClientMetadata(
+        auth_transport=session_mode,
+        device_label=device_label,
+        client_name=client_name,
+        client_platform=client_platform,
+        user_agent=request.headers.get("user-agent"),
+        ip_address=_request_client_ip(request),
+    )
+
+
+def _session_token_payload(*, token: str, expires_at: datetime) -> dict[str, Any]:
+    now = datetime.now(tz=UTC)
+    expires_in_seconds = max(int((expires_at - now).total_seconds()), 0)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_at": expires_at.isoformat(),
+        "expires_in_seconds": expires_in_seconds,
+    }
+
+
+def _auth_success_result(
+    *,
+    user: User,
+    session_record: UserSession,
+    token: str | None,
+) -> dict[str, Any]:
+    result = _serialize_current_user(user)
+    result["session"] = serialize_user_session(session_record, current=True)
+    result["session_mode"] = session_record.auth_transport
+    result["available_auth_transports"] = available_auth_transports(session_record.auth_transport)
+    result["auth_transport"] = (
+        "bearer" if token is not None else "cookie"
+    )
+    result["token"] = (
+        _session_token_payload(token=token, expires_at=session_record.expires_at)
+        if token is not None
+        else None
+    )
+    return result
+
+
+def _collection_result(
+    *,
+    result: dict[str, Any],
+    items_key: str = "items",
+    alias_key: str,
+) -> dict[str, Any]:
+    items = result.get(items_key)
+    if isinstance(items, list):
+        result[alias_key] = items
+    pagination = {
+        "count": int(result.get("count", len(items) if isinstance(items, list) else 0) or 0),
+        "total": int(result.get("total", result.get("count", 0)) or 0),
+    }
+    if "limit" in result:
+        pagination["limit"] = int(result.get("limit", 0) or 0)
+    if "offset" in result:
+        pagination["offset"] = int(result.get("offset", 0) or 0)
+    result["pagination"] = pagination
+    return result
+
+
 def _serialize_warning_details(
     warnings: list[str | ApiWarningDetail] | None,
 ) -> tuple[list[str], list[dict[str, str | None]]]:
@@ -243,14 +482,8 @@ def _response(
 
 
 def _create_session_factory(
-    *,
-    db: str | None,
-    config_path: str | None,
+    config: AppConfig,
 ) -> tuple[AppConfig, sessionmaker[Session]]:
-    config = build_config(
-        config_path=Path(config_path).expanduser() if config_path else None,
-        db_override=Path(db).expanduser() if db else None,
-    )
     db_url = database_url(config)
     migrate_db(db_url)
     engine = create_engine_for_url(db_url)
@@ -262,43 +495,47 @@ class RequestContext:
     config: AppConfig
     sessions: sessionmaker[Session]
     config_path: Path
-    db_override: str | None
-    config_override: str | None
+    bind_host: str
 
 
-@dataclass(slots=True)
-class ConnectorCascadeSourceState:
-    source_id: str
-    state: str = "pending"
-    started_at: datetime | None = None
-    finished_at: datetime | None = None
-    error: str | None = None
-    bootstrap: ConnectorBootstrapSession | None = None
-    sync: ConnectorBootstrapSession | None = None
+def _resolved_runtime_config_path(
+    *,
+    config: AppConfig,
+    config_path: Path | None,
+) -> Path:
+    if config_path is not None:
+        return config_path.expanduser().resolve()
+    configured_path = os.getenv("LIDLTOOL_CONFIG")
+    if configured_path:
+        return Path(configured_path).expanduser().resolve()
+    return default_config_file(config.config_dir)
 
 
-@dataclass(slots=True)
-class ConnectorCascadeSession:
-    user_id: str
-    source_ids: list[str]
-    full: bool
-    status: str
-    started_at: datetime
-    lock: threading.Lock
-    cancel_event: threading.Event
-    sources: dict[str, ConnectorCascadeSourceState]
-    current_source_id: str | None = None
-    current_step: str | None = None
-    finished_at: datetime | None = None
-    worker_thread: threading.Thread | None = None
-
-
-@dataclass(slots=True)
-class VncRuntime:
-    display: str
-    vnc_port: int
-    xvfb_process: subprocess.Popen[str]
-    x11vnc_process: subprocess.Popen[str]
+def _build_runtime_context(
+    *,
+    config: AppConfig | None = None,
+    config_path: Path | None = None,
+    db_override: Path | None = None,
+    bind_host: str | None = None,
+) -> RequestContext:
+    if config is None:
+        app_config = build_config(config_path=config_path, db_override=db_override)
+    elif db_override is not None:
+        app_config = config.model_copy(update={"db_path": db_override})
+    else:
+        app_config = config
+    resolved_config_path = _resolved_runtime_config_path(
+        config=app_config,
+        config_path=config_path,
+    )
+    resolved_bind_host = resolve_bind_host(bind_host)
+    app_config, sessions = _create_session_factory(app_config)
+    return RequestContext(
+        config=app_config,
+        sessions=sessions,
+        config_path=resolved_config_path,
+        bind_host=resolved_bind_host,
+    )
 
 
 class SPAStaticFiles(StaticFiles):
@@ -322,13 +559,6 @@ class SPAStaticFiles(StaticFiles):
         return await super().get_response("index.html", scope)
 
 
-def _extract_optional_request_field(request: Request, field_name: str) -> str | None:
-    query_value = request.query_params.get(field_name)
-    if query_value:
-        return query_value
-    return None
-
-
 def _parse_source_ids(source_ids: str | None) -> list[str] | None:
     if source_ids is None:
         return None
@@ -338,39 +568,56 @@ def _parse_source_ids(source_ids: str | None) -> list[str] | None:
 
 
 def _resolve_request_context(
-    request: Request,
-    *,
-    db: str | None = None,
-    config_path: str | None = None,
+    request: HTTPConnection,
 ) -> RequestContext:
-    resolved_db = db if db is not None else _extract_optional_request_field(request, "db")
-    resolved_config = (
-        config_path
-        if config_path is not None
-        else _extract_optional_request_field(request, "config")
-    )
-    resolved_config_path = (
-        Path(resolved_config).expanduser().resolve()
-        if resolved_config
-        else default_config_file()
-    )
     cached = getattr(request.state, "request_context", None)
-    if (
-        isinstance(cached, RequestContext)
-        and cached.db_override == resolved_db
-        and cached.config_override == resolved_config
-    ):
+    if isinstance(cached, RequestContext):
         return cached
-    app_config, sessions = _create_session_factory(db=resolved_db, config_path=resolved_config)
-    context = RequestContext(
-        config=app_config,
-        sessions=sessions,
-        config_path=resolved_config_path,
-        db_override=resolved_db,
-        config_override=resolved_config,
-    )
+    context = getattr(request.app.state, "request_context", None)
+    if not isinstance(context, RequestContext):
+        raise RuntimeError("http runtime context not initialized")
     request.state.request_context = context
     return context
+
+
+def _disallowed_runtime_override_fields(connection: HTTPConnection) -> list[str]:
+    return [
+        field_name
+        for field_name in ("db", "config")
+        if connection.query_params.get(field_name)
+    ]
+
+
+async def _reject_runtime_override_usage(request: Request) -> JSONResponse | None:
+    fields = _disallowed_runtime_override_fields(request)
+    if not fields:
+        return None
+    joined = ", ".join(sorted(fields))
+    return JSONResponse(
+        status_code=400,
+        content=_response(
+            False,
+            result=None,
+            warnings=[],
+            error=f"request runtime override(s) are not supported: {joined}",
+            error_code="request_runtime_override_not_supported",
+        ),
+    )
+
+
+async def _reject_form_runtime_override_usage(request: Request) -> None:
+    content_type = (request.headers.get("content-type") or "").lower()
+    if "multipart/form-data" not in content_type and "application/x-www-form-urlencoded" not in content_type:
+        return
+    form = await request.form()
+    disallowed = [field_name for field_name in ("db", "config") if field_name in form]
+    if not disallowed:
+        return
+    joined = ", ".join(sorted(disallowed))
+    raise HTTPException(
+        status_code=400,
+        detail=f"request runtime override(s) are not supported: {joined}",
+    )
 
 
 def _header_api_key(request: Request) -> str | None:
@@ -391,7 +638,7 @@ def _apply_auth_guard(config: AppConfig, *, request: Request) -> list[str | ApiW
         return warnings
     if _header_api_key(request) == expected_api_key:
         return warnings
-    mode = str(config.openclaw_auth_mode or "warn_only").lower()
+    mode = str(config.openclaw_auth_mode or "enforce").lower()
     if mode == "enforce":
         raise RuntimeError("unauthorized request")
     warnings.append(
@@ -456,6 +703,32 @@ def _status_code_for_exception(exc: Exception) -> int:
     return 500
 
 
+def _assert_route_auth_matrix_complete(app: FastAPI) -> None:
+    assert_route_auth_policy(app)
+
+
+def _assert_route_auth_category(request: HTTPConnection, *allowed_categories: str) -> RouteAuthPolicy:
+    policy = _route_auth_policy_for(request)
+    if policy.category not in allowed_categories:
+        allowed = ", ".join(sorted(allowed_categories))
+        raise RuntimeError(
+            "route auth policy mismatch: "
+            f"{policy.method} {policy.path} is classified as {policy.category!r}, "
+            f"but this handler requires one of: {allowed}"
+        )
+    return policy
+
+
+def _route_auth_policy_for(request: HTTPConnection) -> RouteAuthPolicy:
+    route = request.scope.get("route")
+    path = getattr(route, "path", request.url.path)
+    method = "WEBSOCKET" if isinstance(request, WebSocket) else request.method.upper()
+    try:
+        return HTTP_ROUTE_AUTH_BY_KEY[(method, str(path))]
+    except KeyError as exc:
+        raise RuntimeError(f"missing route auth policy for {method} {path}") from exc
+
+
 def _error_code_from_message(message: str | None, *, status_code: int) -> str | None:
     normalized = (message or "").strip().lower()
     if not normalized:
@@ -473,6 +746,8 @@ def _error_code_from_message(message: str | None, *, status_code: int) -> str | 
         "data integrity conflict": "data_integrity_conflict",
         "document not found": "document_not_found",
         "internal server error": "internal_server_error",
+        "initial bootstrap requires a loopback request or configured bootstrap token": "bootstrap_loopback_or_token_required",
+        "invalid bootstrap token": "invalid_bootstrap_token",
         "invalid field value": "invalid_field_value",
         "invalid json payload": "invalid_json_payload",
         "invalid or expired session token": "invalid_or_expired_session_token",
@@ -486,8 +761,17 @@ def _error_code_from_message(message: str | None, *, status_code: int) -> str | 
         "missing token signing secret": "missing_token_signing_secret",
         "rate limit exceeded; retry after retry-after seconds": "rate_limited",
         "resource conflict": "resource_conflict",
+        "request runtime override(s) are not supported: config": "request_runtime_override_not_supported",
+        "request runtime override(s) are not supported: db": "request_runtime_override_not_supported",
+        "request runtime override(s) are not supported: config, db": "request_runtime_override_not_supported",
+        "request runtime override(s) are not supported: db, config": "request_runtime_override_not_supported",
         "service not ready": "service_not_ready",
+        "session expired": "session_expired",
+        "session not found": "session_not_found",
+        "session revoked": "session_revoked",
         "session user not found": "session_user_not_found",
+        "session_mode must be one of: cookie, token, both": "invalid_session_mode",
+        "setup required": "setup_required",
         "setup already completed": "setup_already_completed",
         "source not found": "source_not_found",
         "thread is already generating": "chat_thread_already_generating",
@@ -611,10 +895,21 @@ def _rate_limit_for_family(config: AppConfig, family: str) -> int:
 
 
 def _rate_limit_principal(request: Request) -> str:
-    api_key = _header_api_key(request)
-    if api_key:
-        digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
+    x_api_key = request.headers.get("x-api-key")
+    if x_api_key:
+        digest = hashlib.sha256(x_api_key.strip().encode("utf-8")).hexdigest()[:16]
         return f"api_key:{digest}"
+    authorization = request.headers.get("authorization")
+    if authorization and authorization.lower().startswith("bearer "):
+        bearer = authorization[7:].strip()
+        if bearer:
+            family = "session" if bearer.count(".") == 2 else "api_key"
+            digest = hashlib.sha256(bearer.encode("utf-8")).hexdigest()[:16]
+            return f"{family}:{digest}"
+    session_token = request.cookies.get(SESSION_COOKIE_NAME)
+    if session_token:
+        digest = hashlib.sha256(session_token.encode("utf-8")).hexdigest()[:16]
+        return f"session:{digest}"
     if request.client is not None and request.client.host:
         return f"ip:{request.client.host}"
     return "ip:unknown"
@@ -643,8 +938,8 @@ def _evaluate_rate_limit(request: Request, config: AppConfig) -> RateLimitState 
     limit = _rate_limit_for_family(config, family=family)
     principal = _rate_limit_principal(request)
     key = f"{principal}|{family}"
-    buckets = cast(dict[str, list[float]], request.app.state.http_rate_limit_buckets)
-    lock = cast(Any, request.app.state.http_rate_limit_lock)
+    buckets = get_http_rate_limit_buckets(request.app)
+    lock = get_http_rate_limit_lock(request.app)
     now = time.monotonic()
     window_start = now - window_s
     with lock:
@@ -692,14 +987,114 @@ def _resolve_request_user(
     config: AppConfig,
     required: bool = True,
 ) -> User:
+    _assert_route_auth_category(request, "authenticated_principal")
     resolved = get_current_user(request=request, session=session, config=config, required=False)
     if resolved is not None:
         return resolved
     if human_user_count(session) == 0:
-        return ensure_service_user(session)
+        raise HTTPException(status_code=503, detail="setup required")
     if required:
         raise HTTPException(status_code=401, detail="authentication required")
     return ensure_service_user(session)
+
+
+def _require_admin_auth_context(
+    *,
+    request: Request,
+    session: Session,
+    config: AppConfig,
+) -> AuthenticatedSessionContext:
+    _assert_route_auth_category(request, "admin_only")
+    auth_context = _request_auth_context(
+        request=request,
+        session=session,
+        config=config,
+        required=True,
+    )
+    if auth_context is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    if not auth_context.user.is_admin:
+        raise HTTPException(status_code=403, detail="admin privileges required")
+    return auth_context
+
+
+def _require_user_session_auth_context(
+    *,
+    request: Request,
+    session: Session,
+    config: AppConfig,
+    admin_required: bool = False,
+) -> AuthenticatedSessionContext:
+    _assert_route_auth_category(
+        request,
+        "admin_only" if admin_required else "authenticated_user_session",
+    )
+    auth_context = _request_auth_context(
+        request=request,
+        session=session,
+        config=config,
+        required=True,
+    )
+    if auth_context is None or not is_session_transport(auth_context):
+        raise HTTPException(status_code=401, detail="authentication required")
+    if auth_context.user.username == SERVICE_USERNAME:
+        raise HTTPException(status_code=401, detail="authentication required")
+    if admin_required and not auth_context.user.is_admin:
+        raise HTTPException(status_code=403, detail="admin privileges required")
+    return auth_context
+
+
+def _provided_bootstrap_token(
+    request: Request,
+    payload_token: str | None,
+) -> str | None:
+    header_token = (request.headers.get("x-lidltool-bootstrap-token") or "").strip()
+    if header_token:
+        return header_token
+    raw_payload = (payload_token or "").strip()
+    return raw_payload or None
+
+
+def _bootstrap_token_required(config: AppConfig) -> bool:
+    return bool((config.auth_bootstrap_token or "").strip())
+
+
+def _enforce_initial_bootstrap_guard(
+    *,
+    request: Request,
+    config: AppConfig,
+    provided_token: str | None,
+) -> None:
+    policy = evaluate_deployment_policy(config)
+    expected_token = (config.auth_bootstrap_token or "").strip()
+    if expected_token:
+        if provided_token != expected_token:
+            raise HTTPException(status_code=403, detail="invalid bootstrap token")
+        return
+    if policy.requires_remote_safeguards:
+        raise HTTPException(
+            status_code=403,
+            detail="initial bootstrap requires a configured bootstrap token for non-local deployments",
+        )
+    if policy.exposure_mode == HttpExposureMode.LOCALHOST and not is_loopback_request(request):
+        raise HTTPException(
+            status_code=403,
+            detail="initial bootstrap requires a loopback request or configured bootstrap token",
+        )
+
+
+def _validate_bootstrap_startup_guard(
+    *,
+    config: AppConfig,
+    sessions: sessionmaker[Session],
+    bind_host: str | None = None,
+) -> None:
+    with session_scope(sessions) as session:
+        evaluate_deployment_policy(
+            config,
+            bind_host=bind_host,
+            has_human_users=human_user_count(session) > 0,
+        )
 
 
 def _resolve_request_user_identity(
@@ -754,6 +1149,66 @@ def _source_is_visible(
     if visibility.is_service:
         return source.user_id in {None, visibility.user_id}
     return source.user_id == visibility.user_id
+
+
+def _dashboard_summary_payload(
+    app: FastAPI,
+    session: Session,
+    *,
+    config: AppConfig,
+    user: User,
+    visibility: VisibilityContext,
+    year: int,
+    month: int,
+    recent_limit: int,
+) -> dict[str, Any]:
+    cards = dashboard_totals(
+        session,
+        year=year,
+        month=month,
+        visibility=visibility,
+    )
+    recent = search_transactions(
+        session,
+        limit=min(max(recent_limit, 1), 20),
+        offset=0,
+        visibility=visibility,
+    )
+    recent = _collection_result(result=recent, alias_key="transactions")
+    offer_counts = offer_overview(session, config=config, user_id=user.user_id)["counts"]
+    auth_service = _connector_auth_service(app, config=config)
+    visible_sources = session.execute(
+        select(Source).where(
+            Source.user_id == user.user_id
+            if user.username != SERVICE_USERNAME
+            else (Source.user_id == user.user_id) | Source.user_id.is_(None)
+        )
+    ).scalars().all()
+    source_statuses = [
+        _source_status_payload(
+            app,
+            session,
+            auth_service=auth_service,
+            config=config,
+            source=source,
+        )
+        for source in visible_sources
+    ]
+    needs_attention = sum(1 for item in source_statuses if item["needs_attention"] is True)
+    return {
+        "period": cards["period"],
+        "totals": cards["totals"],
+        "recent_transactions": recent["transactions"],
+        "recent_transactions_pagination": recent["pagination"],
+        "offers": offer_counts,
+        "sources": {
+            "count": len(source_statuses),
+            "needs_attention": needs_attention,
+            "healthy": sum(1 for item in source_statuses if item["status"] == "healthy"),
+            "syncing": sum(1 for item in source_statuses if item["status"] == "syncing"),
+        },
+        "generated_at": datetime.now(tz=UTC).isoformat(),
+    }
 
 
 def _owns_user_resource(user: User, *, resource_user_id: str | None) -> bool:
@@ -921,13 +1376,13 @@ def _should_autotitle_thread(thread: ChatThread, first_user_message: str) -> boo
 
 def _schedule_chat_title_generation(
     *,
-    db: str | None,
-    config_path: str | None,
+    config: AppConfig,
+    sessions: sessionmaker[Session],
+    config_path: Path,
     thread_id: str,
 ) -> None:
     def _job() -> None:
         try:
-            app_config, sessions = _create_session_factory(db=db, config_path=config_path)
             with session_scope(sessions) as session:
                 thread = session.get(ChatThread, thread_id)
                 if thread is None or thread.archived_at is not None:
@@ -962,40 +1417,40 @@ def _schedule_chat_title_generation(
                 return
 
             token = _resolve_ai_bearer_token(
-                app_config,
-                Path(config_path).expanduser().resolve() if config_path else None,
+                config,
+                config_path,
             )
-            if not token:
-                return
-            base_url = (app_config.ai_base_url or "").strip()
-            if not base_url:
-                return
-            model = (app_config.ai_model or "").strip() or "gpt-5.2-codex"
+            from lidltool.ai.runtime import ChatCompletionRequest, RuntimeMessage, RuntimeTask
+            from lidltool.ai.runtime import RuntimePolicyMode, resolve_runtime_client
 
-            from openai import OpenAI
-
-            client = OpenAI(base_url=base_url, api_key=token)
-            completion = client.chat.completions.create(
-                model=model,
-                temperature=0.1,
-                max_tokens=24,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Generate a concise conversation title with 5 words or fewer.",
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            "Summarize this conversation in 5 words or fewer.\n\n"
-                            f"{transcript}"
+            runtime = resolve_runtime_client(
+                config,
+                task=RuntimeTask.PI_AGENT,
+                policy_mode=RuntimePolicyMode(str(config.pi_agent_runtime_policy)),
+                api_key_override=token,
+            )
+            if runtime is None:
+                return
+            model = _runtime_model_name(runtime, explicit_model=config.ai_model, app_config=config)
+            completion = runtime.complete_chat(
+                ChatCompletionRequest(
+                    task=RuntimeTask.PI_AGENT,
+                    model_name=model,
+                    temperature=0.1,
+                    max_tokens=24,
+                    messages=[
+                        RuntimeMessage(
+                            role="system",
+                            content="Generate a concise conversation title with 5 words or fewer.",
                         ),
-                    },
-                ],
+                        RuntimeMessage(
+                            role="user",
+                            content=f"Summarize this conversation in 5 words or fewer.\n\n{transcript}",
+                        ),
+                    ],
+                )
             )
-            raw_title = None
-            if completion.choices:
-                raw_title = completion.choices[0].message.content
+            raw_title = completion.text
             title = _normalize_chat_title(raw_title)
             if title == "New chat":
                 return
@@ -1027,8 +1482,8 @@ def _schedule_chat_title_generation(
 
 
 def _service_metadata(app: FastAPI) -> dict[str, Any]:
-    started_at = getattr(app.state, "started_at", datetime.now(tz=UTC))
-    if isinstance(started_at, datetime):
+    started_at = get_started_at(app)
+    if started_at is not None:
         uptime_seconds = max(int((datetime.now(tz=UTC) - started_at).total_seconds()), 0)
         started_at_iso = started_at.isoformat()
     else:
@@ -1037,11 +1492,102 @@ def _service_metadata(app: FastAPI) -> dict[str, Any]:
     return {
         "service": "lidltool-http-api",
         "version": str(app.version),
-        "build": str(getattr(app.state, "build", os.getenv("LIDLTOOL_BUILD", "dev"))),
+        "build": get_build(app),
         "started_at": started_at_iso,
         "uptime_seconds": uptime_seconds,
         "timestamp": datetime.now(tz=UTC).isoformat(),
     }
+
+
+def _serialize_quality_recategorize_job(job: QualityRecategorizeJobState) -> dict[str, Any]:
+    return {
+        "job_id": job.job_id,
+        "status": job.status,
+        "requested_by_user_id": job.requested_by_user_id,
+        "requested_at": job.requested_at.isoformat(),
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+        "source_id": job.source_id,
+        "only_fallback_other": job.only_fallback_other,
+        "include_suspect_model_items": job.include_suspect_model_items,
+        "max_transactions": job.max_transactions,
+        "transaction_count": job.transaction_count,
+        "candidate_item_count": job.candidate_item_count,
+        "updated_transaction_count": job.updated_transaction_count,
+        "updated_item_count": job.updated_item_count,
+        "skipped_transaction_count": job.skipped_transaction_count,
+        "method_counts": dict(job.method_counts or {}),
+        "error": job.error,
+    }
+
+
+def _start_quality_recategorize_job(
+    app: FastAPI,
+    *,
+    sessions: sessionmaker[Session],
+    config: AppConfig,
+    requested_by_user_id: str,
+    transaction_ids: list[str],
+    source_id: str | None,
+    only_fallback_other: bool,
+    include_suspect_model_items: bool,
+    max_transactions: int | None,
+) -> QualityRecategorizeJobState:
+    job = QualityRecategorizeJobState(
+        job_id=str(uuid4()),
+        status="queued",
+        requested_by_user_id=requested_by_user_id,
+        requested_at=datetime.now(tz=UTC),
+        source_id=source_id,
+        only_fallback_other=only_fallback_other,
+        include_suspect_model_items=include_suspect_model_items,
+        max_transactions=max_transactions,
+        method_counts={},
+    )
+    jobs = get_quality_recategorize_jobs(app)
+    lock = get_quality_recategorize_lock(app)
+    with lock:
+        jobs[job.job_id] = job
+
+    def _worker() -> None:
+        with lock:
+            job.status = "running"
+            job.started_at = datetime.now(tz=UTC)
+            job.error = None
+        try:
+            with session_scope(sessions) as session:
+                summary = recategorize_transactions(
+                    session=session,
+                    config=config,
+                    transaction_ids=transaction_ids,
+                    source_id=source_id,
+                    only_fallback_other=only_fallback_other,
+                    include_suspect_model_items=include_suspect_model_items,
+                    max_transactions=max_transactions,
+                    require_model_runtime=True,
+                )
+            with lock:
+                job.status = "completed"
+                job.finished_at = datetime.now(tz=UTC)
+                job.transaction_count = summary.transaction_count
+                job.candidate_item_count = summary.candidate_item_count
+                job.updated_transaction_count = summary.updated_transaction_count
+                job.updated_item_count = summary.updated_item_count
+                job.skipped_transaction_count = summary.skipped_transaction_count
+                job.method_counts = dict(summary.method_counts or {})
+        except Exception as exc:  # noqa: BLE001
+            with lock:
+                job.status = "failed"
+                job.finished_at = datetime.now(tz=UTC)
+                job.error = str(exc)
+
+    worker = threading.Thread(
+        target=_worker,
+        daemon=True,
+        name=f"quality-recategorize-{job.job_id[:8]}",
+    )
+    worker.start()
+    return job
 
 
 def _readiness_db_check(sessions: sessionmaker[Session]) -> tuple[bool, str]:
@@ -1068,7 +1614,7 @@ def _readiness_storage_check(config: AppConfig) -> tuple[bool, str]:
 def _readiness_scheduler_check(app: FastAPI, config: AppConfig) -> tuple[bool, str]:
     if not config.automations_scheduler_enabled:
         return True, "disabled"
-    scheduler = getattr(app.state, "automation_scheduler", None)
+    scheduler = get_automation_scheduler(app)
     worker = getattr(scheduler, "_worker", None)
     if worker is None or not worker.is_alive():
         return False, "automation scheduler is not running"
@@ -1127,7 +1673,7 @@ def _vnc_runtime_is_healthy(runtime: VncRuntime | None) -> bool:
 
 
 def _stop_vnc_runtime(app: FastAPI) -> None:
-    runtime = cast(VncRuntime | None, getattr(app.state, "vnc_runtime", None))
+    runtime = get_vnc_runtime(app)
     if runtime is None:
         return
     for process in (runtime.x11vnc_process, runtime.xvfb_process):
@@ -1139,13 +1685,13 @@ def _stop_vnc_runtime(app: FastAPI) -> None:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
-    app.state.vnc_runtime = None
+    set_vnc_runtime(app, None)
 
 
 def _ensure_vnc_runtime(app: FastAPI) -> VncRuntime:
-    existing = cast(VncRuntime | None, getattr(app.state, "vnc_runtime", None))
-    if _vnc_runtime_is_healthy(existing):
-        return cast(VncRuntime, existing)
+    existing = get_vnc_runtime(app)
+    if existing is not None and _vnc_runtime_is_healthy(existing):
+        return existing
     _stop_vnc_runtime(app)
 
     xvfb_bin = shutil.which("Xvfb")
@@ -1196,7 +1742,7 @@ def _ensure_vnc_runtime(app: FastAPI) -> VncRuntime:
         xvfb_process=xvfb_process,
         x11vnc_process=x11vnc_process,
     )
-    app.state.vnc_runtime = runtime
+    set_vnc_runtime(app, runtime)
     return runtime
 
 
@@ -1216,11 +1762,15 @@ def _connector_command(
     source_id: str,
     operation: Literal["bootstrap", "sync"],
     full: bool = False,
+    extra_args: tuple[str, ...] = (),
 ) -> list[str] | None:
     resolved = ConnectorExecutionService(config=config).build_command(
         source_id=source_id,
         operation=operation,
-        extra_args=("--full",) if operation == "sync" and full else (),
+        extra_args=(
+            *(("--full",) if operation == "sync" and full else ()),
+            *extra_args,
+        ),
     )
     if resolved is None:
         return None
@@ -1229,10 +1779,9 @@ def _connector_command(
 
 def _connector_auth_service(app: FastAPI, *, config: AppConfig) -> ConnectorAuthOrchestrationService:
     execution = ConnectorExecutionService(config=config)
-    registry = cast(ConnectorAuthSessionRegistry, app.state.connector_auth_sessions)
     return ConnectorAuthOrchestrationService(
         config=config,
-        session_registry=registry,
+        session_registry=get_connector_auth_registry(app),
         connector_builder=execution.build_receipt_connector,
         repo_root=_repo_root(),
         process_factory=subprocess.Popen,
@@ -1241,24 +1790,6 @@ def _connector_auth_service(app: FastAPI, *, config: AppConfig) -> ConnectorAuth
 
 def _connector_bootstrap_is_running(session: ConnectorBootstrapSession) -> bool:
     return connector_bootstrap_is_running(session)
-
-
-def _serialize_connector_bootstrap(session: ConnectorBootstrapSession) -> dict[str, Any]:
-    snapshot = serialize_connector_bootstrap(session)
-    return {
-        "source_id": snapshot.source_id,
-        "status": snapshot.state,
-        "command": " ".join(snapshot.command or ()),
-        "pid": snapshot.pid,
-        "started_at": snapshot.started_at.isoformat() if snapshot.started_at is not None else None,
-        "finished_at": (
-            snapshot.finished_at.isoformat() if snapshot.finished_at is not None else None
-        ),
-        "return_code": snapshot.return_code,
-        "output_tail": list(snapshot.output_tail),
-        "can_cancel": snapshot.can_cancel,
-    }
-
 
 def _terminate_connector_bootstrap(session: ConnectorBootstrapSession) -> None:
     terminate_connector_bootstrap(session)
@@ -1278,7 +1809,7 @@ def _connector_process_env(app: FastAPI, *, config: AppConfig) -> dict[str, str]
         env["LIDLTOOL_DB_URL"] = config.db_url
     if config.credential_encryption_key:
         env["LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY"] = config.credential_encryption_key
-    runtime = cast(VncRuntime | None, getattr(app.state, "vnc_runtime", None))
+    runtime = get_vnc_runtime(app)
     if runtime is not None:
         env["DISPLAY"] = runtime.display
     env["PYTHONUNBUFFERED"] = "1"
@@ -1291,10 +1822,10 @@ def _start_connector_command_session(
     source_id: str,
     command: list[str],
     config: AppConfig,
-    sessions_attr: str,
+    session_kind: Literal["bootstrap", "sync"],
     thread_name: str,
 ) -> ConnectorBootstrapSession:
-    sessions = cast(dict[str, ConnectorBootstrapSession], getattr(app.state, sessions_attr))
+    sessions = get_connector_command_sessions(app, kind=session_kind)
     return start_connector_command_session(
         ConnectorAuthSessionRegistry(sessions),
         source_id=source_id,
@@ -1335,6 +1866,10 @@ def _normalize_cascade_source_ids(source_ids: list[str]) -> list[str]:
     return normalized
 
 
+def _connector_is_preview_source(source_id: str) -> bool:
+    return source_id not in {"lidl_plus_de", "dm_de", "edeka_de"}
+
+
 def _idle_connector_cascade_status() -> dict[str, Any]:
     return {
         "status": "idle",
@@ -1369,7 +1904,7 @@ def _start_connector_cascade_session(
     source_ids: list[str],
     full: bool,
     config: AppConfig,
-    warnings: list[str],
+    warnings: list[str | ApiWarningDetail],
 ) -> ConnectorCascadeSession:
     try:
         _ensure_vnc_runtime(app)
@@ -1398,11 +1933,11 @@ def _start_connector_cascade_session(
         name=f"connector-cascade-{user_id[:8]}",
     )
     cascade.worker_thread = worker
-    cascade_sessions = cast(dict[str, ConnectorCascadeSession], app.state.connector_cascade_sessions)
+    cascade_sessions = get_connector_cascade_sessions(app)
     cascade_sessions[user_id] = cascade
     worker.start()
 
-    if any(source_id != "lidl_plus_de" for source_id in source_ids):
+    if any(_connector_is_preview_source(source_id) for source_id in source_ids):
         warnings.append(
             "cascade includes preview connectors that are not fully live-validated yet"
         )
@@ -1537,7 +2072,7 @@ def _run_connector_cascade(
     user_id: str,
     config: AppConfig,
 ) -> None:
-    sessions = cast(dict[str, ConnectorCascadeSession], app.state.connector_cascade_sessions)
+    sessions = get_connector_cascade_sessions(app)
     cascade = sessions.get(user_id)
     if cascade is None:
         return
@@ -1582,7 +2117,7 @@ def _run_connector_cascade(
                 source_id=source_id,
                 command=bootstrap_command,
                 config=config,
-                sessions_attr="connector_bootstrap_sessions",
+                session_kind="bootstrap",
                 thread_name=f"connector-cascade-bootstrap-{source_id}",
             )
             with cascade.lock:
@@ -1641,7 +2176,7 @@ def _run_connector_cascade(
                 source_id=source_id,
                 command=sync_command,
                 config=config,
-                sessions_attr="connector_sync_sessions",
+                session_kind="sync",
                 thread_name=f"connector-cascade-sync-{source_id}",
             )
             with cascade.lock:
@@ -1708,12 +2243,19 @@ def _run_connector_cascade(
                 cascade.status = "completed"
 
 
-AI_OAUTH_CALLBACK_HOST = "127.0.0.1"
+AI_OAUTH_CALLBACK_HOST = os.getenv("LIDLTOOL_AI_OAUTH_CALLBACK_BIND_HOST", "127.0.0.1")
 AI_OAUTH_CALLBACK_PORT = 1455
 AI_OAUTH_CALLBACK_PATH = "/auth/callback"
 AI_OAUTH_REDIRECT_URI = f"http://localhost:{AI_OAUTH_CALLBACK_PORT}{AI_OAUTH_CALLBACK_PATH}"
 AI_OAUTH_EXPIRES_IN_SECONDS = 300
 _OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
+
+
+def _first_query_param(params: dict[str, list[str]], key: str) -> str | None:
+    values = params.get(key)
+    if not values:
+        return None
+    return values[0]
 
 
 def _set_ai_oauth_state(
@@ -1723,21 +2265,23 @@ def _set_ai_oauth_state(
     error: str | None = None,
     provider: str | None = None,
 ) -> None:
-    lock = cast(threading.Lock, app.state.ai_oauth_lock)
+    lock = get_ai_oauth_lock(app)
     with lock:
-        app.state.ai_oauth_state = {
-            "status": status,
-            "error": error,
-            "provider": provider,
-            "updated_at": datetime.now(tz=UTC).isoformat(),
-        }
+        set_http_ai_oauth_state(
+            app,
+            {
+                "status": status,
+                "error": error,
+                "provider": provider,
+                "updated_at": datetime.now(tz=UTC).isoformat(),
+            },
+        )
 
 
 def _get_ai_oauth_state(app: FastAPI) -> dict[str, Any]:
-    lock = cast(threading.Lock, app.state.ai_oauth_lock)
+    lock = get_ai_oauth_lock(app)
     with lock:
-        raw = cast(dict[str, Any], app.state.ai_oauth_state)
-        return dict(raw)
+        return dict(get_http_ai_oauth_state(app))
 
 
 def _pkce_code_challenge(verifier: str) -> str:
@@ -1745,7 +2289,11 @@ def _pkce_code_challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
-def _build_openai_codex_auth_url(*, state: str, code_challenge: str) -> str:
+def _build_openai_codex_auth_url(
+    *,
+    state: str,
+    code_challenge: str,
+) -> str:
     params = {
         "response_type": "code",
         "client_id": _OPENAI_CODEX_CLIENT_ID,
@@ -1760,7 +2308,11 @@ def _build_openai_codex_auth_url(*, state: str, code_challenge: str) -> str:
     return f"https://auth.openai.com/oauth/authorize?{urlencode(params)}"
 
 
-def _exchange_openai_oauth_code(*, code: str, code_verifier: str) -> dict[str, Any]:
+def _exchange_openai_oauth_code(
+    *,
+    code: str,
+    code_verifier: str,
+) -> dict[str, Any]:
     response = httpx.post(
         "https://auth.openai.com/oauth/token",
         data={
@@ -1812,7 +2364,7 @@ def _run_openai_oauth_callback_server(
                 return
 
             params = parse_qs(parsed.query, keep_blank_values=False)
-            callback_state = (params.get("state") or [None])[0]
+            callback_state = _first_query_param(params, "state")
             if callback_state != expected_state:
                 _set_ai_oauth_state(
                     app,
@@ -1825,9 +2377,9 @@ def _run_openai_oauth_callback_server(
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
 
-            oauth_error = (params.get("error") or [None])[0]
+            oauth_error = _first_query_param(params, "error")
             if oauth_error:
-                description = (params.get("error_description") or [""])[0]
+                description = _first_query_param(params, "error_description") or ""
                 message = (
                     f"{oauth_error}: {description}" if description else str(oauth_error)
                 )
@@ -1842,7 +2394,7 @@ def _run_openai_oauth_callback_server(
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
 
-            code = (params.get("code") or [None])[0]
+            code = _first_query_param(params, "code")
             if not code:
                 _set_ai_oauth_state(
                     app,
@@ -1872,10 +2424,6 @@ def _run_openai_oauth_callback_server(
                 config.ai_oauth_expires_at = (
                     datetime.now(tz=UTC) + timedelta(seconds=max(expires_in, 1))
                 ).isoformat()
-                config.ai_enabled = True
-                config.ai_base_url = "https://api.openai.com/v1"
-                if config.ai_model not in {"gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.1-codex-max", "gpt-5.2", "gpt-5.1-codex-mini"}:
-                    config.ai_model = "gpt-5.2-codex"
                 persist_ai_settings(config_path, config)
                 _set_ai_oauth_state(
                     app,
@@ -1889,6 +2437,7 @@ def _run_openai_oauth_callback_server(
                         "<html><body>"
                         "<h3>Authentication complete</h3>"
                         "<p>You can close this tab and return to Lidl Receipts.</p>"
+                        "<script>window.close();</script>"
                         "</body></html>"
                     ),
                 )
@@ -1908,7 +2457,10 @@ def _run_openai_oauth_callback_server(
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
 
     try:
-        server = ThreadingHTTPServer((AI_OAUTH_CALLBACK_HOST, AI_OAUTH_CALLBACK_PORT), CallbackHandler)
+        server = ThreadingHTTPServer(
+            (AI_OAUTH_CALLBACK_HOST, AI_OAUTH_CALLBACK_PORT),
+            CallbackHandler,
+        )
         server.timeout = 1
     except OSError as exc:
         _set_ai_oauth_state(
@@ -1996,13 +2548,8 @@ def _try_refresh_ai_oauth_token(config: AppConfig, config_path: Path) -> str | N
         return None
 
 
-def _resolve_ai_bearer_token(
-    config: AppConfig,
-    config_path: Path | None = None,
-    *,
-    prefer_oauth: bool = True,
-) -> str | None:
-    oauth_token = get_ai_oauth_access_token(config) if prefer_oauth else None
+def _resolve_ai_oauth_bearer_token(config: AppConfig, config_path: Path | None = None) -> str | None:
+    oauth_token = get_ai_oauth_access_token(config)
     if oauth_token:
         expires_at_str = config.ai_oauth_expires_at
         if expires_at_str and config_path:
@@ -2015,136 +2562,208 @@ def _resolve_ai_bearer_token(
             except Exception:  # noqa: BLE001
                 pass
         return oauth_token
+
+
+def _resolve_ai_api_key_token(config: AppConfig) -> str | None:
     return get_ai_api_key(config)
 
 
-def _authorize_stream_proxy_request(*, request: Request, session: Session, config: AppConfig) -> None:
-    expected_api_key = (config.openclaw_api_key or "").strip()
-    provided_api_key = _header_api_key(request)
-    if expected_api_key and provided_api_key == expected_api_key:
-        return
-    if provided_api_key:
-        try:
-            claims = decode_token(token=provided_api_key, secret=_token_secret(config))
-            user = session.get(User, claims["sub"])
-            if user is not None:
-                return
-        except UserAuthError:
-            pass
-    if request.cookies.get(SESSION_COOKIE_NAME):
-        user = get_current_user(request=request, session=session, config=config, required=False)
-        if user is not None:
+def _resolve_ai_bearer_token(config: AppConfig, config_path: Path | None = None) -> str | None:
+    return _resolve_ai_oauth_bearer_token(config, config_path) or _resolve_ai_api_key_token(config)
+
+
+DEFAULT_LOCAL_CHAT_MODEL = "qwen3.5:0.8b"
+DEFAULT_CHATGPT_CHAT_MODEL = "gpt-5.2-codex"
+
+
+def _chatgpt_oauth_connected(app_config: AppConfig) -> bool:
+    return bool(
+        app_config.ai_oauth_provider == "openai-codex"
+        and _resolve_ai_oauth_bearer_token(app_config)
+    )
+
+
+def _configured_local_chat_model(app_config: AppConfig) -> str:
+    return (
+        (app_config.local_text_model_name or "").strip()
+        or (app_config.item_categorizer_model or "").strip()
+        or DEFAULT_LOCAL_CHAT_MODEL
+    )
+
+
+def _configured_api_chat_model(app_config: AppConfig) -> str | None:
+    if not app_config.ai_enabled:
+        return None
+    base_url = (app_config.ai_base_url or "").strip()
+    model = (app_config.ai_model or "").strip()
+    api_key = _resolve_ai_api_key_token(app_config)
+    if not base_url or not model or not api_key:
+        return None
+    return model
+
+
+def _local_chat_model_enabled(app_config: AppConfig) -> bool:
+    from lidltool.ai.runtime import RuntimePolicyMode, RuntimeTask, resolve_runtime
+
+    resolution = resolve_runtime(
+        app_config,
+        task=RuntimeTask.PI_AGENT,
+        policy_mode=RuntimePolicyMode.LOCAL_ONLY,
+        api_key_override=_resolve_ai_oauth_bearer_token(app_config) or _resolve_ai_api_key_token(app_config),
+    )
+    return resolution.selected
+
+
+def _available_chat_models(app_config: AppConfig) -> list[dict[str, Any]]:
+    local_model = _configured_local_chat_model(app_config)
+    api_model = _configured_api_chat_model(app_config)
+    models: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    def add_model(
+        *,
+        model_id: str | None,
+        label: str,
+        source: Literal["local", "api", "oauth"],
+        enabled: bool,
+        description: str,
+    ) -> None:
+        normalized_model_id = (model_id or "").strip()
+        if not normalized_model_id or normalized_model_id in seen_ids:
             return
-    raise HTTPException(status_code=401, detail="authentication required")
-
-
-def _normalize_message_content(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        chunks: list[str] = []
-        for item in content:
-            if isinstance(item, str):
-                chunks.append(item)
-                continue
-            if not isinstance(item, dict):
-                continue
-            text = item.get("text")
-            if isinstance(text, str):
-                chunks.append(text)
-        return "\n".join(chunks).strip()
-    if isinstance(content, dict):
-        text = content.get("text")
-        if isinstance(text, str):
-            return text
-    return ""
-
-
-def _to_openai_messages(
-    *,
-    system_prompt: str | None,
-    messages: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    converted: list[dict[str, Any]] = []
-    if isinstance(system_prompt, str) and system_prompt.strip():
-        converted.append({"role": "system", "content": system_prompt.strip()})
-    for message in messages:
-        role = str(message.get("role") or "user").strip().lower()
-        if role not in {"system", "user", "assistant", "tool"}:
-            role = "user"
-        raw_content = message.get("content")
-        if role == "assistant" and isinstance(raw_content, list):
-            text_chunks: list[str] = []
-            tool_calls: list[dict[str, Any]] = []
-            for item in raw_content:
-                if not isinstance(item, dict):
-                    continue
-                item_type = str(item.get("type") or "")
-                if item_type == "text" and isinstance(item.get("text"), str):
-                    text_chunks.append(str(item.get("text")))
-                    continue
-                if item_type != "toolCall":
-                    continue
-                name = str(item.get("name") or "").strip()
-                if not name:
-                    continue
-                tool_call_id = str(item.get("id") or f"toolcall_{len(tool_calls)}")
-                arguments = item.get("arguments")
-                if not isinstance(arguments, dict):
-                    arguments = {}
-                tool_calls.append(
-                    {
-                        "id": tool_call_id,
-                        "type": "function",
-                        "function": {
-                            "name": name,
-                            "arguments": json.dumps(arguments, separators=(",", ":")),
-                        },
-                    }
-                )
-            if tool_calls:
-                converted_message: dict[str, Any] = {
-                    "role": "assistant",
-                    "tool_calls": tool_calls,
-                }
-                text_content = "\n".join(text_chunks).strip()
-                if text_content:
-                    converted_message["content"] = text_content
-                converted.append(converted_message)
-                continue
-        content = _normalize_message_content(message.get("content"))
-        if not content and role != "tool":
-            continue
-        converted_message: dict[str, Any] = {"role": role, "content": content}
-        if role == "tool":
-            tool_call_id = message.get("tool_call_id") or message.get("toolCallId")
-            if isinstance(tool_call_id, str) and tool_call_id:
-                converted_message["tool_call_id"] = tool_call_id
-        converted.append(converted_message)
-    return converted
-
-
-def _to_openai_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    converted: list[dict[str, Any]] = []
-    for tool in tools:
-        name = str(tool.get("name") or "").strip()
-        if not name:
-            continue
-        description = str(tool.get("description") or "").strip()
-        parameters = tool.get("parameters")
-        if not isinstance(parameters, dict):
-            parameters = {"type": "object", "properties": {}}
-        converted.append(
+        seen_ids.add(normalized_model_id)
+        models.append(
             {
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": description,
-                    "parameters": parameters,
-                },
+                "id": normalized_model_id,
+                "label": label,
+                "source": source,
+                "enabled": enabled,
+                "description": description,
             }
         )
-    return converted
+
+    add_model(
+        model_id=local_model,
+        label="Local Qwen (tiny)" if "qwen" in local_model.lower() else "Local model",
+        source="local",
+        enabled=_local_chat_model_enabled(app_config),
+        description=(
+            "Very small shipped local fallback model. Private and available by default, but weaker for deeper analysis."
+            if "qwen" in local_model.lower()
+            else "Local model runtime on your self-hosted stack."
+        ),
+    )
+    add_model(
+        model_id=DEFAULT_CHATGPT_CHAT_MODEL,
+        label="ChatGPT",
+        source="oauth",
+        enabled=_chatgpt_oauth_connected(app_config),
+        description="Uses your ChatGPT sign-in when connected.",
+    )
+    if api_model:
+        add_model(
+            model_id=api_model,
+            label=api_model,
+            source="api",
+            enabled=True,
+            description="Configured API model from AI Settings.",
+        )
+    return models
+
+
+def _preferred_chat_model(app_config: AppConfig) -> str:
+    available_models = _available_chat_models(app_config)
+    for source in ("local", "oauth", "api"):
+        for model in available_models:
+            if model["enabled"] and model["source"] == source:
+                return str(model["id"])
+    return _configured_local_chat_model(app_config)
+
+
+def _resolve_selected_chat_model(app_config: AppConfig, requested_model_id: str | None) -> str:
+    normalized_requested = (requested_model_id or "").strip()
+    available_models = _available_chat_models(app_config)
+    enabled_model_ids = {
+        str(model["id"]) for model in available_models if bool(model.get("enabled"))
+    }
+    if normalized_requested and normalized_requested in enabled_model_ids:
+        return normalized_requested
+    preferred_model = _preferred_chat_model(app_config)
+    if preferred_model in enabled_model_ids:
+        return preferred_model
+    return next(iter(enabled_model_ids), preferred_model)
+
+
+def _resolve_pi_agent_runtime_for_model(
+    app_config: AppConfig,
+    *,
+    selected_model_id: str,
+) -> Any:
+    from lidltool.ai.runtime import RuntimePolicyMode, RuntimeTask, resolve_runtime_client
+
+    local_model = _configured_local_chat_model(app_config)
+    api_model = _configured_api_chat_model(app_config)
+    local_api_token = _resolve_ai_oauth_bearer_token(app_config) or _resolve_ai_api_key_token(app_config)
+    if selected_model_id == local_model:
+        runtime = resolve_runtime_client(
+            app_config,
+            task=RuntimeTask.PI_AGENT,
+            policy_mode=RuntimePolicyMode.LOCAL_ONLY,
+            api_key_override=local_api_token,
+        )
+        if runtime is None:
+            raise RuntimeError("selected local chat model is not available")
+        return runtime
+
+    if api_model and selected_model_id == api_model:
+        api_key = _resolve_ai_api_key_token(app_config)
+        runtime = resolve_runtime_client(
+            app_config,
+            task=RuntimeTask.PI_AGENT,
+            policy_mode=RuntimePolicyMode.REMOTE_ALLOWED,
+            api_key_override=api_key,
+        )
+        if runtime is None:
+            raise RuntimeError("selected API chat model is not available")
+        return runtime
+
+    raise RuntimeError(f"unknown or unavailable chat model: {selected_model_id}")
+
+
+def _should_route_stream_via_chatgpt(app_config: AppConfig, model_id: str) -> bool:
+    return _chatgpt_oauth_connected(app_config) and model_id == DEFAULT_CHATGPT_CHAT_MODEL
+
+
+def _runtime_model_name(
+    runtime: Any,
+    *,
+    explicit_model: str | None,
+    app_config: AppConfig,
+    fallback: str = "gpt-5.2-codex",
+) -> str:
+    normalized_explicit = (explicit_model or "").strip()
+    if normalized_explicit:
+        return normalized_explicit
+    runtime_model = getattr(runtime, "model_name", None)
+    if isinstance(runtime_model, str) and runtime_model.strip():
+        return runtime_model.strip()
+    local_text_model = (app_config.local_text_model_name or "").strip()
+    if local_text_model:
+        return local_text_model
+    ai_model = (app_config.ai_model or "").strip()
+    if ai_model:
+        return ai_model
+    return fallback
+
+
+def _authorize_stream_proxy_request(*, request: Request, session: Session, config: AppConfig) -> None:
+    context = _require_user_session_auth_context(
+        request=request,
+        session=session,
+        config=config,
+    )
+    if context is None:
+        raise HTTPException(status_code=401, detail="authentication required")
 
 
 def _sse_data(event: dict[str, Any]) -> str:
@@ -2173,6 +2792,13 @@ class TransactionOverrideRequest(BaseModel):
     mode: str = "local"
     transaction_corrections: dict[str, Any] = Field(default_factory=dict)
     item_corrections: list[TransactionItemOverride] = Field(default_factory=list)
+
+
+class QualityRecategorizeRequest(BaseModel):
+    source_id: str | None = None
+    only_fallback_other: bool = True
+    include_suspect_model_items: bool = False
+    max_transactions: int | None = Field(default=250, ge=1, le=5000)
 
 
 class ManualTransactionItemRequest(BaseModel):
@@ -2243,6 +2869,51 @@ class AutomationRunRequest(BaseModel):
     actor_id: str | None = None
 
 
+class OfferRefreshRequest(BaseModel):
+    source_ids: list[str] = Field(default_factory=list)
+    discovery_limit: int | None = Field(default=None, ge=1, le=500)
+
+
+class OfferSourceCreateRequest(BaseModel):
+    merchant_name: str
+    merchant_url: str
+    display_name: str | None = None
+    country_code: str = Field(default="DE", min_length=2, max_length=2)
+    notes: str | None = None
+
+
+class OfferSourceUpdateRequest(BaseModel):
+    merchant_name: str | None = None
+    merchant_url: str | None = None
+    display_name: str | None = None
+    country_code: str | None = Field(default=None, min_length=2, max_length=2)
+    notes: str | None = None
+    active: bool | None = None
+
+
+class OfferWatchlistCreateRequest(BaseModel):
+    product_id: str | None = None
+    query_text: str | None = None
+    source_id: str | None = None
+    min_discount_percent: float | None = Field(default=None, ge=0, le=100)
+    max_price_cents: int | None = Field(default=None, ge=0)
+    notes: str | None = None
+
+
+class OfferWatchlistUpdateRequest(BaseModel):
+    product_id: str | None = None
+    query_text: str | None = None
+    source_id: str | None = None
+    min_discount_percent: float | None = Field(default=None, ge=0, le=100)
+    max_price_cents: int | None = Field(default=None, ge=0)
+    active: bool | None = None
+    notes: str | None = None
+
+
+class OfferAlertReadRequest(BaseModel):
+    read: bool = True
+
+
 class SavedQueryCreateRequest(BaseModel):
     name: str
     description: str | None = None
@@ -2291,6 +2962,17 @@ class AISettingsUpdateRequest(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
     model: str
+
+
+class OCRSettingsUpdateRequest(BaseModel):
+    default_provider: Literal["glm_ocr_local", "openai_compatible", "external_api"]
+    fallback_enabled: bool = False
+    fallback_provider: Literal["glm_ocr_local", "openai_compatible", "external_api"] | None = None
+    glm_local_base_url: str | None = None
+    glm_local_api_mode: Literal["ollama_generate", "openai_chat_completion"] | None = None
+    glm_local_model: str | None = None
+    openai_base_url: str | None = None
+    openai_model: str | None = None
 
 
 class AIOAuthStartRequest(BaseModel):
@@ -2351,89 +3033,6 @@ class ChatRunPersistRequest(BaseModel):
     error: str | None = None
 
 
-DEFAULT_LOCAL_CHAT_MODEL = "Qwen/Qwen3.5-0.8B"
-DEFAULT_CHATGPT_CHAT_MODEL = "gpt-5.2-codex"
-
-
-def _is_local_hostname(hostname: str | None) -> bool:
-    if not hostname:
-        return False
-    normalized = hostname.strip().lower()
-    if normalized in {"localhost", "127.0.0.1", "::1", "host.docker.internal"}:
-        return True
-    if normalized.endswith(".local") or "." not in normalized:
-        return True
-    try:
-        parsed = ipaddress.ip_address(normalized)
-    except ValueError:
-        return False
-    return parsed.is_loopback or parsed.is_private or parsed.is_link_local
-
-
-def _configured_provider_source(app_config: AppConfig) -> Literal["local", "api"]:
-    base_url = (app_config.ai_base_url or "").strip()
-    if not base_url:
-        return "local"
-    return "local" if _is_local_hostname(urlparse(base_url).hostname) else "api"
-
-
-def _configured_local_chat_model(app_config: AppConfig) -> str:
-    model_id = (app_config.ai_model or "").strip()
-    return model_id or DEFAULT_LOCAL_CHAT_MODEL
-
-
-def _chatgpt_oauth_connected(app_config: AppConfig) -> bool:
-    return bool(
-        app_config.ai_oauth_provider == "openai-codex"
-        and get_ai_oauth_access_token(app_config)
-    )
-
-
-def _preferred_chat_model(app_config: AppConfig) -> str:
-    return _configured_local_chat_model(app_config)
-
-
-def _available_chat_models(app_config: AppConfig) -> list[dict[str, Any]]:
-    local_model = _configured_local_chat_model(app_config)
-    provider_source = _configured_provider_source(app_config)
-    if provider_source == "local":
-        if "qwen" in local_model.lower():
-            configured_label = "Local Qwen (tiny)"
-            configured_description = (
-                "Very small local fallback model. Private and easy to run, but weaker for deeper analysis."
-            )
-        else:
-            configured_label = "Local model"
-            configured_description = (
-                "Runs against your current local model setup. Local keeps data on this machine."
-            )
-    else:
-        configured_label = "Configured API model"
-        configured_description = (
-            "Uses the API model from AI Settings. This is usually stronger than the tiny local fallback."
-        )
-    return [
-        {
-            "id": local_model,
-            "label": configured_label,
-            "source": provider_source,
-            "enabled": True,
-            "description": configured_description,
-        },
-        {
-            "id": DEFAULT_CHATGPT_CHAT_MODEL,
-            "label": "ChatGPT",
-            "source": "oauth",
-            "enabled": _chatgpt_oauth_connected(app_config),
-            "description": "Uses your ChatGPT sign-in. Good for stronger reasoning when you choose it.",
-        },
-    ]
-
-
-def _should_route_stream_via_chatgpt(app_config: AppConfig, model_id: str) -> bool:
-    return _chatgpt_oauth_connected(app_config) and model_id == DEFAULT_CHATGPT_CHAT_MODEL
-
-
 class ComparisonGroupCreateRequest(BaseModel):
     name: str
     unit_standard: str | None = None
@@ -2462,6 +3061,40 @@ class BudgetRuleCreateRequest(BaseModel):
     amount_cents: int
     currency: str = "EUR"
     active: bool = True
+
+
+class BudgetMonthUpdateRequest(BaseModel):
+    planned_income_cents: int | None = None
+    target_savings_cents: int | None = None
+    opening_balance_cents: int | None = None
+    currency: str = "EUR"
+    notes: str | None = None
+
+
+class CashflowEntryCreateRequest(BaseModel):
+    effective_date: date
+    direction: Literal["inflow", "outflow"]
+    category: str
+    amount_cents: int
+    currency: str = "EUR"
+    description: str | None = None
+    source_type: str = "manual"
+    linked_transaction_id: str | None = None
+    linked_recurring_occurrence_id: str | None = None
+    notes: str | None = None
+
+
+class CashflowEntryUpdateRequest(BaseModel):
+    effective_date: date | None = None
+    direction: Literal["inflow", "outflow"] | None = None
+    category: str | None = None
+    amount_cents: int | None = None
+    currency: str | None = None
+    description: str | None = None
+    source_type: str | None = None
+    linked_transaction_id: str | None = None
+    linked_recurring_occurrence_id: str | None = None
+    notes: str | None = None
 
 
 RecurringBillFrequency = Literal["weekly", "biweekly", "monthly", "quarterly", "yearly"]
@@ -2528,12 +3161,21 @@ class RecurringOccurrenceReconcileRequest(BaseModel):
 class AuthLoginRequest(BaseModel):
     username: str
     password: str
+    session_mode: Literal["cookie", "token", "both"] = "cookie"
+    device_label: str | None = None
+    client_name: str | None = None
+    client_platform: str | None = None
 
 
 class AuthSetupRequest(BaseModel):
     username: str
     password: str
     display_name: str | None = None
+    bootstrap_token: str | None = None
+    session_mode: Literal["cookie", "token", "both"] = "cookie"
+    device_label: str | None = None
+    client_name: str | None = None
+    client_platform: str | None = None
 
 
 class AuthApiKeyCreateRequest(BaseModel):
@@ -2556,6 +3198,18 @@ class UserUpdateRequest(BaseModel):
 
 class UserLocalePreferenceUpdateRequest(BaseModel):
     preferred_locale: Literal["en", "de"] | None = None
+
+
+class MobileDeviceRegisterRequest(BaseModel):
+    installation_id: str = Field(min_length=8, max_length=128)
+    client_platform: Literal["ios", "android"]
+    push_provider: Literal["apns", "fcm"]
+    push_token: str = Field(min_length=16, max_length=4096)
+    notifications_enabled: bool = True
+    device_label: str | None = None
+    client_name: str | None = None
+    app_version: str | None = None
+    locale: Literal["en", "de"] | None = None
 
 
 class SourceSharingRequest(BaseModel):
@@ -2722,19 +3376,13 @@ def _run_periodic_connector_sync(
     logger = logging.getLogger(__name__)
     logger.info("connector.live_sync.started interval=%s source_ids=%s", interval, source_ids)
     while not stop_event.wait(interval):
-        cascade_sessions = cast(
-            dict[str, ConnectorCascadeSession],
-            getattr(app.state, "connector_cascade_sessions", {}),
-        )
+        cascade_sessions = get_connector_cascade_sessions(app)
         if any(_connector_cascade_is_active(cascade) for cascade in cascade_sessions.values()):
             logger.info("connector.live_sync.skipped (cascade active)")
             continue
         for source_id in source_ids:
             try:
-                sync_sessions = cast(
-                    dict[str, ConnectorBootstrapSession],
-                    getattr(app.state, "connector_sync_sessions", {}),
-                )
+                sync_sessions = get_connector_command_sessions(app, kind="sync")
                 existing = sync_sessions.get(source_id)
                 if existing is not None and _connector_bootstrap_is_running(existing):
                     logger.info("connector.live_sync.skipped source_id=%s (already running)", source_id)
@@ -2751,7 +3399,7 @@ def _run_periodic_connector_sync(
                     source_id=source_id,
                     command=command,
                     config=config,
-                    sessions_attr="connector_sync_sessions",
+                    session_kind="sync",
                     thread_name=f"connector-sync-{source_id}",
                 )
                 logger.info(
@@ -2764,17 +3412,31 @@ def _run_periodic_connector_sync(
     logger.info("connector.live_sync.stopped")
 
 
-def create_app() -> FastAPI:
-    base_config = build_config()
+def create_app(
+    *,
+    config: AppConfig | None = None,
+    config_path: Path | None = None,
+    db_override: Path | None = None,
+    bind_host: str | None = None,
+) -> FastAPI:
+    runtime_context = _build_runtime_context(
+        config=config,
+        config_path=config_path,
+        db_override=db_override,
+        bind_host=bind_host,
+    )
+    base_config = runtime_context.config
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
-        config = base_config
-        validate_config(config)
-        db_url = database_url(config)
-        migrate_db(db_url)
-        engine = create_engine_for_url(db_url)
-        sessions = session_factory(engine)
+        config = runtime_context.config
+        sessions = runtime_context.sessions
+        validate_config(config, bind_host=runtime_context.bind_host)
+        _validate_bootstrap_startup_guard(
+            config=config,
+            sessions=sessions,
+            bind_host=runtime_context.bind_host,
+        )
         scheduler = AutomationScheduler(session_factory=sessions, config=config)
         scheduler.start()
         app.state.automation_scheduler = scheduler
@@ -2797,28 +3459,19 @@ def create_app() -> FastAPI:
         try:
             yield
         finally:
-            bootstrap_sessions = cast(
-                dict[str, ConnectorBootstrapSession],
-                getattr(app.state, "connector_bootstrap_sessions", {}),
-            )
+            bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
             for session in bootstrap_sessions.values():
                 try:
                     _terminate_connector_bootstrap(session)
                 except Exception:  # noqa: BLE001
                     pass
-            sync_sessions = cast(
-                dict[str, ConnectorBootstrapSession],
-                getattr(app.state, "connector_sync_sessions", {}),
-            )
+            sync_sessions = get_connector_command_sessions(app, kind="sync")
             for session in sync_sessions.values():
                 try:
                     _terminate_connector_bootstrap(session)
                 except Exception:  # noqa: BLE001
                     pass
-            cascade_sessions = cast(
-                dict[str, ConnectorCascadeSession],
-                getattr(app.state, "connector_cascade_sessions", {}),
-            )
+            cascade_sessions = get_connector_cascade_sessions(app)
             for cascade in cascade_sessions.values():
                 cascade.cancel_event.set()
                 for source_state in cascade.sources.values():
@@ -2843,25 +3496,8 @@ def create_app() -> FastAPI:
             scheduler.stop()
 
     app = FastAPI(title="lidltool OCR API", version="1", lifespan=lifespan)
-    app.state.started_at = datetime.now(tz=UTC)
-    app.state.build = os.getenv("LIDLTOOL_BUILD", "dev")
-    app.state.http_rate_limit_buckets = {}
-    app.state.http_rate_limit_lock = threading.Lock()
-    app.state.connector_bootstrap_sessions = {}
-    app.state.connector_auth_sessions = ConnectorAuthSessionRegistry(
-        app.state.connector_bootstrap_sessions
-    )
-    app.state.connector_sync_sessions = {}
-    app.state.connector_cascade_sessions = {}
-    app.state.connector_cascade_sessions_lock = threading.Lock()
-    app.state.vnc_runtime = None
-    app.state.ai_oauth_lock = threading.Lock()
-    app.state.ai_oauth_state = {
-        "status": "pending",
-        "error": None,
-        "provider": None,
-        "updated_at": datetime.now(tz=UTC).isoformat(),
-    }
+    initialize_http_api_state(app)
+    app.state.request_context = runtime_context
 
     if base_config.http_cors_enabled and base_config.http_cors_allowed_origins:
         app.add_middleware(
@@ -2880,6 +3516,9 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def request_metrics(request: Request, call_next):  # type: ignore[no-untyped-def]
+        override_response = await _reject_runtime_override_usage(request)
+        if override_response is not None:
+            return override_response
         legacy_key_response = await _reject_legacy_api_key_usage(request)
         if legacy_key_response is not None:
             return legacy_key_response
@@ -2931,8 +3570,7 @@ def create_app() -> FastAPI:
             result={
                 "status": "alive",
                 "ready": True,
-                "checks": {"process": {"ok": True, "detail": "running"}},
-                "meta": _service_metadata(app),
+                "checks": {"process": {"ok": True}},
             },
             warnings=[],
             error=None,
@@ -2941,18 +3579,16 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/ready")
     def ready(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> JSONResponse:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             db_ok, db_detail = _readiness_db_check(context.sessions)
             storage_ok, storage_detail = _readiness_storage_check(context.config)
             scheduler_ok, scheduler_detail = _readiness_scheduler_check(app, context.config)
             checks = {
-                "db": {"ok": db_ok, "detail": db_detail},
-                "storage": {"ok": storage_ok, "detail": storage_detail},
-                "scheduler": {"ok": scheduler_ok, "detail": scheduler_detail},
+                "db": {"ok": db_ok},
+                "storage": {"ok": storage_ok},
+                "scheduler": {"ok": scheduler_ok},
             }
             ready_state = all(item["ok"] for item in checks.values())
             status_code = 200 if ready_state else 503
@@ -2964,7 +3600,6 @@ def create_app() -> FastAPI:
                         "status": "ready" if ready_state else "degraded",
                         "ready": ready_state,
                         "checks": checks,
-                        "meta": _service_metadata(app),
                     },
                     warnings=[],
                     error=None if ready_state else "service not ready",
@@ -2977,14 +3612,20 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/auth/setup-required")
     def auth_setup_required(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
                 required = human_user_count(session) == 0
-            return _response(True, result={"required": required}, warnings=[], error=None)
+            return _response(
+                True,
+                result={
+                    "required": required,
+                    "bootstrap_token_required": required and _bootstrap_token_required(context.config),
+                },
+                warnings=[],
+                error=None,
+            )
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -2992,14 +3633,17 @@ def create_app() -> FastAPI:
     def auth_setup(
         request: Request,
         payload: AuthSetupRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> JSONResponse:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
                 if human_user_count(session) > 0:
                     raise RuntimeError("setup already completed")
+                _enforce_initial_bootstrap_guard(
+                    request=request,
+                    config=context.config,
+                    provided_token=_provided_bootstrap_token(request, payload.bootstrap_token),
+                )
                 user = create_local_user(
                     session,
                     username=payload.username,
@@ -3007,13 +3651,33 @@ def create_app() -> FastAPI:
                     display_name=payload.display_name,
                     is_admin=True,
                 )
-                token = issue_session_token(user=user, config=context.config)
-                result = _serialize_current_user(user)
+                session_record = create_user_session(
+                    session,
+                    user=user,
+                    metadata=_session_client_metadata(
+                        request=request,
+                        session_mode=payload.session_mode,
+                        device_label=payload.device_label,
+                        client_name=payload.client_name,
+                        client_platform=payload.client_platform,
+                    ),
+                )
+                token = issue_session_token(
+                    user=user,
+                    session_id=session_record.session_id,
+                    config=context.config,
+                )
+                result = _auth_success_result(
+                    user=user,
+                    session_record=session_record,
+                    token=token if payload.session_mode in {SESSION_MODE_TOKEN, SESSION_MODE_BOTH} else None,
+                )
             response = JSONResponse(
                 content=_response(True, result=result, warnings=[], error=None),
                 status_code=200,
             )
-            set_session_cookie(response, token=token)
+            if payload.session_mode in {SESSION_MODE_COOKIE, SESSION_MODE_BOTH} and token is not None:
+                set_session_cookie(response, token=token, request=request, config=context.config)
             return response
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -3022,12 +3686,12 @@ def create_app() -> FastAPI:
     def auth_login(
         request: Request,
         payload: AuthLoginRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> JSONResponse:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
+                if human_user_count(session) == 0:
+                    raise HTTPException(status_code=503, detail="setup required")
                 user = get_user_by_username(session, username=payload.username)
                 if (
                     user is None
@@ -3035,42 +3699,164 @@ def create_app() -> FastAPI:
                     or not verify_password(payload.password, user.password_hash)
                 ):
                     raise HTTPException(status_code=401, detail="invalid username or password")
-                token = issue_session_token(user=user, config=context.config)
-                result = _serialize_current_user(user)
+                session_record = create_user_session(
+                    session,
+                    user=user,
+                    metadata=_session_client_metadata(
+                        request=request,
+                        session_mode=payload.session_mode,
+                        device_label=payload.device_label,
+                        client_name=payload.client_name,
+                        client_platform=payload.client_platform,
+                    ),
+                )
+                token = issue_session_token(
+                    user=user,
+                    session_id=session_record.session_id,
+                    config=context.config,
+                )
+                result = _auth_success_result(
+                    user=user,
+                    session_record=session_record,
+                    token=token if payload.session_mode in {SESSION_MODE_TOKEN, SESSION_MODE_BOTH} else None,
+                )
             response = JSONResponse(
                 content=_response(True, result=result, warnings=[], error=None),
                 status_code=200,
             )
-            set_session_cookie(response, token=token)
+            if payload.session_mode in {SESSION_MODE_COOKIE, SESSION_MODE_BOTH} and token is not None:
+                set_session_cookie(response, token=token, request=request, config=context.config)
             return response
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
     @app.post("/api/v1/auth/logout")
-    def auth_logout() -> JSONResponse:
-        response = JSONResponse(content=_response(True, result={"logged_out": True}))
-        clear_session_cookie(response)
-        return response
+    def auth_logout(
+        request: Request,
+    ) -> JSONResponse:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                revoke_user_session(
+                    session,
+                    record=auth_context.session_record,
+                    reason="user_logout",
+                )
+                session_id = auth_context.session_record.session_id
+            response = JSONResponse(
+                content=_response(
+                    True,
+                    result={"logged_out": True, "revoked": True, "session_id": session_id},
+                )
+            )
+            clear_session_cookie(response, request=request, config=context.config)
+            return response
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
 
     @app.get("/api/v1/auth/me")
     def auth_me(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
-                user = get_current_user(
+                auth_context = _require_user_session_auth_context(
                     request=request,
                     session=session,
                     config=context.config,
-                    required=True,
                 )
-                if user is None:
-                    raise HTTPException(status_code=401, detail="authentication required")
-                result = _serialize_current_user(user)
+                result = _serialize_current_user(auth_context.user)
+                result["session"] = (
+                    serialize_user_session(auth_context.session_record, current=True)
+                    if auth_context.session_record is not None
+                    else None
+                )
+                result["session_mode"] = (
+                    auth_context.session_record.auth_transport
+                    if auth_context.session_record is not None
+                    else None
+                )
+                result["available_auth_transports"] = (
+                    available_auth_transports(auth_context.session_record.auth_transport)
+                    if auth_context.session_record is not None
+                    else [auth_context.auth_transport]
+                )
+                result["auth_transport"] = auth_context.auth_transport
             return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/auth/sessions")
+    def auth_list_sessions(
+        request: Request,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                current_session_id = (
+                    auth_context.session_record.session_id
+                    if auth_context.session_record is not None
+                    else None
+                )
+                sessions_payload = [
+                    serialize_user_session(
+                        record,
+                        current=(record.session_id == current_session_id),
+                    )
+                    for record in list_active_user_sessions(session, user_id=auth_context.user.user_id)
+                ]
+                result = _collection_result(
+                    result={"count": len(sessions_payload), "items": sessions_payload},
+                    alias_key="sessions",
+                )
+                result["current_session_id"] = current_session_id
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.delete("/api/v1/auth/sessions/{session_id}")
+    def auth_revoke_session(
+        request: Request,
+        session_id: str,
+    ) -> JSONResponse:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                target = session.get(UserSession, session_id)
+                if target is None or target.user_id != auth_context.user.user_id:
+                    raise RuntimeError("session not found")
+                revoke_user_session(session, record=target, reason="user_revoked")
+                result = {
+                    "revoked": True,
+                    "session": serialize_user_session(
+                        target,
+                        current=(
+                            auth_context.session_record is not None
+                            and auth_context.session_record.session_id == target.session_id
+                        ),
+                    ),
+                }
+            response = JSONResponse(content=_response(True, result=result, warnings=[], error=None))
+            session_payload = result["session"]
+            if isinstance(session_payload, dict) and session_payload.get("current") is True:
+                clear_session_cookie(response, request=request, config=context.config)
+            return response
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -3078,22 +3864,16 @@ def create_app() -> FastAPI:
     def patch_my_user_preferences(
         request: Request,
         payload: UserLocalePreferenceUpdateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
-                current_user = get_current_user(
+                auth_context = _require_user_session_auth_context(
                     request=request,
                     session=session,
                     config=context.config,
-                    required=True,
                 )
-                if current_user is None:
-                    raise HTTPException(status_code=401, detail="authentication required")
-                if current_user.username == SERVICE_USERNAME:
-                    raise RuntimeError("service account cannot manage locale preference")
+                current_user = auth_context.user
                 current_user.preferred_locale = _normalize_supported_locale(payload.preferred_locale)
                 current_user.updated_at = datetime.now(tz=UTC)
                 session.flush()
@@ -3102,20 +3882,156 @@ def create_app() -> FastAPI:
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
+    @app.get("/api/v1/mobile/devices")
+    def get_mobile_device_registrations(
+        request: Request,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                result = list_mobile_devices(
+                    session,
+                    user_id=auth_context.user.user_id,
+                    limit=limit,
+                    offset=offset,
+                )
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.put("/api/v1/mobile/devices/current")
+    def put_current_mobile_device(
+        request: Request,
+        payload: MobileDeviceRegisterRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                result = upsert_mobile_device(
+                    session,
+                    user_id=auth_context.user.user_id,
+                    session_id=(
+                        auth_context.session_record.session_id
+                        if auth_context.session_record is not None
+                        else None
+                    ),
+                    installation_id=payload.installation_id,
+                    client_platform=payload.client_platform,
+                    push_provider=payload.push_provider,
+                    push_token=payload.push_token,
+                    notifications_enabled=payload.notifications_enabled,
+                    device_label=payload.device_label,
+                    client_name=payload.client_name,
+                    app_version=payload.app_version,
+                    locale=payload.locale,
+                )
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/mobile/devices")
+    def post_mobile_device(
+        request: Request,
+        payload: MobileDeviceRegisterRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                result = upsert_mobile_device(
+                    session,
+                    user_id=auth_context.user.user_id,
+                    session_id=(
+                        auth_context.session_record.session_id
+                        if auth_context.session_record is not None
+                        else None
+                    ),
+                    installation_id=payload.installation_id,
+                    client_platform=payload.client_platform,
+                    push_provider=payload.push_provider,
+                    push_token=payload.push_token,
+                    notifications_enabled=payload.notifications_enabled,
+                    device_label=payload.device_label,
+                    client_name=payload.client_name,
+                    app_version=payload.app_version,
+                    locale=payload.locale,
+                )
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.delete("/api/v1/mobile/devices/current")
+    def delete_current_mobile_device_registration(
+        request: Request,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                if auth_context.session_record is None:
+                    raise RuntimeError("authenticated session not found")
+                result = delete_mobile_devices_for_session(
+                    session,
+                    user_id=auth_context.user.user_id,
+                    session_id=auth_context.session_record.session_id,
+                )
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.delete("/api/v1/mobile/devices/{device_id}")
+    def delete_mobile_device_registration(
+        request: Request,
+        device_id: str,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                result = delete_mobile_device(
+                    session,
+                    user_id=auth_context.user.user_id,
+                    device_id=device_id,
+                )
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
     @app.get("/api/v1/auth/keys")
     def auth_list_keys(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
-                current_user = _resolve_request_user(
+                auth_context = _require_user_session_auth_context(
                     request=request, session=session, config=context.config
                 )
-                if current_user.username == SERVICE_USERNAME:
-                    raise RuntimeError("service account cannot manage API keys")
+                current_user = auth_context.user
                 keys = (
                     session.execute(
                         select(UserApiKey)
@@ -3134,17 +4050,14 @@ def create_app() -> FastAPI:
     def auth_create_key(
         request: Request,
         payload: AuthApiKeyCreateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
-                current_user = _resolve_request_user(
+                auth_context = _require_user_session_auth_context(
                     request=request, session=session, config=context.config
                 )
-                if current_user.username == SERVICE_USERNAME:
-                    raise RuntimeError("service account cannot manage API keys")
+                current_user = auth_context.user
                 expires_at = _to_utc_datetime(payload.expires_at) if payload.expires_at else None
                 key, plain_token = create_user_agent_key(
                     session,
@@ -3164,15 +4077,14 @@ def create_app() -> FastAPI:
     def auth_revoke_key(
         request: Request,
         key_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
-                current_user = _resolve_request_user(
+                auth_context = _require_user_session_auth_context(
                     request=request, session=session, config=context.config
                 )
+                current_user = auth_context.user
                 key = session.get(UserApiKey, key_id)
                 if key is None:
                     raise RuntimeError("API key not found")
@@ -3188,16 +4100,16 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/users")
     def list_users(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=context.config
+                _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                    admin_required=True,
                 )
-                _require_admin(current_user)
                 users = (
                     session.execute(
                         select(User)
@@ -3216,16 +4128,16 @@ def create_app() -> FastAPI:
     def create_user(
         request: Request,
         payload: UserCreateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=context.config
+                _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                    admin_required=True,
                 )
-                _require_admin(current_user)
                 user = create_local_user(
                     session,
                     username=payload.username,
@@ -3243,16 +4155,17 @@ def create_app() -> FastAPI:
         request: Request,
         user_id: str,
         payload: UserUpdateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=context.config
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                    admin_required=True,
                 )
-                _require_admin(current_user)
+                current_user = auth_context.user
                 user = session.get(User, user_id)
                 if user is None or user.username == SERVICE_USERNAME:
                     raise RuntimeError("user not found")
@@ -3261,6 +4174,17 @@ def create_app() -> FastAPI:
                     user.display_name = payload.display_name.strip() or None
                 if payload.password is not None:
                     set_user_password(session, user=user, password=payload.password)
+                    revoke_user_sessions_for_user(
+                        session,
+                        user_id=user.user_id,
+                        reason="password_changed",
+                        exclude_session_id=(
+                            auth_context.session_record.session_id
+                            if auth_context.session_record is not None
+                            and auth_context.user.user_id == user.user_id
+                            else None
+                        ),
+                    )
                 if payload.is_admin is not None:
                     if (
                         user.is_admin
@@ -3291,16 +4215,17 @@ def create_app() -> FastAPI:
     def delete_user(
         request: Request,
         user_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=context.config
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                    admin_required=True,
                 )
-                _require_admin(current_user)
+                current_user = auth_context.user
                 user = session.get(User, user_id)
                 if user is None or user.username == SERVICE_USERNAME:
                     raise RuntimeError("user not found")
@@ -3457,15 +4382,14 @@ def create_app() -> FastAPI:
     async def upload_document(
         request: Request,
         file: UploadFormFile,
-        db: str | None = Form(default=None),
-        config: str | None = Form(default=None),
         source: str | None = Form(default=None),
         metadata_json: str | None = Form(default=None),
         legacy_api_key: str | None = Form(default=None, alias="api_key"),
     ) -> Any:
         try:
             _reject_legacy_form_api_key(legacy_api_key)
-            context = _resolve_request_context(request, db=db, config_path=config)
+            await _reject_form_runtime_override_usage(request)
+            context = _resolve_request_context(request)
             app_config = context.config
             warnings = _apply_auth_guard(app_config, request=request)
             storage = DocumentStorage(app_config)
@@ -3491,7 +4415,15 @@ def create_app() -> FastAPI:
                     is_service=(current_user.username == SERVICE_USERNAME),
                     scope="personal",
                 )
-                validated_source = _validate_upload_source(session, source)
+                normalized_source = (source or "").strip() or None
+                if normalized_source == OCR_SOURCE_ID:
+                    ensured_source, _ = ensure_ocr_source(
+                        session,
+                        owner_user_id=current_user.user_id,
+                    )
+                    validated_source = ensured_source.id
+                else:
+                    validated_source = _validate_upload_source(session, normalized_source)
                 if (
                     validated_source is not None
                     and session.get(Source, validated_source) is not None
@@ -3500,6 +4432,7 @@ def create_app() -> FastAPI:
                     )
                 ):
                     raise RuntimeError("invalid source; register source before upload")
+                metadata.setdefault("uploader_user_id", current_user.user_id)
                 document = Document(
                     transaction_id=None,
                     source_id=validated_source,
@@ -3531,18 +4464,17 @@ def create_app() -> FastAPI:
             return _error_response(exc)
 
     @app.post("/api/v1/documents/{document_id}/process")
-    def process_document(
+    async def process_document(
         request: Request,
         document_id: str,
         scope: str = Form(default="personal"),
-        db: str | None = Form(default=None),
-        config: str | None = Form(default=None),
         caller_token: str | None = Form(default=None),
         legacy_api_key: str | None = Form(default=None, alias="api_key"),
     ) -> Any:
         try:
             _reject_legacy_form_api_key(legacy_api_key)
-            context = _resolve_request_context(request, db=db, config_path=config)
+            await _reject_form_runtime_override_usage(request)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -3562,9 +4494,11 @@ def create_app() -> FastAPI:
                     session=session, document=document, visibility=visibility
                 ):
                     raise RuntimeError("document not found")
+                source_id = document.source_id or OCR_SOURCE_ID
             jobs = JobService(session_factory=sessions, config=app_config)
             job, reused = jobs.create_ocr_job(
                 document_id=document_id,
+                source=source_id,
                 caller_token=caller_token,
             )
             if not reused and job.status == "queued":
@@ -3591,12 +4525,10 @@ def create_app() -> FastAPI:
         request: Request,
         document_id: str,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
         job_id: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -3642,8 +4574,6 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/review-queue")
     def list_review_queue(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
         scope: str = "personal",
         limit: int = 50,
         offset: int = 0,
@@ -3651,7 +4581,7 @@ def create_app() -> FastAPI:
         threshold: float | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -3679,8 +4609,6 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/transactions")
     def list_transactions(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
         scope: str = "personal",
         query: str | None = None,
         year: int | None = None,
@@ -3701,7 +4629,7 @@ def create_app() -> FastAPI:
         offset: int = 0,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -3746,8 +4674,6 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/items/search")
     def search_items(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
         scope: str = "personal",
         query: str | None = None,
         from_date: str | None = None,
@@ -3759,7 +4685,7 @@ def create_app() -> FastAPI:
         """Search receipt line items by name across all transactions."""
         try:
             from lidltool.analytics.scope import visible_transaction_ids_subquery
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -3831,8 +4757,6 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/items/aggregate")
     def aggregate_items(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
         scope: str = "personal",
         query: str | None = None,
         from_date: str | None = None,
@@ -3847,7 +4771,7 @@ def create_app() -> FastAPI:
             _dbg.write(f"aggregate_items called: query={query!r} from_date={from_date!r} to_date={to_date!r} source_id={source_id!r} group_by={group_by!r}\n")
         try:
             from lidltool.analytics.scope import visible_transaction_ids_subquery
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -3858,7 +4782,7 @@ def create_app() -> FastAPI:
                 visibility = _visibility_for_scope(current_user, scope)
                 visible_ids = visible_transaction_ids_subquery(visibility)
 
-                base_filter = [Transaction.id.in_(visible_ids)]
+                base_filter: list[ColumnElement[bool]] = [Transaction.id.in_(visible_ids)]
                 if query:
                     base_filter.append(TransactionItem.name.ilike(f"%{query}%"))
                 if from_date:
@@ -3872,47 +4796,56 @@ def create_app() -> FastAPI:
                 if source_id:
                     base_filter.append(Transaction.source_id == source_id)
 
+                group_col: SQLColumnExpression[str | None] | None
                 if group_by == "source_id":
                     group_col = Transaction.source_id
                 elif group_by == "month":
-                    group_col = func.strftime("%Y-%m", Transaction.purchased_at)
+                    group_col = cast(
+                        SQLColumnExpression[str | None],
+                        func.strftime("%Y-%m", Transaction.purchased_at),
+                    )
                 elif group_by == "year":
-                    group_col = func.strftime("%Y", Transaction.purchased_at)
+                    group_col = cast(
+                        SQLColumnExpression[str | None],
+                        func.strftime("%Y", Transaction.purchased_at),
+                    )
                 elif group_by == "name":
                     group_col = TransactionItem.name
                 else:
                     group_col = None
 
                 if group_col is not None:
-                    stmt = (
-                        select(
-                            group_col.label("group"),
-                            func.sum(TransactionItem.line_total_cents).label("total_cents"),
-                            func.count(TransactionItem.id).label("item_count"),
-                            func.sum(TransactionItem.qty).label("total_qty"),
-                        )
-                        .join(Transaction, Transaction.id == TransactionItem.transaction_id)
-                        .where(*base_filter)
-                        .group_by(group_col)
-                        .order_by(func.sum(TransactionItem.line_total_cents).desc())
+                    rows = cast(
+                        Sequence[tuple[str | None, int | None, int, Decimal | None]],
+                        session.execute(
+                            select(
+                                group_col.label("group"),
+                                func.sum(TransactionItem.line_total_cents).label("total_cents"),
+                                func.count(TransactionItem.id).label("item_count"),
+                                func.sum(TransactionItem.qty).label("total_qty"),
+                            )
+                            .join(Transaction, Transaction.id == TransactionItem.transaction_id)
+                            .where(*base_filter)
+                            .group_by(group_col)
+                            .order_by(func.sum(TransactionItem.line_total_cents).desc())
+                        ).tuples().all(),
                     )
-                    rows = session.execute(stmt).all()
                     result = {
                         "groups": [
                             {
-                                "group": r.group,
-                                "total_cents": r.total_cents,
-                                "item_count": r.item_count,
-                                "total_qty": float(r.total_qty) if r.total_qty is not None else None,
+                                "group": group_value,
+                                "total_cents": total_cents,
+                                "item_count": item_count,
+                                "total_qty": float(total_qty) if total_qty is not None else None,
                             }
-                            for r in rows
+                            for group_value, total_cents, item_count, total_qty in rows
                         ],
-                        "grand_total_cents": sum(r.total_cents or 0 for r in rows),
-                        "grand_item_count": sum(r.item_count or 0 for r in rows),
-                        "grand_total_qty": sum(float(r.total_qty or 0) for r in rows),
+                        "grand_total_cents": sum(total_cents or 0 for _, total_cents, _, _ in rows),
+                        "grand_item_count": sum(item_count or 0 for _, _, item_count, _ in rows),
+                        "grand_total_qty": sum(float(total_qty or 0) for _, _, _, total_qty in rows),
                     }
                 else:
-                    stmt = (
+                    totals_stmt = (
                         select(
                             func.sum(TransactionItem.line_total_cents).label("total_cents"),
                             func.count(TransactionItem.id).label("item_count"),
@@ -3921,7 +4854,7 @@ def create_app() -> FastAPI:
                         .join(Transaction, Transaction.id == TransactionItem.transaction_id)
                         .where(*base_filter)
                     )
-                    row = session.execute(stmt).one()
+                    row = session.execute(totals_stmt).one()
                     result = {
                         "total_cents": row.total_cents or 0,
                         "item_count": row.item_count or 0,
@@ -3935,11 +4868,9 @@ def create_app() -> FastAPI:
     def create_manual_transaction(
         request: Request,
         payload: ManualTransactionCreateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -4009,11 +4940,9 @@ def create_app() -> FastAPI:
         request: Request,
         transaction_id: str,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -4036,11 +4965,9 @@ def create_app() -> FastAPI:
         request: Request,
         transaction_id: str,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -4076,10 +5003,8 @@ def create_app() -> FastAPI:
         request: Request,
         document_id: str,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Response:
-        context = _resolve_request_context(request, db=db, config_path=config)
+        context = _resolve_request_context(request)
         app_config = context.config
         sessions = context.sessions
         try:
@@ -4113,11 +5038,9 @@ def create_app() -> FastAPI:
         request: Request,
         transaction_id: str,
         payload: TransactionOverrideRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -4158,11 +5081,9 @@ def create_app() -> FastAPI:
     def create_chat_thread(
         request: Request,
         payload: ChatThreadCreateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -4206,11 +5127,9 @@ def create_app() -> FastAPI:
         limit: int = 50,
         offset: int = 0,
         include_archived: bool = False,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -4254,11 +5173,9 @@ def create_app() -> FastAPI:
     def get_chat_thread(
         request: Request,
         thread_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -4283,11 +5200,9 @@ def create_app() -> FastAPI:
         request: Request,
         thread_id: str,
         payload: ChatThreadUpdateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -4318,11 +5233,9 @@ def create_app() -> FastAPI:
     def delete_chat_thread(
         request: Request,
         thread_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -4347,11 +5260,9 @@ def create_app() -> FastAPI:
         thread_id: str,
         limit: int = 200,
         offset: int = 0,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -4394,11 +5305,9 @@ def create_app() -> FastAPI:
         request: Request,
         thread_id: str,
         payload: ChatMessageCreateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             warnings = _apply_auth_guard(app_config, request=request)
             content = payload.content.strip()
@@ -4506,8 +5415,9 @@ def create_app() -> FastAPI:
                 }
             if schedule_title_generation:
                 _schedule_chat_title_generation(
-                    db=context.db_override,
-                    config_path=str(context.config_path),
+                    config=app_config,
+                    sessions=sessions,
+                    config_path=context.config_path,
                     thread_id=thread_id,
                 )
             return _response(True, result=result, warnings=warnings, error=None)
@@ -4519,26 +5429,13 @@ def create_app() -> FastAPI:
         request: Request,
         thread_id: str,
         payload: ChatStreamRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             _apply_auth_guard(app_config, request=request)
-
-            base_url = (app_config.ai_base_url or "").strip()
-            if not base_url:
-                raise RuntimeError("AI provider base_url is not configured")
-            api_key = _resolve_ai_bearer_token(app_config, context.config_path)
-            if not api_key:
-                raise RuntimeError("AI provider credentials are not configured")
-            model_id = (
-                payload.model_id.strip()
-                if isinstance(payload.model_id, str) and payload.model_id.strip()
-                else (app_config.ai_model or "gpt-5.2-codex")
-            )
+            selected_model_id = _resolve_selected_chat_model(app_config, payload.model_id)
 
             with session_scope(sessions) as session:
                 current_user = _resolve_request_user(
@@ -4554,25 +5451,61 @@ def create_app() -> FastAPI:
                 ).all()
                 if not stored_messages:
                     raise RuntimeError("at least one message is required")
-                openai_messages: list[dict[str, str]] = []
+                openai_messages = []
+                system_messages: list[str] = []
+                proxy_context_messages: list[dict[str, Any]] = []
                 for stored_message in stored_messages:
                     if stored_message.role not in {"system", "user", "assistant"}:
                         continue
                     text = _chat_text_from_content(stored_message.content_json)
                     if not text:
                         continue
-                    openai_messages.append({"role": stored_message.role, "content": text})
+                    if stored_message.role == "system":
+                        system_messages.append(text)
+                        openai_messages.append(simple_text_message(role="system", content=text))
+                    elif stored_message.role == "assistant":
+                        openai_messages.append(simple_text_message(role="assistant", content=text))
+                        proxy_context_messages.append(
+                            {"role": "assistant", "content": [{"type": "text", "text": text}]}
+                        )
+                    else:
+                        openai_messages.append(simple_text_message(role="user", content=text))
+                        proxy_context_messages.append(
+                            {"role": "user", "content": [{"type": "text", "text": text}]}
+                        )
                 if not openai_messages:
                     raise RuntimeError("at least one text message is required")
                 thread.stream_status = "streaming"
                 thread.updated_at = datetime.now(tz=UTC)
 
-            try:
-                from openai import AsyncOpenAI
-            except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(f"openai SDK is unavailable: {exc}") from exc
+            from lidltool.ai.runtime import RuntimeTask, StreamChatRequest
+            if _should_route_stream_via_chatgpt(app_config, selected_model_id):
+                oauth_token = _resolve_ai_oauth_bearer_token(app_config, context.config_path)
+                if not oauth_token:
+                    raise RuntimeError("AI provider credentials are not configured")
+                proxy_payload = StreamProxyRequest(
+                    model=StreamProxyModelRef(
+                        id=selected_model_id,
+                        provider="openai",
+                    ),
+                    context=StreamProxyContext(
+                        systemPrompt="\n\n".join(system_messages) or None,
+                        messages=proxy_context_messages,
+                        tools=[],
+                    ),
+                    options=StreamProxyOptions(),
+                )
+                return await _chatgpt_codex_stream(payload=proxy_payload, bearer_token=oauth_token)
 
-            client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+            runtime = _resolve_pi_agent_runtime_for_model(
+                app_config,
+                selected_model_id=selected_model_id,
+            )
+            model_id = _runtime_model_name(
+                runtime,
+                explicit_model=selected_model_id,
+                app_config=app_config,
+            )
             start_time = time.perf_counter()
 
             async def event_stream() -> Any:
@@ -4582,51 +5515,40 @@ def create_app() -> FastAPI:
                 total_tokens = 0
                 finish_reason = "stop"
                 stream_error: Exception | None = None
-
-                yield _sse_data({"type": "start"})
-                yield _sse_data({"type": "text_start", "contentIndex": 0})
                 try:
-                    stream = await client.chat.completions.create(
-                        model=model_id,
-                        messages=openai_messages,
-                        temperature=0.7,
-                        max_tokens=4096,
-                        stream=True,
-                        stream_options={"include_usage": True},
-                    )
-                    async for chunk in stream:
-                        chunk_usage = getattr(chunk, "usage", None)
-                        if chunk_usage is not None:
-                            input_tokens = int(getattr(chunk_usage, "prompt_tokens", 0) or 0)
-                            output_tokens = int(getattr(chunk_usage, "completion_tokens", 0) or 0)
-                            total_tokens = int(getattr(chunk_usage, "total_tokens", 0) or 0)
-
-                        choices = getattr(chunk, "choices", None) or []
-                        if not choices:
-                            continue
-                        choice = choices[0]
-                        if choice.finish_reason:
-                            finish_reason = str(choice.finish_reason)
-                        delta = choice.delta
-                        content_delta = str(getattr(delta, "content", "") or "")
-                        if content_delta:
-                            text_chunks.append(content_delta)
-                            yield _sse_data(
-                                {
-                                    "type": "text_delta",
-                                    "contentIndex": 0,
-                                    "delta": content_delta,
-                                }
-                            )
+                    async for event in runtime.stream_chat(
+                        StreamChatRequest(
+                            task=RuntimeTask.PI_AGENT,
+                            model_name=model_id,
+                            messages=openai_messages,
+                            temperature=0.7,
+                            max_tokens=4096,
+                        )
+                    ):
+                        if event.type == "text_delta" and event.delta:
+                            text_chunks.append(event.delta)
+                        if event.type == "done":
+                            finish_reason = event.reason or "stop"
+                            usage = event.usage or {}
+                            input_tokens = int(usage.get("input", 0) or 0)
+                            output_tokens = int(usage.get("output", 0) or 0)
+                            total_tokens = int(usage.get("totalTokens", 0) or 0)
+                        payload = {"type": event.type}
+                        if event.content_index is not None:
+                            payload["contentIndex"] = event.content_index
+                        if event.delta is not None:
+                            payload["delta"] = event.delta
+                        if event.tool_call_id is not None:
+                            payload["id"] = event.tool_call_id
+                        if event.tool_name is not None:
+                            payload["toolName"] = event.tool_name
+                        if event.reason is not None:
+                            payload["reason"] = event.reason
+                        if event.usage:
+                            payload["usage"] = event.usage
+                        yield _sse_data(payload)
                 except Exception as exc:  # noqa: BLE001
                     stream_error = exc
-                finally:
-                    close_method = getattr(client, "close", None)
-                    if callable(close_method):
-                        maybe_awaitable = close_method()
-                        if asyncio.iscoroutine(maybe_awaitable):
-                            with suppress(Exception):
-                                await maybe_awaitable
 
                 latency_ms = int((time.perf_counter() - start_time) * 1000)
                 normalized_total_tokens = total_tokens or (input_tokens + output_tokens)
@@ -4726,11 +5648,9 @@ def create_app() -> FastAPI:
         request: Request,
         thread_id: str,
         payload: ChatRunPersistRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -4822,19 +5742,18 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/automations")
     def list_automations(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
-            service = AutomationService(session_factory=sessions)
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+            service = AutomationService(session_factory=sessions, config=app_config)
             result = service.list_rules(limit=limit, offset=offset)
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -4842,15 +5761,14 @@ def create_app() -> FastAPI:
     def create_automation(
         request: Request,
         payload: AutomationRuleCreateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
-            service = AutomationService(session_factory=sessions)
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+            service = AutomationService(session_factory=sessions, config=app_config)
             result = service.create_rule(
                 name=payload.name,
                 rule_type=payload.rule_type,
@@ -4859,33 +5777,32 @@ def create_app() -> FastAPI:
                 action_config=payload.action_config,
                 actor_id=payload.actor_id,
             )
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
     @app.get("/api/v1/automations/executions")
     def list_automation_executions(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
         limit: int = 100,
         offset: int = 0,
         status: str | None = None,
         rule_type: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
-            service = AutomationService(session_factory=sessions)
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+            service = AutomationService(session_factory=sessions, config=app_config)
             result = service.list_executions(
                 limit=limit,
                 offset=offset,
                 status=status,
                 rule_type=rule_type,
             )
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -4893,19 +5810,18 @@ def create_app() -> FastAPI:
     def get_automation(
         request: Request,
         rule_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
-            service = AutomationService(session_factory=sessions)
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+            service = AutomationService(session_factory=sessions, config=app_config)
             result = service.get_rule(rule_id=rule_id)
             if result is None:
                 raise RuntimeError("automation rule not found")
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -4914,21 +5830,20 @@ def create_app() -> FastAPI:
         request: Request,
         rule_id: str,
         payload: AutomationRuleUpdateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
-            service = AutomationService(session_factory=sessions)
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+            service = AutomationService(session_factory=sessions, config=app_config)
             result = service.update_rule(
                 rule_id=rule_id,
                 payload=payload.model_dump(exclude_none=True),
                 actor_id=payload.actor_id,
             )
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -4937,17 +5852,16 @@ def create_app() -> FastAPI:
         request: Request,
         rule_id: str,
         actor_id: str | None = None,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
-            service = AutomationService(session_factory=sessions)
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+            service = AutomationService(session_factory=sessions, config=app_config)
             result = service.delete_rule(rule_id=rule_id, actor_id=actor_id)
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -4956,16 +5870,354 @@ def create_app() -> FastAPI:
         request: Request,
         rule_id: str,
         payload: AutomationRunRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+            service = AutomationService(session_factory=sessions, config=app_config)
+            result = service.run_rule(rule_id=rule_id, actor_id=payload.actor_id)
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/offers")
+    def get_offers_overview(
+        request: Request,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            service = AutomationService(session_factory=sessions)
-            result = service.run_rule(rule_id=rule_id, actor_id=payload.actor_id)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = offer_overview(session, config=app_config, user_id=current_user.user_id)
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/offers/sources")
+    def get_offer_sources(
+        request: Request,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                items = list_offer_sources(session, user_id=current_user.user_id)
+                result = _collection_result(
+                    result={"count": len(items), "items": items},
+                    alias_key="sources",
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/offers/sources")
+    def post_offer_source(
+        request: Request,
+        payload: OfferSourceCreateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = create_offer_source(
+                    session,
+                    user_id=current_user.user_id,
+                    merchant_name=payload.merchant_name,
+                    merchant_url=payload.merchant_url,
+                    display_name=payload.display_name,
+                    country_code=payload.country_code,
+                    notes=payload.notes,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.patch("/api/v1/offers/sources/{source_id}")
+    def patch_offer_source(
+        request: Request,
+        source_id: str,
+        payload: OfferSourceUpdateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = update_offer_source(
+                    session,
+                    user_id=current_user.user_id,
+                    source_id=source_id,
+                    payload=payload.model_dump(exclude_none=True),
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.delete("/api/v1/offers/sources/{source_id}")
+    def destroy_offer_source(
+        request: Request,
+        source_id: str,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = delete_offer_source(
+                    session,
+                    user_id=current_user.user_id,
+                    source_id=source_id,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/offers/merchant-items")
+    def get_offer_merchant_items(
+        request: Request,
+        merchant_name: str,
+        limit: int = 100,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = list_offer_merchant_items(
+                    session,
+                    user_id=current_user.user_id,
+                    merchant_name=merchant_name,
+                    limit=limit,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/offers/refresh")
+    def post_offer_refresh(
+        request: Request,
+        payload: OfferRefreshRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = run_offer_refresh(
+                    session,
+                    config=app_config,
+                    source_ids=payload.source_ids or None,
+                    requested_by_user_id=current_user.user_id,
+                    trigger_kind="manual",
+                    discovery_limit=payload.discovery_limit,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/offers/refresh-runs")
+    def get_offer_refresh_runs(
+        request: Request,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = list_offer_refresh_runs(
+                    session,
+                    user_id=current_user.user_id,
+                    limit=limit,
+                    offset=offset,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/offers/watchlists")
+    def get_offer_watchlists(
+        request: Request,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = list_offer_watchlists(
+                    session,
+                    user_id=current_user.user_id,
+                    limit=limit,
+                    offset=offset,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/offers/watchlists")
+    def post_offer_watchlist(
+        request: Request,
+        payload: OfferWatchlistCreateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = create_offer_watchlist(
+                    session,
+                    user_id=current_user.user_id,
+                    product_id=payload.product_id,
+                    query_text=payload.query_text,
+                    source_id=payload.source_id,
+                    min_discount_percent=payload.min_discount_percent,
+                    max_price_cents=payload.max_price_cents,
+                    notes=payload.notes,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.patch("/api/v1/offers/watchlists/{watchlist_id}")
+    def patch_offer_watchlist(
+        request: Request,
+        watchlist_id: str,
+        payload: OfferWatchlistUpdateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = update_offer_watchlist(
+                    session,
+                    user_id=current_user.user_id,
+                    watchlist_id=watchlist_id,
+                    payload=payload.model_dump(exclude_none=True),
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.delete("/api/v1/offers/watchlists/{watchlist_id}")
+    def remove_offer_watchlist(
+        request: Request,
+        watchlist_id: str,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = delete_offer_watchlist(
+                    session,
+                    user_id=current_user.user_id,
+                    watchlist_id=watchlist_id,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/offers/matches")
+    def get_offer_matches(
+        request: Request,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = list_offer_matches(
+                    session,
+                    user_id=current_user.user_id,
+                    limit=limit,
+                    offset=offset,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/offers/alerts")
+    def get_offer_alerts(
+        request: Request,
+        unread_only: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = list_offer_alerts(
+                    session,
+                    user_id=current_user.user_id,
+                    unread_only=unread_only,
+                    limit=limit,
+                    offset=offset,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.patch("/api/v1/offers/alerts/{alert_id}")
+    def patch_offer_alert(
+        request: Request,
+        alert_id: str,
+        payload: OfferAlertReadRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = mark_offer_alert_read(
+                    session,
+                    user_id=current_user.user_id,
+                    alert_id=alert_id,
+                    read=payload.read,
+                )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -4973,14 +6225,12 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/recurring-bills")
     def list_recurring_bills(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
         include_inactive: bool = False,
         limit: int = 100,
         offset: int = 0,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5004,11 +6254,9 @@ def create_app() -> FastAPI:
     def create_recurring_bill(
         request: Request,
         payload: RecurringBillCreateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5040,11 +6288,9 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/recurring-bills/analytics/overview")
     def get_recurring_overview(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5064,11 +6310,9 @@ def create_app() -> FastAPI:
         request: Request,
         year: int | None = None,
         month: int | None = None,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5092,11 +6336,9 @@ def create_app() -> FastAPI:
     def get_recurring_forecast(
         request: Request,
         months: int = 6,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5114,11 +6356,9 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/recurring-bills/analytics/gaps")
     def get_recurring_gaps(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5138,11 +6378,9 @@ def create_app() -> FastAPI:
         request: Request,
         occ_id: str,
         payload: RecurringOccurrenceStatusUpdateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5167,11 +6405,9 @@ def create_app() -> FastAPI:
         request: Request,
         occ_id: str,
         payload: RecurringOccurrenceSkipRequest | None = None,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5195,11 +6431,9 @@ def create_app() -> FastAPI:
         request: Request,
         occ_id: str,
         payload: RecurringOccurrenceReconcileRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5231,11 +6465,9 @@ def create_app() -> FastAPI:
         status: str | None = None,
         limit: int = 200,
         offset: int = 0,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5263,11 +6495,9 @@ def create_app() -> FastAPI:
         request: Request,
         bill_id: str,
         payload: RecurringGenerateOccurrencesRequest | None = None,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5293,11 +6523,9 @@ def create_app() -> FastAPI:
         request: Request,
         bill_id: str,
         payload: RecurringRunMatchingRequest | None = None,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5324,11 +6552,9 @@ def create_app() -> FastAPI:
     def get_recurring_bill(
         request: Request,
         bill_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5350,11 +6576,9 @@ def create_app() -> FastAPI:
         request: Request,
         bill_id: str,
         payload: RecurringBillUpdateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5377,11 +6601,9 @@ def create_app() -> FastAPI:
     def delete_recurring_bill(
         request: Request,
         bill_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5403,11 +6625,9 @@ def create_app() -> FastAPI:
         month: int | None = None,
         source_ids: str | None = None,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5427,6 +6647,41 @@ def create_app() -> FastAPI:
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
+    @app.get("/api/v1/dashboard/summary")
+    def get_dashboard_summary(
+        request: Request,
+        year: int | None = None,
+        month: int | None = None,
+        recent_limit: int = 5,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            now = datetime.now(tz=UTC)
+            resolved_year = year if year is not None else now.year
+            resolved_month = month if month is not None else now.month
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                result = _dashboard_summary_payload(
+                    app,
+                    session,
+                    config=app_config,
+                    user=current_user,
+                    visibility=visibility,
+                    year=resolved_year,
+                    month=resolved_month,
+                    recent_limit=recent_limit,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
     @app.get("/api/v1/dashboard/trends")
     def get_dashboard_trends(
         request: Request,
@@ -5435,11 +6690,9 @@ def create_app() -> FastAPI:
         end_month: int = 12,
         source_ids: str | None = None,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5468,11 +6721,9 @@ def create_app() -> FastAPI:
         view: str = "native",
         source_ids: str | None = None,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5500,11 +6751,9 @@ def create_app() -> FastAPI:
         month: int | None = None,
         source_ids: str | None = None,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5527,11 +6776,9 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/sources")
     def get_sources(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5544,25 +6791,163 @@ def create_app() -> FastAPI:
                     is_service=(current_user.username == SERVICE_USERNAME),
                     scope="personal",
                 )
-                result = list_sources(session, config=app_config, visibility=visibility)
+                result = list_sources(
+                    session,
+                    config=app_config,
+                    visibility=visibility,
+                    include_sensitive_plugin_details=False,
+                    include_operator_diagnostics=False,
+                )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
-    @app.get("/api/v1/connectors")
-    def get_connectors(
+    @app.get("/api/v1/sources/status")
+    def get_sources_status(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
+                )
+                visibility = VisibilityContext(
+                    user_id=current_user.user_id,
+                    is_service=(current_user.username == SERVICE_USERNAME),
+                    scope="personal",
+                )
+                auth_service = _connector_auth_service(app, config=app_config)
+                stmt = select(Source).order_by(Source.display_name.asc(), Source.id.asc())
+                if not visibility.is_service:
+                    stmt = stmt.where(Source.user_id == visibility.user_id)
+                else:
+                    stmt = stmt.where((Source.user_id == visibility.user_id) | Source.user_id.is_(None))
+                items = [
+                    _source_status_payload(
+                        app,
+                        session,
+                        auth_service=auth_service,
+                        config=app_config,
+                        source=source,
+                        include_sensitive_plugin_details=False,
+                        include_auth_diagnostics=False,
+                    )
+                    for source in session.execute(stmt).scalars().all()
+                ]
+                result = _collection_result(
+                    result={"count": len(items), "items": items},
+                    alias_key="sources",
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/sources/{source_id}/status")
+    def get_source_status(
+        request: Request,
+        source_id: str,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                auth_service = _connector_auth_service(app, config=app_config)
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = VisibilityContext(
+                    user_id=current_user.user_id,
+                    is_service=(current_user.username == SERVICE_USERNAME),
+                    scope="personal",
+                )
+                if not _source_is_visible(session=session, source_id=source_id, visibility=visibility):
+                    raise RuntimeError("source not found")
+                source = session.get(Source, source_id)
+                if source is None:
+                    raise RuntimeError("source not found")
+                result = _source_status_payload(
+                    app,
+                    session,
+                    auth_service=auth_service,
+                    config=app_config,
+                    source=source,
+                    include_sensitive_plugin_details=False,
+                    include_auth_diagnostics=False,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/sources/{source_id}/auth")
+    def get_source_auth_status(
+        request: Request,
+        source_id: str,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = VisibilityContext(
+                    user_id=current_user.user_id,
+                    is_service=(current_user.username == SERVICE_USERNAME),
+                    scope="personal",
+                )
+                if not _source_is_visible(session=session, source_id=source_id, visibility=visibility):
+                    raise RuntimeError("source not found")
+                auth_service = _connector_auth_service(app, config=app_config)
+                result = serialize_source_auth_status(
+                    auth_service=auth_service,
+                    source_id=source_id,
+                    include_diagnostics=False,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/plugin-management")
+    def get_plugin_management(
+        request: Request,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+                result = plugin_management_payload(
+                    session,
+                    config=app_config,
+                    include_sensitive_details=True,
+                )
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/connectors")
+    def get_connectors(
+        request: Request,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request,
+                    session=session,
+                    config=app_config,
                 )
                 auth_service = _connector_auth_service(app, config=app_config)
                 result = connector_discovery_payload(
@@ -5579,25 +6964,24 @@ def create_app() -> FastAPI:
     @app.post("/api/v1/connectors/rescan")
     def rescan_connectors(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             with session_scope(sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=app_config
+                auth_context = _require_admin_auth_context(
+                    request=request,
+                    session=session,
+                    config=app_config,
                 )
-                _require_admin(current_user)
                 auth_service = _connector_auth_service(app, config=app_config)
                 result = connector_discovery_payload(
                     app,
                     session,
                     auth_service=auth_service,
                     config=app_config,
-                    viewer_is_admin=current_user.is_admin,
+                    viewer_is_admin=auth_context.user.is_admin,
                 )
             return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -5606,27 +6990,20 @@ def create_app() -> FastAPI:
     @app.post("/api/v1/connectors/reload")
     def reload_connectors(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
-        return rescan_connectors(request=request, db=db, config=config)
+        return rescan_connectors(request=request)
 
     @app.post("/api/v1/connectors/{source_id}/install")
     def post_connector_install(
         request: Request,
         source_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             with session_scope(sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=app_config
-                )
-                _require_admin(current_user)
+                _require_admin_auth_context(request=request, session=session, config=app_config)
                 result = install_connector(
                     session,
                     source_id=source_id,
@@ -5640,18 +7017,13 @@ def create_app() -> FastAPI:
     def post_connector_enable(
         request: Request,
         source_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             with session_scope(sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=app_config
-                )
-                _require_admin(current_user)
+                _require_admin_auth_context(request=request, session=session, config=app_config)
                 result = set_connector_enabled(
                     session,
                     source_id=source_id,
@@ -5666,18 +7038,13 @@ def create_app() -> FastAPI:
     def post_connector_disable(
         request: Request,
         source_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             with session_scope(sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=app_config
-                )
-                _require_admin(current_user)
+                _require_admin_auth_context(request=request, session=session, config=app_config)
                 result = set_connector_enabled(
                     session,
                     source_id=source_id,
@@ -5693,18 +7060,13 @@ def create_app() -> FastAPI:
         request: Request,
         source_id: str,
         payload: ConnectorUninstallRequest | None = None,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             with session_scope(sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=app_config
-                )
-                _require_admin(current_user)
+                _require_admin_auth_context(request=request, session=session, config=app_config)
                 result = uninstall_connector(
                     session,
                     source_id=source_id,
@@ -5719,18 +7081,13 @@ def create_app() -> FastAPI:
     def get_connector_config(
         request: Request,
         source_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             with session_scope(sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=app_config
-                )
-                _require_admin(current_user)
+                _require_admin_auth_context(request=request, session=session, config=app_config)
                 result = connector_lifecycle_record_payload(
                     session,
                     source_id=source_id,
@@ -5745,18 +7102,13 @@ def create_app() -> FastAPI:
         request: Request,
         source_id: str,
         payload: ConnectorConfigUpdateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             with session_scope(sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=app_config
-                )
-                _require_admin(current_user)
+                _require_admin_auth_context(request=request, session=session, config=app_config)
                 result = update_connector_config(
                     session,
                     source_id=source_id,
@@ -5768,15 +7120,32 @@ def create_app() -> FastAPI:
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
+    @app.post("/api/v1/plugin-management/rescan")
+    def rescan_plugin_management(
+        request: Request,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+                result = plugin_management_payload(
+                    session,
+                    config=app_config,
+                    include_sensitive_details=True,
+                )
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
     @app.post("/api/v1/connectors/cascade/start")
     def start_connector_cascade(
         request: Request,
         payload: ConnectorCascadeStartRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5797,12 +7166,8 @@ def create_app() -> FastAPI:
                 unsupported = ", ".join(sorted(unsupported_sources))
                 raise RuntimeError(f"unsupported source(s) for cascade: {unsupported}")
 
-            cascade_sessions = cast(
-                dict[str, ConnectorCascadeSession], app.state.connector_cascade_sessions
-            )
-            cascade_sessions_lock = cast(
-                threading.Lock, app.state.connector_cascade_sessions_lock
-            )
+            cascade_sessions = get_connector_cascade_sessions(app)
+            cascade_sessions_lock = get_connector_cascade_lock(app)
             with cascade_sessions_lock:
                 existing = cascade_sessions.get(current_user_id)
                 if existing is not None and _connector_cascade_is_active(existing):
@@ -5821,12 +7186,8 @@ def create_app() -> FastAPI:
                         "another connector cascade is already running; wait or cancel it before starting a new cascade"
                     )
 
-                bootstrap_sessions = cast(
-                    dict[str, ConnectorBootstrapSession], app.state.connector_bootstrap_sessions
-                )
-                sync_sessions = cast(
-                    dict[str, ConnectorBootstrapSession], app.state.connector_sync_sessions
-                )
+                bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
+                sync_sessions = get_connector_command_sessions(app, kind="sync")
                 if _connector_any_running(bootstrap_sessions) or _connector_any_running(sync_sessions):
                     raise RuntimeError(
                         "another connector operation is already running; wait or cancel it before starting a cascade"
@@ -5850,11 +7211,9 @@ def create_app() -> FastAPI:
     def retry_connector_cascade(
         request: Request,
         payload: ConnectorCascadeRetryRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5864,12 +7223,8 @@ def create_app() -> FastAPI:
                 )
                 current_user_id = current_user.user_id
 
-            cascade_sessions = cast(
-                dict[str, ConnectorCascadeSession], app.state.connector_cascade_sessions
-            )
-            cascade_sessions_lock = cast(
-                threading.Lock, app.state.connector_cascade_sessions_lock
-            )
+            cascade_sessions = get_connector_cascade_sessions(app)
+            cascade_sessions_lock = get_connector_cascade_lock(app)
             with cascade_sessions_lock:
                 existing = cascade_sessions.get(current_user_id)
                 if existing is None:
@@ -5900,12 +7255,8 @@ def create_app() -> FastAPI:
                         "another connector cascade is already running; wait or cancel it before retrying"
                     )
 
-                bootstrap_sessions = cast(
-                    dict[str, ConnectorBootstrapSession], app.state.connector_bootstrap_sessions
-                )
-                sync_sessions = cast(
-                    dict[str, ConnectorBootstrapSession], app.state.connector_sync_sessions
-                )
+                bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
+                sync_sessions = get_connector_command_sessions(app, kind="sync")
                 if _connector_any_running(bootstrap_sessions) or _connector_any_running(sync_sessions):
                     raise RuntimeError(
                         "another connector operation is already running; wait or cancel it before retrying cascade"
@@ -5928,11 +7279,9 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/connectors/cascade/status")
     def get_connector_cascade_status(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5942,16 +7291,14 @@ def create_app() -> FastAPI:
                 )
                 current_user_id = current_user.user_id
 
-            cascade_sessions = cast(
-                dict[str, ConnectorCascadeSession], app.state.connector_cascade_sessions
-            )
+            cascade_sessions = get_connector_cascade_sessions(app)
             cascade = cascade_sessions.get(current_user_id)
             if cascade is None:
                 result = _idle_connector_cascade_status()
             else:
                 result = _serialize_connector_cascade(cascade, request=request)
                 selected_source_ids = cast(list[str], result["source_ids"])
-                if any(source_id != "lidl_plus_de" for source_id in selected_source_ids):
+                if any(_connector_is_preview_source(source_id) for source_id in selected_source_ids):
                     warnings.append(
                         "cascade includes preview connectors that are not fully live-validated yet"
                     )
@@ -5962,11 +7309,9 @@ def create_app() -> FastAPI:
     @app.post("/api/v1/connectors/cascade/cancel")
     def cancel_connector_cascade(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -5976,9 +7321,7 @@ def create_app() -> FastAPI:
                 )
                 current_user_id = current_user.user_id
 
-            cascade_sessions = cast(
-                dict[str, ConnectorCascadeSession], app.state.connector_cascade_sessions
-            )
+            cascade_sessions = get_connector_cascade_sessions(app)
             cascade = cascade_sessions.get(current_user_id)
             if cascade is None:
                 return _response(
@@ -6018,12 +7361,8 @@ def create_app() -> FastAPI:
             if cascade.worker_thread is not None and cascade.worker_thread.is_alive():
                 cascade.worker_thread.join(timeout=1)
 
-            bootstrap_sessions = cast(
-                dict[str, ConnectorBootstrapSession], app.state.connector_bootstrap_sessions
-            )
-            sync_sessions = cast(
-                dict[str, ConnectorBootstrapSession], app.state.connector_sync_sessions
-            )
+            bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
+            sync_sessions = get_connector_command_sessions(app, kind="sync")
             if not _connector_any_running(bootstrap_sessions) and not _connector_any_running(sync_sessions):
                 _stop_vnc_runtime(app)
 
@@ -6041,20 +7380,22 @@ def create_app() -> FastAPI:
     def start_connector_bootstrap(
         request: Request,
         source_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
                 _resolve_request_user(request=request, session=session, config=app_config)
+                assert_connector_operation_allowed(
+                    session,
+                    source_id=source_id,
+                    operation="bootstrap",
+                    config=app_config,
+                )
 
-            cascade_sessions = cast(
-                dict[str, ConnectorCascadeSession], app.state.connector_cascade_sessions
-            )
+            cascade_sessions = get_connector_cascade_sessions(app)
             if any(_connector_cascade_is_active(cascade) for cascade in cascade_sessions.values()):
                 raise RuntimeError(
                     "connector cascade is already running; cancel or wait for completion before manual bootstrap"
@@ -6063,9 +7404,7 @@ def create_app() -> FastAPI:
             service = _connector_auth_service(app, config=app_config)
             manifest = service.get_auth_status(source_id=source_id, validate_session=False).manifest
 
-            bootstrap_sessions = cast(
-                dict[str, ConnectorBootstrapSession], app.state.connector_bootstrap_sessions
-            )
+            bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
 
             for existing_source, existing in bootstrap_sessions.items():
                 if existing_source == source_id:
@@ -6084,7 +7423,7 @@ def create_app() -> FastAPI:
                     "bootstrap": _serialize_connector_bootstrap(prev),
                     "remote_login_url": existing_remote_url,
                 }
-                if source_id != "lidl_plus_de":
+                if _connector_is_preview_source(source_id):
                     warnings.append(
                         _warning(
                             "preview connector bootstrap started; this connector is not live-validated yet",
@@ -6098,9 +7437,12 @@ def create_app() -> FastAPI:
             try:
                 _ensure_vnc_runtime(app)
                 remote_login_url = _novnc_login_url(request)
-                runtime = cast(VncRuntime | None, app.state.vnc_runtime)
+                runtime = get_vnc_runtime(app)
                 if runtime is not None:
-                    env = {"DISPLAY": runtime.display}
+                    env = {
+                        "DISPLAY": runtime.display,
+                        "LIDLTOOL_AUTH_BROWSER_MODE": "remote_vnc",
+                    }
             except Exception as exc:  # noqa: BLE001
                 warnings.append(
                     _warning(
@@ -6125,7 +7467,7 @@ def create_app() -> FastAPI:
                 "bootstrap": _serialize_connector_bootstrap(bootstrap),
                 "remote_login_url": remote_login_url,
             }
-            if manifest.source_id != "lidl_plus_de":
+            if _connector_is_preview_source(manifest.source_id):
                 warnings.append(
                     _warning(
                         "preview connector bootstrap started; this connector is not live-validated yet",
@@ -6140,20 +7482,16 @@ def create_app() -> FastAPI:
     def get_connector_bootstrap_status(
         request: Request,
         source_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
                 _resolve_request_user(request=request, session=session, config=app_config)
 
-            bootstrap_sessions = cast(
-                dict[str, ConnectorBootstrapSession], app.state.connector_bootstrap_sessions
-            )
+            bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
             bootstrap = bootstrap_sessions.get(source_id)
             remote_login_url = _novnc_login_url(request)
             if bootstrap is None:
@@ -6172,9 +7510,9 @@ def create_app() -> FastAPI:
                     "remote_login_url": remote_login_url,
                 }
             else:
-                result = _serialize_connector_bootstrap(bootstrap)
+                result = dict(_serialize_connector_bootstrap(bootstrap))
                 result["remote_login_url"] = remote_login_url
-            if source_id != "lidl_plus_de":
+            if _connector_is_preview_source(source_id):
                 warnings.append(
                     "preview connector status only; this connector is not live-validated yet"
                 )
@@ -6186,20 +7524,16 @@ def create_app() -> FastAPI:
     def cancel_connector_bootstrap(
         request: Request,
         source_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
                 _resolve_request_user(request=request, session=session, config=app_config)
 
-            bootstrap_sessions = cast(
-                dict[str, ConnectorBootstrapSession], app.state.connector_bootstrap_sessions
-            )
+            bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
             bootstrap = bootstrap_sessions.get(source_id)
             if bootstrap is None:
                 result = {"source_id": source_id, "canceled": False, "bootstrap": None}
@@ -6213,7 +7547,7 @@ def create_app() -> FastAPI:
                 }
             if not _connector_any_running(bootstrap_sessions):
                 _stop_vnc_runtime(app)
-            if source_id != "lidl_plus_de":
+            if _connector_is_preview_source(source_id):
                 warnings.append(
                     "preview connector cancellation only; this connector is not live-validated yet"
                 )
@@ -6226,23 +7560,36 @@ def create_app() -> FastAPI:
         request: Request,
         source_id: str,
         full: bool = False,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
-                _resolve_request_user(request=request, session=session, config=app_config)
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                assert_connector_operation_allowed(
+                    session,
+                    source_id=source_id,
+                    operation="sync",
+                    config=app_config,
+                )
+                current_user_id = current_user.user_id
+                current_username = current_user.username
 
-            cascade_sessions = cast(
-                dict[str, ConnectorCascadeSession], app.state.connector_cascade_sessions
-            )
+            cascade_sessions = get_connector_cascade_sessions(app)
             if any(_connector_cascade_is_active(cascade) for cascade in cascade_sessions.values()):
                 raise RuntimeError(
                     "connector cascade is already running; cancel or wait for completion before manual sync"
+                )
+
+            sync_extra_args: tuple[str, ...] = ()
+            if current_username != SERVICE_USERNAME:
+                sync_extra_args = (
+                    "--option",
+                    f"owner_user_id={current_user_id}",
                 )
 
             command = _connector_command(
@@ -6250,18 +7597,22 @@ def create_app() -> FastAPI:
                 source_id=source_id,
                 operation="sync",
                 full=full,
+                extra_args=sync_extra_args,
             )
             if command is None:
                 raise RuntimeError(f"sync not supported for source: {source_id}")
 
-            sync_sessions = cast(
-                dict[str, ConnectorBootstrapSession], app.state.connector_sync_sessions
-            )
+            sync_sessions = get_connector_command_sessions(app, kind="sync")
             existing = sync_sessions.get(source_id)
             if existing is not None and _connector_bootstrap_is_running(existing):
                 return _response(
                     True,
-                    result={"source_id": source_id, "reused": True, "sync": _serialize_connector_bootstrap(existing)},
+                    result={
+                        "source_id": source_id,
+                        "reused": True,
+                        "sync": _serialize_connector_bootstrap(existing),
+                        "sync_status_url": f"/api/v1/sources/{source_id}/sync-status",
+                    },
                     warnings=warnings,
                     error=None,
                 )
@@ -6271,11 +7622,11 @@ def create_app() -> FastAPI:
                 source_id=source_id,
                 command=command,
                 config=app_config,
-                sessions_attr="connector_sync_sessions",
+                session_kind="sync",
                 thread_name=f"connector-sync-{source_id}",
             )
 
-            if source_id != "lidl_plus_de":
+            if _connector_is_preview_source(source_id):
                 warnings.append(
                     _warning(
                         "preview connector sync; this connector is not live-validated yet",
@@ -6284,47 +7635,45 @@ def create_app() -> FastAPI:
                 )
             return _response(
                 True,
-                result={"source_id": source_id, "reused": False, "sync": _serialize_connector_bootstrap(sync_session)},
+                result={
+                    "source_id": source_id,
+                    "reused": False,
+                    "sync": _serialize_connector_bootstrap(sync_session),
+                    "sync_status_url": f"/api/v1/sources/{source_id}/sync-status",
+                },
                 warnings=warnings,
                 error=None,
             )
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
+    # Compatibility alias for older source-centric clients. Connector routes are canonical.
     @app.post("/api/v1/sources/{source_id}/sync")
-    def start_source_sync(
+    def start_source_sync_alias(
         request: Request,
         source_id: str,
         full: bool = False,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         return start_connector_sync(
             request=request,
             source_id=source_id,
             full=full,
-            db=db,
-            config=config,
         )
 
     @app.get("/api/v1/connectors/{source_id}/sync/status")
     def get_connector_sync_status(
         request: Request,
         source_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
                 _resolve_request_user(request=request, session=session, config=app_config)
 
-            sync_sessions = cast(
-                dict[str, ConnectorBootstrapSession], app.state.connector_sync_sessions
-            )
+            sync_sessions = get_connector_command_sessions(app, kind="sync")
             sync = sync_sessions.get(source_id)
             if sync is None:
                 result: dict[str, Any] = {
@@ -6339,35 +7688,45 @@ def create_app() -> FastAPI:
                     "can_cancel": False,
                 }
             else:
-                result = _serialize_connector_bootstrap(sync)
+                result = dict(_serialize_connector_bootstrap(sync))
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
-    @app.get("/api/v1/sources/{source_id}/sync/status")
+    @app.get("/api/v1/sources/{source_id}/sync-status")
     def get_source_sync_status(
         request: Request,
         source_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
-        return get_connector_sync_status(
-            request=request,
-            source_id=source_id,
-            db=db,
-            config=config,
-        )
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = VisibilityContext(
+                    user_id=current_user.user_id,
+                    is_service=(current_user.username == SERVICE_USERNAME),
+                    scope="personal",
+                )
+                if not _source_is_visible(session=session, source_id=source_id, visibility=visibility):
+                    raise RuntimeError("source not found")
+                result = _serialize_source_sync_status(app, session, source_id=source_id)
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
 
     @app.patch("/api/v1/sources/{source_id}/sharing")
     def patch_source_sharing(
         request: Request,
         source_id: str,
         payload: SourceSharingRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -6398,11 +7757,9 @@ def create_app() -> FastAPI:
         request: Request,
         transaction_id: str,
         payload: TransactionSharingRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -6440,11 +7797,9 @@ def create_app() -> FastAPI:
         transaction_id: str,
         item_id: str,
         payload: TransactionItemSharingRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -6475,11 +7830,9 @@ def create_app() -> FastAPI:
     def post_query_run(
         request: Request,
         payload: QueryRunRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -6503,11 +7856,9 @@ def create_app() -> FastAPI:
         request: Request,
         payload: QueryDslRequest,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -6537,11 +7888,9 @@ def create_app() -> FastAPI:
         source_kind: str | None = None,
         tz_offset_minutes: int = 0,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -6573,11 +7922,9 @@ def create_app() -> FastAPI:
         source_kind: str | None = None,
         tz_offset_minutes: int = 0,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -6609,11 +7956,9 @@ def create_app() -> FastAPI:
         source_kind: str | None = None,
         tz_offset_minutes: int = 0,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -6641,12 +7986,11 @@ def create_app() -> FastAPI:
         request: Request,
         from_date: str | None = None,
         to_date: str | None = None,
+        source_ids: str | None = None,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -6659,6 +8003,7 @@ def create_app() -> FastAPI:
                     session,
                     date_from=_parse_optional_iso_date(from_date),
                     date_to=_parse_optional_iso_date(to_date),
+                    source_ids=_parse_source_ids(source_ids),
                     visibility=visibility,
                 )
             return _response(True, result=result, warnings=warnings, error=None)
@@ -6672,11 +8017,9 @@ def create_app() -> FastAPI:
         to_date: str | None = None,
         grain: str = "month",
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -6699,8 +8042,6 @@ def create_app() -> FastAPI:
     @app.post("/api/v1/tools/exec")
     async def exec_python(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         """Execute arbitrary Python code with access to the lidltool database.
 
@@ -6714,9 +8055,13 @@ def create_app() -> FastAPI:
         On non-Docker installs, only admin/owner users should have access.
         """
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
-            warnings = _apply_auth_guard(app_config, request=request)
+            sessions = context.sessions
+            if not app_config.http_tools_exec_enabled:
+                raise HTTPException(status_code=404, detail="not found")
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
 
             body = await request.json()
             code: str = body.get("code", "")
@@ -6764,7 +8109,6 @@ finally:
                     "stderr": error_output,
                     "exit_code": exit_code,
                 },
-                warnings=warnings,
                 error=error_output if exit_code != 0 else None,
             )
         except Exception as exc:  # noqa: BLE001
@@ -6775,11 +8119,9 @@ finally:
         request: Request,
         payload: BasketCompareRequest,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -6801,17 +8143,15 @@ finally:
     @app.get("/api/v1/analytics/budget-rules")
     def get_budget_rules(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
-                result = list_budget_rules(session)
-            return _response(True, result=result, warnings=warnings, error=None)
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                result = list_budget_rules(session, user_id=current_user.user_id)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -6819,17 +8159,16 @@ finally:
     def post_budget_rule(
         request: Request,
         payload: BudgetRuleCreateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
                 result = create_budget_rule(
                     session,
+                    user_id=current_user.user_id,
                     scope_type=payload.scope_type,
                     scope_value=payload.scope_value,
                     period=payload.period,
@@ -6837,7 +8176,7 @@ finally:
                     currency=payload.currency,
                     active=payload.active,
                 )
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -6847,11 +8186,9 @@ finally:
         year: int | None = None,
         month: int | None = None,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -6860,7 +8197,208 @@ finally:
                     request=request, session=session, config=app_config
                 )
                 visibility = _visibility_for_scope(current_user, scope)
-                result = budget_utilization(session, year=year, month=month, visibility=visibility)
+                result = budget_utilization(
+                    session,
+                    year=year,
+                    month=month,
+                    visibility=visibility,
+                    user_id=current_user.user_id,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/budget/months/{year}/{month}")
+    def get_budget_month_view(
+        request: Request,
+        year: int,
+        month: int,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                result = get_budget_month(
+                    session,
+                    user_id=current_user.user_id,
+                    year=year,
+                    month=month,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.put("/api/v1/budget/months/{year}/{month}")
+    def put_budget_month_view(
+        request: Request,
+        year: int,
+        month: int,
+        payload: BudgetMonthUpdateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                result = upsert_budget_month(
+                    session,
+                    user_id=current_user.user_id,
+                    year=year,
+                    month=month,
+                    planned_income_cents=payload.planned_income_cents,
+                    target_savings_cents=payload.target_savings_cents,
+                    opening_balance_cents=payload.opening_balance_cents,
+                    currency=payload.currency,
+                    notes=payload.notes,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/budget/months/{year}/{month}/summary")
+    def get_budget_month_summary(
+        request: Request,
+        year: int,
+        month: int,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                result = monthly_budget_summary(
+                    session,
+                    user_id=current_user.user_id,
+                    year=year,
+                    month=month,
+                    visibility=visibility,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/cashflow-entries")
+    def get_cashflow_entries(
+        request: Request,
+        year: int,
+        month: int,
+        direction: str | None = None,
+        category: str | None = None,
+        reconciled: bool | None = None,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                result = list_cashflow_entries(
+                    session,
+                    user_id=current_user.user_id,
+                    year=year,
+                    month=month,
+                    direction=direction,
+                    category=category,
+                    reconciled=reconciled,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/cashflow-entries")
+    def post_cashflow_entry(
+        request: Request,
+        payload: CashflowEntryCreateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                result = create_cashflow_entry(
+                    session,
+                    user_id=current_user.user_id,
+                    effective_date=payload.effective_date,
+                    direction=payload.direction,
+                    category=payload.category,
+                    amount_cents=payload.amount_cents,
+                    currency=payload.currency,
+                    description=payload.description,
+                    source_type=payload.source_type,
+                    linked_transaction_id=payload.linked_transaction_id,
+                    linked_recurring_occurrence_id=payload.linked_recurring_occurrence_id,
+                    notes=payload.notes,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.patch("/api/v1/cashflow-entries/{entry_id}")
+    def patch_cashflow_entry(
+        request: Request,
+        entry_id: str,
+        payload: CashflowEntryUpdateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                result = update_cashflow_entry(
+                    session,
+                    user_id=current_user.user_id,
+                    entry_id=entry_id,
+                    payload=payload.model_dump(exclude_unset=True),
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.delete("/api/v1/cashflow-entries/{entry_id}")
+    def remove_cashflow_entry(
+        request: Request,
+        entry_id: str,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                result = delete_cashflow_entry(
+                    session,
+                    user_id=current_user.user_id,
+                    entry_id=entry_id,
+                )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -6871,11 +8409,9 @@ finally:
         from_date: str | None = None,
         to_date: str | None = None,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -6897,17 +8433,15 @@ finally:
     @app.get("/api/v1/query/saved")
     def get_saved_queries(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
                 result = list_saved_queries(session)
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -6915,22 +8449,20 @@ finally:
     def post_saved_query(
         request: Request,
         payload: SavedQueryCreateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
                 result = create_saved_query(
                     session,
                     name=payload.name,
                     description=payload.description,
                     query_json=payload.query_json,
                 )
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -6938,19 +8470,17 @@ finally:
     def get_saved_query_by_id(
         request: Request,
         query_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
                 result = get_saved_query(session, query_id=query_id)
             if result is None:
                 raise RuntimeError("saved query not found")
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -6958,46 +8488,192 @@ finally:
     def delete_saved_query_by_id(
         request: Request,
         query_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
                 deleted = delete_saved_query(session, query_id=query_id)
             if not deleted:
                 raise RuntimeError("saved query not found")
-            return _response(
-                True, result={"query_id": query_id, "deleted": True}, warnings=warnings, error=None
-            )
+            return _response(True, result={"query_id": query_id, "deleted": True}, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
     @app.get("/api/v1/settings/ai")
     def get_ai_settings(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
-            warnings = _apply_auth_guard(app_config, request=request)
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
             oauth_connected = bool(
                 app_config.ai_oauth_provider and get_ai_oauth_access_token(app_config)
             )
+            api_credentials_ready = bool(
+                app_config.ai_enabled
+                and (app_config.ai_base_url or "").strip()
+                and (app_config.ai_model or "").strip()
+                and _resolve_ai_api_key_token(app_config)
+            )
+            local_runtime_enabled = (
+                bool(app_config.local_text_model_enabled)
+                if app_config.local_text_model_enabled is not None
+                else bool(app_config.item_categorizer_enabled)
+            )
+            local_runtime_base_url = (
+                (app_config.local_text_model_base_url or "").strip()
+                or (app_config.item_categorizer_base_url or "").strip()
+            )
+            local_runtime_status = "not_configured"
+            local_runtime_ready = False
+            if local_runtime_enabled:
+                from lidltool.ai.runtime import RuntimePolicyMode, RuntimeTask, resolve_runtime
+                from urllib import request as urllib_request
+
+                local_resolution = resolve_runtime(
+                    app_config,
+                    task=RuntimeTask.PI_AGENT,
+                    policy_mode=RuntimePolicyMode.LOCAL_ONLY,
+                )
+                local_runtime_status = local_resolution.status_code
+                if local_resolution.selected and local_runtime_base_url:
+                    models_url = f"{local_runtime_base_url.rstrip('/')}/models"
+                    try:
+                        with urllib_request.urlopen(models_url, timeout=3.0) as response:
+                            local_runtime_ready = response.status == 200
+                        if not local_runtime_ready:
+                            local_runtime_status = "unhealthy"
+                    except Exception:  # noqa: BLE001
+                        local_runtime_status = "unreachable"
             result = {
-                "enabled": bool(app_config.ai_enabled),
+                "enabled": api_credentials_ready or oauth_connected or local_runtime_ready,
                 "base_url": app_config.ai_base_url,
                 "model": app_config.ai_model,
                 "api_key_set": bool(app_config.ai_api_key_encrypted),
                 "oauth_provider": app_config.ai_oauth_provider,
                 "oauth_connected": oauth_connected,
+                "remote_enabled": api_credentials_ready or oauth_connected,
+                "local_runtime_enabled": local_runtime_enabled,
+                "local_runtime_ready": local_runtime_ready,
+                "local_runtime_status": local_runtime_status,
             }
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/settings/ocr")
+    def get_ocr_settings(
+        request: Request,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+            result = {
+                "default_provider": app_config.ocr_default_provider,
+                "fallback_enabled": bool(app_config.ocr_fallback_enabled),
+                "fallback_provider": app_config.ocr_fallback_provider,
+                "glm_local_base_url": app_config.ocr_glm_local_base_url,
+                "glm_local_api_mode": app_config.ocr_glm_local_api_mode,
+                "glm_local_model": app_config.ocr_glm_local_model,
+                "openai_base_url": app_config.ocr_openai_base_url or app_config.ai_base_url,
+                "openai_model": app_config.ocr_openai_model or app_config.ai_model,
+                "openai_credentials_ready": bool(
+                    app_config.ocr_openai_api_key
+                    or app_config.ai_api_key_encrypted
+                    or get_ai_oauth_access_token(app_config)
+                ),
+            }
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/settings/ocr")
+    def post_ocr_settings(
+        request: Request,
+        payload: OCRSettingsUpdateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+
+            app_config.ocr_default_provider = payload.default_provider
+            app_config.ocr_fallback_enabled = bool(payload.fallback_enabled)
+            app_config.ocr_fallback_provider = (
+                payload.fallback_provider if payload.fallback_enabled else None
+            )
+            if (
+                app_config.ocr_fallback_enabled
+                and app_config.ocr_fallback_provider == app_config.ocr_default_provider
+            ):
+                return _response(
+                    True,
+                    result={"ok": False, "error": "fallback provider must differ from primary provider"},
+                    error=None,
+                )
+            app_config.ocr_glm_local_base_url = (
+                payload.glm_local_base_url.strip()
+                if isinstance(payload.glm_local_base_url, str)
+                and payload.glm_local_base_url.strip()
+                else app_config.ocr_glm_local_base_url
+            )
+            if payload.glm_local_api_mode is not None:
+                app_config.ocr_glm_local_api_mode = payload.glm_local_api_mode
+            app_config.ocr_glm_local_model = (
+                payload.glm_local_model.strip()
+                if isinstance(payload.glm_local_model, str)
+                and payload.glm_local_model.strip()
+                else app_config.ocr_glm_local_model
+            )
+            if isinstance(payload.openai_base_url, str):
+                app_config.ocr_openai_base_url = payload.openai_base_url.strip() or None
+            if isinstance(payload.openai_model, str):
+                app_config.ocr_openai_model = payload.openai_model.strip() or None
+
+            if app_config.ocr_default_provider == "glm_ocr_local":
+                if not (app_config.ocr_glm_local_base_url or "").strip():
+                    return _response(
+                        True,
+                        result={"ok": False, "error": "GLM-OCR local base URL is required"},
+                        error=None,
+                    )
+                if not (app_config.ocr_glm_local_model or "").strip():
+                    return _response(
+                        True,
+                        result={"ok": False, "error": "GLM-OCR local model is required"},
+                        error=None,
+                    )
+            if (
+                app_config.ocr_fallback_enabled
+                and app_config.ocr_fallback_provider == "openai_compatible"
+                and not (
+                    app_config.ocr_openai_api_key
+                    or app_config.ai_api_key_encrypted
+                    or get_ai_oauth_access_token(app_config)
+                )
+            ):
+                return _response(
+                    True,
+                    result={
+                        "ok": False,
+                        "error": "OpenAI-compatible OCR fallback requires AI API credentials or OCR-specific API key",
+                    },
+                    error=None,
+                )
+
+            persist_ocr_settings(context.config_path, app_config)
+            return _response(True, result={"ok": True, "error": None}, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -7005,13 +8681,13 @@ finally:
     def post_ai_settings(
         request: Request,
         payload: AISettingsUpdateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
-            warnings = _apply_auth_guard(app_config, request=request)
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
 
             base_url = (
                 payload.base_url.strip()
@@ -7029,21 +8705,18 @@ finally:
                 return _response(
                     True,
                     result={"ok": False, "error": "base_url is required"},
-                    warnings=warnings,
                     error=None,
                 )
             if not model:
                 return _response(
                     True,
                     result={"ok": False, "error": "model is required"},
-                    warnings=warnings,
                     error=None,
                 )
             if not candidate_api_key:
                 return _response(
                     True,
                     result={"ok": False, "error": "api_key is required"},
-                    warnings=warnings,
                     error=None,
                 )
 
@@ -7056,7 +8729,6 @@ finally:
                 return _response(
                     True,
                     result={"ok": False, "error": validation_error or "provider validation failed"},
-                    warnings=warnings,
                     error=None,
                 )
 
@@ -7070,7 +8742,6 @@ finally:
             return _response(
                 True,
                 result={"ok": True, "error": None},
-                warnings=warnings,
                 error=None,
             )
         except Exception as exc:  # noqa: BLE001
@@ -7079,13 +8750,13 @@ finally:
     @app.post("/api/v1/settings/ai/disconnect")
     def post_ai_disconnect(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
-            warnings = _apply_auth_guard(app_config, request=request)
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
 
             app_config.ai_enabled = False
             app_config.ai_base_url = None
@@ -7097,7 +8768,7 @@ finally:
             app_config.ai_oauth_expires_at = None
             persist_ai_settings(context.config_path, app_config)
 
-            return _response(True, result={"ok": True}, warnings=warnings, error=None)
+            return _response(True, result={"ok": True}, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -7105,13 +8776,13 @@ finally:
     def post_ai_oauth_start(
         request: Request,
         payload: AIOAuthStartRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
-            warnings = _apply_auth_guard(app_config, request=request)
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
 
             if payload.provider != "openai-codex":
                 raise RuntimeError(f"OAuth provider not supported yet: {payload.provider}")
@@ -7150,7 +8821,6 @@ finally:
                     "auth_url": auth_url,
                     "expires_in": AI_OAUTH_EXPIRES_IN_SECONDS,
                 },
-                warnings=warnings,
                 error=None,
             )
         except Exception as exc:  # noqa: BLE001
@@ -7159,13 +8829,13 @@ finally:
     @app.get("/api/v1/settings/ai/oauth/status")
     def get_ai_oauth_status(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
-            warnings = _apply_auth_guard(app_config, request=request)
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
             runtime_state = _get_ai_oauth_state(app)
             status = str(runtime_state.get("status") or "pending")
             error_message = runtime_state.get("error")
@@ -7179,20 +8849,17 @@ finally:
                 return _response(
                     True,
                     result={"status": "connected", "error": None},
-                    warnings=warnings,
                     error=None,
                 )
             if status == "error":
                 return _response(
                     True,
                     result={"status": "error", "error": str(error_message) if error_message else None},
-                    warnings=warnings,
                     error=None,
                 )
             return _response(
                 True,
                 result={"status": "pending", "error": None},
-                warnings=warnings,
                 error=None,
             )
         except Exception as exc:  # noqa: BLE001
@@ -7201,36 +8868,45 @@ finally:
     @app.get("/api/v1/settings/ai/agent-config")
     def get_ai_agent_config(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
-                current_user = _resolve_request_user(
+                auth_context = _require_user_session_auth_context(
                     request=request,
                     session=session,
                     config=app_config,
-                    required=True,
                 )
-                auth_token = issue_session_token(user=current_user, config=app_config)
-            local_model = _configured_local_chat_model(app_config)
-            preferred_model = _preferred_chat_model(app_config)
+                session_record = auth_context.session_record or create_user_session(
+                    session,
+                    user=auth_context.user,
+                    metadata=_session_client_metadata(
+                        request=request,
+                        session_mode=SESSION_MODE_TOKEN,
+                        device_label="stream-proxy",
+                        client_name="chat-stream-proxy",
+                        client_platform="server",
+                    ),
+                )
+                auth_token = issue_session_token(
+                    user=auth_context.user,
+                    session_id=session_record.session_id,
+                    config=app_config,
+                )
             result = {
                 "proxy_url": "",
                 "auth_token": auth_token,
-                "model": preferred_model,
-                "default_model": local_model,
-                "local_model": local_model,
-                "preferred_model": preferred_model,
+                "model": _preferred_chat_model(app_config),
+                "default_model": _configured_local_chat_model(app_config),
+                "local_model": _configured_local_chat_model(app_config),
+                "preferred_model": _preferred_chat_model(app_config),
                 "oauth_provider": app_config.ai_oauth_provider,
                 "oauth_connected": _chatgpt_oauth_connected(app_config),
                 "available_models": _available_chat_models(app_config),
             }
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -7463,36 +9139,26 @@ finally:
     async def post_stream_proxy(
         request: Request,
         payload: StreamProxyRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
 
             with session_scope(sessions) as session:
                 _authorize_stream_proxy_request(request=request, session=session, config=app_config)
 
-            selected_model_id = (payload.model.id or "").strip() or _preferred_chat_model(app_config)
-
-            # When the selected model is the ChatGPT option, route to the Codex Responses API.
-            if _should_route_stream_via_chatgpt(app_config, selected_model_id):
-                api_key = _resolve_ai_bearer_token(
-                    app_config, context.config_path, prefer_oauth=True
-                )
-                if not api_key:
-                    raise RuntimeError("AI provider credentials are not configured")
-                return await _chatgpt_codex_stream(payload=payload, bearer_token=api_key)
-
-            base_url = (app_config.ai_base_url or "").strip()
-            if not base_url:
-                raise RuntimeError("AI provider base_url is not configured")
-            api_key = _resolve_ai_bearer_token(
-                app_config, context.config_path, prefer_oauth=False
+            selected_model_id = _resolve_selected_chat_model(
+                app_config,
+                payload.model.id if isinstance(payload.model.id, str) else None,
             )
-            if not api_key:
-                raise RuntimeError("AI provider credentials are not configured")
+            payload.model.id = selected_model_id
+
+            if _should_route_stream_via_chatgpt(app_config, selected_model_id):
+                oauth_token = _resolve_ai_oauth_bearer_token(app_config, context.config_path)
+                if not oauth_token:
+                    raise RuntimeError("AI provider credentials are not configured")
+                return await _chatgpt_codex_stream(payload=payload, bearer_token=oauth_token)
 
             openai_messages = _to_openai_messages(
                 system_prompt=payload.context.systemPrompt,
@@ -7501,138 +9167,46 @@ finally:
             openai_tools = _to_openai_tools(payload.context.tools)
             if not openai_messages:
                 raise RuntimeError("at least one message is required")
+            from lidltool.ai.runtime import RuntimeTask, StreamChatRequest
 
-            try:
-                from openai import AsyncOpenAI
-            except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(f"openai SDK is unavailable: {exc}") from exc
-
-            client = AsyncOpenAI(base_url=base_url, api_key=api_key)
-            stream = await client.chat.completions.create(
-                model=payload.model.id,
-                messages=openai_messages,
-                temperature=payload.options.temperature,
-                max_tokens=payload.options.maxTokens,
-                tools=openai_tools or None,
-                tool_choice="auto" if openai_tools else None,
-                stream=True,
-                stream_options={"include_usage": True},
+            runtime = _resolve_pi_agent_runtime_for_model(
+                app_config,
+                selected_model_id=selected_model_id,
+            )
+            if openai_tools and runtime.capabilities().local:
+                LOGGER.info("pi_agent.local_runtime_tools_disabled provider=%s", runtime.provider_kind.value)
+                openai_tools = []
+            model_id = _runtime_model_name(
+                runtime,
+                explicit_model=selected_model_id,
+                app_config=app_config,
             )
 
             async def event_stream() -> Any:
-                input_tokens = 0
-                output_tokens = 0
-                total_tokens = 0
-                finish_reason = "stop"
-                active_tool_indexes: set[int] = set()
-
-                yield _sse_data({"type": "start"})
-                yield _sse_data({"type": "text_start", "contentIndex": 0})
-                try:
-                    async for chunk in stream:
-                        chunk_usage = getattr(chunk, "usage", None)
-                        if chunk_usage is not None:
-                            input_tokens = int(getattr(chunk_usage, "prompt_tokens", 0) or 0)
-                            output_tokens = int(getattr(chunk_usage, "completion_tokens", 0) or 0)
-                            total_tokens = int(getattr(chunk_usage, "total_tokens", 0) or 0)
-
-                        choices = getattr(chunk, "choices", None) or []
-                        if not choices:
-                            continue
-                        choice = choices[0]
-                        if choice.finish_reason:
-                            finish_reason = str(choice.finish_reason)
-                        delta = choice.delta
-                        if getattr(delta, "content", None):
-                            yield _sse_data(
-                                {
-                                    "type": "text_delta",
-                                    "contentIndex": 0,
-                                    "delta": str(delta.content),
-                                }
-                            )
-
-                        tool_calls = getattr(delta, "tool_calls", None) or []
-                        for tool_call in tool_calls:
-                            index = int(getattr(tool_call, "index", 0) or 0)
-                            content_index = 1 + index
-                            tool_call_id = str(getattr(tool_call, "id", "") or f"toolcall_{index}")
-                            function_obj = getattr(tool_call, "function", None)
-                            function_name = (
-                                str(getattr(function_obj, "name", "") or "") if function_obj else ""
-                            )
-                            arguments_delta = (
-                                str(getattr(function_obj, "arguments", "") or "")
-                                if function_obj
-                                else ""
-                            )
-
-                            if index not in active_tool_indexes:
-                                active_tool_indexes.add(index)
-                                yield _sse_data(
-                                    {
-                                        "type": "toolcall_start",
-                                        "contentIndex": content_index,
-                                        "id": tool_call_id,
-                                        "toolName": function_name,
-                                    }
-                                )
-
-                            if arguments_delta:
-                                yield _sse_data(
-                                    {
-                                        "type": "toolcall_delta",
-                                        "contentIndex": content_index,
-                                        "delta": arguments_delta,
-                                    }
-                                )
-
-                        if choice.finish_reason == "tool_calls":
-                            for index in sorted(active_tool_indexes):
-                                yield _sse_data(
-                                    {
-                                        "type": "toolcall_end",
-                                        "contentIndex": 1 + index,
-                                    }
-                                )
-                            active_tool_indexes.clear()
-                finally:
-                    for index in sorted(active_tool_indexes):
-                        yield _sse_data(
-                            {
-                                "type": "toolcall_end",
-                                "contentIndex": 1 + index,
-                            }
-                        )
-                    yield _sse_data({"type": "text_end", "contentIndex": 0})
-                    normalized_total = total_tokens or (input_tokens + output_tokens)
-                    normalized_reason = (
-                        "toolUse"
-                        if finish_reason == "tool_calls"
-                        else "length"
-                        if finish_reason == "length"
-                        else "stop"
+                async for event in runtime.stream_chat(
+                    StreamChatRequest(
+                        task=RuntimeTask.PI_AGENT,
+                        model_name=model_id,
+                        messages=openai_messages,
+                        tools=openai_tools,
+                        temperature=payload.options.temperature,
+                        max_tokens=payload.options.maxTokens,
                     )
-                    yield _sse_data(
-                        {
-                            "type": "done",
-                            "reason": normalized_reason,
-                            "usage": {
-                                "input": input_tokens,
-                                "output": output_tokens,
-                                "cacheRead": 0,
-                                "cacheWrite": 0,
-                                "totalTokens": normalized_total,
-                                "cost": None,
-                            },
-                        }
-                    )
-                    close_method = getattr(client, "close", None)
-                    if callable(close_method):
-                        maybe_awaitable = close_method()
-                        if asyncio.iscoroutine(maybe_awaitable):
-                            with suppress(Exception):
-                                await maybe_awaitable
+                ):
+                    response_event = {"type": event.type}
+                    if event.content_index is not None:
+                        response_event["contentIndex"] = event.content_index
+                    if event.delta is not None:
+                        response_event["delta"] = event.delta
+                    if event.tool_call_id is not None:
+                        response_event["id"] = event.tool_call_id
+                    if event.tool_name is not None:
+                        response_event["toolName"] = event.tool_name
+                    if event.reason is not None:
+                        response_event["reason"] = event.reason
+                    if event.usage:
+                        response_event["usage"] = event.usage
+                    yield _sse_data(response_event)
 
             return StreamingResponse(
                 event_stream(),
@@ -7650,23 +9224,38 @@ finally:
         request: Request,
         search: str | None = None,
         source_kind: str | None = None,
+        category_id: str | None = None,
         limit: int = 50,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
                 result = search_products(
                     session,
                     search=search,
                     source_kind=source_kind,
+                    category_id=category_id,
                     limit=limit,
                 )
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/products/categories")
+    def get_product_categories(
+        request: Request,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
+                result = list_product_categories(session)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -7674,15 +9263,13 @@ finally:
     def post_product(
         request: Request,
         payload: ProductCreateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
                 result = create_product(
                     session,
                     canonical_name=payload.canonical_name,
@@ -7690,24 +9277,22 @@ finally:
                     default_unit=payload.default_unit,
                     gtin_ean=payload.gtin_ean,
                 )
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
     @app.post("/api/v1/products/seed")
     def post_product_seed(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
                 result = seed_products_from_items(session)
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -7715,20 +9300,19 @@ finally:
     def post_product_cluster(
         request: Request,
         payload: ProductClusterRequest | None = None,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
             result = cluster_products_with_llm(
                 sessions=sessions,
                 config=app_config,
                 force=payload.force if payload is not None else False,
             )
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -7736,17 +9320,17 @@ finally:
     def get_product_cluster_status(
         request: Request,
         job_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
-            warnings = _apply_auth_guard(app_config, request=request)
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
             result = get_cluster_job_progress(job_id)
             if result is None:
                 raise RuntimeError("cluster job not found")
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -7754,19 +9338,17 @@ finally:
     def get_product(
         request: Request,
         product_id: str,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
                 result = get_product_detail(session, product_id=product_id)
             if result is None:
                 raise RuntimeError("product not found")
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -7775,21 +9357,19 @@ finally:
         request: Request,
         product_id: str,
         payload: ProductMergeRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
                 result = merge_products(
                     session,
                     target_product_id=product_id,
                     source_product_ids=payload.source_product_ids,
                 )
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -7802,11 +9382,9 @@ finally:
         grain: str = "day",
         net: bool = True,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -7835,11 +9413,9 @@ finally:
         from_date: str | None = None,
         to_date: str | None = None,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -7863,15 +9439,13 @@ finally:
     def post_manual_product_match(
         request: Request,
         payload: ManualProductMatchRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
                 result = manual_product_match(
                     session,
                     product_id=payload.product_id,
@@ -7879,24 +9453,22 @@ finally:
                     source_kind=payload.source_kind,
                     raw_sku=payload.raw_sku,
                 )
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
     @app.get("/api/v1/compare/groups")
     def get_compare_groups(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
                 result = list_comparison_groups(session)
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -7904,22 +9476,20 @@ finally:
     def post_compare_group(
         request: Request,
         payload: ComparisonGroupCreateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
                 result = create_comparison_group(
                     session,
                     name=payload.name,
                     unit_standard=payload.unit_standard,
                     notes=payload.notes,
                 )
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -7932,11 +9502,9 @@ finally:
         grain: str = "month",
         net: bool = True,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -7963,21 +9531,122 @@ finally:
         request: Request,
         group_id: str,
         payload: ComparisonGroupMemberCreateRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
                 result = add_comparison_group_member(
                     session,
                     group_id=group_id,
                     product_id=payload.product_id,
                     weight=payload.weight,
                 )
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/quality/recategorize")
+    def post_quality_recategorize(
+        request: Request,
+        payload: QualityRecategorizeRequest,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            from lidltool.analytics.scope import visible_transaction_ids_subquery
+
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            normalized_source_id = (
+                payload.source_id.strip() if isinstance(payload.source_id, str) and payload.source_id.strip() else None
+            )
+            include_suspect_model_items = bool(payload.include_suspect_model_items)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                current_user_id = current_user.user_id
+                visibility = _visibility_for_scope(current_user, scope)
+                visible_ids = visible_transaction_ids_subquery(visibility)
+                stmt = select(Transaction.id).where(Transaction.id.in_(visible_ids))
+                if normalized_source_id:
+                    stmt = stmt.where(Transaction.source_id == normalized_source_id)
+                if payload.only_fallback_other or include_suspect_model_items:
+                    normalized_category = func.lower(func.trim(func.coalesce(TransactionItem.category, "")))
+                    normalized_method = func.lower(func.trim(func.coalesce(TransactionItem.category_method, "")))
+                    raw_source_category = func.trim(func.coalesce(func.json_extract(TransactionItem.raw_payload, "$.category"), ""))
+                    candidate_filters: list[ColumnElement[bool]] = []
+                    if payload.only_fallback_other:
+                        candidate_filters.append(
+                            or_(normalized_category.in_(["", "other"]), normalized_method == "fallback_other")
+                        )
+                    if include_suspect_model_items:
+                        candidate_filters.append(
+                            or_(
+                                normalized_method == "qwen_local",
+                                (normalized_method == "source_native") & (raw_source_category == ""),
+                            )
+                        )
+                    stmt = (
+                        stmt.join(TransactionItem, TransactionItem.transaction_id == Transaction.id)
+                        .where(TransactionItem.is_deposit.is_(False))
+                        .where(normalized_method != "manual")
+                        .where(or_(*candidate_filters))
+                        .distinct()
+                    )
+                stmt = stmt.order_by(Transaction.purchased_at.desc(), Transaction.id.desc())
+                if payload.max_transactions is not None:
+                    stmt = stmt.limit(payload.max_transactions)
+                transaction_ids = session.execute(stmt).scalars().all()
+            job = _start_quality_recategorize_job(
+                request.app,
+                sessions=sessions,
+                config=app_config,
+                requested_by_user_id=current_user_id,
+                transaction_ids=list(transaction_ids),
+                source_id=normalized_source_id,
+                only_fallback_other=bool(payload.only_fallback_other),
+                include_suspect_model_items=include_suspect_model_items,
+                max_transactions=payload.max_transactions,
+            )
+            return _response(
+                True,
+                result={"job": _serialize_quality_recategorize_job(job)},
+                warnings=warnings,
+                error=None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/quality/recategorize/status")
+    def get_quality_recategorize_status(
+        request: Request,
+        job_id: str,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                current_user_id = current_user.user_id
+                current_user_is_admin = current_user.is_admin
+            jobs = get_quality_recategorize_jobs(request.app)
+            lock = get_quality_recategorize_lock(request.app)
+            with lock:
+                job = jobs.get(job_id)
+                if job is None:
+                    raise HTTPException(status_code=404, detail="quality recategorize job not found")
+                if job.requested_by_user_id != current_user_id and not current_user_is_admin:
+                    raise HTTPException(status_code=404, detail="quality recategorize job not found")
+                result = _serialize_quality_recategorize_job(job)
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -7987,11 +9656,9 @@ finally:
         request: Request,
         limit: int = 200,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -8011,11 +9678,9 @@ finally:
         threshold: float = 0.85,
         limit: int = 200,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -8034,19 +9699,17 @@ finally:
     @app.get("/api/v1/reliability/slo")
     def get_reliability_slo(
         request: Request,
-        db: str | None = None,
-        config: str | None = None,
         window_hours: int = 24,
         sync_p95_target_ms: int = 2500,
         analytics_p95_target_ms: int = 2000,
         min_success_rate: float = 0.97,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
                 result = compute_endpoint_slo_summary(
                     session,
                     window_hours=window_hours,
@@ -8054,7 +9717,7 @@ finally:
                     analytics_p95_target_ms=analytics_p95_target_ms,
                     min_success_rate=min_success_rate,
                 ).as_dict()
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -8063,11 +9726,9 @@ finally:
         request: Request,
         document_id: str,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -8091,11 +9752,9 @@ finally:
         document_id: str,
         payload: ReviewDecisionRequest,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -8129,11 +9788,9 @@ finally:
         document_id: str,
         payload: ReviewDecisionRequest,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -8167,11 +9824,9 @@ finally:
         document_id: str,
         payload: ReviewCorrectionRequest,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -8207,11 +9862,9 @@ finally:
         item_id: str,
         payload: ReviewCorrectionRequest,
         scope: str = "personal",
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
@@ -8243,7 +9896,23 @@ finally:
 
     @app.websocket("/api/v1/connectors/vnc/ws")
     async def connector_vnc_ws(websocket: WebSocket) -> None:
-        runtime = cast(VncRuntime | None, getattr(app.state, "vnc_runtime", None))
+        context = _resolve_request_context(websocket)  # type: ignore[arg-type]
+        app_config = context.config
+        sessions = context.sessions
+        with session_scope(sessions) as session:
+            try:
+                _require_user_session_auth_context(
+                    request=websocket,
+                    session=session,
+                    config=app_config,
+                )
+            except HTTPException as exc:
+                close_code = 4401 if int(exc.status_code) == 401 else 4403
+                reason = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+                await websocket.close(code=close_code, reason=reason)
+                return
+
+        runtime = get_vnc_runtime(app)
         if not _vnc_runtime_is_healthy(runtime):
             await websocket.close(code=4404, reason="no active vnc session")
             return
@@ -8297,10 +9966,12 @@ finally:
     if frontend_dist.exists():
         app.mount("/", SPAStaticFiles(directory=frontend_dist, html=True), name="frontend")
 
+    _assert_route_auth_matrix_complete(app)
     return app
 
 
 def main() -> None:
+    os.environ.setdefault("LIDLTOOL_HTTP_BIND_HOST", "127.0.0.1")
     uvicorn.run("lidltool.api.http_server:create_app", factory=True, host="127.0.0.1", port=8000)
 
 

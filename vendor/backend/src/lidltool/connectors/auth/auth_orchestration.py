@@ -18,12 +18,19 @@ from lidltool.auth.bootstrap_playwright import run_headful_bootstrap
 from lidltool.auth.token_store import TokenStore
 from lidltool.config import AppConfig
 from lidltool.connectors.auth.auth_capabilities import ConnectorAuthCapabilities
+from lidltool.connectors.auth.browser_runtime import (
+    AuthBrowserRuntimeService,
+    build_auth_browser_runtime_context,
+    parse_auth_browser_start_request,
+)
 from lidltool.connectors.auth.auth_status import (
     AuthActionResult,
     AuthBootstrapSnapshot,
     AuthStatusSnapshot,
     BootstrapLifecycleState,
+    NormalizedAuthState,
 )
+from lidltool.connectors.lifecycle import connector_runtime_options
 from lidltool.connectors.registry import ConnectorRegistry, get_connector_registry
 from lidltool.connectors.sdk.manifest import ConnectorManifest
 from lidltool.dm.bootstrap_playwright import run_dm_headful_bootstrap
@@ -50,6 +57,7 @@ class ReceiptConnectorBuilder(Protocol):
         source_id: str | None = None,
         connector_options: Mapping[str, Any] | None = None,
         tracking_source_id: str | None = None,
+        runtime_context: Mapping[str, Any] | None = None,
     ) -> Any:
         ...
 
@@ -389,6 +397,7 @@ class ConnectorAuthOrchestrationService:
         connector_builder: ReceiptConnectorBuilder | None = None,
         repo_root: Path | None = None,
         process_factory: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
+        browser_runtime: AuthBrowserRuntimeService | None = None,
     ) -> None:
         self._config = config
         self._registry = registry or get_connector_registry(config)
@@ -396,6 +405,7 @@ class ConnectorAuthOrchestrationService:
         self._connector_builder = connector_builder
         self._repo_root = (repo_root or Path.cwd()).expanduser().resolve()
         self._process_factory = process_factory
+        self._browser_runtime = browser_runtime or AuthBrowserRuntimeService()
 
     @property
     def session_registry(self) -> ConnectorAuthSessionRegistry:
@@ -414,6 +424,10 @@ class ConnectorAuthOrchestrationService:
         connector_options: Mapping[str, Any] | None = None,
         validate_session: bool = True,
     ) -> AuthStatusSnapshot:
+        resolved_options = self._resolve_connector_options(
+            source_id=source_id,
+            connector_options=connector_options,
+        )
         manifest = self._registry.require_manifest(source_id)
         capabilities = self.capabilities_for_source(source_id)
         bridge = _BUILTIN_AUTH_BRIDGES.get(source_id)
@@ -430,7 +444,7 @@ class ConnectorAuthOrchestrationService:
                 state="bootstrap_running",
                 detail="auth bootstrap is currently running",
                 bootstrap=bootstrap,
-                connector_options=connector_options,
+                connector_options=resolved_options,
                 metadata={"bootstrap_command": list(bootstrap.command or ())},
             )
         if bootstrap is not None and bootstrap.state == "canceled":
@@ -440,11 +454,23 @@ class ConnectorAuthOrchestrationService:
                 state="bootstrap_canceled",
                 detail="auth bootstrap was canceled",
                 bootstrap=bootstrap,
-                connector_options=connector_options,
+                connector_options=resolved_options,
             )
 
+        if bridge is None and self._connector_builder is not None:
+            plugin_snapshot = self._plugin_runtime_auth_status(
+                source_id=source_id,
+                manifest=manifest,
+                capabilities=capabilities,
+                bootstrap=bootstrap,
+                connector_options=resolved_options,
+                validate_session=validate_session,
+            )
+            if plugin_snapshot is not None:
+                return plugin_snapshot
+
         inspection = (
-            bridge.inspect_storage(self._config, connector_options)
+            bridge.inspect_storage(self._config, resolved_options)
             if bridge is not None
             else _StorageInspection(present=False, reauth_required=False, metadata={})
         )
@@ -455,7 +481,7 @@ class ConnectorAuthOrchestrationService:
                 state="connected",
                 detail="connector does not require authentication",
                 bootstrap=bootstrap,
-                connector_options=connector_options,
+                connector_options=resolved_options,
                 metadata=inspection.metadata,
             )
         if not inspection.present:
@@ -465,7 +491,7 @@ class ConnectorAuthOrchestrationService:
                 state="not_connected",
                 detail="connector credentials or session state are not configured",
                 bootstrap=bootstrap,
-                connector_options=connector_options,
+                connector_options=resolved_options,
                 metadata=inspection.metadata,
             )
         if inspection.reauth_required:
@@ -475,7 +501,7 @@ class ConnectorAuthOrchestrationService:
                 state="reauth_required",
                 detail="connector marked its stored auth state as requiring re-authentication",
                 bootstrap=bootstrap,
-                connector_options=connector_options,
+                connector_options=resolved_options,
                 metadata=inspection.metadata,
             )
         if not validate_session or self._connector_builder is None:
@@ -485,14 +511,14 @@ class ConnectorAuthOrchestrationService:
                 state="connected",
                 detail="connector auth storage is present",
                 bootstrap=bootstrap,
-                connector_options=connector_options,
+                connector_options=resolved_options,
                 metadata=inspection.metadata,
             )
 
         try:
             resolved = self._connector_builder(
                 source_id=source_id,
-                connector_options=connector_options,
+                connector_options=resolved_options,
             )
             resolved.connector.authenticate()
         except Exception as exc:  # noqa: BLE001
@@ -503,9 +529,19 @@ class ConnectorAuthOrchestrationService:
                 state=normalized_state,
                 detail=str(exc),
                 bootstrap=bootstrap,
-                connector_options=connector_options,
+                connector_options=resolved_options,
                 metadata=inspection.metadata,
-                diagnostics={"validation_error": str(exc)},
+                diagnostics={
+                    "failure_class": "session_validation_failed",
+                    "exception_type": type(exc).__name__,
+                    "validation_error": str(exc),
+                    "plugin_id": manifest.plugin_id,
+                    "runtime_kind": manifest.runtime_kind,
+                    "bootstrap_state": bootstrap.state if bootstrap is not None else None,
+                    "bootstrap_return_code": (
+                        bootstrap.return_code if bootstrap is not None else None
+                    ),
+                },
             )
 
         return self._status_snapshot(
@@ -514,7 +550,7 @@ class ConnectorAuthOrchestrationService:
             state="connected",
             detail="connector auth/session validated successfully",
             bootstrap=bootstrap,
-            connector_options=connector_options,
+            connector_options=resolved_options,
             metadata=inspection.metadata,
         )
 
@@ -524,11 +560,21 @@ class ConnectorAuthOrchestrationService:
         source_id: str,
         options: Mapping[str, Any] | None = None,
     ) -> AuthActionResult:
+        resolved_options = self._resolve_connector_options(
+            source_id=source_id,
+            connector_options=options,
+        )
         manifest = self._registry.require_manifest(source_id)
         bridge = _BUILTIN_AUTH_BRIDGES.get(source_id)
         if bridge is None:
-            raise RuntimeError(f"connector bootstrap bridge is not registered for source: {source_id}")
-        return bridge.run_bootstrap(self._config, manifest, options)
+            if self._connector_builder is None:
+                raise RuntimeError(f"connector bootstrap bridge is not registered for source: {source_id}")
+            return self._run_plugin_bootstrap(
+                source_id=source_id,
+                manifest=manifest,
+                options=resolved_options,
+            )
+        return bridge.run_bootstrap(self._config, manifest, resolved_options)
 
     def start_bootstrap(
         self,
@@ -597,6 +643,7 @@ class ConnectorAuthOrchestrationService:
         manifest = self._registry.require_manifest(source_id)
         session = self._session_registry.sessions.get(source_id)
         if session is None:
+            self._cancel_plugin_auth_flow(source_id=source_id)
             return AuthActionResult(
                 manifest=manifest,
                 source_id=source_id,
@@ -606,6 +653,7 @@ class ConnectorAuthOrchestrationService:
                 detail="no active auth bootstrap session",
             )
         terminate_connector_bootstrap(session)
+        self._cancel_plugin_auth_flow(source_id=source_id)
         return AuthActionResult(
             manifest=manifest,
             source_id=source_id,
@@ -653,6 +701,21 @@ class ConnectorAuthOrchestrationService:
             env.update({str(key): str(value) for key, value in extra_env.items()})
         return env
 
+    def _resolve_connector_options(
+        self,
+        *,
+        source_id: str,
+        connector_options: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        options = connector_runtime_options(
+            source_id=source_id,
+            config=self._config,
+            registry=self._registry,
+            allow_reconcile_writes=False,
+        )
+        options.update(dict(connector_options or {}))
+        return options
+
     def _build_bootstrap_command(
         self,
         source_id: str,
@@ -660,9 +723,252 @@ class ConnectorAuthOrchestrationService:
         extra_args: tuple[str, ...] = (),
     ) -> list[str] | None:
         manifest = self._registry.get_manifest(source_id)
-        if manifest is None or manifest.builtin_cli is None or manifest.builtin_cli.bootstrap_args is None:
+        if manifest is None:
             return None
-        return [sys.executable, *manifest.builtin_cli.bootstrap_args, *extra_args]
+        if manifest.builtin_cli is not None and manifest.builtin_cli.bootstrap_args is not None:
+            return [sys.executable, *manifest.builtin_cli.bootstrap_args, *extra_args]
+        capabilities = manifest.auth
+        if (
+            manifest.runtime_kind in {"subprocess_python", "subprocess_binary"}
+            and capabilities is not None
+            and capabilities.supports_live_session_bootstrap
+        ):
+            return [
+                sys.executable,
+                "-m",
+                "lidltool.cli",
+                "connectors",
+                "auth",
+                "bootstrap",
+                "--source-id",
+                source_id,
+                *extra_args,
+            ]
+        return None
+
+    def _plugin_runtime_auth_status(
+        self,
+        *,
+        source_id: str,
+        manifest: ConnectorManifest,
+        capabilities: ConnectorAuthCapabilities,
+        bootstrap: AuthBootstrapSnapshot | None,
+        connector_options: Mapping[str, Any] | None,
+        validate_session: bool,
+    ) -> AuthStatusSnapshot | None:
+        if manifest.plugin_family != "receipt":
+            return None
+        try:
+            resolved = self._connector_builder(
+                source_id=source_id,
+                connector_options=connector_options,
+            )
+            payload = resolved.connector.get_auth_status()
+        except Exception as exc:  # noqa: BLE001
+            return self._status_snapshot(
+                manifest=manifest,
+                capabilities=capabilities,
+                state="auth_failed",
+                detail=str(exc),
+                bootstrap=bootstrap,
+                connector_options=connector_options,
+                diagnostics={
+                    "failure_class": "plugin_auth_status_failed",
+                    "exception_type": type(exc).__name__,
+                    "plugin_id": manifest.plugin_id,
+                    "runtime_kind": manifest.runtime_kind,
+                },
+            )
+
+        state = self._normalize_plugin_auth_state(
+            str(payload.get("status") or ""),
+            bool(payload.get("is_authenticated")),
+        )
+        detail = payload.get("detail")
+        metadata = payload.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        diagnostics = {
+            "plugin_id": manifest.plugin_id,
+            "runtime_kind": manifest.runtime_kind,
+            "plugin_auth_status": payload.get("status"),
+        }
+        if validate_session and bool(payload.get("is_authenticated")):
+            try:
+                resolved.connector.healthcheck()
+            except Exception as exc:  # noqa: BLE001
+                normalized_state = "reauth_required" if _looks_like_reauth_error(exc) else "auth_failed"
+                return self._status_snapshot(
+                    manifest=manifest,
+                    capabilities=capabilities,
+                    state=normalized_state,
+                    detail=str(exc),
+                    bootstrap=bootstrap,
+                    connector_options=connector_options,
+                    metadata=metadata,
+                    diagnostics={
+                        **diagnostics,
+                        "failure_class": "session_validation_failed",
+                        "exception_type": type(exc).__name__,
+                        "validation_error": str(exc),
+                    },
+                )
+
+        return self._status_snapshot(
+            manifest=manifest,
+            capabilities=capabilities,
+            state=state,
+            detail=str(detail) if detail is not None else None,
+            bootstrap=bootstrap,
+            connector_options=connector_options,
+            metadata=dict(metadata),
+            diagnostics=diagnostics,
+        )
+
+    def _run_plugin_bootstrap(
+        self,
+        *,
+        source_id: str,
+        manifest: ConnectorManifest,
+        options: Mapping[str, Any] | None,
+    ) -> AuthActionResult:
+        capabilities = self.capabilities_for_source(source_id)
+        if self._connector_builder is None:
+            raise RuntimeError(f"connector bootstrap bridge is not registered for source: {source_id}")
+        resolved = self._connector_builder(source_id=source_id, connector_options=options)
+        payload = resolved.connector.start_auth()
+        flow_status = str(payload.get("status") or "no_op")
+        confirm_payload: dict[str, Any] | None = None
+        browser_request = parse_auth_browser_start_request(payload.get("metadata"))
+        if browser_request is not None:
+            try:
+                browser_result = self._browser_runtime.run(
+                    browser_request,
+                    environment=self._build_process_env(),
+                )
+            except Exception:
+                self._cancel_plugin_auth_flow(source_id=source_id, connector_options=options)
+                raise
+            confirm_payload = self._invoke_plugin_auth_action(
+                source_id=source_id,
+                connector_options=options,
+                action="confirm_auth",
+                runtime_context=build_auth_browser_runtime_context(browser_result),
+            )
+            flow_status = str(confirm_payload.get("status") or flow_status)
+        snapshot = self._plugin_runtime_auth_status(
+            source_id=source_id,
+            manifest=manifest,
+            capabilities=capabilities,
+            bootstrap=None,
+            connector_options=options,
+            validate_session=False,
+        )
+        return AuthActionResult(
+            manifest=manifest,
+            source_id=source_id,
+            state=self._normalize_plugin_bootstrap_state(flow_status, snapshot.state if snapshot is not None else "not_connected"),
+            status=self._normalize_plugin_bootstrap_status(flow_status),
+            ok=flow_status not in {"not_supported"},
+            detail=(
+                str(
+                    (confirm_payload.get("detail") if confirm_payload is not None else payload.get("detail"))
+                    or (snapshot.detail if snapshot is not None else "")
+                )
+                or None
+            ),
+            metadata={
+                **(dict(snapshot.metadata) if snapshot is not None else {}),
+                **(
+                    dict(confirm_payload.get("metadata", {}))
+                    if confirm_payload is not None and isinstance(confirm_payload.get("metadata"), Mapping)
+                    else {}
+                ),
+            },
+            diagnostics=dict(snapshot.diagnostics) if snapshot is not None else {},
+        )
+
+    def _invoke_plugin_auth_action(
+        self,
+        *,
+        source_id: str,
+        connector_options: Mapping[str, Any] | None,
+        action: str,
+        runtime_context: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if self._connector_builder is None:
+            raise RuntimeError(f"connector bootstrap bridge is not registered for source: {source_id}")
+        resolved = self._connector_builder(
+            source_id=source_id,
+            connector_options=connector_options,
+            runtime_context=runtime_context,
+        )
+        method = getattr(resolved.connector, action)
+        payload = method()
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"connector {action} returned no payload")
+        return payload
+
+    def _cancel_plugin_auth_flow(
+        self,
+        *,
+        source_id: str,
+        connector_options: Mapping[str, Any] | None = None,
+    ) -> None:
+        if self._connector_builder is None:
+            return
+        manifest = self._registry.get_manifest(source_id)
+        if manifest is None or manifest.runtime_kind not in {"subprocess_python", "subprocess_binary"}:
+            return
+        try:
+            self._invoke_plugin_auth_action(
+                source_id=source_id,
+                connector_options=connector_options,
+                action="cancel_auth",
+            )
+        except Exception:
+            return
+
+    def _normalize_plugin_auth_state(
+        self,
+        plugin_state: str,
+        is_authenticated: bool,
+    ) -> NormalizedAuthState:
+        normalized = plugin_state.strip().lower()
+        if normalized == "authenticated" or is_authenticated:
+            return "connected"
+        if normalized == "pending":
+            return "connecting"
+        if normalized == "expired":
+            return "reauth_required"
+        if normalized in {"not_supported", "unknown"}:
+            return "not_connected"
+        return "not_connected" if normalized == "requires_auth" else "auth_failed"
+
+    def _normalize_plugin_bootstrap_state(
+        self,
+        flow_status: str,
+        fallback: NormalizedAuthState,
+    ) -> NormalizedAuthState:
+        normalized = flow_status.strip().lower()
+        if normalized in {"started", "pending"}:
+            return "connecting"
+        if normalized == "canceled":
+            return "bootstrap_canceled"
+        if normalized == "confirmed":
+            return "connected"
+        if normalized == "not_supported":
+            return "not_connected"
+        return fallback
+
+    def _normalize_plugin_bootstrap_status(self, flow_status: str) -> str:
+        normalized = flow_status.strip().lower()
+        if normalized in {"started", "pending"}:
+            return "started"
+        if normalized in {"canceled", "confirmed", "not_supported", "no_op"}:
+            return normalized
+        return "no_op"
 
     def _status_snapshot(
         self,

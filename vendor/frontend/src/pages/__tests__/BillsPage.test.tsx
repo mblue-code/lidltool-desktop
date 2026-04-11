@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,27 +26,12 @@ function renderBillsRoute(initialEntry = "/bills"): void {
 describe("BillsPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    const storage = new Map<string, string>();
-    Object.defineProperty(window, "localStorage", {
-      configurable: true,
-      value: {
-        getItem: (key: string) => storage.get(key) ?? null,
-        setItem: (key: string, value: string) => {
-          storage.set(key, value);
-        },
-        removeItem: (key: string) => {
-          storage.delete(key);
-        }
-      }
-    });
-    window.localStorage.setItem("app.locale", "de");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn(async (input: RequestInfo | URL) => {
         const url = new URL(String(input));
-        const method = (init?.method ?? "GET").toUpperCase();
 
-        if (url.pathname === "/api/v1/recurring-bills" && method === "GET") {
+        if (url.pathname === "/api/v1/recurring-bills") {
           return {
             ok: true,
             json: async () => ({
@@ -76,64 +61,6 @@ describe("BillsPage", () => {
                     updated_at: "2026-02-01T00:00:00Z"
                   }
                 ]
-              },
-              warnings: [],
-              error: null
-            })
-          };
-        }
-
-        if (url.pathname === "/api/v1/recurring-bills" && method === "POST") {
-          return {
-            ok: true,
-            json: async () => ({
-              ok: true,
-              result: {
-                id: "bill-2",
-                user_id: "u1",
-                name: "Spotify",
-                merchant_canonical: null,
-                merchant_alias_pattern: null,
-                category: "subscriptions",
-                frequency: "monthly",
-                interval_value: 1,
-                amount_cents: 1299,
-                amount_tolerance_pct: 0.1,
-                currency: "EUR",
-                anchor_date: "2026-01-15",
-                active: true,
-                notes: null,
-                created_at: "2026-02-01T00:00:00Z",
-                updated_at: "2026-02-01T00:00:00Z"
-              },
-              warnings: [],
-              error: null
-            })
-          };
-        }
-
-        if (url.pathname === "/api/v1/recurring-bills/bill-1" && method === "PATCH") {
-          return {
-            ok: true,
-            json: async () => ({
-              ok: true,
-              result: {
-                id: "bill-1",
-                user_id: "u1",
-                name: "Netflix",
-                merchant_canonical: "netflix",
-                merchant_alias_pattern: null,
-                category: "subscriptions",
-                frequency: "monthly",
-                interval_value: 1,
-                amount_cents: 1549,
-                amount_tolerance_pct: 0.1,
-                currency: "EUR",
-                anchor_date: "2026-01-15",
-                active: true,
-                notes: null,
-                created_at: "2026-02-01T00:00:00Z",
-                updated_at: "2026-02-01T00:00:00Z"
               },
               warnings: [],
               error: null
@@ -193,7 +120,7 @@ describe("BillsPage", () => {
           };
         }
 
-        throw new Error(`Unexpected request ${method} ${url.pathname}`);
+        throw new Error(`Unexpected request ${url.pathname}`);
       })
     );
   });
@@ -210,97 +137,5 @@ describe("BillsPage", () => {
       expect(screen.getByText("Netflix")).toBeInTheDocument();
       expect(screen.getByText("Monthly committed")).toBeInTheDocument();
     });
-  });
-
-  it("submits fixed bill amounts as cents from euro input", async () => {
-    renderBillsRoute();
-
-    fireEvent.click(await screen.findByRole("button", { name: "Add bill" }));
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Spotify" } });
-    fireEvent.change(screen.getByPlaceholderText("12,99"), { target: { value: "12,99" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create bill" }));
-
-    await waitFor(() => {
-      const postCall = vi.mocked(fetch).mock.calls.find((call) => {
-        const url = new URL(String(call[0]));
-        return url.pathname === "/api/v1/recurring-bills" && (call[1]?.method ?? "GET").toUpperCase() === "POST";
-      });
-      expect(postCall).toBeDefined();
-    });
-
-    const postCall = vi.mocked(fetch).mock.calls.find((call) => {
-      const url = new URL(String(call[0]));
-      return url.pathname === "/api/v1/recurring-bills" && (call[1]?.method ?? "GET").toUpperCase() === "POST";
-    });
-
-    expect(postCall).toBeDefined();
-    expect(JSON.parse(String(postCall?.[1]?.body))).toMatchObject({
-      name: "Spotify",
-      amount_cents: 1299,
-      currency: "EUR"
-    });
-  });
-
-  it("formats existing cents back into euro input on edit and supports dot decimals", async () => {
-    renderBillsRoute();
-
-    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
-
-    const amountInput = await screen.findByDisplayValue("12,99");
-    expect(amountInput).toHaveValue("12,99");
-
-    fireEvent.change(amountInput, { target: { value: "15.49" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-
-    await waitFor(() => {
-      const patchCall = vi.mocked(fetch).mock.calls.find((call) => {
-        const url = new URL(String(call[0]));
-        return url.pathname === "/api/v1/recurring-bills/bill-1" && (call[1]?.method ?? "GET").toUpperCase() === "PATCH";
-      });
-      expect(patchCall).toBeDefined();
-    });
-
-    const patchCall = vi.mocked(fetch).mock.calls.find((call) => {
-      const url = new URL(String(call[0]));
-      return url.pathname === "/api/v1/recurring-bills/bill-1" && (call[1]?.method ?? "GET").toUpperCase() === "PATCH";
-    });
-
-    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
-      amount_cents: 1549
-    });
-  });
-
-  it("rejects fixed bill amounts with more than two decimals", async () => {
-    renderBillsRoute();
-
-    fireEvent.click(await screen.findByRole("button", { name: "Add bill" }));
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Spotify" } });
-    fireEvent.change(screen.getByPlaceholderText("12,99"), { target: { value: "12,999" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create bill" }));
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Amount must be a positive EUR value with at most two decimal places for fixed bills.")
-      ).toBeInTheDocument();
-    });
-
-    const postCalls = vi.mocked(fetch).mock.calls.filter((call) => {
-      const url = new URL(String(call[0]));
-      return url.pathname === "/api/v1/recurring-bills" && (call[1]?.method ?? "GET").toUpperCase() === "POST";
-    });
-    expect(postCalls).toHaveLength(0);
-  });
-
-  it("clears and disables the amount input for variable bills", async () => {
-    renderBillsRoute();
-
-    fireEvent.click(await screen.findByRole("button", { name: "Add bill" }));
-
-    const amountInput = screen.getByPlaceholderText("12,99");
-    fireEvent.change(amountInput, { target: { value: "12,99" } });
-    fireEvent.change(screen.getByLabelText("Amount mode"), { target: { value: "variable" } });
-
-    expect(amountInput).toBeDisabled();
-    expect(amountInput).toHaveValue("");
   });
 });

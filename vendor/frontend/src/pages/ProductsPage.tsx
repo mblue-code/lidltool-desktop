@@ -165,7 +165,7 @@ export function ProductsPage() {
         ) : null}
       </PageHeader>
       <Card>
-        <CardContent className="space-y-4 pt-6">
+        <CardContent>
           <div className="space-y-3">
             {clusterProgress ? (
               <div className="space-y-1">
@@ -192,11 +192,7 @@ export function ProductsPage() {
               isLoading={productsQuery.isFetching}
             />
           </div>
-
-          <div className="app-section-divider">
-            <h3 className="font-semibold leading-none tracking-tight">Matches</h3>
-          </div>
-
+          <div className="app-section-divider mt-4 pt-4">
           {productRows.length === 0 ? (
             <EmptyState title="No products found" description={debouncedSearch ? "Try a different search term." : undefined} />
           ) : (
@@ -238,6 +234,7 @@ export function ProductsPage() {
             </Table>
             </div>
           )}
+          </div>
         </CardContent>
       </Card>
 
@@ -247,20 +244,19 @@ export function ProductsPage() {
             <CardTitle>{selectedProduct.canonical_name}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-0">
-            <div className="space-y-2 text-sm">
-              <p>Brand: {selectedProduct.brand ?? "-"}</p>
-              <p>Default unit: {selectedProduct.default_unit ?? "-"}</p>
-              <p>GTIN/EAN: {selectedProduct.gtin_ean ?? "-"}</p>
-              <p>Aliases: {selectedAliases.length}</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm md:grid-cols-4">
+              <div><span className="text-muted-foreground">Brand:</span> {selectedProduct.brand ?? "-"}</div>
+              <div><span className="text-muted-foreground">Unit:</span> {selectedProduct.default_unit ?? "-"}</div>
+              <div><span className="text-muted-foreground">GTIN/EAN:</span> {selectedProduct.gtin_ean ?? "-"}</div>
+              <div><span className="text-muted-foreground">Aliases:</span> {selectedAliases.length}</div>
             </div>
 
-            <div className="app-section-divider space-y-3">
-              <h3 className="font-semibold leading-none tracking-tight">Price Series (Monthly)</h3>
-            </div>
-            {selectedPricePoints.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No price points available.</p>
-            ) : (
-              <div className="overflow-x-auto">
+            <div className="app-section-divider mt-4 pt-4">
+              <p className="mb-2 text-sm font-medium">Price Series (Monthly)</p>
+              {selectedPricePoints.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No price points available.</p>
+              ) : (
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -281,16 +277,16 @@ export function ProductsPage() {
                     ))}
                   </TableBody>
                 </Table>
-              </div>
-            )}
-
-            <div className="app-section-divider space-y-3">
-              <h3 className="font-semibold leading-none tracking-tight">Purchases</h3>
+                </div>
+              )}
             </div>
-            {selectedPurchases.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No purchases found.</p>
-            ) : (
-              <div className="overflow-x-auto">
+
+            <div className="app-section-divider mt-4 pt-4">
+              <p className="mb-2 text-sm font-medium">Purchases</p>
+              {selectedPurchases.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No purchases found.</p>
+              ) : (
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -313,8 +309,9 @@ export function ProductsPage() {
                     ))}
                   </TableBody>
                 </Table>
-              </div>
-            )}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       ) : null}

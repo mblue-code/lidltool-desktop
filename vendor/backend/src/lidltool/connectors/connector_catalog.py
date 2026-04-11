@@ -6,7 +6,15 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import AnyUrl, BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
+from pydantic import (
+    AnyUrl,
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+)
 
 from lidltool.config import AppConfig
 from lidltool.connectors.market_catalog import (
@@ -15,7 +23,11 @@ from lidltool.connectors.market_catalog import (
     get_connector_market_catalog,
     support_policy_payload,
 )
-from lidltool.connectors.registry import ConnectorRegistry, build_builtin_connector_registry, get_connector_registry
+from lidltool.connectors.registry import (
+    ConnectorRegistry,
+    build_builtin_connector_registry,
+    get_connector_registry,
+)
 from lidltool.connectors.sdk.manifest import TrustClass
 
 CatalogEntryType = Literal["connector", "bundle", "desktop_pack"]

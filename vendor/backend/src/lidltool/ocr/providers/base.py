@@ -15,6 +15,9 @@ class OcrResult:
 class OcrProvider:
     name: str
 
+    def configuration_error(self) -> str | None:
+        return None
+
     def extract(
         self,
         *,

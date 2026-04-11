@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from lidltool.config import AppConfig
 from lidltool.connectors.sdk.manifest import ConnectorManifest
 from lidltool.connectors.sdk.offer import (
     DiscoverOffersInput,
@@ -36,6 +37,7 @@ def ingest_normalized_offers(
     *,
     plugin_id: str,
     source_id: str,
+    config: AppConfig | None = None,
     offers: Sequence[NormalizedOfferRecord | Mapping[str, Any]],
     run_matching: bool = True,
 ) -> OfferIngestResult:
@@ -103,7 +105,11 @@ def ingest_normalized_offers(
         else:
             result.updated += 1
 
-        match_result = evaluate_offer_matches(session, offer_id=offer_row.offer_id) if run_matching else None
+        match_result = (
+            evaluate_offer_matches(session, offer_id=offer_row.offer_id, config=config)
+            if run_matching
+            else None
+        )
         if match_result is not None:
             result.matched += match_result.created + match_result.existing
             result.alerts_created += match_result.alerts_created
@@ -129,6 +135,7 @@ def ingest_offers_from_connector(
     *,
     connector: OfferConnector,
     manifest: ConnectorManifest,
+    config: AppConfig | None = None,
     discovery_limit: int | None = None,
     run_matching: bool = True,
 ) -> OfferIngestResult:
@@ -167,6 +174,7 @@ def ingest_offers_from_connector(
         session,
         plugin_id=manifest.plugin_id,
         source_id=manifest.source_id,
+        config=config,
         offers=normalized_offers,
         run_matching=run_matching,
     )

@@ -95,6 +95,11 @@ const ROUTE_CONTEXT_RULES: RouteContextRule[] = [
       "Page context: Comparisons. The user compares products or baskets side-by-side. Available tools: aggregate_items (normalized basket totals), get_price_index (price movement), get_product_history (direct timeline comparisons)."
   },
   {
+    prefix: "/offers",
+    context:
+      "Page context: Offers. This route is agent-first. Offer sources are user-managed merchant URLs created in the frontend, not backend feed files. Use the offer tools to create or update sources from merchant offer page URLs, inspect merchant purchase history, create watchlists, trigger refreshes, inspect matches, and manage offer_refresh automations. Never claim there is a deterministic fallback or hidden internet-wide crawling."
+  },
+  {
     prefix: "/budget",
     context:
       "Page context: Budget. The user is tracking spend versus targets. Emphasize variance drivers, forecast risk, and concrete corrective actions."

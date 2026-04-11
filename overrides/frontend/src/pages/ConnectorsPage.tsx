@@ -305,6 +305,83 @@ export function ConnectorsPage() {
     }
   });
 
+  const installLocalPackMutation = useMutation({
+    mutationFn: async () => {
+      const bridge = getDesktopConnectorBridge();
+      if (!bridge) {
+        throw new Error("Desktop pack management is unavailable in this build.");
+      }
+      return await bridge.installReceiptPluginFromDialog();
+    },
+    onSuccess: async (result) => {
+      if (!result) {
+        return;
+      }
+      setFeedback(`Imported ${result.pack.displayName}.`);
+      await queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
+    },
+    onError: (error) => {
+      setFeedback(`Could not import the local receipt pack. ${String(error)}`);
+    }
+  });
+
+  const installCatalogPackMutation = useMutation({
+    mutationFn: async (entryId: string) => {
+      const bridge = getDesktopConnectorBridge();
+      if (!bridge) {
+        throw new Error("Desktop pack management is unavailable in this build.");
+      }
+      return await bridge.installReceiptPluginFromCatalogEntry({ entryId });
+    },
+    onSuccess: async (result) => {
+      setFeedback(`Installed ${result.pack.displayName} from the trusted catalog.`);
+      await queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
+    },
+    onError: (error) => {
+      setFeedback(`Could not install the trusted receipt pack. ${String(error)}`);
+    }
+  });
+
+  const togglePackMutation = useMutation({
+    mutationFn: async ({ pluginId, enabled }: { pluginId: string; enabled: boolean }) => {
+      const bridge = getDesktopConnectorBridge();
+      if (!bridge) {
+        throw new Error("Desktop pack management is unavailable in this build.");
+      }
+      return enabled ? await bridge.enableReceiptPlugin(pluginId) : await bridge.disableReceiptPlugin(pluginId);
+    },
+    onSuccess: async (result, variables) => {
+      setFeedback(
+        `${result.pack.displayName} ${variables.enabled ? "enabled" : "disabled"} for this desktop runtime.`
+      );
+      await queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
+    },
+    onError: (error) => {
+      setFeedback(`Could not update the receipt pack state. ${String(error)}`);
+    }
+  });
+
+  const uninstallPackMutation = useMutation({
+    mutationFn: async (pluginId: string) => {
+      const bridge = getDesktopConnectorBridge();
+      if (!bridge) {
+        throw new Error("Desktop pack management is unavailable in this build.");
+      }
+      return await bridge.uninstallReceiptPlugin(pluginId);
+    },
+    onSuccess: async (_result, pluginId) => {
+      setFeedback(`Removed ${pluginId} from desktop storage.`);
+      await queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
+    },
+    onError: (error) => {
+      setFeedback(`Could not remove the receipt pack. ${String(error)}`);
+    }
+  });
+
   const configMutation = useMutation({
     mutationFn: ({
       sourceId,
@@ -334,6 +411,11 @@ export function ConnectorsPage() {
   const catalogEntries = desktopContextQuery.data?.releaseMetadata?.discovery_catalog.entries ?? [];
   const receiptPlugins = desktopContextQuery.data?.receiptPlugins?.packs ?? [];
   const activePluginSearchPaths = desktopContextQuery.data?.receiptPlugins?.activePluginSearchPaths ?? [];
+  const desktopBridgeAvailable = desktopContextQuery.data?.available ?? false;
+  const curatedDesktopPackEntries = useMemo(
+    () => catalogEntries.filter((entry) => entry.entry_type === "desktop_pack"),
+    [catalogEntries]
+  );
 
   const packBySourceId = useMemo(
     () => new Map(receiptPlugins.map((pack) => [pack.sourceId, pack])),
@@ -427,23 +509,33 @@ export function ConnectorsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Connectors"
-        description="Use the shared lifecycle model for one-off setup and sync, while pack install and trust management stay in the desktop control center."
+        description="Use the shared lifecycle model for one-off setup and sync, and manage desktop receipt packs here when you need to add a local or trusted pack."
       >
-        <Button
-          variant="outline"
-          onClick={() => void reloadMutation.mutateAsync()}
-          disabled={reloadMutation.isPending}
-        >
-          {reloadMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-          Refresh
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={() => void installLocalPackMutation.mutateAsync()}
+            disabled={installLocalPackMutation.isPending || !desktopBridgeAvailable}
+          >
+            {installLocalPackMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Import local pack
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void reloadMutation.mutateAsync()}
+            disabled={reloadMutation.isPending}
+          >
+            {reloadMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Refresh
+          </Button>
+        </div>
       </PageHeader>
 
       <Alert>
-        <AlertTitle>Desktop pack management stays native</AlertTitle>
+        <AlertTitle>Desktop receipt packs can be managed here</AlertTitle>
         <AlertDescription>
-          Install, update, disable, and remove receipt packs in the desktop control center. If you need that surface from the
-          full app, use the desktop app menu and choose <strong>Reload control center</strong>.
+          Import local packs directly from this page, install trusted catalog packs when available, and enable or remove
+          stored packs without leaving connectors.
         </AlertDescription>
       </Alert>
 
@@ -507,10 +599,10 @@ export function ConnectorsPage() {
                 {connector.status_detail ? <p className="text-sm text-muted-foreground">{connector.status_detail}</p> : null}
                 {updateAvailable ? (
                   <Alert>
-                    <AlertTitle>Update available in control center</AlertTitle>
+                    <AlertTitle>Trusted pack update available</AlertTitle>
                     <AlertDescription>
                       {connector.display_name} is running {pack.version}, while the catalog entry lists{" "}
-                      {catalogEntry?.current_version}. Use the desktop control center to update the stored pack.
+                      {catalogEntry?.current_version}. Install the trusted update from this page when you want the newer pack.
                     </AlertDescription>
                   </Alert>
                 ) : null}
@@ -551,8 +643,8 @@ export function ConnectorsPage() {
                   <Alert>
                     <AlertTitle>Electron-managed connector</AlertTitle>
                     <AlertDescription>
-                      This connector is backed by a local receipt pack. Setup, sync, and config work here, but pack
-                      install, disable, remove, and trusted updates stay in the desktop control center.
+                      This connector is backed by a local receipt pack. Setup, sync, config, and pack management are all
+                      available from this desktop page.
                     </AlertDescription>
                   </Alert>
                 ) : null}
@@ -607,6 +699,19 @@ export function ConnectorsPage() {
                       </Link>
                     </Button>
                   ) : null}
+
+                  {updateAvailable && catalogEntry?.entry_type === "desktop_pack" ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => void installCatalogPackMutation.mutateAsync(catalogEntry.entry_id)}
+                      disabled={installCatalogPackMutation.isPending || !desktopBridgeAvailable}
+                    >
+                      {installCatalogPackMutation.isPending && installCatalogPackMutation.variables === catalogEntry.entry_id ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : null}
+                      Install trusted update
+                    </Button>
+                  ) : null}
                 </div>
 
                 {viewerIsAdmin && connector.advanced.manual_commands.sync ? (
@@ -655,6 +760,83 @@ export function ConnectorsPage() {
                       {catalogEntry.support_policy.maintainer_support} {catalogEntry.support_policy.update_expectations}
                     </p>
                   ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => void togglePackMutation.mutateAsync({ pluginId: pack.pluginId, enabled: true })}
+                      disabled={togglePackMutation.isPending || pack.status === "revoked" || pack.status === "invalid" || pack.status === "incompatible"}
+                    >
+                      {togglePackMutation.isPending &&
+                      togglePackMutation.variables?.pluginId === pack.pluginId &&
+                      togglePackMutation.variables.enabled ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : null}
+                      Enable pack
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => void uninstallPackMutation.mutateAsync(pack.pluginId)}
+                      disabled={uninstallPackMutation.isPending}
+                    >
+                      {uninstallPackMutation.isPending && uninstallPackMutation.variables === pack.pluginId ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : null}
+                      Remove pack
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {curatedDesktopPackEntries.length > 0 ? (
+        <div className="app-section-divider space-y-4">
+          <div className="space-y-1.5">
+            <h2 className="font-semibold leading-none tracking-tight">Trusted desktop packs</h2>
+            <p className="text-sm text-muted-foreground">
+              Signed optional packs for this desktop build can be installed directly from the connectors page.
+            </p>
+          </div>
+          <div className="divide-y divide-border/60">
+            {curatedDesktopPackEntries.map((entry) => {
+              const installedPack = entry.plugin_id
+                ? receiptPlugins.find((pack) => pack.pluginId === entry.plugin_id) ?? null
+                : null;
+              const updateAvailable =
+                installedPack !== null &&
+                entry.current_version !== null &&
+                compareVersions(installedPack.version, entry.current_version) < 0;
+              const installLabel = installedPack
+                ? updateAvailable
+                  ? "Install trusted update"
+                  : "Reinstall trusted pack"
+                : "Install trusted pack";
+              return (
+                <div key={entry.entry_id} className="space-y-3 py-4 first:pt-0">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="font-medium">{entry.display_name}</p>
+                      <p className="text-sm text-muted-foreground">{entry.summary}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="secondary">{trustLabel(entry.trust_class)}</Badge>
+                      {entry.current_version ? <Badge variant="outline">{entry.current_version}</Badge> : null}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => void installCatalogPackMutation.mutateAsync(entry.entry_id)}
+                      disabled={installCatalogPackMutation.isPending || !desktopBridgeAvailable}
+                    >
+                      {installCatalogPackMutation.isPending && installCatalogPackMutation.variables === entry.entry_id ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : null}
+                      {installLabel}
+                    </Button>
+                  </div>
                 </div>
               );
             })}

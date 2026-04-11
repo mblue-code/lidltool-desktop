@@ -13,6 +13,7 @@ class TokenClaims(TypedDict):
     sub: str
     username: str
     is_admin: bool
+    sid: str
     exp: int
 
 
@@ -44,6 +45,7 @@ def create_token(
     user_id: str,
     username: str,
     is_admin: bool,
+    session_id: str,
     secret: str,
     expires_in: timedelta = SESSION_TTL,
 ) -> str:
@@ -54,6 +56,7 @@ def create_token(
         "sub": user_id,
         "username": username,
         "is_admin": is_admin,
+        "sid": session_id,
         "exp": int((now + expires_in).timestamp()),
     }
     token = jwt.encode(cast(dict[str, Any], payload), secret, algorithm="HS256")
@@ -77,6 +80,7 @@ def decode_token(*, token: str, secret: str) -> TokenClaims:
     sub = decoded.get("sub")
     username = decoded.get("username")
     is_admin = decoded.get("is_admin")
+    session_id = decoded.get("sid")
     exp = decoded.get("exp")
 
     if not isinstance(sub, str) or not sub:
@@ -85,6 +89,8 @@ def decode_token(*, token: str, secret: str) -> TokenClaims:
         raise UserAuthError("token username is malformed")
     if not isinstance(is_admin, bool):
         raise UserAuthError("token admin flag is malformed")
+    if not isinstance(session_id, str) or not session_id:
+        raise UserAuthError("token session id is malformed")
     if not isinstance(exp, int):
         raise UserAuthError("token expiration is malformed")
 
@@ -92,6 +98,7 @@ def decode_token(*, token: str, secret: str) -> TokenClaims:
         "sub": sub,
         "username": username,
         "is_admin": is_admin,
+        "sid": session_id,
         "exp": exp,
     }
 

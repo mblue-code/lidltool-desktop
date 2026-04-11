@@ -130,10 +130,28 @@ class User(Base):
     api_keys: Mapped[list[UserApiKey]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    sessions: Mapped[list[UserSession]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    mobile_devices: Mapped[list[MobileDevice]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     chat_threads: Mapped[list[ChatThread]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
     recurring_bills: Mapped[list[RecurringBill]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    budget_rules: Mapped[list[BudgetRule]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    budget_months: Mapped[list[BudgetMonth]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    cashflow_entries: Mapped[list[CashflowEntry]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    offer_source_configs: Mapped[list[OfferSourceConfig]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -142,7 +160,7 @@ class UserApiKey(Base):
     __tablename__ = "user_api_keys"
 
     key_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"), nullable=True, index=True)
     label: Mapped[str] = mapped_column(String, nullable=False)
     key_prefix: Mapped[str] = mapped_column(String, nullable=False)
     key_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
@@ -152,6 +170,73 @@ class UserApiKey(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     user: Mapped[User] = relationship(back_populates="api_keys")
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    session_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.user_id"), nullable=True, index=True
+    )
+    device_label: Mapped[str | None] = mapped_column(String, nullable=True)
+    client_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    client_platform: Mapped[str | None] = mapped_column(String, nullable=True)
+    auth_transport: Mapped[str] = mapped_column(String, nullable=False, default="cookie")
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_seen_ip: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    revoked_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    user: Mapped[User] = relationship(back_populates="sessions")
+    mobile_devices: Mapped[list[MobileDevice]] = relationship(back_populates="session_record")
+
+
+class MobileDevice(Base):
+    __tablename__ = "mobile_devices"
+
+    device_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("user_sessions.session_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    installation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    client_platform: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    push_provider: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    push_token: Mapped[str] = mapped_column(Text, nullable=False)
+    device_label: Mapped[str | None] = mapped_column(String, nullable=True)
+    client_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    app_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    locale: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    notifications_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, index=True
+    )
+    last_registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_push_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_push_error_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_push_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    user: Mapped[User] = relationship(back_populates="mobile_devices")
+    session_record: Mapped[UserSession | None] = relationship(back_populates="mobile_devices")
+
+
+Index("ux_mobile_devices_user_installation", MobileDevice.user_id, MobileDevice.installation_id, unique=True)
+Index("ix_mobile_devices_provider_token", MobileDevice.push_provider, MobileDevice.push_token)
 
 
 class ChatThread(Base):
@@ -389,6 +474,15 @@ class TransactionItem(Base):
     unit_price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     line_total_cents: Mapped[int] = mapped_column(Integer, nullable=False)
     category: Mapped[str | None] = mapped_column(String, nullable=True)
+    category_id: Mapped[str | None] = mapped_column(
+        ForeignKey("categories.category_id"), nullable=True, index=True
+    )
+    category_method: Mapped[str | None] = mapped_column(String, nullable=True)
+    category_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(4, 3), nullable=True
+    )
+    category_source_value: Mapped[str | None] = mapped_column(String, nullable=True)
+    category_version: Mapped[str | None] = mapped_column(String, nullable=True)
     product_id: Mapped[str | None] = mapped_column(
         ForeignKey("products.product_id"), nullable=True, index=True
     )
@@ -480,6 +574,7 @@ Index("idx_transactions_family_mode", Transaction.family_share_mode)
 Index("idx_ti_family_shared", TransactionItem.family_shared)
 Index("idx_user_api_keys_user_id", UserApiKey.user_id)
 Index("idx_user_api_keys_active", UserApiKey.is_active)
+Index("ix_user_sessions_user_created", UserSession.user_id, UserSession.created_at)
 Index("ix_recurring_bills_user_active", RecurringBill.user_id, RecurringBill.active)
 Index(
     "ux_recurring_bill_occurrences_bill_due_date",
@@ -743,6 +838,29 @@ class ProductAlias(Base):
 Index("idx_product_aliases_raw", ProductAlias.source_kind, ProductAlias.raw_name)
 
 
+class OfferSourceConfig(Base):
+    __tablename__ = "offer_source_configs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_id: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String, nullable=False)
+    merchant_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    merchant_url: Mapped[str] = mapped_column(Text, nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False, default="DE")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    user: Mapped[User] = relationship(back_populates="offer_source_configs")
+
+
 class OfferSource(Base):
     __tablename__ = "offer_sources"
 
@@ -927,6 +1045,33 @@ class AlertEvent(Base):
     offer_match: Mapped[OfferMatch] = relationship(back_populates="alert_events")
 
 
+class OfferRefreshRun(Base):
+    __tablename__ = "offer_refresh_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"), nullable=True, index=True)
+    rule_id: Mapped[str | None] = mapped_column(
+        ForeignKey("automation_rules.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    trigger_kind: Mapped[str] = mapped_column(String, nullable=False, default="manual")
+    status: Mapped[str] = mapped_column(String, nullable=False, default="running", index=True)
+    source_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    source_ids_json: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    result_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    user: Mapped[User | None] = relationship()
+    rule: Mapped[AutomationRule | None] = relationship()
+
+
 class ComparisonGroup(Base):
     __tablename__ = "comparison_groups"
 
@@ -1009,6 +1154,9 @@ class BudgetRule(Base):
     __tablename__ = "budget_rules"
 
     rule_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.user_id"), nullable=True, index=True
+    )
     scope_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
     scope_value: Mapped[str] = mapped_column(String, nullable=False, index=True)
     period: Mapped[str] = mapped_column(String, nullable=False, default="monthly")
@@ -1019,3 +1167,58 @@ class BudgetRule(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+    user: Mapped[User | None] = relationship(back_populates="budget_rules")
+
+
+class BudgetMonth(Base):
+    __tablename__ = "budget_months"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    month: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    planned_income_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_savings_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    opening_balance_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="EUR")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    user: Mapped[User] = relationship(back_populates="budget_months")
+
+
+class CashflowEntry(Base):
+    __tablename__ = "cashflow_entries"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    direction: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String, nullable=False, default="uncategorized")
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="EUR")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_type: Mapped[str] = mapped_column(String, nullable=False, default="manual")
+    linked_transaction_id: Mapped[str | None] = mapped_column(
+        ForeignKey("transactions.id"), nullable=True, index=True
+    )
+    linked_recurring_occurrence_id: Mapped[str | None] = mapped_column(
+        ForeignKey("recurring_bill_occurrences.id"), nullable=True, index=True
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    user: Mapped[User] = relationship(back_populates="cashflow_entries")
+
+
+Index("ix_budget_rules_user_active", BudgetRule.user_id, BudgetRule.active)
+Index("ux_budget_months_user_period", BudgetMonth.user_id, BudgetMonth.year, BudgetMonth.month, unique=True)
+Index("ix_cashflow_entries_user_date", CashflowEntry.user_id, CashflowEntry.effective_date)
+Index("ix_cashflow_entries_user_direction", CashflowEntry.user_id, CashflowEntry.direction)

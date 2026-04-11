@@ -47,7 +47,6 @@
       "connector_plugin_ids": [
         "builtin.lidl_plus_de",
         "builtin.amazon_de",
-        "builtin.rewe_de",
         "builtin.kaufland_de",
         "builtin.dm_de",
         "builtin.rossmann_de"

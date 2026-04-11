@@ -88,6 +88,32 @@ export type DesktopReceiptPluginPackListResult = {
   activePluginSearchPaths: string[];
 };
 
+export type DesktopReceiptPluginPackInstallResult = {
+  action: "installed" | "updated" | "reinstalled";
+  pack: DesktopReceiptPluginPackInfo;
+  restartedBackend: boolean;
+  backendStatus: {
+    running: boolean;
+  } | null;
+};
+
+export type DesktopReceiptPluginPackToggleResult = {
+  pack: DesktopReceiptPluginPackInfo;
+  restartedBackend: boolean;
+  backendStatus: {
+    running: boolean;
+  } | null;
+};
+
+export type DesktopReceiptPluginPackUninstallResult = {
+  pluginId: string;
+  removedPath: string | null;
+  restartedBackend: boolean;
+  backendStatus: {
+    running: boolean;
+  } | null;
+};
+
 type DesktopImportBridge = {
   runImport: (payload: {
     backupDir: string;
@@ -105,6 +131,11 @@ type DesktopCapabilityBridge = {
 type DesktopConnectorBridge = {
   getReleaseMetadata: () => Promise<DesktopReleaseMetadata>;
   listReceiptPlugins: () => Promise<DesktopReceiptPluginPackListResult>;
+  installReceiptPluginFromDialog: () => Promise<DesktopReceiptPluginPackInstallResult | null>;
+  installReceiptPluginFromCatalogEntry: (payload: { entryId: string }) => Promise<DesktopReceiptPluginPackInstallResult>;
+  enableReceiptPlugin: (pluginId: string) => Promise<DesktopReceiptPluginPackToggleResult>;
+  disableReceiptPlugin: (pluginId: string) => Promise<DesktopReceiptPluginPackToggleResult>;
+  uninstallReceiptPlugin: (pluginId: string) => Promise<DesktopReceiptPluginPackUninstallResult>;
 };
 
 export type DesktopApiBridge = (DesktopImportBridge & Partial<DesktopCapabilityBridge>) | null;
@@ -132,12 +163,22 @@ export function getDesktopConnectorBridge(): DesktopConnectorBridge | null {
   if (
     !desktopApi ||
     typeof desktopApi.getReleaseMetadata !== "function" ||
-    typeof desktopApi.listReceiptPlugins !== "function"
+    typeof desktopApi.listReceiptPlugins !== "function" ||
+    typeof desktopApi.installReceiptPluginFromDialog !== "function" ||
+    typeof desktopApi.installReceiptPluginFromCatalogEntry !== "function" ||
+    typeof desktopApi.enableReceiptPlugin !== "function" ||
+    typeof desktopApi.disableReceiptPlugin !== "function" ||
+    typeof desktopApi.uninstallReceiptPlugin !== "function"
   ) {
     return null;
   }
   return {
     getReleaseMetadata: () => desktopApi.getReleaseMetadata!(),
-    listReceiptPlugins: () => desktopApi.listReceiptPlugins!()
+    listReceiptPlugins: () => desktopApi.listReceiptPlugins!(),
+    installReceiptPluginFromDialog: () => desktopApi.installReceiptPluginFromDialog!(),
+    installReceiptPluginFromCatalogEntry: (payload) => desktopApi.installReceiptPluginFromCatalogEntry!(payload),
+    enableReceiptPlugin: (pluginId) => desktopApi.enableReceiptPlugin!(pluginId),
+    disableReceiptPlugin: (pluginId) => desktopApi.disableReceiptPlugin!(pluginId),
+    uninstallReceiptPlugin: (pluginId) => desktopApi.uninstallReceiptPlugin!(pluginId)
   };
 }

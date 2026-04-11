@@ -69,6 +69,11 @@ interface BackendEnvOptions {
   includePluginRuntimePolicy?: boolean;
 }
 
+interface BackendInvocation {
+  command: string;
+  argsPrefix: string[];
+}
+
 export class DesktopRuntime {
   private backendProcess: ChildProcessWithoutNullStreams | null = null;
   private backendStartedAt: string | null = null;
@@ -95,11 +100,12 @@ export class DesktopRuntime {
   }
 
   getBackendStatus(): BackendStatus {
+    const invocation = this.resolveBackendInvocation(false);
     return {
       running: this.backendProcess !== null,
       pid: this.backendProcess?.pid ?? null,
       startedAt: this.backendStartedAt,
-      command: this.resolveLidltoolExecutable(false)
+      command: [invocation.command, ...invocation.argsPrefix].join(" ")
     };
   }
 
@@ -147,8 +153,9 @@ export class DesktopRuntime {
     }
 
     const cfg = this.getConfig();
-    const command = this.resolveLidltoolExecutable(options.strictOverride ?? false);
-    const args = ["--db", cfg.dbPath, "serve", "--host", "127.0.0.1", "--port", String(this.apiPort)];
+    const invocation = this.resolveBackendInvocation(options.strictOverride ?? false);
+    const command = invocation.command;
+    const args = [...invocation.argsPrefix, "--db", cfg.dbPath, "serve", "--host", "127.0.0.1", "--port", String(this.apiPort)];
     const env = await this.backendProcessEnv(command);
 
     this.backendProcess = spawn(command, args, {
@@ -235,8 +242,9 @@ export class DesktopRuntime {
 
   async runSyncJob(payload: SyncRequest): Promise<CommandResult> {
     const cfg = this.getConfig();
-    const command = this.resolveLidltoolExecutable(false);
-    const args = this.mapSyncArgs(payload, cfg.dbPath);
+    const invocation = this.resolveBackendInvocation(false);
+    const command = invocation.command;
+    const args = [...invocation.argsPrefix, ...this.mapSyncArgs(payload, cfg.dbPath)];
     return await this.runCommand(command, args, "sync");
   }
 
@@ -246,8 +254,9 @@ export class DesktopRuntime {
     if (!outPath) {
       throw new Error("Export output path is required.");
     }
-    const command = this.resolveLidltoolExecutable(false);
-    const args = this.mapExportArgs(payload, cfg.dbPath);
+    const invocation = this.resolveBackendInvocation(false);
+    const command = invocation.command;
+    const args = [...invocation.argsPrefix, ...this.mapExportArgs(payload, cfg.dbPath)];
     return await this.runCommand(command, args, "export");
   }
 
@@ -313,9 +322,10 @@ export class DesktopRuntime {
 
     let exportResult: CommandResult | null = null;
     if (includeExportJson) {
-      const command = this.resolveLidltoolExecutable(false);
+      const invocation = this.resolveBackendInvocation(false);
+      const command = invocation.command;
       const exportPath = join(backupDir, "receipts-export.json");
-      const exportArgs = this.mapExportArgs({ outPath: exportPath, format: "json" }, cfg.dbPath);
+      const exportArgs = [...invocation.argsPrefix, ...this.mapExportArgs({ outPath: exportPath, format: "json" }, cfg.dbPath)];
       exportResult = await this.runCommand(command, exportArgs, "backup");
       if (exportResult.ok) {
         copied.push(exportPath);
@@ -590,12 +600,20 @@ export class DesktopRuntime {
     return ["--db", dbPath, "--json", "export", "--out", payload.outPath.trim(), "--format", formatName];
   }
 
-  private resolveTokenFilePath(): string {
+  private resolveDesktopConfigDir(): string {
+    return join(this.getConfig().userDataDir, "config");
+  }
+
+  private resolveConfigDirPath(): string {
     const configDirRaw = process.env.LIDLTOOL_CONFIG_DIR?.trim();
     if (configDirRaw) {
-      return join(this.resolveUserPath(configDirRaw), "token.json");
+      return this.resolveUserPath(configDirRaw);
     }
-    return join(homedir(), ".config", "lidltool", "token.json");
+    return this.resolveDesktopConfigDir();
+  }
+
+  private resolveTokenFilePath(): string {
+    return join(this.resolveConfigDirPath(), "token.json");
   }
 
   private resolveDocumentsPath(): string {
@@ -603,7 +621,7 @@ export class DesktopRuntime {
     if (documentsPathRaw) {
       return this.resolveUserPath(documentsPathRaw);
     }
-    return join(homedir(), ".local", "share", "lidltool", "documents");
+    return join(this.getConfig().userDataDir, "documents");
   }
 
   private resolveUserPath(value: string): string {
@@ -867,11 +885,21 @@ export class DesktopRuntime {
   private async backendProcessEnv(command: string, options: BackendEnvOptions = {}): Promise<NodeJS.ProcessEnv> {
     const cfg = this.getConfig();
     const env: NodeJS.ProcessEnv = { ...process.env };
+    const repoRootHint = this.resolveRepoRootHint();
+    const configDir = this.resolveConfigDirPath();
+    const documentsPath = this.resolveDocumentsPath();
     env.LIDLTOOL_FRONTEND_DIST = this.resolveFrontendDist();
-    env.LIDLTOOL_REPO_ROOT = this.resolveRepoRootHint();
+    env.LIDLTOOL_REPO_ROOT = repoRootHint;
     env.LIDLTOOL_DB = cfg.dbPath;
+    env.LIDLTOOL_CONFIG_DIR = configDir;
+    env.LIDLTOOL_DOCUMENT_STORAGE_PATH = documentsPath;
+    env.LIDLTOOL_CONNECTOR_HOST_KIND = "electron";
     env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY =
       env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY || this.resolveCredentialEncryptionKey(cfg.userDataDir);
+    if (app.isPackaged) {
+      const packagedSrc = join(repoRootHint, "src");
+      env.PYTHONPATH = env.PYTHONPATH?.trim() ? `${packagedSrc}:${env.PYTHONPATH}` : packagedSrc;
+    }
     if (options.includePluginRuntimePolicy === false) {
       env.LIDLTOOL_CONNECTOR_PLUGIN_PATHS = "";
       env.LIDLTOOL_CONNECTOR_EXTERNAL_RUNTIME_ENABLED = "false";
@@ -893,6 +921,12 @@ export class DesktopRuntime {
     }
     if (!env.PLAYWRIGHT_BROWSERS_PATH && this.shouldUseInVenvPlaywrightBrowsers(command)) {
       env.PLAYWRIGHT_BROWSERS_PATH = "0";
+    }
+    if (!env.LIDLTOOL_PLAYWRIGHT_BROWSER_EXECUTABLE_PATH) {
+      const systemChrome = this.resolveSystemChromeExecutable();
+      if (systemChrome) {
+        env.LIDLTOOL_PLAYWRIGHT_BROWSER_EXECUTABLE_PATH = systemChrome;
+      }
     }
     return env;
   }
@@ -1080,6 +1114,17 @@ print(json.dumps({
       };
     }
 
+    if (app.isPackaged) {
+      const bundledPython = this.resolvePythonExecutable();
+      if (this.isPathLike(bundledPython) && existsSync(bundledPython)) {
+        return {
+          command: `${bundledPython} -m lidltool.cli`,
+          source: "bundled",
+          status: "ready"
+        };
+      }
+    }
+
     const bundledExecutable = this.resolveBundledExecutable();
     if (bundledExecutable) {
       return {
@@ -1105,25 +1150,42 @@ print(json.dumps({
     };
   }
 
-  private resolveLidltoolExecutable(strictOverride: boolean): string {
+  private resolveBackendInvocation(strictOverride: boolean): BackendInvocation {
     const override = process.env.LIDLTOOL_EXECUTABLE?.trim();
     if (override) {
       if (strictOverride || !this.isPathLike(override) || existsSync(override)) {
-        return override;
+        return { command: override, argsPrefix: [] };
+      }
+    }
+
+    if (app.isPackaged) {
+      const bundledPython = this.resolvePythonExecutable();
+      if (this.isPathLike(bundledPython) && existsSync(bundledPython)) {
+        return {
+          command: bundledPython,
+          argsPrefix: ["-m", "lidltool.cli"]
+        };
       }
     }
 
     const bundledExecutable = this.resolveBundledExecutable();
     if (bundledExecutable) {
-      return bundledExecutable;
+      return { command: bundledExecutable, argsPrefix: [] };
     }
 
     const managedDevExecutable = this.resolveManagedDevExecutable();
     if (managedDevExecutable) {
-      return managedDevExecutable;
+      return { command: managedDevExecutable, argsPrefix: [] };
     }
 
-    return process.platform === "win32" ? "lidltool.exe" : "lidltool";
+    return {
+      command: process.platform === "win32" ? "lidltool.exe" : "lidltool",
+      argsPrefix: []
+    };
+  }
+
+  private resolveLidltoolExecutable(strictOverride: boolean): string {
+    return this.resolveBackendInvocation(strictOverride).command;
   }
 
   private resolvePythonExecutable(): string {
@@ -1176,5 +1238,29 @@ print(json.dumps({
         : join(app.getAppPath(), ".backend", "venv", "bin", "lidltool");
 
     return existsSync(candidate) ? candidate : null;
+  }
+
+  private resolveSystemChromeExecutable(): string | null {
+    const override = process.env.LIDLTOOL_PLAYWRIGHT_BROWSER_EXECUTABLE_PATH?.trim();
+    if (override) {
+      return override;
+    }
+
+    const candidates =
+      process.platform === "darwin"
+        ? [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            join(homedir(), "Applications", "Google Chrome.app", "Contents", "MacOS", "Google Chrome"),
+            join(homedir(), "Applications", "Chromium.app", "Contents", "MacOS", "Chromium")
+          ]
+        : [];
+
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
   }
 }

@@ -1,8 +1,8 @@
 export const pageLoaders = {
   overview: () => import("@/pages/DashboardPage"),
   explore: () => import("@/pages/ExplorePage"),
-  products: () => import("@/pages/ProductsPage"),
   offers: () => import("@/pages/OffersPage"),
+  products: () => import("@/pages/ProductsPage"),
   compare: () => import("@/pages/ComparisonsPage"),
   receipts: () => import("@/pages/TransactionsPage"),
   quality: () => import("@/pages/DataQualityPage"),
@@ -30,13 +30,14 @@ const ROUTE_PREFIX_PRELOADERS: Array<{
   preload: () => Promise<unknown>;
 }> = [
   { prefix: "/explore", preload: pageLoaders.explore },
-  { prefix: "/products", preload: pageLoaders.products },
   { prefix: "/offers", preload: pageLoaders.offers },
+  { prefix: "/products", preload: pageLoaders.products },
   { prefix: "/compare", preload: pageLoaders.compare },
   { prefix: "/receipts", preload: pageLoaders.receipts },
   { prefix: "/quality", preload: pageLoaders.quality },
   { prefix: "/connectors", preload: pageLoaders.connectors },
   { prefix: "/sources", preload: pageLoaders.sources },
+  { prefix: "/add", preload: pageLoaders.manualImport },
   { prefix: "/imports/manual", preload: pageLoaders.manualImport },
   { prefix: "/imports/ocr", preload: pageLoaders.documentsUpload },
   { prefix: "/budget", preload: pageLoaders.budget },

@@ -17,6 +17,19 @@ const ProductSearchResponseSchema = z.object({
   count: z.number()
 });
 
+const ProductCategoryListResponseSchema = z.object({
+  items: z.array(
+    z.object({
+      category_id: z.string(),
+      name: z.string(),
+      parent_category_id: z.string().nullable(),
+      depth: z.number(),
+      child_count: z.number()
+    })
+  ),
+  count: z.number()
+});
+
 const ProductDetailResponseSchema = z.object({
   product: z.object({
     product_id: z.string(),
@@ -127,6 +140,7 @@ const ProductClusterStatusResponseSchema = z.object({
 });
 
 export type ProductSearchResponse = z.infer<typeof ProductSearchResponseSchema>;
+export type ProductCategoryListResponse = z.infer<typeof ProductCategoryListResponseSchema>;
 export type ProductDetailResponse = z.infer<typeof ProductDetailResponseSchema>;
 export type ProductPriceSeriesResponse = z.infer<typeof ProductPriceSeriesResponseSchema>;
 export type ProductPurchasesResponse = z.infer<typeof ProductPurchasesResponseSchema>;
@@ -140,13 +154,19 @@ export type ProductClusterStatusResponse = z.infer<typeof ProductClusterStatusRe
 export async function fetchProducts(params?: {
   search?: string;
   sourceKind?: string;
+  categoryId?: string;
   limit?: number;
 }): Promise<ProductSearchResponse> {
   return apiClient.get("/api/v1/products", ProductSearchResponseSchema, {
     search: params?.search,
     source_kind: params?.sourceKind,
+    category_id: params?.categoryId,
     limit: params?.limit === undefined ? undefined : String(params.limit)
   });
+}
+
+export async function fetchProductCategories(): Promise<ProductCategoryListResponse> {
+  return apiClient.get("/api/v1/products/categories", ProductCategoryListResponseSchema);
 }
 
 export async function fetchProductDetail(productId: string): Promise<ProductDetailResponse> {

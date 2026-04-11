@@ -149,6 +149,7 @@ class AuthLifecycleOutput(BaseModel):
     detail: str | None = None
     flow_id: str | None = None
     next_poll_after_seconds: int | None = Field(default=None, ge=0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class DiscoverRecordsInput(BaseModel):

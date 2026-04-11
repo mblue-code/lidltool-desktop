@@ -440,47 +440,49 @@ export function ReviewQueuePage() {
     <section className="space-y-4">
       <PageHeader title={t("pages.reviewQueue.title")} />
 
-      <form className="grid gap-3 md:grid-cols-4" onSubmit={applyFilters}>
-        <div className="space-y-2">
-          <Label htmlFor="review-queue-status">{t("pages.reviewQueue.filter.status")}</Label>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger id="review-queue-status">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="needs_review">{t("pages.reviewQueue.filter.needsReview")}</SelectItem>
-              <SelectItem value="approved">{t("pages.reviewQueue.filter.approved")}</SelectItem>
-              <SelectItem value="rejected">{t("pages.reviewQueue.filter.rejected")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="threshold">
-            {t("pages.reviewQueue.filter.threshold")}
-          </Label>
-          <Input
-            id="threshold"
-            type="number"
-            min={0}
-            max={1}
-            step="0.01"
-            value={thresholdFilter}
-            onChange={(event) => setThresholdFilter(event.target.value)}
-          />
-          <p className="text-xs text-muted-foreground">{t("pages.reviewQueue.thresholdHint")}</p>
-        </div>
-        <div className="self-end flex gap-2">
-          <Button type="submit">{t("pages.reviewQueue.applyFilters")}</Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setBatchApproveOpen(true)}
-            disabled={highConfidenceItems.length === 0}
-          >
-            {t("pages.reviewQueue.batchApprove")}
-          </Button>
-        </div>
-      </form>
+      <Card>
+        <CardContent className="pt-6">
+          <form className="grid gap-3 md:grid-cols-4" onSubmit={applyFilters}>
+            <div className="space-y-2">
+              <Label htmlFor="review-queue-status">{t("pages.reviewQueue.filter.status")}</Label>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger id="review-queue-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="needs_review">{t("pages.reviewQueue.filter.needsReview")}</SelectItem>
+                  <SelectItem value="approved">{t("pages.reviewQueue.filter.approved")}</SelectItem>
+                  <SelectItem value="rejected">{t("pages.reviewQueue.filter.rejected")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="threshold">
+                {t("pages.reviewQueue.filter.threshold")}
+              </Label>
+              <Input
+                id="threshold"
+                type="number"
+                min={0}
+                max={1}
+                step="0.01"
+                value={thresholdFilter}
+                onChange={(event) => setThresholdFilter(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("pages.reviewQueue.thresholdHint")}</p>
+            </div>
+            <div className="self-end flex gap-2">
+              <Button type="submit">{t("pages.reviewQueue.applyFilters")}</Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setBatchApproveOpen(true)}
+                disabled={highConfidenceItems.length === 0}
+              >
+                {t("pages.reviewQueue.batchApprove")}
+              </Button>
+            </div>
+          </form>
 
       <ConfirmDialog
         open={batchApproveOpen}
@@ -492,7 +494,7 @@ export function ReviewQueuePage() {
       />
 
       {queueQuery.error ? (
-        <Alert variant="destructive">
+        <Alert variant="destructive" className="mt-4">
           <AlertTitle>{t("pages.reviewQueue.loadError")}</AlertTitle>
           <AlertDescription>
             {resolveApiErrorMessage(queueQuery.error, t, t("pages.reviewQueue.unknownError"))}
@@ -500,55 +502,52 @@ export function ReviewQueuePage() {
         </Alert>
       ) : null}
 
-      <Card>
-        <CardContent className="pt-6">
-          <div className="md:hidden">
-            {queueItems.length > 0 ? (
-              <div className="divide-y divide-border rounded-lg border">
-                {queueItems.map((item) => (
-                  <div
-                    key={item.document_id}
-                    className="space-y-2 p-4"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{item.merchant_name || "-"}</span>
-                      <span className="text-sm text-muted-foreground">
-                        {formatDateTime(item.created_at)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="tabular-nums font-semibold">
-                        {formatEurFromCents(item.total_gross_cents)}
-                      </span>
-                      <div className="flex flex-wrap gap-1">
-                        <Badge className={cn("text-xs", reviewStatusClass(item.review_status))}>
-                          {item.review_status.replace(/_/g, " ")}
-                        </Badge>
-                        <Badge className={cn("text-xs", ocrStatusClass(item.ocr_status))}>
-                          {item.ocr_status}
-                        </Badge>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between text-sm text-muted-foreground">
-                      <span>{t("pages.reviewQueue.col.confidence")}: {item.transaction_confidence ?? "—"}</span>
-                      <span>{t("pages.reviewQueue.col.ocr")}: {item.ocr_confidence ?? "—"}</span>
-                    </div>
-                    <Button variant="outline" size="sm" asChild className="w-full">
-                      <Link to={`/review-queue/${item.document_id}?${linkSearch}`}>{t("pages.reviewQueue.open")}</Link>
-                    </Button>
+          <div className="app-section-divider mt-4 pt-4 md:hidden">
+            <div className="divide-y divide-border/40">
+            {queueItems.map((item) => (
+              <div
+                key={item.document_id}
+                className="py-3 first:pt-0 last:pb-0 space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{item.merchant_name || "-"}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {formatDateTime(item.created_at)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="tabular-nums font-semibold">
+                    {formatEurFromCents(item.total_gross_cents)}
+                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    <Badge className={cn("text-xs", reviewStatusClass(item.review_status))}>
+                      {item.review_status.replace(/_/g, " ")}
+                    </Badge>
+                    <Badge className={cn("text-xs", ocrStatusClass(item.ocr_status))}>
+                      {item.ocr_status}
+                    </Badge>
                   </div>
-                ))}
+                </div>
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  <span>{t("pages.reviewQueue.col.confidence")}: {item.transaction_confidence ?? "—"}</span>
+                  <span>{t("pages.reviewQueue.col.ocr")}: {item.ocr_confidence ?? "—"}</span>
+                </div>
+                <Button variant="outline" size="sm" asChild className="w-full">
+                  <Link to={`/review-queue/${item.document_id}?${linkSearch}`}>{t("pages.reviewQueue.open")}</Link>
+                </Button>
               </div>
-            ) : (
+            ))}
+            {queueItems.length === 0 ? (
               <EmptyState
                 title={t("pages.reviewQueue.empty")}
                 description={t("pages.reviewQueue.emptyDescription")}
                 action={{ label: t("pages.reviewQueue.uploadReceipts"), href: "/imports/ocr" }}
               />
-            )}
+            ) : null}
+            </div>
           </div>
 
-          <div className="hidden md:block overflow-x-auto">
+          <div className="app-section-divider mt-4 pt-4 hidden md:block overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -649,26 +648,26 @@ export function ReviewQueuePage() {
 
             {detail ? (
               <>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="rounded-lg border p-4 text-sm">
+                <div className="grid gap-x-8 gap-y-3 text-sm md:grid-cols-2">
+                  <div>
                     <p className="font-medium">{t("pages.reviewQueue.detail.document")}</p>
-                    <p>ID: {detail.document.id}</p>
-                    <p>{t("pages.reviewQueue.detail.file")}: {detail.document.file_name || "-"}</p>
-                    <p>{t("common.source")}: {detail.document.source_id || "-"}</p>
-                    <p>{t("pages.reviewQueue.detail.ocrStatus")}: {detail.document.ocr_status}</p>
-                    <p>{t("pages.reviewQueue.detail.reviewStatus")}: {detail.document.review_status}</p>
-                    <p>{t("pages.reviewQueue.detail.ocrConfidence")}: {detail.document.ocr_confidence ?? "-"}</p>
+                    <p className="text-muted-foreground">ID: {detail.document.id}</p>
+                    <p className="text-muted-foreground">{t("pages.reviewQueue.detail.file")}: {detail.document.file_name || "-"}</p>
+                    <p className="text-muted-foreground">{t("common.source")}: {detail.document.source_id || "-"}</p>
+                    <p className="text-muted-foreground">{t("pages.reviewQueue.detail.ocrStatus")}: {detail.document.ocr_status}</p>
+                    <p className="text-muted-foreground">{t("pages.reviewQueue.detail.reviewStatus")}: {detail.document.review_status}</p>
+                    <p className="text-muted-foreground">{t("pages.reviewQueue.detail.ocrConfidence")}: {detail.document.ocr_confidence ?? "-"}</p>
                     <Button variant="link" className="h-auto p-0" asChild>
                       <Link to="/imports/ocr">{t("pages.reviewQueue.sourceUploadLink")}</Link>
                     </Button>
                   </div>
-                  <div className="rounded-lg border p-4 text-sm">
+                  <div>
                     <p className="font-medium">{t("pages.reviewQueue.detail.transaction")}</p>
-                    <p>ID: {detail.transaction.id}</p>
-                    <p>{t("pages.reviewQueue.col.merchant")}: {detail.transaction.merchant_name || "-"}</p>
-                    <p>{t("pages.reviewQueue.col.total")}: {formatEurFromCents(detail.transaction.total_gross_cents)}</p>
-                    <p>{t("pages.reviewQueue.detail.purchased")}: {formatDateTime(detail.transaction.purchased_at)}</p>
-                    <p>{t("pages.reviewQueue.col.confidence")}: {detail.transaction.confidence ?? "-"}</p>
+                    <p className="text-muted-foreground">ID: {detail.transaction.id}</p>
+                    <p className="text-muted-foreground">{t("pages.reviewQueue.col.merchant")}: {detail.transaction.merchant_name || "-"}</p>
+                    <p className="text-muted-foreground">{t("pages.reviewQueue.col.total")}: {formatEurFromCents(detail.transaction.total_gross_cents)}</p>
+                    <p className="text-muted-foreground">{t("pages.reviewQueue.detail.purchased")}: {formatDateTime(detail.transaction.purchased_at)}</p>
+                    <p className="text-muted-foreground">{t("pages.reviewQueue.col.confidence")}: {detail.transaction.confidence ?? "-"}</p>
                   </div>
                 </div>
 
@@ -725,7 +724,7 @@ export function ReviewQueuePage() {
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="space-y-2 rounded-lg border p-4">
+                  <div className="space-y-2">
                     <p className="text-sm font-medium">{t("pages.reviewQueue.patch.transaction")}</p>
                     <Textarea aria-label={t("pages.reviewQueue.patch.transactionAria")} rows={6} {...form.register("transactionCorrectionsJson")} />
                     {form.formState.errors.transactionCorrectionsJson ? (
@@ -741,7 +740,7 @@ export function ReviewQueuePage() {
                     </Button>
                   </div>
 
-                  <div className="space-y-2 rounded-lg border p-4">
+                  <div className="space-y-2">
                     <p className="text-sm font-medium">{t("pages.reviewQueue.patch.item")}</p>
                     <Label htmlFor="review-item-select">{t("pages.reviewQueue.patch.itemLabel")}</Label>
                     <Select

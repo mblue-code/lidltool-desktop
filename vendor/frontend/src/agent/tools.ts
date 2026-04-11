@@ -4,6 +4,25 @@ import { z } from "zod";
 
 import { fetchDashboardCards, fetchDashboardTrends, fetchSavingsBreakdown } from "@/api/dashboard";
 import {
+  createAutomationRule,
+  fetchAutomationRules,
+  updateAutomationRule
+} from "@/api/automations";
+import {
+  createOfferSource,
+  deleteOfferSource,
+  fetchOfferMerchantItems,
+  createOfferWatchlist,
+  deleteOfferWatchlist,
+  fetchOfferMatches,
+  fetchOfferRefreshRuns,
+  fetchOfferSources,
+  fetchOfferWatchlists,
+  postOfferRefresh,
+  updateOfferSource,
+  updateOfferWatchlist
+} from "@/api/offers";
+import {
   fetchProductPriceSeries,
   fetchProducts,
   postClusterProducts
@@ -553,6 +572,450 @@ const getProductPurchasesTool: AgentTool<any> = {
   }
 };
 
+const ListOfferSourcesParams = Type.Object({});
+
+const listOfferSourcesTool: AgentTool<any> = {
+  name: "list_offer_sources",
+  label: "Offer Sources",
+  description:
+    "List user-managed offer sources. These are merchant offer URLs created in the app and scanned by the AI assistant.",
+  parameters: ListOfferSourcesParams,
+  execute: async () => {
+    const result = await fetchOfferSources();
+    return toToolResult(result);
+  }
+};
+
+const CreateOfferSourceParams = Type.Object({
+  merchant_name: Type.String(),
+  merchant_url: Type.String(),
+  display_name: Type.Optional(Type.String()),
+  country_code: Type.Optional(Type.String({ minLength: 2, maxLength: 2 })),
+  notes: Type.Optional(Type.String())
+});
+
+const createOfferSourceTool: AgentTool<any> = {
+  name: "create_offer_source",
+  label: "Create Offer Source",
+  description:
+    "Create a new AI-scanned offer source from a merchant offer page URL. Use this when the user gives you a specific offers page link.",
+  parameters: CreateOfferSourceParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as {
+      merchant_name: string;
+      merchant_url: string;
+      display_name?: string;
+      country_code?: string;
+      notes?: string;
+    };
+    const result = await createOfferSource(parsed);
+    return toToolResult(result);
+  }
+};
+
+const UpdateOfferSourceParams = Type.Object({
+  source_id: Type.String(),
+  merchant_name: Type.Optional(Type.String()),
+  merchant_url: Type.Optional(Type.String()),
+  display_name: Type.Optional(Type.String()),
+  country_code: Type.Optional(Type.String({ minLength: 2, maxLength: 2 })),
+  notes: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  active: Type.Optional(Type.Boolean())
+});
+
+const updateOfferSourceTool: AgentTool<any> = {
+  name: "update_offer_source",
+  label: "Update Offer Source",
+  description: "Update an existing user-managed offer source by source_id.",
+  parameters: UpdateOfferSourceParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as {
+      source_id: string;
+      merchant_name?: string;
+      merchant_url?: string;
+      display_name?: string;
+      country_code?: string;
+      notes?: string | null;
+      active?: boolean;
+    };
+    const result = await updateOfferSource(parsed.source_id, {
+      merchant_name: parsed.merchant_name,
+      merchant_url: parsed.merchant_url,
+      display_name: parsed.display_name,
+      country_code: parsed.country_code,
+      notes: parsed.notes,
+      active: parsed.active
+    });
+    return toToolResult(result);
+  }
+};
+
+const DeleteOfferSourceParams = Type.Object({
+  source_id: Type.String()
+});
+
+const deleteOfferSourceTool: AgentTool<any> = {
+  name: "delete_offer_source",
+  label: "Delete Offer Source",
+  description: "Delete an existing user-managed offer source by source_id.",
+  parameters: DeleteOfferSourceParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as { source_id: string };
+    const result = await deleteOfferSource(parsed.source_id);
+    return toToolResult(result);
+  }
+};
+
+const ListOfferMerchantItemsParams = Type.Object({
+  merchant_name: Type.String(),
+  limit: Type.Optional(Type.Number({ minimum: 1, maximum: 200 }))
+});
+
+const listOfferMerchantItemsTool: AgentTool<any> = {
+  name: "list_offer_merchant_items",
+  label: "Merchant Purchase Items",
+  description:
+    "List items the user has already bought from a merchant. Use this when creating a watchlist for a merchant with existing receipt history.",
+  parameters: ListOfferMerchantItemsParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as { merchant_name: string; limit?: number };
+    const result = await fetchOfferMerchantItems({
+      merchantName: parsed.merchant_name,
+      limit: parsed.limit
+    });
+    return toToolResult(result);
+  }
+};
+
+const ListOfferWatchlistsParams = Type.Object({
+  limit: Type.Optional(Type.Number({ minimum: 1, maximum: 200 }))
+});
+
+const listOfferWatchlistsTool: AgentTool<any> = {
+  name: "list_offer_watchlists",
+  label: "Offer Watchlists",
+  description: "List the user's current offer watchlists.",
+  parameters: ListOfferWatchlistsParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as { limit?: number };
+    const result = await fetchOfferWatchlists();
+    const items = typeof parsed.limit === "number" ? result.items.slice(0, parsed.limit) : result.items;
+    return toToolResult({
+      ...result,
+      count: items.length,
+      items
+    });
+  }
+};
+
+const CreateOfferWatchlistParams = Type.Object({
+  product_id: Type.Optional(Type.String()),
+  query_text: Type.Optional(Type.String()),
+  source_id: Type.Optional(Type.String()),
+  min_discount_percent: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
+  max_price_cents: Type.Optional(Type.Number({ minimum: 0 })),
+  notes: Type.Optional(Type.String())
+});
+
+const createOfferWatchlistTool: AgentTool<any> = {
+  name: "create_offer_watchlist",
+  label: "Create Offer Watchlist",
+  description:
+    "Create a watchlist entry for offer tracking. Provide either product_id or query_text. Optional source_id should match one of the user-managed offer sources.",
+  parameters: CreateOfferWatchlistParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as {
+      product_id?: string;
+      query_text?: string;
+      source_id?: string;
+      min_discount_percent?: number;
+      max_price_cents?: number;
+      notes?: string;
+    };
+    const result = await createOfferWatchlist({
+      product_id: parsed.product_id,
+      query_text: parsed.query_text,
+      source_id: parsed.source_id,
+      min_discount_percent: parsed.min_discount_percent,
+      max_price_cents: parsed.max_price_cents,
+      notes: parsed.notes
+    });
+    return toToolResult(result);
+  }
+};
+
+const UpdateOfferWatchlistParams = Type.Object({
+  id: Type.String(),
+  product_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  query_text: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  source_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  min_discount_percent: Type.Optional(Type.Union([Type.Number({ minimum: 0, maximum: 100 }), Type.Null()])),
+  max_price_cents: Type.Optional(Type.Union([Type.Number({ minimum: 0 }), Type.Null()])),
+  active: Type.Optional(Type.Boolean()),
+  notes: Type.Optional(Type.Union([Type.String(), Type.Null()]))
+});
+
+const updateOfferWatchlistTool: AgentTool<any> = {
+  name: "update_offer_watchlist",
+  label: "Update Offer Watchlist",
+  description: "Update an existing offer watchlist entry by id.",
+  parameters: UpdateOfferWatchlistParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as {
+      id: string;
+      product_id?: string | null;
+      query_text?: string | null;
+      source_id?: string | null;
+      min_discount_percent?: number | null;
+      max_price_cents?: number | null;
+      active?: boolean;
+      notes?: string | null;
+    };
+    const result = await updateOfferWatchlist(parsed.id, {
+      product_id: parsed.product_id,
+      query_text: parsed.query_text,
+      source_id: parsed.source_id,
+      min_discount_percent: parsed.min_discount_percent,
+      max_price_cents: parsed.max_price_cents,
+      active: parsed.active,
+      notes: parsed.notes
+    });
+    return toToolResult(result);
+  }
+};
+
+const DeleteOfferWatchlistParams = Type.Object({
+  id: Type.String()
+});
+
+const deleteOfferWatchlistTool: AgentTool<any> = {
+  name: "delete_offer_watchlist",
+  label: "Delete Offer Watchlist",
+  description: "Delete an offer watchlist entry by id.",
+  parameters: DeleteOfferWatchlistParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as { id: string };
+    const result = await deleteOfferWatchlist(parsed.id);
+    return toToolResult(result);
+  }
+};
+
+const RefreshOffersParams = Type.Object({
+  source_ids: Type.Optional(Type.Array(Type.String())),
+  discovery_limit: Type.Optional(Type.Number({ minimum: 1, maximum: 500 }))
+});
+
+const refreshOffersTool: AgentTool<any> = {
+  name: "refresh_offers",
+  label: "Refresh Offers",
+  description:
+    "Trigger offer discovery for user-managed merchant URLs. The AI assistant fetches those configured pages and extracts current offers.",
+  parameters: RefreshOffersParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as { source_ids?: string[]; discovery_limit?: number };
+    const result = await postOfferRefresh({
+      source_ids: parsed.source_ids,
+      discovery_limit: parsed.discovery_limit
+    });
+    return toToolResult(result);
+  }
+};
+
+const ListOfferMatchesParams = Type.Object({
+  limit: Type.Optional(Type.Number({ minimum: 1, maximum: 200 }))
+});
+
+const listOfferMatchesTool: AgentTool<any> = {
+  name: "list_offer_matches",
+  label: "Offer Matches",
+  description: "List active offer matches for the user's watchlists.",
+  parameters: ListOfferMatchesParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as { limit?: number };
+    const result = await fetchOfferMatches(parsed.limit);
+    return toToolResult(result);
+  }
+};
+
+const ListOfferRefreshRunsParams = Type.Object({
+  limit: Type.Optional(Type.Number({ minimum: 1, maximum: 100 }))
+});
+
+const listOfferRefreshRunsTool: AgentTool<any> = {
+  name: "list_offer_refresh_runs",
+  label: "Offer Refresh Runs",
+  description: "List recent offer refresh runs, including status and per-source results.",
+  parameters: ListOfferRefreshRunsParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as { limit?: number };
+    const result = await fetchOfferRefreshRuns(parsed.limit);
+    return toToolResult(result);
+  }
+};
+
+const ListOfferRefreshAutomationsParams = Type.Object({
+  limit: Type.Optional(Type.Number({ minimum: 1, maximum: 200 }))
+});
+
+const listOfferRefreshAutomationsTool: AgentTool<any> = {
+  name: "list_offer_refresh_automations",
+  label: "Offer Refresh Automations",
+  description: "List automation rules that schedule offer refreshes.",
+  parameters: ListOfferRefreshAutomationsParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as { limit?: number };
+    const result = await fetchAutomationRules(parsed.limit ?? 100, 0);
+    const items = result.items.filter((rule) => rule.rule_type === "offer_refresh");
+    return toToolResult({
+      ...result,
+      count: items.length,
+      total: items.length,
+      items
+    });
+  }
+};
+
+const OfferAutomationScheduleMode = Type.Union([Type.Literal("interval"), Type.Literal("weekly")]);
+
+function resolveBrowserTimeZone(): string | undefined {
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return typeof timeZone === "string" && timeZone.trim().length > 0 ? timeZone : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const CreateOfferRefreshAutomationParams = Type.Object({
+  name: Type.String(),
+  enabled: Type.Optional(Type.Boolean()),
+  source_ids: Type.Optional(Type.Array(Type.String())),
+  discovery_limit: Type.Optional(Type.Number({ minimum: 1, maximum: 500 })),
+  schedule_mode: Type.Optional(OfferAutomationScheduleMode),
+  interval_seconds: Type.Optional(Type.Number({ minimum: 60 })),
+  weekday: Type.Optional(Type.Number({ minimum: 0, maximum: 6 })),
+  hour: Type.Optional(Type.Number({ minimum: 0, maximum: 23 })),
+  minute: Type.Optional(Type.Number({ minimum: 0, maximum: 59 }))
+});
+
+function buildOfferRefreshTriggerConfig(params: {
+  schedule_mode?: "interval" | "weekly";
+  interval_seconds?: number;
+  weekday?: number;
+  hour?: number;
+  minute?: number;
+}): Record<string, unknown> {
+  if (params.schedule_mode === "weekly") {
+    const timeZone = resolveBrowserTimeZone();
+    return {
+      schedule: {
+        mode: "weekly",
+        weekday: params.weekday ?? 0,
+        hour: params.hour ?? 8,
+        minute: params.minute ?? 0,
+        timezone: timeZone
+      }
+    };
+  }
+  return {
+    schedule: {
+      mode: "interval",
+      interval_seconds: params.interval_seconds ?? 3600
+    }
+  };
+}
+
+const createOfferRefreshAutomationTool: AgentTool<any> = {
+  name: "create_offer_refresh_automation",
+  label: "Create Offer Refresh Automation",
+  description:
+    "Create a scheduled automation rule for offer_refresh. Use weekly scheduling for requests like 'every Monday morning'. weekday uses Monday=0 through Sunday=6.",
+  parameters: CreateOfferRefreshAutomationParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as {
+      name: string;
+      enabled?: boolean;
+      source_ids?: string[];
+      discovery_limit?: number;
+      schedule_mode?: "interval" | "weekly";
+      interval_seconds?: number;
+      weekday?: number;
+      hour?: number;
+      minute?: number;
+    };
+    const result = await createAutomationRule({
+      name: parsed.name,
+      rule_type: "offer_refresh",
+      enabled: parsed.enabled ?? true,
+      trigger_config: buildOfferRefreshTriggerConfig(parsed),
+      action_config: {
+        source_ids: parsed.source_ids ?? [],
+        discovery_limit: parsed.discovery_limit
+      }
+    });
+    return toToolResult(result);
+  }
+};
+
+const UpdateOfferRefreshAutomationParams = Type.Object({
+  id: Type.String(),
+  name: Type.Optional(Type.String()),
+  enabled: Type.Optional(Type.Boolean()),
+  source_ids: Type.Optional(Type.Array(Type.String())),
+  discovery_limit: Type.Optional(Type.Union([Type.Number({ minimum: 1, maximum: 500 }), Type.Null()])),
+  schedule_mode: Type.Optional(OfferAutomationScheduleMode),
+  interval_seconds: Type.Optional(Type.Number({ minimum: 60 })),
+  weekday: Type.Optional(Type.Number({ minimum: 0, maximum: 6 })),
+  hour: Type.Optional(Type.Number({ minimum: 0, maximum: 23 })),
+  minute: Type.Optional(Type.Number({ minimum: 0, maximum: 59 }))
+});
+
+const updateOfferRefreshAutomationTool: AgentTool<any> = {
+  name: "update_offer_refresh_automation",
+  label: "Update Offer Refresh Automation",
+  description:
+    "Update a scheduled offer_refresh automation rule by id. weekday uses Monday=0 through Sunday=6.",
+  parameters: UpdateOfferRefreshAutomationParams,
+  execute: async (_toolCallId, params) => {
+    const parsed = params as {
+      id: string;
+      name?: string;
+      enabled?: boolean;
+      source_ids?: string[];
+      discovery_limit?: number | null;
+      schedule_mode?: "interval" | "weekly";
+      interval_seconds?: number;
+      weekday?: number;
+      hour?: number;
+      minute?: number;
+    };
+    const payload: Record<string, unknown> = {};
+    if (parsed.name !== undefined) {
+      payload.name = parsed.name;
+    }
+    if (parsed.enabled !== undefined) {
+      payload.enabled = parsed.enabled;
+    }
+    if (
+      parsed.schedule_mode !== undefined ||
+      parsed.interval_seconds !== undefined ||
+      parsed.weekday !== undefined ||
+      parsed.hour !== undefined ||
+      parsed.minute !== undefined
+    ) {
+      payload.trigger_config = buildOfferRefreshTriggerConfig(parsed);
+    }
+    if (parsed.source_ids !== undefined || parsed.discovery_limit !== undefined) {
+      payload.action_config = {
+        source_ids: parsed.source_ids ?? [],
+        discovery_limit: parsed.discovery_limit ?? undefined
+      };
+    }
+    const result = await updateAutomationRule(parsed.id, payload);
+    return toToolResult(result);
+  }
+};
+
 const ExecutePythonParams = Type.Object({
   code: Type.String({
     description:
@@ -598,6 +1061,21 @@ export const ALL_TOOLS: AgentTool<any>[] = [
   searchProductsTool,
   getProductHistoryTool,
   getProductPurchasesTool,
+  listOfferSourcesTool,
+  createOfferSourceTool,
+  updateOfferSourceTool,
+  deleteOfferSourceTool,
+  listOfferMerchantItemsTool,
+  listOfferWatchlistsTool,
+  createOfferWatchlistTool,
+  updateOfferWatchlistTool,
+  deleteOfferWatchlistTool,
+  refreshOffersTool,
+  listOfferMatchesTool,
+  listOfferRefreshRunsTool,
+  listOfferRefreshAutomationsTool,
+  createOfferRefreshAutomationTool,
+  updateOfferRefreshAutomationTool,
   triggerSyncTool,
   clusterProductsTool
 ];

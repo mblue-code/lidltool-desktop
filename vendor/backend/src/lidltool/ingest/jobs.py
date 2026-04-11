@@ -15,7 +15,10 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from lidltool.ai.mediation import PluginAiMediationService
+from lidltool.amazon.client_playwright import AmazonPlaywrightClient
+from lidltool.amazon.session import default_amazon_state_file
 from lidltool.auth.users import ensure_service_user
+from lidltool.auth.token_store import TokenStore
 from lidltool.config import AppConfig, build_config, database_url
 from lidltool.connectors.base import Connector
 from lidltool.connectors.registry import source_display_name
@@ -24,12 +27,17 @@ from lidltool.connectors.runtime import (
     RuntimeHostedReceiptConnector,
 )
 from lidltool.connectors.runtime.errors import ConnectorRuntimeError
+from lidltool.connectors.runtime import execution as connector_execution_module
 from lidltool.connectors.runtime.execution import ConnectorExecutionService
 from lidltool.connectors.runtime.logging import log_runtime_invocation
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
 from lidltool.db.models import Document, IngestionJob, Source, SourceAccount
+from lidltool.dm.client_playwright import DmPlaywrightClient
+from lidltool.kaufland.client_playwright import KauflandPlaywrightClient
 from lidltool.ingest.ocr_ingest import OcrIngestService
 from lidltool.ingest.sync import SyncProgress, SyncResult, SyncService
+from lidltool.lidl.client import create_lidl_client
+from lidltool.rossmann.client_playwright import RossmannPlaywrightClient
 
 LOGGER = logging.getLogger(__name__)
 JOB_STATUS_QUEUED = "queued"
@@ -529,7 +537,11 @@ class JobService:
         LOGGER.info("job.lifecycle.running_ocr job_id=%s document_id=%s", job_id, document_id)
         try:
             service = OcrIngestService(session_factory=self._session_factory, config=self._config)
-            result = service.process_document(document_id=document_id)
+            result = self._run_ocr_with_timeout_retry(
+                service=service,
+                job_id=job_id,
+                document_id=document_id,
+            )
             self._finalize_ocr_success(job_id=job_id, result=result)
         except Exception as exc:  # noqa: BLE001
             with session_scope(self._session_factory) as session:
@@ -538,7 +550,51 @@ class JobService:
                     document.ocr_status = "failed"
             self._finalize_failure(job_id=job_id, error=str(exc))
 
+    def _run_ocr_with_timeout_retry(
+        self,
+        *,
+        service: OcrIngestService,
+        job_id: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        max_attempts = max(int(self._config.ocr_request_retries or 0), 0) + 1
+        attempt = 0
+        last_error: Exception | None = None
+        while attempt < max_attempts:
+            attempt += 1
+            try:
+                if attempt > 1:
+                    LOGGER.info(
+                        "job.lifecycle.retrying_ocr job_id=%s document_id=%s attempt=%s/%s",
+                        job_id,
+                        document_id,
+                        attempt,
+                        max_attempts,
+                    )
+                return service.process_document(document_id=document_id)
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                if not _is_timeout_error(exc) or attempt >= max_attempts:
+                    raise
+                LOGGER.warning(
+                    "job.lifecycle.ocr_timeout_retry job_id=%s document_id=%s attempt=%s/%s error=%s",
+                    job_id,
+                    document_id,
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+                time.sleep(min(2.0 * attempt, 5.0))
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("ocr retry loop exited without result")
+
     def _build_source_connector(self, *, source_config: AppConfig) -> tuple[Any | None, Connector]:
+        connector_execution_module.create_lidl_client = create_lidl_client
+        connector_execution_module.AmazonPlaywrightClient = AmazonPlaywrightClient
+        connector_execution_module.DmPlaywrightClient = DmPlaywrightClient
+        connector_execution_module.KauflandPlaywrightClient = KauflandPlaywrightClient
+        connector_execution_module.RossmannPlaywrightClient = RossmannPlaywrightClient
         resolved = ConnectorExecutionService(
             config=source_config,
             runtime_host=self._runtime_host,
@@ -952,6 +1008,22 @@ def _summary_dead_letter(summary: dict[str, Any]) -> dict[str, Any] | None:
     if isinstance(dead_letter, dict):
         return dead_letter
     return None
+
+
+def _is_timeout_error(exc: BaseException) -> bool:
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, TimeoutError):
+            return True
+        exc_name = current.__class__.__name__.lower()
+        if "timeout" in exc_name:
+            return True
+        message = str(current).lower()
+        if "timed out" in message or "timeout" in message:
+            return True
+        next_exc = current.__cause__ or current.__context__
+        current = next_exc if isinstance(next_exc, BaseException) else None
+    return False
 
 
 def _to_snapshot(job: IngestionJob) -> JobSnapshot:

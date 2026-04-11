@@ -13,10 +13,6 @@ import {
   patchChatThread,
   persistChatRun
 } from "@/api/chat";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { SearchInput } from "@/components/shared/SearchInput";
 import {
   CHAT_WORKSPACE_MODEL_STORAGE_KEY,
   enabledAgentModels,
@@ -24,6 +20,10 @@ import {
   resolveAgentModelSelection,
   writeStoredModelMap
 } from "@/chat/model-selection";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { SearchInput } from "@/components/shared/SearchInput";
 import { ExportableChatUiSpec } from "@/chat/ui/ExportableChatUiSpec";
 import { extractUiSpecsFromContent, messageTextFromContent } from "@/chat/ui/content";
 import { normalizeRuntimeMessagesForPersistence } from "@/chat/ui/runtime-messages";
@@ -177,11 +177,8 @@ export function ChatWorkspacePage() {
     () => new Set(availableModels.map((model) => model.id)),
     [availableModels]
   );
-
   const selectedModelId = useMemo(() => {
-    const explicitModel = selectedThreadId
-      ? storedModelSelections[selectedThreadId]
-      : draftModelId;
+    const explicitModel = selectedThreadId ? storedModelSelections[selectedThreadId] : draftModelId;
     if (!configQuery.data) {
       return null;
     }
@@ -333,12 +330,12 @@ export function ChatWorkspacePage() {
     if (!selectedThreadId) {
       setSelectedThreadId(targetThreadId);
       setIsComposingNewThread(false);
-      await createChatThread({ thread_id: targetThreadId, title: content.slice(0, 60) });
       setStoredModelSelections((previous) => {
         const next = { ...previous, [targetThreadId]: activeModelId };
         writeStoredModelMap(CHAT_WORKSPACE_MODEL_STORAGE_KEY, next);
         return next;
       });
+      await createChatThread({ thread_id: targetThreadId, title: content.slice(0, 60) });
     }
     setInput("");
     setStreamError(null);
@@ -419,13 +416,6 @@ export function ChatWorkspacePage() {
     }
   }
 
-  const allThreads = threadsQuery.data?.items ?? [];
-  const threads = threadSearch.trim()
-    ? allThreads.filter((thread) => thread.title.toLowerCase().includes(threadSearch.trim().toLowerCase()))
-    : allThreads;
-  const threadStatusLabel = (status: "idle" | "streaming" | "failed"): string =>
-    t(`pages.chatWorkspace.streamStatus.${status}` as TranslationKey);
-
   function updateSelectedModel(nextModelId: string): void {
     if (selectedThreadId) {
       setStoredModelSelections((previous) => {
@@ -437,6 +427,13 @@ export function ChatWorkspacePage() {
     }
     setDraftModelId(nextModelId);
   }
+
+  const allThreads = threadsQuery.data?.items ?? [];
+  const threads = threadSearch.trim()
+    ? allThreads.filter((thread) => thread.title.toLowerCase().includes(threadSearch.trim().toLowerCase()))
+    : allThreads;
+  const threadStatusLabel = (status: "idle" | "streaming" | "failed"): string =>
+    t(`pages.chatWorkspace.streamStatus.${status}` as TranslationKey);
 
   return (
     <section className="space-y-4">
@@ -469,48 +466,42 @@ export function ChatWorkspacePage() {
           <SheetHeader className="border-b px-4 py-3">
             <SheetTitle>{t("pages.chatWorkspace.threadsTitle")}</SheetTitle>
           </SheetHeader>
-          <div className="flex max-h-[calc(100dvh-4rem)] flex-col overflow-hidden px-4 py-3">
-            <div className="space-y-2 pb-3">
-              <SearchInput
-                value={threadSearch}
-                onChange={setThreadSearch}
-                placeholder={t("pages.chatWorkspace.threadSearch.placeholder")}
-                aria-label={t("pages.chatWorkspace.threadSearch.placeholder")}
-              />
-              {threadsQuery.isPending ? (
-                <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingThreads")}</p>
-              ) : null}
-              {threads.length === 0 ? <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.noThreads")}</p> : null}
-            </div>
-            {threads.length > 0 ? (
-              <div className="min-h-0 flex-1 divide-y divide-border overflow-y-auto rounded-md border">
-                {threads.map((thread) => (
-                  <button
-                    key={thread.thread_id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedThreadId(thread.thread_id);
-                      setIsComposingNewThread(false);
-                      setThreadSheetOpen(false);
-                    }}
-                    className={cn(
-                      "w-full px-3 py-2.5 text-left transition-colors",
-                      selectedThreadId === thread.thread_id
-                        ? "bg-primary/5"
-                        : "hover:bg-muted/40"
-                    )}
-                  >
-                    <p className="truncate text-sm font-medium">{thread.title}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(thread.updated_at)}</p>
-                    {thread.stream_status !== "idle" ? (
-                      <Badge variant={thread.stream_status === "failed" ? "destructive" : "secondary"} className="mt-2">
-                        {threadStatusLabel(thread.stream_status)}
-                      </Badge>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
+          <div className="max-h-[calc(100dvh-4rem)] space-y-2 overflow-y-auto px-4 py-3">
+            <SearchInput
+              value={threadSearch}
+              onChange={setThreadSearch}
+              placeholder={t("pages.chatWorkspace.threadSearch.placeholder")}
+              aria-label={t("pages.chatWorkspace.threadSearch.placeholder")}
+            />
+            {threadsQuery.isPending ? (
+              <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingThreads")}</p>
             ) : null}
+            {threads.length === 0 ? <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.noThreads")}</p> : null}
+            {threads.map((thread) => (
+              <button
+                key={thread.thread_id}
+                type="button"
+                onClick={() => {
+                  setSelectedThreadId(thread.thread_id);
+                  setIsComposingNewThread(false);
+                  setThreadSheetOpen(false);
+                }}
+                className={cn(
+                  "w-full rounded-md border p-2 text-left transition-colors",
+                  selectedThreadId === thread.thread_id
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:bg-muted/40"
+                )}
+              >
+                <p className="truncate text-sm font-medium">{thread.title}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(thread.updated_at)}</p>
+                {thread.stream_status !== "idle" ? (
+                  <Badge variant={thread.stream_status === "failed" ? "destructive" : "secondary"} className="mt-2">
+                    {threadStatusLabel(thread.stream_status)}
+                  </Badge>
+                ) : null}
+              </button>
+            ))}
           </div>
         </SheetContent>
       </Sheet>
@@ -520,47 +511,41 @@ export function ChatWorkspacePage() {
           <CardHeader className="border-b py-3">
             <h3 className="text-sm font-semibold">{t("pages.chatWorkspace.threadsTitle")}</h3>
           </CardHeader>
-          <CardContent className="flex max-h-[calc(100dvh-14rem)] flex-col overflow-hidden p-0">
-            <div className="space-y-2 border-b px-3 py-3">
-              <SearchInput
-                value={threadSearch}
-                onChange={setThreadSearch}
-                placeholder={t("pages.chatWorkspace.threadSearch.placeholder")}
-                aria-label={t("pages.chatWorkspace.threadSearch.placeholder")}
-              />
-              {threadsQuery.isPending ? (
-                <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingThreads")}</p>
-              ) : null}
-              {threads.length === 0 ? <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.noThreads")}</p> : null}
-            </div>
-            {threads.length > 0 ? (
-              <div className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
-                {threads.map((thread) => (
-                  <button
-                    key={thread.thread_id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedThreadId(thread.thread_id);
-                      setIsComposingNewThread(false);
-                    }}
-                    className={cn(
-                      "w-full px-3 py-2.5 text-left transition-colors",
-                      selectedThreadId === thread.thread_id
-                        ? "bg-primary/5"
-                        : "hover:bg-muted/40"
-                    )}
-                  >
-                    <p className="truncate text-sm font-medium">{thread.title}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(thread.updated_at)}</p>
-                    {thread.stream_status !== "idle" ? (
-                      <Badge variant={thread.stream_status === "failed" ? "destructive" : "secondary"} className="mt-2">
-                        {threadStatusLabel(thread.stream_status)}
-                      </Badge>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
+          <CardContent className="max-h-[calc(100dvh-14rem)] space-y-2 overflow-y-auto py-3">
+            <SearchInput
+              value={threadSearch}
+              onChange={setThreadSearch}
+              placeholder={t("pages.chatWorkspace.threadSearch.placeholder")}
+              aria-label={t("pages.chatWorkspace.threadSearch.placeholder")}
+            />
+            {threadsQuery.isPending ? (
+              <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.loadingThreads")}</p>
             ) : null}
+            {threads.length === 0 ? <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.noThreads")}</p> : null}
+            {threads.map((thread) => (
+              <button
+                key={thread.thread_id}
+                type="button"
+                onClick={() => {
+                  setSelectedThreadId(thread.thread_id);
+                  setIsComposingNewThread(false);
+                }}
+                className={cn(
+                  "w-full rounded-md border p-2 text-left transition-colors",
+                  selectedThreadId === thread.thread_id
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:bg-muted/40"
+                )}
+              >
+                <p className="truncate text-sm font-medium">{thread.title}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(thread.updated_at)}</p>
+                {thread.stream_status !== "idle" ? (
+                  <Badge variant={thread.stream_status === "failed" ? "destructive" : "secondary"} className="mt-2">
+                    {threadStatusLabel(thread.stream_status)}
+                  </Badge>
+                ) : null}
+              </button>
+            ))}
           </CardContent>
         </Card>
 

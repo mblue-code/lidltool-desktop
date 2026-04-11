@@ -39,10 +39,44 @@ const PUBLIC_ROUTES: RouteTarget[] = [
 
 type SupportedLocale = "en" | "de";
 
+const BACKEND_URL = process.env.E2E_BACKEND_URL ?? "http://127.0.0.1:8000";
+const E2E_USERNAME = process.env.E2E_USERNAME ?? "admin";
+const E2E_PASSWORD = process.env.E2E_PASSWORD ?? "admin123";
+
+async function isBackendAvailable(): Promise<boolean> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/v1/auth/setup-required`, {
+      signal: AbortSignal.timeout(2_000)
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function areCredentialsValid(): Promise<boolean> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/v1/auth/login`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        username: E2E_USERNAME,
+        password: E2E_PASSWORD
+      }),
+      signal: AbortSignal.timeout(4_000)
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function login(page: Page): Promise<void> {
   await page.goto("/login", { waitUntil: "domcontentloaded" });
-  await page.locator("#username").fill("admin");
-  await page.locator("#password").fill("admin123");
+  await page.locator("#username").fill(E2E_USERNAME);
+  await page.locator("#password").fill(E2E_PASSWORD);
   await page.locator("button[type='submit']").click();
   await page.waitForURL("**/", { timeout: 20_000 });
 }
@@ -149,6 +183,15 @@ test.setTimeout(180_000);
 
 for (const locale of ["en", "de"] as const) {
   test(`visual i18n qa screenshots (${locale})`, async ({ browser }) => {
+    test.skip(
+      !(await isBackendAvailable()),
+      `requires a reachable backend at ${BACKEND_URL} for login and seeded screenshots`
+    );
+    test.skip(
+      !(await areCredentialsValid()),
+      `requires valid backend credentials via E2E_USERNAME/E2E_PASSWORD for ${BACKEND_URL}`
+    );
+
     const context = await browser.newContext({
       viewport: { width: 1512, height: 982 },
       locale: locale === "de" ? "de-DE" : "en-US"

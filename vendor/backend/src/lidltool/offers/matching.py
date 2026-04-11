@@ -3,12 +3,21 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from statistics import median
 from typing import Any
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from lidltool.db.models import Offer, OfferItem, OfferMatch, ProductWatchlist, Transaction, TransactionItem
+from lidltool.config import AppConfig
+from lidltool.db.models import (
+    Offer,
+    OfferItem,
+    OfferMatch,
+    ProductWatchlist,
+    Transaction,
+    TransactionItem,
+)
 from lidltool.offers.alerts import emit_alert_event_for_match
 from lidltool.offers.models import OfferMatchResult
 
@@ -67,6 +76,7 @@ def evaluate_offer_matches(
     session: Session,
     *,
     offer_id: str,
+    config: AppConfig | None = None,
     lookback_days: int = 180,
     emit_alerts: bool = True,
 ) -> OfferMatchResult:
@@ -94,7 +104,12 @@ def evaluate_offer_matches(
             select(OfferMatch).where(OfferMatch.match_key == match_key).limit(1)
         ).scalar_one_or_none()
         if existing is not None:
-            existing.reason_json = _build_reason_payload(offer=offer, item_id=candidate.offer_item_id, candidate=candidate)
+            existing.match_method = "+".join(sorted(candidate.methods)) or "unknown"
+            existing.reason_json = _build_reason_payload(
+                offer=offer,
+                item_id=candidate.offer_item_id,
+                candidate=candidate,
+            )
             existing.status = existing.status or "pending_alert"
             match = existing
             result.existing += 1
@@ -117,7 +132,7 @@ def evaluate_offer_matches(
             session.flush()
             result.created += 1
         if emit_alerts:
-            _, created = emit_alert_event_for_match(session, match=match)
+            _, created = emit_alert_event_for_match(session, match=match, config=config)
             if created:
                 result.alerts_created += 1
     return result
@@ -180,6 +195,31 @@ def _collect_watchlist_candidates(
                 "max_price_cents": watchlist.max_price_cents,
             }
         )
+        if watchlist.source_id:
+            candidate.methods.add("merchant_preference")
+            candidate.reasons.append(
+                {
+                    "kind": "merchant_preference",
+                    "source_id": watchlist.source_id,
+                    "matched_source_id": offer.source_id,
+                }
+            )
+        if watchlist.min_discount_percent is not None and effective_discount is not None:
+            candidate.reasons.append(
+                {
+                    "kind": "discount_threshold",
+                    "minimum_discount_percent": watchlist.min_discount_percent,
+                    "offer_discount_percent": effective_discount,
+                }
+            )
+        if watchlist.max_price_cents is not None and effective_price is not None:
+            candidate.reasons.append(
+                {
+                    "kind": "price_cap",
+                    "maximum_price_cents": watchlist.max_price_cents,
+                    "offer_price_cents": effective_price,
+                }
+            )
 
 
 def _collect_history_candidates(
@@ -196,8 +236,10 @@ def _collect_history_candidates(
     rows = session.execute(
         select(
             Transaction.user_id,
-            func.count(func.distinct(Transaction.id)),
-            func.max(Transaction.purchased_at),
+            Transaction.purchased_at,
+            TransactionItem.unit_price_cents,
+            TransactionItem.line_total_cents,
+            TransactionItem.qty,
         )
         .join(TransactionItem, TransactionItem.transaction_id == Transaction.id)
         .where(
@@ -205,14 +247,34 @@ def _collect_history_candidates(
             TransactionItem.product_id == item.canonical_product_id,
             Transaction.purchased_at >= cutoff,
         )
-        .group_by(Transaction.user_id)
     ).all()
-    for user_id, purchase_count, last_purchased_at in rows:
+    purchases_by_user: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"count": 0, "last_purchased_at": None, "prices": []}
+    )
+    for user_id, purchased_at, unit_price_cents, line_total_cents, qty in rows:
         if user_id is None:
             continue
+        user_key = str(user_id)
+        summary = purchases_by_user[user_key]
+        summary["count"] = int(summary["count"]) + 1
+        current_last = summary["last_purchased_at"]
+        if current_last is None or (purchased_at is not None and purchased_at > current_last):
+            summary["last_purchased_at"] = purchased_at
+        paid_price = _historical_unit_price_cents(
+            unit_price_cents=unit_price_cents,
+            line_total_cents=line_total_cents,
+            qty=qty,
+        )
+        if paid_price is not None:
+            summary["prices"].append(paid_price)
+
+    offer_price = _effective_price_cents(offer=offer, item=item)
+    for user_id, summary in purchases_by_user.items():
+        purchase_count = int(summary["count"])
+        last_purchased_at = summary["last_purchased_at"]
         candidate = _get_candidate(
             candidates=candidates,
-            user_id=str(user_id),
+            user_id=user_id,
             offer_id=offer.offer_id,
             offer_item_id=item.id,
             matched_product_id=item.canonical_product_id,
@@ -227,6 +289,20 @@ def _collect_history_candidates(
                 "lookback_days": lookback_days,
             }
         )
+        historical_prices = [int(value) for value in summary["prices"] if value is not None]
+        if historical_prices and offer_price is not None:
+            baseline = int(round(float(median(historical_prices))))
+            if offer_price <= baseline:
+                candidate.methods.add("historical_price_baseline")
+                candidate.reasons.append(
+                    {
+                        "kind": "historical_price_baseline",
+                        "product_id": item.canonical_product_id,
+                        "median_paid_price_cents": baseline,
+                        "offer_price_cents": offer_price,
+                        "savings_vs_median_cents": baseline - offer_price,
+                    }
+                )
 
 
 def _get_candidate(
@@ -254,6 +330,7 @@ def _build_reason_payload(*, offer: Offer, item_id: str | None, candidate: _Cand
     item = next((entry for entry in offer.items if entry.id == item_id), None)
     title = item.title if item is not None else offer.title
     summary = f"Matched {title} from {offer.offer_source.merchant_name}"
+    explanations = _explanations_for_reasons(candidate.reasons)
     return {
         "title": "Matched offer",
         "summary": summary,
@@ -264,6 +341,8 @@ def _build_reason_payload(*, offer: Offer, item_id: str | None, candidate: _Cand
         "merchant_name": offer.offer_source.merchant_name,
         "source_id": offer.source_id,
         "validity_end": offer.validity_end.isoformat(),
+        "match_methods": sorted(candidate.methods),
+        "explanations": explanations,
         "reasons": list(candidate.reasons),
     }
 
@@ -282,6 +361,64 @@ def _effective_discount_percent(*, offer: Offer, item: OfferItem) -> float | Non
 
 def _effective_price_cents(*, offer: Offer, item: OfferItem) -> int | None:
     return item.price_cents if item.price_cents is not None else offer.price_cents
+
+
+def _historical_unit_price_cents(
+    *,
+    unit_price_cents: int | None,
+    line_total_cents: int | None,
+    qty: Any,
+) -> int | None:
+    if unit_price_cents is not None:
+        return int(unit_price_cents)
+    if line_total_cents is None or qty in {None, 0}:
+        return None
+    try:
+        quantity = float(qty)
+    except (TypeError, ValueError):
+        return None
+    if quantity <= 0:
+        return None
+    return int(round(line_total_cents / quantity))
+
+
+def _explanations_for_reasons(reasons: list[dict[str, Any]]) -> list[str]:
+    explanations: list[str] = []
+    for reason in reasons:
+        kind = str(reason.get("kind") or "")
+        if kind == "watchlist":
+            query = reason.get("query_text")
+            product_id = reason.get("product_id")
+            if isinstance(query, str) and query.strip():
+                explanations.append(f"Matched your watchlist entry for '{query.strip()}'.")
+            elif isinstance(product_id, str) and product_id.strip():
+                explanations.append("Matched a product on your watchlist.")
+        elif kind == "merchant_preference":
+            explanations.append("Matched your preferred merchant.")
+        elif kind == "discount_threshold":
+            explanations.append(
+                "Discount threshold met."
+            )
+        elif kind == "price_cap":
+            explanations.append("Price cap met.")
+        elif kind == "purchase_history":
+            purchase_count = int(reason.get("purchase_count") or 0)
+            explanations.append(
+                f"You bought this product {purchase_count} time(s) in the recent lookback window."
+            )
+        elif kind == "historical_price_baseline":
+            savings = int(reason.get("savings_vs_median_cents") or 0)
+            explanations.append(
+                f"Offer price is {savings} cents below your historical median paid price."
+            )
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for entry in explanations:
+        if entry in seen:
+            continue
+        seen.add(entry)
+        deduped.append(entry)
+    return deduped
 
 
 def _match_key(candidate: _Candidate) -> str:

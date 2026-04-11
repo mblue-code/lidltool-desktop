@@ -347,7 +347,11 @@ describe("launch-critical route i18n smoke", () => {
       model: "gpt-4o-mini",
       api_key_set: true,
       oauth_provider: null,
-      oauth_connected: false
+      oauth_connected: false,
+      remote_enabled: true,
+      local_runtime_enabled: false,
+      local_runtime_ready: false,
+      local_runtime_status: "unavailable"
     });
     mocks.fetchAIOAuthStatusMock.mockResolvedValue({ status: "pending", error: null });
     mocks.saveAISettingsMock.mockResolvedValue({ ok: true, error: null });
@@ -439,6 +443,68 @@ describe("launch-critical route i18n smoke", () => {
     Object.defineProperty(window, "desktopApi", {
       configurable: true,
       value: {
+        installReceiptPluginFromDialog: vi.fn().mockResolvedValue(null),
+        installReceiptPluginFromCatalogEntry: vi.fn().mockResolvedValue({
+          action: "installed",
+          pack: {
+            pluginId: "community.fixture",
+            sourceId: "fixture_receipt_de",
+            displayName: "Fixture Receipt",
+            version: "1.0.0",
+            trustClass: "community_verified",
+            enabled: false,
+            status: "disabled",
+            trustStatus: "trusted",
+            trustReason: null,
+            compatibilityReason: null,
+            installedVia: "catalog_url",
+            catalogEntryId: "desktop-pack.fixture"
+          },
+          restartedBackend: false,
+          backendStatus: null
+        }),
+        enableReceiptPlugin: vi.fn().mockResolvedValue({
+          pack: {
+            pluginId: "community.fixture",
+            sourceId: "fixture_receipt_de",
+            displayName: "Fixture Receipt",
+            version: "1.0.0",
+            trustClass: "community_verified",
+            enabled: true,
+            status: "enabled",
+            trustStatus: "trusted",
+            trustReason: null,
+            compatibilityReason: null,
+            installedVia: "catalog_url",
+            catalogEntryId: "desktop-pack.fixture"
+          },
+          restartedBackend: false,
+          backendStatus: null
+        }),
+        disableReceiptPlugin: vi.fn().mockResolvedValue({
+          pack: {
+            pluginId: "community.fixture",
+            sourceId: "fixture_receipt_de",
+            displayName: "Fixture Receipt",
+            version: "1.0.0",
+            trustClass: "community_verified",
+            enabled: false,
+            status: "disabled",
+            trustStatus: "trusted",
+            trustReason: null,
+            compatibilityReason: null,
+            installedVia: "catalog_url",
+            catalogEntryId: "desktop-pack.fixture"
+          },
+          restartedBackend: false,
+          backendStatus: null
+        }),
+        uninstallReceiptPlugin: vi.fn().mockResolvedValue({
+          pluginId: "community.fixture",
+          removedPath: null,
+          restartedBackend: false,
+          backendStatus: null
+        }),
         getReleaseMetadata: vi.fn().mockResolvedValue({
           active_release_variant: { display_name: "Desktop Universal Shell" },
           selected_market_profile: { display_name: "Germany" },
@@ -520,7 +586,7 @@ describe("launch-critical route i18n smoke", () => {
     renderGerman(<ConnectorsPage />);
 
     expect(await screen.findByText("Anbindungen")).toBeInTheDocument();
-    expect(screen.getByText("Desktop pack management stays native")).toBeInTheDocument();
+    expect(screen.getByText("Desktop receipt packs can be managed here")).toBeInTheDocument();
     expect(await screen.findByText("Lidl Plus")).toBeInTheDocument();
   });
 

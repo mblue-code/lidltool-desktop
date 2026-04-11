@@ -92,7 +92,9 @@ def run_headful_bootstrap(
     captured: list[str] = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        from lidltool.connectors.auth.browser_runtime import launch_playwright_chromium
+
+        browser = launch_playwright_chromium(playwright=p, headless=False)
         context = browser.new_context(
             record_har_path=str(har_output),
             record_har_mode="full",

@@ -398,167 +398,167 @@ export function TransactionsPage() {
       </div>
 
       <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]" onSubmit={submitFilters}>
+        <div className="space-y-2">
+          <Label htmlFor="transactions-search">{t("pages.transactions.filter.query")}</Label>
+          <SearchInput
+            id="transactions-search"
+            value={formValues.query}
+            onChange={(value) =>
+              setFormValues((previous) => ({ ...previous, query: value }))
+            }
+            debounceMs={0}
+          />
+        </div>
+        <div className="self-end flex gap-2">
+          <Button type="submit">
+            {t("pages.transactions.applyFilters")}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setShowAdvancedFilters((prev) => !prev)}
+          >
+            {showAdvancedFilters ? t("pages.transactions.fewerFilters") : t("pages.transactions.moreFilters")}
+          </Button>
+        </div>
+
+        {showAdvancedFilters ? (
+          <>
             <div className="space-y-2">
-              <Label htmlFor="transactions-search">{t("pages.transactions.filter.query")}</Label>
-              <SearchInput
-                id="transactions-search"
-                value={formValues.query}
-                onChange={(value) =>
-                  setFormValues((previous) => ({ ...previous, query: value }))
+              <Label htmlFor="merchant">{t("pages.transactions.filter.merchant")}</Label>
+              <Input
+                id="merchant"
+                value={formValues.merchantName}
+                onChange={(event) =>
+                  setFormValues((previous) => ({ ...previous, merchantName: event.target.value }))
                 }
-                debounceMs={0}
               />
             </div>
-            <div className="self-end flex gap-2">
-              <Button type="submit">
-                {t("pages.transactions.applyFilters")}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowAdvancedFilters((prev) => !prev)}
-              >
-                {showAdvancedFilters ? t("pages.transactions.fewerFilters") : t("pages.transactions.moreFilters")}
-              </Button>
+            <div className="space-y-2">
+              <Label htmlFor="purchased-from">{t("pages.transactions.filter.purchasedFrom")}</Label>
+              <Input
+                id="purchased-from"
+                type="datetime-local"
+                value={formValues.purchasedFrom}
+                onChange={(event) =>
+                  setFormValues((previous) => ({ ...previous, purchasedFrom: event.target.value }))
+                }
+              />
             </div>
-
-            {showAdvancedFilters ? (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="merchant">{t("pages.transactions.filter.merchant")}</Label>
-                  <Input
-                    id="merchant"
-                    value={formValues.merchantName}
-                    onChange={(event) =>
-                      setFormValues((previous) => ({ ...previous, merchantName: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="purchased-from">{t("pages.transactions.filter.purchasedFrom")}</Label>
-                  <Input
-                    id="purchased-from"
-                    type="datetime-local"
-                    value={formValues.purchasedFrom}
-                    onChange={(event) =>
-                      setFormValues((previous) => ({ ...previous, purchasedFrom: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="purchased-to">{t("pages.transactions.filter.purchasedTo")}</Label>
-                  <Input
-                    id="purchased-to"
-                    type="datetime-local"
-                    value={formValues.purchasedTo}
-                    onChange={(event) =>
-                      setFormValues((previous) => ({ ...previous, purchasedTo: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="source">{t("pages.transactions.filter.source")}</Label>
-                  <Input
-                    id="source"
-                    value={formValues.sourceId}
-                    onChange={(event) =>
-                      setFormValues((previous) => ({ ...previous, sourceId: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="source-kind">{t("pages.transactions.filter.sourceKind")}</Label>
-                  <Input
-                    id="source-kind"
-                    value={formValues.sourceKind}
-                    onChange={(event) =>
-                      setFormValues((previous) => ({ ...previous, sourceKind: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="year">{t("pages.transactions.filter.year")}</Label>
-                  <Input
-                    id="year"
-                    type="number"
-                    value={formValues.year}
-                    onChange={(event) =>
-                      setFormValues((previous) => ({ ...previous, year: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="month">{t("pages.transactions.filter.month")}</Label>
-                  <Input
-                    id="month"
-                    type="number"
-                    value={formValues.month}
-                    onChange={(event) =>
-                      setFormValues((previous) => ({ ...previous, month: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="weekday">{t("pages.transactions.filter.weekday")}</Label>
-                  <Input
-                    id="weekday"
-                    type="number"
-                    min={0}
-                    max={6}
-                    value={formValues.weekday}
-                    onChange={(event) =>
-                      setFormValues((previous) => ({ ...previous, weekday: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="hour">{t("pages.transactions.filter.hour")}</Label>
-                  <Input
-                    id="hour"
-                    type="number"
-                    min={0}
-                    max={23}
-                    value={formValues.hour}
-                    onChange={(event) =>
-                      setFormValues((previous) => ({ ...previous, hour: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="tz-offset-minutes">{t("pages.transactions.filter.tzOffset")}</Label>
-                  <Input
-                    id="tz-offset-minutes"
-                    type="number"
-                    value={formValues.tzOffsetMinutes}
-                    onChange={(event) =>
-                      setFormValues((previous) => ({ ...previous, tzOffsetMinutes: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="min-total">{t("pages.transactions.filter.minTotal")}</Label>
-                  <Input
-                    id="min-total"
-                    type="number"
-                    value={formValues.minTotal}
-                    onChange={(event) =>
-                      setFormValues((previous) => ({ ...previous, minTotal: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="max-total">{t("pages.transactions.filter.maxTotal")}</Label>
-                  <Input
-                    id="max-total"
-                    type="number"
-                    value={formValues.maxTotal}
-                    onChange={(event) =>
-                      setFormValues((previous) => ({ ...previous, maxTotal: event.target.value }))
-                    }
-                  />
-                </div>
-              </>
-            ) : null}
+            <div className="space-y-2">
+              <Label htmlFor="purchased-to">{t("pages.transactions.filter.purchasedTo")}</Label>
+              <Input
+                id="purchased-to"
+                type="datetime-local"
+                value={formValues.purchasedTo}
+                onChange={(event) =>
+                  setFormValues((previous) => ({ ...previous, purchasedTo: event.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="source">{t("pages.transactions.filter.source")}</Label>
+              <Input
+                id="source"
+                value={formValues.sourceId}
+                onChange={(event) =>
+                  setFormValues((previous) => ({ ...previous, sourceId: event.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="source-kind">{t("pages.transactions.filter.sourceKind")}</Label>
+              <Input
+                id="source-kind"
+                value={formValues.sourceKind}
+                onChange={(event) =>
+                  setFormValues((previous) => ({ ...previous, sourceKind: event.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="year">{t("pages.transactions.filter.year")}</Label>
+              <Input
+                id="year"
+                type="number"
+                value={formValues.year}
+                onChange={(event) =>
+                  setFormValues((previous) => ({ ...previous, year: event.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="month">{t("pages.transactions.filter.month")}</Label>
+              <Input
+                id="month"
+                type="number"
+                value={formValues.month}
+                onChange={(event) =>
+                  setFormValues((previous) => ({ ...previous, month: event.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="weekday">{t("pages.transactions.filter.weekday")}</Label>
+              <Input
+                id="weekday"
+                type="number"
+                min={0}
+                max={6}
+                value={formValues.weekday}
+                onChange={(event) =>
+                  setFormValues((previous) => ({ ...previous, weekday: event.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="hour">{t("pages.transactions.filter.hour")}</Label>
+              <Input
+                id="hour"
+                type="number"
+                min={0}
+                max={23}
+                value={formValues.hour}
+                onChange={(event) =>
+                  setFormValues((previous) => ({ ...previous, hour: event.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="tz-offset-minutes">{t("pages.transactions.filter.tzOffset")}</Label>
+              <Input
+                id="tz-offset-minutes"
+                type="number"
+                value={formValues.tzOffsetMinutes}
+                onChange={(event) =>
+                  setFormValues((previous) => ({ ...previous, tzOffsetMinutes: event.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="min-total">{t("pages.transactions.filter.minTotal")}</Label>
+              <Input
+                id="min-total"
+                type="number"
+                value={formValues.minTotal}
+                onChange={(event) =>
+                  setFormValues((previous) => ({ ...previous, minTotal: event.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="max-total">{t("pages.transactions.filter.maxTotal")}</Label>
+              <Input
+                id="max-total"
+                type="number"
+                value={formValues.maxTotal}
+                onChange={(event) =>
+                  setFormValues((previous) => ({ ...previous, maxTotal: event.target.value }))
+                }
+              />
+            </div>
+          </>
+        ) : null}
       </form>
 
       {appliedFilters.length > 0 ? (

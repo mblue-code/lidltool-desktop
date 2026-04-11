@@ -13,14 +13,21 @@ from lidltool.automations.schemas import (
     validate_action_config,
     validate_trigger_config,
 )
+from lidltool.config import AppConfig
 from lidltool.db.audit import record_audit_event
 from lidltool.db.engine import session_scope
 from lidltool.db.models import AutomationExecution, AutomationRule
 
 
 class AutomationService:
-    def __init__(self, *, session_factory: sessionmaker[Session]) -> None:
+    def __init__(
+        self,
+        *,
+        session_factory: sessionmaker[Session],
+        config: AppConfig | None = None,
+    ) -> None:
         self._session_factory = session_factory
+        self._config = config
 
     def list_rules(self, *, limit: int = 100, offset: int = 0) -> dict[str, Any]:
         clamped_limit = min(max(limit, 1), 200)
@@ -108,6 +115,8 @@ class AutomationService:
             rule = session.get(AutomationRule, rule_id)
             if rule is None:
                 raise RuntimeError("automation rule not found")
+            trigger_changed = False
+            enabled_changed = False
             if "name" in payload and payload["name"] is not None:
                 rule.name = str(payload["name"]).strip()
             if "rule_type" in payload and payload["rule_type"] is not None:
@@ -116,14 +125,17 @@ class AutomationService:
             normalized_type = rule.rule_type
             if "trigger_config" in payload:
                 rule.trigger_config = validate_trigger_config(payload.get("trigger_config"))
+                trigger_changed = True
             if "action_config" in payload:
                 rule.action_config = validate_action_config(
                     normalized_type, payload.get("action_config")
                 )
             if "enabled" in payload and payload["enabled"] is not None:
-                rule.enabled = bool(payload["enabled"])
+                next_enabled = bool(payload["enabled"])
+                enabled_changed = rule.enabled != next_enabled
+                rule.enabled = next_enabled
             rule.updated_at = datetime.now(tz=UTC)
-            if rule.enabled and rule.next_run_at is None:
+            if rule.enabled and (trigger_changed or enabled_changed or rule.next_run_at is None):
                 rule.next_run_at = next_run_at(
                     trigger_config=rule.trigger_config or {},
                     from_time=datetime.now(tz=UTC),
@@ -165,14 +177,14 @@ class AutomationService:
             rule = session.get(AutomationRule, rule_id)
             if rule is None:
                 raise RuntimeError("automation rule not found")
-            engine = AutomationEngine(session)
+            engine = AutomationEngine(session, config=self._config)
             execution = engine.run_rule(rule=rule, actor_id=actor_id)
             session.flush()
             return AutomationEngine.serialize_execution(execution, rule=rule)
 
     def run_due_rules(self, *, limit: int = 20) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
-            engine = AutomationEngine(session)
+            engine = AutomationEngine(session, config=self._config)
             now = datetime.now(tz=UTC)
             due_rules = engine.list_due_rules(now=now, limit=limit)
             executions: list[dict[str, Any]] = []

@@ -7,7 +7,7 @@ import { marked } from "marked";
 import { createSpendingAgent } from "@/agent";
 import { ALL_TOOLS } from "@/agent/tools";
 import { fetchAIAgentConfig } from "@/api/aiSettings";
-import { createChatMessage, createChatThread, patchChatThread, persistChatRun } from "@/api/chat";
+import { fetchTransactionDetail, type TransactionDetailResponse } from "@/api/transactions";
 import {
   CHAT_PANEL_MODEL_STORAGE_KEY,
   enabledAgentModels,
@@ -26,6 +26,7 @@ import {
   sanitizeRuntimeMessagesForModel
 } from "@/chat/ui/runtime-messages";
 import { ChatUiSpec } from "@/chat/ui/spec";
+import { createChatMessage, createChatThread, patchChatThread, persistChatRun } from "@/api/chat";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -53,7 +54,6 @@ type ChatMessage = {
 const STORAGE_KEY = "agent.chat.v1";
 const TOOL_LABELS = Object.fromEntries(ALL_TOOLS.map((tool) => [tool.name, tool.label]));
 const PANEL_WIDTH_MIN = 320;
-const PANEL_WIDTH_MAX = 860;
 
 function generateId(): string {
   const randomUUID = globalThis.crypto?.randomUUID;
@@ -66,9 +66,7 @@ function generateId(): string {
 function extractUsage(messages: any[]): { prompt_tokens?: number; completion_tokens?: number } {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const usage = messages[index]?.usage;
-    if (!usage || typeof usage !== "object") {
-      continue;
-    }
+    if (!usage || typeof usage !== "object") continue;
     const promptTokens = usage.prompt_tokens ?? usage.input;
     const completionTokens = usage.completion_tokens ?? usage.output;
     return {
@@ -78,6 +76,7 @@ function extractUsage(messages: any[]): { prompt_tokens?: number; completion_tok
   }
   return {};
 }
+const PANEL_WIDTH_MAX = 860;
 
 function clampPanelWidth(width: number): number {
   if (!Number.isFinite(width)) {
@@ -111,7 +110,7 @@ function buildChatMessages(messages: any[]): ChatMessage[] {
       const role: ChatMessage["role"] = message.role === "toolResult" ? "tool" : message.role;
       const rawCost = message?.usage?.cost?.total;
       const costText =
-        typeof rawCost === "number" && Number.isFinite(rawCost) ? `${(rawCost * 100).toFixed(1)}c` : null;
+        typeof rawCost === "number" && Number.isFinite(rawCost) ? `${(rawCost * 100).toFixed(1)}¢` : null;
       const uiSpecs =
         role === "tool"
           ? Array.from(
@@ -135,6 +134,54 @@ function buildChatMessages(messages: any[]): ChatMessage[] {
     });
 }
 
+function parseTransactionIdFromPageContext(pageContext?: string | null): string | null {
+  const normalized = pageContext?.trim() ?? "";
+  if (!normalized) {
+    return null;
+  }
+  const match = normalized.match(/Current transaction id:\s*([A-Za-z0-9-]+)/);
+  return match?.[1] ?? null;
+}
+
+function formatEuros(cents: number | null | undefined): string {
+  if (typeof cents !== "number" || !Number.isFinite(cents)) {
+    return "n/a";
+  }
+  return `${(cents / 100).toFixed(2)} EUR`;
+}
+
+function buildCurrentTransactionFacts(detail: TransactionDetailResponse): string {
+  const transaction = detail.transaction;
+  const depositTotalCents = detail.items.reduce((sum, item) => {
+    const normalizedCategory = (item.category ?? "").trim().toLowerCase();
+    const looksLikeDeposit = normalizedCategory === "deposit" || item.name.toLowerCase().includes("pfand");
+    return looksLikeDeposit ? sum + item.line_total_cents : sum;
+  }, 0);
+  const discountsSummary =
+    detail.discounts.length > 0
+      ? detail.discounts.map((discount) => `${discount.source_label}: ${formatEuros(discount.amount_cents)}`).join("; ")
+      : "none";
+  const itemsSummary = detail.items
+    .map((item) => {
+      const category = item.category ?? "uncategorized";
+      return `${item.line_no}. ${item.name} qty=${item.qty} total=${formatEuros(item.line_total_cents)} category=${category}`;
+    })
+    .join("; ");
+
+  return [
+    "Current transaction facts from app data:",
+    `- transaction_id: ${transaction.id}`,
+    `- store_name: ${transaction.merchant_name ?? "missing"}`,
+    `- purchased_at: ${transaction.purchased_at}`,
+    `- total_gross: ${formatEuros(transaction.total_gross_cents)}`,
+    `- discount_total: ${formatEuros(transaction.discount_total_cents ?? 0)}`,
+    `- deposit_total: ${formatEuros(depositTotalCents)}`,
+    `- discounts: ${discountsSummary}`,
+    "- tax_data_present: no explicit VAT/tax fields are present in this transaction detail payload",
+    `- items: ${itemsSummary}`
+  ].join("\n");
+}
+
 export function ChatPanel({
   open,
   onOpenChange,
@@ -156,12 +203,33 @@ export function ChatPanel({
   const listRef = useRef<HTMLDivElement | null>(null);
   const runMessagesRef = useRef<any[]>([]);
   const runStartedAtRef = useRef<number>(0);
+  const transactionId = useMemo(() => parseTransactionIdFromPageContext(pageContext), [pageContext]);
 
   const configQuery = useQuery({
     queryKey: ["ai-agent-config"],
     queryFn: fetchAIAgentConfig,
     enabled: open && enabled
   });
+
+  const transactionDetailQuery = useQuery({
+    queryKey: ["chat-panel-transaction-detail", transactionId],
+    queryFn: () => fetchTransactionDetail(transactionId as string),
+    enabled: open && enabled && !!transactionId
+  });
+
+  const effectivePageContext = useMemo(() => {
+    const base = pageContext?.trim() ?? "";
+    const transactionFacts = transactionDetailQuery.data
+      ? buildCurrentTransactionFacts(transactionDetailQuery.data)
+      : "";
+    if (base && transactionFacts) {
+      return `${base}\n\n${transactionFacts}`;
+    }
+    if (transactionFacts) {
+      return transactionFacts;
+    }
+    return base || null;
+  }, [pageContext, transactionDetailQuery.data]);
 
   const modelOptions = useMemo(
     () => (configQuery.data ? enabledAgentModels(configQuery.data) : []),
@@ -186,9 +254,9 @@ export function ChatPanel({
       configQuery.data.proxy_url,
       configQuery.data.auth_token,
       activeModelId,
-      { pageContext }
+      { pageContext: effectivePageContext }
     );
-  }, [activeModelId, configQuery.data, pageContext]);
+  }, [activeModelId, configQuery.data, effectivePageContext]);
 
   useEffect(() => {
     if (!configQuery.data) {
@@ -366,20 +434,12 @@ export function ChatPanel({
           });
           runPersisted = true;
         } catch {
-          try {
-            await patchChatThread(threadId, { stream_status: "failed" });
-          } catch {
-            // Ignore cleanup failures after run persistence fails.
-          }
+          try { await patchChatThread(threadId, { stream_status: "failed" }); } catch { /* ignore */ }
         }
       }
     } finally {
       if (threadId && !runPersisted) {
-        try {
-          await patchChatThread(threadId, { stream_status: "idle" });
-        } catch {
-          // Ignore final cleanup failures.
-        }
+        try { await patchChatThread(threadId, { stream_status: "idle" }); } catch { /* ignore */ }
       }
       setIsStreaming(false);
       void queryClient.invalidateQueries({ queryKey: ["chat", "threads"] });
@@ -392,13 +452,16 @@ export function ChatPanel({
     }
     agent.clearMessages();
     setMessages([]);
+    setIsStreaming(false);
+    setActiveToolLabel(null);
     setError(null);
     setLastPrompt(null);
     setLastIdempotencyKey(null);
     setPanelThreadId(null);
-    writeStoredString(STORAGE_KEY, "");
-    if (typeof window !== "undefined") {
+    try {
       window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Ignore localStorage write failures.
     }
   }
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -20,11 +21,14 @@ from lidltool.connectors.base import (
 from lidltool.connectors.dm_adapter import DmConnectorAdapter
 from lidltool.connectors.kaufland_adapter import KauflandConnectorAdapter
 from lidltool.connectors.lidl_adapter import LidlConnectorAdapter
+from lidltool.connectors.lifecycle import connector_runtime_options
+from lidltool.connectors.netto_adapter import NettoConnectorAdapter
+from lidltool.connectors.offer_file_feed_adapter import OfferFileFeedConnectorAdapter
 from lidltool.connectors.plugin_policy import evaluate_plugin_policy
 from lidltool.connectors.plugin_status import PluginRegistryEntry
 from lidltool.connectors.registry import ConnectorRegistry, get_connector_registry
-from lidltool.connectors.rewe_adapter import ReweConnectorAdapter
 from lidltool.connectors.rossmann_adapter import RossmannConnectorAdapter
+from lidltool.connectors.runtime.context import build_plugin_runtime_environment
 from lidltool.connectors.runtime.host import (
     ConnectorRuntimeHost,
     OfferConnectorRuntimeTarget,
@@ -35,13 +39,12 @@ from lidltool.connectors.runtime.host import (
     default_runtime_action_timeouts,
 )
 from lidltool.connectors.sdk.manifest import ConnectorManifest
+from lidltool.connectors.sdk.offer import OfferConnector
 from lidltool.dm.client_playwright import DmClientError, DmPlaywrightClient
 from lidltool.dm.session import default_dm_state_file
 from lidltool.kaufland.client_playwright import KauflandClientError, KauflandPlaywrightClient
 from lidltool.kaufland.session import default_kaufland_state_file
 from lidltool.lidl.client import LidlClientError, create_lidl_client
-from lidltool.rewe.client_playwright import ReweClientError, RewePlaywrightClient
-from lidltool.rewe.session import default_rewe_state_file
 from lidltool.rossmann.client_playwright import RossmannClientError, RossmannPlaywrightClient
 from lidltool.rossmann.session import default_rossmann_state_file
 
@@ -55,6 +58,10 @@ RUNTIME_CONNECTOR_SCOPES = {
 }
 
 ConnectorOperation = Literal["bootstrap", "sync"]
+
+
+def _plugin_host_kind() -> str:
+    return "electron" if os.getenv("LIDLTOOL_CONNECTOR_HOST_KIND", "").strip().lower() == "electron" else "self_hosted"
 
 
 def _resolve_path(path: Path | str) -> Path:
@@ -121,7 +128,7 @@ class ResolvedBootstrapExecution:
 class ResolvedOfferConnector:
     manifest: ConnectorManifest
     source_config: AppConfig
-    connector: RuntimeHostedOfferConnector
+    connector: OfferConnector
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -162,11 +169,31 @@ class ConnectorExecutionService:
     ) -> ResolvedConnectorCommand | None:
         manifest = self.resolve_manifest(source_id)
         builtin_cli = manifest.builtin_cli
-        if builtin_cli is None:
-            return None
-        command_args = (
-            builtin_cli.bootstrap_args if operation == "bootstrap" else builtin_cli.sync_args
-        )
+        command_args: tuple[str, ...] | None = None
+        if builtin_cli is not None:
+            command_args = (
+                builtin_cli.bootstrap_args if operation == "bootstrap" else builtin_cli.sync_args
+            )
+        if command_args is None and manifest.plugin_family == "receipt" and manifest.runtime_kind in {
+            "subprocess_python",
+            "subprocess_binary",
+        }:
+            command_args = (
+                "-m",
+                "lidltool.cli",
+                "connectors",
+                "auth",
+                "bootstrap",
+                "--source-id",
+                source_id,
+            ) if operation == "bootstrap" else (
+                "-m",
+                "lidltool.cli",
+                "connectors",
+                "sync",
+                "--source-id",
+                source_id,
+            )
         if command_args is None:
             return None
         command = (sys.executable, *command_args, *extra_args)
@@ -183,6 +210,7 @@ class ConnectorExecutionService:
         source_id: str | None = None,
         connector_options: Mapping[str, Any] | None = None,
         tracking_source_id: str | None = None,
+        runtime_context: Mapping[str, Any] | None = None,
     ) -> ResolvedReceiptConnector:
         resolved_source_id = source_id or self._config.source
         entry = self._require_entry(resolved_source_id, plugin_family="receipt")
@@ -193,7 +221,13 @@ class ConnectorExecutionService:
         source_config = self._config.model_copy(
             update={"source": tracking_source_id or manifest.source_id}
         )
-        options = dict(connector_options or {})
+        options = connector_runtime_options(
+            source_id=resolved_source_id,
+            config=self._config,
+            registry=self._registry,
+            allow_reconcile_writes=False,
+        )
+        options.update(dict(connector_options or {}))
         if manifest.runtime_kind == "builtin":
             return self._build_builtin_receipt_connector(
                 manifest=manifest,
@@ -210,6 +244,13 @@ class ConnectorExecutionService:
                     target=ReceiptConnectorRuntimeTarget(
                         manifest=manifest,
                         working_directory=self._working_directory_for(entry),
+                        environment=build_plugin_runtime_environment(
+                            source_config=source_config,
+                            source_id=manifest.source_id,
+                            tracking_source_id=tracking_source_id or manifest.source_id,
+                            connector_options=options,
+                            runtime_context=runtime_context,
+                        ),
                     ),
                     action_timeouts_s=default_runtime_action_timeouts(
                         source_config.request_timeout_s
@@ -231,6 +272,11 @@ class ConnectorExecutionService:
         if manifest is None:
             raise RuntimeError(f"connector source {source_id!r} is not registered")
         self._assert_runtime_allowed(entry)
+        if manifest.runtime_kind == "builtin":
+            return self._build_builtin_offer_connector(
+                manifest=manifest,
+                source_config=self._config.model_copy(update={"source": manifest.source_id}),
+            )
         if manifest.runtime_kind not in {"subprocess_python", "subprocess_binary"}:
             raise RuntimeError(
                 f"unsupported connector runtime kind for offer execution: {manifest.runtime_kind}"
@@ -243,12 +289,38 @@ class ConnectorExecutionService:
                 target=OfferConnectorRuntimeTarget(
                     manifest=manifest,
                     working_directory=self._working_directory_for(entry),
+                    environment=build_plugin_runtime_environment(
+                        source_config=self._config.model_copy(update={"source": manifest.source_id}),
+                        source_id=manifest.source_id,
+                        tracking_source_id=manifest.source_id,
+                    ),
                 ),
                 action_timeouts_s=default_offer_runtime_action_timeouts(
                     self._config.request_timeout_s
                 ),
             ),
             metadata=self._runtime_metadata_for(entry),
+        )
+
+    def _build_builtin_offer_connector(
+        self,
+        *,
+        manifest: ConnectorManifest,
+        source_config: AppConfig,
+    ) -> ResolvedOfferConnector:
+        if manifest.source_id in {"dm_de_offers", "rossmann_de_offers"}:
+            connector: OfferConnector = OfferFileFeedConnectorAdapter(
+                manifest=manifest,
+                source_config=source_config,
+            )
+            return ResolvedOfferConnector(
+                manifest=manifest,
+                source_config=source_config,
+                connector=connector,
+                metadata={"feed_path": str((source_config.config_dir / "offers" / f"{manifest.source_id}.json").resolve())},
+            )
+        raise RuntimeError(
+            f"unsupported connector runtime kind for built-in offer execution: {manifest.source_id}"
         )
 
     def run_bootstrap(
@@ -329,34 +401,6 @@ class ConnectorExecutionService:
                 connector=amazon_connector,
                 metadata={"state_file": str(state_file), "domain": domain},
                 handled_exceptions=(AmazonClientError,),
-            )
-        if manifest.source_id == "rewe_de":
-            state_file = self._resolve_state_file(
-                connector_options.get("state_file"),
-                default_rewe_state_file(source_config),
-            )
-            domain = _string_option(connector_options, "domain", "shop.rewe.de")
-            headless = _bool_option(connector_options, "headless", True)
-            max_pages = _int_option(connector_options, "max_pages", 10)
-            store_name = _string_option(connector_options, "store_name", "REWE")
-            rewe_client = RewePlaywrightClient(
-                state_file=state_file,
-                domain=domain,
-                headless=headless,
-                max_pages=max_pages,
-            )
-            rewe_connector: Connector = ReweConnectorAdapter(
-                client=rewe_client,
-                source=tracking_source_id,
-                store_name=store_name,
-            )
-            return self._resolved_receipt_connector(
-                manifest=manifest,
-                source_config=source_config,
-                client=None,
-                connector=rewe_connector,
-                metadata={"state_file": str(state_file), "domain": domain},
-                handled_exceptions=(ReweClientError,),
             )
         if manifest.source_id == "kaufland_de":
             state_file = self._resolve_state_file(
@@ -445,6 +489,14 @@ class ConnectorExecutionService:
                 metadata=metadata,
                 handled_exceptions=(DmClientError,),
             )
+        if manifest.source_id == "netto_de":
+            netto_connector: Connector = NettoConnectorAdapter(source=tracking_source_id)
+            return self._resolved_receipt_connector(
+                manifest=manifest,
+                source_config=source_config,
+                client=None,
+                connector=netto_connector,
+            )
         if manifest.source_id == "rossmann_de":
             state_file = self._resolve_state_file(
                 connector_options.get("state_file"),
@@ -509,7 +561,7 @@ class ConnectorExecutionService:
         manifest = entry.manifest
         if manifest is None:
             raise RuntimeError("connector manifest is not available")
-        decision = evaluate_plugin_policy(manifest, config=self._config)
+        decision = evaluate_plugin_policy(manifest, config=self._config, host_kind=_plugin_host_kind())
         if decision.enabled:
             return
         if decision.detail:

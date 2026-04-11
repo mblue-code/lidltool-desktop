@@ -106,6 +106,10 @@ class RuntimeInvocationDiagnostics(BaseModel):
     stderr_excerpt: str | None = None
     stdout_excerpt: str | None = None
     response_ok: bool | None = None
+    failure_stage: str | None = None
+    failure_code: str | None = None
+    failure_retryable: bool | None = None
+    failure_detail: str | None = None
 
 
 _REQUEST_ADAPTER: TypeAdapter[ConnectorActionRequest] = TypeAdapter(ConnectorActionRequest)

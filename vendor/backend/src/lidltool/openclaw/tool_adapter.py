@@ -29,6 +29,7 @@ from lidltool.auth.token_store import TokenStore
 from lidltool.config import AppConfig, build_config, database_url
 from lidltool.connectors.auth.auth_orchestration import ConnectorAuthOrchestrationService
 from lidltool.connectors.connector_catalog import connector_catalog_payload
+from lidltool.connectors.management import plugin_management_payload
 from lidltool.connectors.market_catalog import self_hosted_market_strategy_payload
 from lidltool.connectors.registry import (
     get_connector_registry,
@@ -204,7 +205,7 @@ def _apply_auth_guard(config: AppConfig, params: dict[str, Any], action: str) ->
         _metric_inc("openclaw.auth.allowed")
         return warnings
 
-    mode = str(config.openclaw_auth_mode or "warn_only").lower()
+    mode = str(config.openclaw_auth_mode or "enforce").lower()
     warning_message = "api auth credential missing or invalid"
     LOGGER.warning("openclaw.auth.denied action=%s mode=%s", action, mode)
     _metric_inc("openclaw.auth.denied")
@@ -1356,6 +1357,11 @@ def _handle_sources_list(
         "catalog": source_catalog(config=config, registry=registry),
         "discovery_catalog": connector_catalog_payload(
             product="self_hosted",
+            config=config,
+            registry=registry,
+        ),
+        "plugin_management": plugin_management_payload(
+            session,
             config=config,
             registry=registry,
         ),

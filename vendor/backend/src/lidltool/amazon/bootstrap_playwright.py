@@ -24,7 +24,9 @@ def run_amazon_headful_bootstrap(
     account_url = f"https://www.{domain}/gp/your-account/order-history"
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        from lidltool.connectors.auth.browser_runtime import launch_playwright_chromium
+
+        browser = launch_playwright_chromium(playwright=p, headless=False)
         context = browser.new_context()
         page = context.new_page()
         page.goto(login_url, wait_until="domcontentloaded")

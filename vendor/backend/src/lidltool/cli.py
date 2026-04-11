@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
@@ -23,46 +25,41 @@ from lidltool.auth.users import (
     SERVICE_USERNAME,
     create_local_user,
     get_user_by_username,
+    human_user_count,
     set_user_password,
 )
-from lidltool.config import AppConfig, build_config, database_url, validate_config
+from lidltool.config import (
+    AppConfig,
+    build_config,
+    database_url,
+    default_config_file,
+    validate_config,
+)
 from lidltool.connectors.auth.auth_orchestration import ConnectorAuthOrchestrationService
+from lidltool.connectors.runtime.errors import ConnectorRuntimeError
 from lidltool.connectors.runtime.execution import ConnectorExecutionService
+from lidltool.deployment_policy import evaluate_deployment_policy
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
 from lidltool.db.models import Source, Transaction, User
 from lidltool.dm.client_playwright import DmClientError, DmPlaywrightClient
 from lidltool.dm.session import default_dm_state_file
 from lidltool.ingest.sync import SyncProgress, SyncService
-from lidltool.kaufland.session import default_kaufland_state_file
 from lidltool.logging import configure_logging
-from lidltool.rossmann.session import default_rossmann_state_file
 
 app = typer.Typer(help="Lidl Plus receipts CLI")
 auth_app = typer.Typer(help="Authentication commands")
+connectors_app = typer.Typer(help="Connector platform commands")
+connectors_auth_app = typer.Typer(help="Connector authentication commands")
 stats_app = typer.Typer(help="Analytics commands")
 amazon_app = typer.Typer(help="Amazon connector commands")
-amazon_auth_app = typer.Typer(help="Amazon authentication commands")
-rewe_app = typer.Typer(help="REWE connector commands")
-rewe_auth_app = typer.Typer(help="REWE authentication commands")
-kaufland_app = typer.Typer(help="Kaufland connector commands")
-kaufland_auth_app = typer.Typer(help="Kaufland authentication commands")
 dm_app = typer.Typer(help="dm connector commands")
-dm_auth_app = typer.Typer(help="dm authentication commands")
-rossmann_app = typer.Typer(help="Rossmann connector commands")
-rossmann_auth_app = typer.Typer(help="Rossmann authentication commands")
 users_app = typer.Typer(help="User management commands")
 app.add_typer(auth_app, name="auth")
+app.add_typer(connectors_app, name="connectors")
+connectors_app.add_typer(connectors_auth_app, name="auth")
 app.add_typer(stats_app, name="stats")
 app.add_typer(amazon_app, name="amazon")
-amazon_app.add_typer(amazon_auth_app, name="auth")
-app.add_typer(rewe_app, name="rewe")
-rewe_app.add_typer(rewe_auth_app, name="auth")
-app.add_typer(kaufland_app, name="kaufland")
-kaufland_app.add_typer(kaufland_auth_app, name="auth")
 app.add_typer(dm_app, name="dm")
-dm_app.add_typer(dm_auth_app, name="auth")
-app.add_typer(rossmann_app, name="rossmann")
-rossmann_app.add_typer(rossmann_auth_app, name="auth")
 app.add_typer(users_app, name="users")
 console = Console()
 LOGGER = logging.getLogger(__name__)
@@ -72,6 +69,8 @@ DEFAULT_HAR_OUT = Path("/tmp/lidl_auth_capture.har")
 @dataclass(slots=True)
 class RuntimeContext:
     config: AppConfig
+    config_path: Path | None
+    db_override: Path | None
     json_output: bool
 
 
@@ -103,7 +102,12 @@ def global_options(
     if log_level:
         app_config.log_level = log_level
     configure_logging(level=app_config.log_level)
-    ctx.obj = RuntimeContext(config=app_config, json_output=json_output)
+    ctx.obj = RuntimeContext(
+        config=app_config,
+        config_path=config.expanduser().resolve() if config is not None else None,
+        db_override=db.expanduser().resolve() if db is not None else None,
+        json_output=json_output,
+    )
 
 
 def _ctx(ctx: typer.Context) -> RuntimeContext:
@@ -125,25 +129,8 @@ def _resolve_amazon_state_file(path: Path | None, config: AppConfig) -> Path:
     return target.expanduser().resolve()
 
 
-def _resolve_rewe_state_file(path: Path | None, config: AppConfig) -> Path:
-    from lidltool.rewe.session import default_rewe_state_file
-
-    target = path or default_rewe_state_file(config)
-    return target.expanduser().resolve()
-
-
-def _resolve_kaufland_state_file(path: Path | None, config: AppConfig) -> Path:
-    target = path or default_kaufland_state_file(config)
-    return target.expanduser().resolve()
-
-
 def _resolve_dm_state_file(path: Path | None, config: AppConfig) -> Path:
     target = path or default_dm_state_file(config)
-    return target.expanduser().resolve()
-
-
-def _resolve_rossmann_state_file(path: Path | None, config: AppConfig) -> Path:
-    target = path or default_rossmann_state_file(config)
     return target.expanduser().resolve()
 
 
@@ -163,6 +150,50 @@ def _connector_error_exit_code(exc: Exception) -> int:
     if "auth token missing" in str(exc).lower():
         return 2
     return 1
+
+
+def _json_error_payload(exc: Exception) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "ok": False,
+        "error": str(exc),
+        "exception_type": type(exc).__name__,
+    }
+    if isinstance(exc, ConnectorRuntimeError):
+        payload.update(
+            {
+                "failure_class": "connector_runtime",
+                "code": exc.code,
+                "retryable": exc.retryable,
+                "diagnostics": exc.diagnostics.model_dump(mode="python"),
+            }
+        )
+    else:
+        payload["failure_class"] = "command_execution"
+    return payload
+
+
+def _parse_connector_options(entries: list[str]) -> dict[str, Any]:
+    options: dict[str, Any] = {}
+    for entry in entries:
+        key, separator, raw_value = entry.partition("=")
+        if separator != "=":
+            raise typer.BadParameter(
+                "connector options must use key=value format",
+                param_hint="--option",
+            )
+        normalized_key = key.strip().replace("-", "_")
+        if not normalized_key:
+            raise typer.BadParameter(
+                "connector option keys must be non-empty",
+                param_hint="--option",
+            )
+        if normalized_key in options:
+            raise typer.BadParameter(
+                f"duplicate connector option: {normalized_key}",
+                param_hint="--option",
+            )
+        options[normalized_key] = raw_value.strip()
+    return options
 
 
 def _sync_result_payload(
@@ -185,6 +216,7 @@ def _sync_result_payload(
         "skipped_existing": result.skipped_existing,
         "cutoff_hit": result.cutoff_hit,
         "warnings": result.warnings,
+        "validation": result.validation,
         "runtime": runtime_identity,
     }
     if source_id == "amazon_de":
@@ -224,6 +256,39 @@ def _render_sync_result_table(
     console.print(table)
 
 
+def _sync_progress_description(state: SyncProgress) -> str:
+    if state.stage == "authenticating":
+        return "stage=authenticating detail=checking_saved_session"
+    if state.stage == "refreshing_auth":
+        return "stage=refreshing_auth detail=refreshing_receipt_session"
+    if state.stage == "healthcheck":
+        return "stage=healthcheck detail=validating_connector_access"
+    if state.stage == "discovering":
+        if state.pages == 0 and state.discovered_receipts == 0:
+            return "stage=discovering detail=looking_for_receipts"
+        pages = str(state.pages)
+        if state.pages_total:
+            pages = f"{pages}/{state.pages_total}"
+        return f"stage=discovering pages={pages} queued={state.discovered_receipts}"
+    if state.stage == "processing":
+        if state.receipts_seen == 0 and state.discovered_receipts > 0:
+            return f"stage=processing detail=preparing_import total={state.discovered_receipts}"
+        current = f" current={state.current_record_ref}" if state.current_record_ref else ""
+        return (
+            f"stage=processing seen={state.receipts_seen}/{state.discovered_receipts or '?'} "
+            f"new={state.new_receipts} items={state.new_items} skipped={state.skipped_existing}{current}"
+        )
+    if state.stage == "finalizing":
+        return (
+            f"stage=finalizing seen={state.receipts_seen} new={state.new_receipts} "
+            f"skipped={state.skipped_existing}"
+        )
+    return (
+        f"stage={state.stage} pages={state.pages} queued={state.discovered_receipts} "
+        f"seen={state.receipts_seen} new={state.new_receipts}"
+    )
+
+
 def _run_connector_sync_command(
     ctx: typer.Context,
     *,
@@ -234,10 +299,15 @@ def _run_connector_sync_command(
 ) -> None:
     runtime = _ctx(ctx)
     service = _connector_execution_service(runtime.config)
+    sync_options = dict(connector_options or {})
+    owner_user_id_raw = sync_options.pop("owner_user_id", None)
+    owner_user_id = str(owner_user_id_raw).strip() if owner_user_id_raw is not None else None
+    if owner_user_id == "":
+        owner_user_id = None
     try:
         resolved = service.build_receipt_connector(
             source_id=source_id,
-            connector_options=connector_options,
+            connector_options=sync_options or None,
             tracking_source_id=tracking_source_id,
         )
         db_sessions = _create_session_factory(runtime.config)
@@ -246,10 +316,11 @@ def _run_connector_sync_command(
             session_factory=db_sessions,
             config=resolved.source_config,
             connector=resolved.connector,
+            owner_user_id=owner_user_id,
         )
         if runtime.json_output:
             result = sync_service.sync(full=full)
-        else:
+        elif sys.stdout.isatty():
             with Progress(
                 SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True
             ) as progress:
@@ -261,16 +332,33 @@ def _run_connector_sync_command(
                 def on_progress(state: SyncProgress) -> None:
                     progress.update(
                         task,
-                        description=(
-                            f"pages={state.pages} seen={state.receipts_seen} "
-                            f"new={state.new_receipts} items={state.new_items}"
-                        ),
+                        description=_sync_progress_description(state),
                     )
 
                 result = sync_service.sync(full=full, progress_cb=on_progress)
+        else:
+            last_emitted = ""
+            last_emit_at = 0.0
+
+            def on_progress(state: SyncProgress) -> None:
+                nonlocal last_emitted, last_emit_at
+                description = _sync_progress_description(state)
+                now = time.monotonic()
+                if (
+                    description == last_emitted
+                    and state.stage == "processing"
+                    and state.receipts_seen % 10 != 0
+                    and now - last_emit_at < 5.0
+                ):
+                    return
+                typer.echo(description)
+                last_emitted = description
+                last_emit_at = now
+
+            result = sync_service.sync(full=full, progress_cb=on_progress)
     except Exception as exc:  # noqa: BLE001
         if runtime.json_output:
-            _emit({"ok": False, "error": str(exc)}, json_output=True)
+            _emit(_json_error_payload(exc), json_output=True)
             raise typer.Exit(code=_connector_error_exit_code(exc)) from exc
         raise typer.BadParameter(str(exc)) from exc
 
@@ -301,7 +389,7 @@ def _run_connector_bootstrap_command(
         resolved = service.run_bootstrap(source_id=source_id, options=options)
     except Exception as exc:  # noqa: BLE001
         if runtime.json_output:
-            _emit({"ok": False, "error": str(exc)}, json_output=True)
+            _emit(_json_error_payload(exc), json_output=True)
             raise typer.Exit(code=_connector_error_exit_code(exc)) from exc
         raise typer.BadParameter(str(exc)) from exc
 
@@ -316,6 +404,7 @@ def _run_connector_bootstrap_command(
             "source_id": resolved.manifest.source_id,
             "runtime_kind": resolved.manifest.runtime_kind,
         },
+        "diagnostics": resolved.diagnostics,
         **resolved.metadata,
     }
     if runtime.json_output:
@@ -368,7 +457,7 @@ def auth_bootstrap(
         )
     except Exception as exc:  # noqa: BLE001
         if runtime.json_output:
-            _emit({"ok": False, "error": str(exc)}, json_output=True)
+            _emit(_json_error_payload(exc), json_output=True)
             raise typer.Exit(code=_connector_error_exit_code(exc)) from exc
         raise typer.BadParameter(str(exc)) from exc
 
@@ -390,10 +479,24 @@ def auth_bootstrap(
 def auth_status(ctx: typer.Context) -> None:
     """Show the normalized auth/session state for the configured source."""
     runtime = _ctx(ctx)
-    service = _connector_auth_service(runtime.config)
-    snapshot = service.get_auth_status(source_id=runtime.config.source)
+    _emit_auth_status(
+        service=_connector_auth_service(runtime.config),
+        source_id=runtime.config.source,
+        connector_options=None,
+        json_output=runtime.json_output,
+    )
 
-    if runtime.json_output:
+
+def _emit_auth_status(
+    *,
+    service: ConnectorAuthOrchestrationService,
+    source_id: str,
+    connector_options: dict[str, Any] | None,
+    json_output: bool,
+) -> None:
+    snapshot = service.get_auth_status(source_id=source_id, connector_options=connector_options)
+
+    if json_output:
         payload: dict[str, Any] = {
             "source_id": snapshot.manifest.source_id,
             "display_name": snapshot.manifest.display_name,
@@ -420,6 +523,8 @@ def auth_status(ctx: typer.Context) -> None:
                     if snapshot.bootstrap.finished_at is not None
                     else None
                 ),
+                "return_code": snapshot.bootstrap.return_code,
+                "output_tail": list(snapshot.bootstrap.output_tail),
                 "can_cancel": snapshot.bootstrap.can_cancel,
             }
         _emit(payload, json_output=True)
@@ -436,9 +541,94 @@ def auth_status(ctx: typer.Context) -> None:
         "Available actions",
         ", ".join(snapshot.available_actions) if snapshot.available_actions else "-",
     )
+    if snapshot.compatibility_actions:
+        table.add_row("Compatibility actions", ", ".join(snapshot.compatibility_actions))
     if snapshot.bootstrap is not None:
         table.add_row("Bootstrap", snapshot.bootstrap.state)
     console.print(table)
+
+
+@connectors_auth_app.command("bootstrap")
+def connector_auth_bootstrap(
+    ctx: typer.Context,
+    source_id: Annotated[
+        str,
+        typer.Option("--source-id", help="Connector source ID to bootstrap"),
+    ],
+    options: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--option",
+            help="Connector bootstrap option as key=value; repeat for multiple options",
+        ),
+    ] = None,
+) -> None:
+    parsed_options = _parse_connector_options(list(options or ()))
+    _run_connector_bootstrap_command(
+        ctx,
+        source_id=source_id,
+        options=parsed_options or None,
+    )
+
+
+@connectors_auth_app.command("status")
+def connector_auth_status(
+    ctx: typer.Context,
+    source_id: Annotated[
+        str,
+        typer.Option("--source-id", help="Connector source ID to inspect"),
+    ],
+    options: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--option",
+            help="Connector auth-status option as key=value; repeat for multiple options",
+        ),
+    ] = None,
+) -> None:
+    runtime = _ctx(ctx)
+    _emit_auth_status(
+        service=_connector_auth_service(runtime.config),
+        source_id=source_id,
+        connector_options=_parse_connector_options(list(options or ())) or None,
+        json_output=runtime.json_output,
+    )
+
+
+@connectors_app.command("sync")
+def connector_sync_command(
+    ctx: typer.Context,
+    source_id: Annotated[
+        str,
+        typer.Option("--source-id", help="Connector source ID to sync"),
+    ],
+    full: Annotated[
+        bool,
+        typer.Option("--full", help="Fetch historical receipts until stop condition"),
+    ] = False,
+    tracking_source_id: Annotated[
+        str | None,
+        typer.Option(
+            "--tracking-source-id",
+            help="Logical source ID to persist on imported records",
+        ),
+    ] = None,
+    options: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--option",
+            help="Connector sync option as key=value; repeat for multiple options",
+        ),
+    ] = None,
+) -> None:
+    parsed_options = _parse_connector_options(list(options or ()))
+    _run_connector_sync_command(
+        ctx,
+        source_id=source_id,
+        full=full,
+        connector_options=parsed_options or None,
+        tracking_source_id=tracking_source_id,
+    )
 
 
 def _prompt_password(prompt: str = "Password") -> str:
@@ -604,16 +794,28 @@ def sync_command(
 @app.command("serve")
 def serve_command(
     ctx: typer.Context,
-    host: Annotated[str, typer.Option("--host", help="HTTP bind host")] = "0.0.0.0",
+    host: Annotated[str, typer.Option("--host", help="HTTP bind host")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", help="HTTP bind port")] = 8000,
     workers: Annotated[int, typer.Option("--workers", help="Uvicorn worker processes")] = 1,
 ) -> None:
     runtime = _ctx(ctx)
     if workers < 1:
         raise typer.BadParameter("--workers must be >= 1")
-    validate_config(runtime.config)
+    os.environ["LIDLTOOL_HTTP_BIND_HOST"] = host
+    os.environ["LIDLTOOL_CONFIG"] = str(
+        runtime.config_path or default_config_file(runtime.config.config_dir)
+    )
+    os.environ["LIDLTOOL_DB"] = str(runtime.db_override or runtime.config.db_path)
+    validate_config(runtime.config, bind_host=host)
     db_url = database_url(runtime.config)
     migrate_db(db_url)
+    sessions = session_factory(create_engine_for_url(db_url))
+    with session_scope(sessions) as session:
+        evaluate_deployment_policy(
+            runtime.config,
+            bind_host=host,
+            has_human_users=human_user_count(session) > 0,
+        )
     uvicorn.run(
         "lidltool.api.http_server:create_app",
         factory=True,
@@ -731,78 +933,6 @@ def amazon_import_command(
     console.print(table)
 
 
-@amazon_auth_app.command("bootstrap")
-def amazon_auth_bootstrap_command(
-    ctx: typer.Context,
-    state_file: Annotated[
-        Path | None,
-        typer.Option("--state-file", help="Playwright storage-state file for Amazon session"),
-    ] = None,
-    domain: Annotated[
-        str,
-        typer.Option("--domain", help="Amazon domain, e.g. amazon.de"),
-    ] = "amazon.de",
-) -> None:
-    _run_connector_bootstrap_command(
-        ctx,
-        source_id="amazon_de",
-        options={"state_file": state_file, "domain": domain},
-    )
-
-
-@amazon_app.command("sync")
-def amazon_sync_command(
-    ctx: typer.Context,
-    years: Annotated[
-        int,
-        typer.Option("--years", help="How many recent years to scan"),
-    ] = 2,
-    max_pages_per_year: Annotated[
-        int,
-        typer.Option("--max-pages-per-year", help="Pagination limit per year"),
-    ] = 8,
-    state_file: Annotated[
-        Path | None,
-        typer.Option("--state-file", help="Playwright storage-state file for Amazon session"),
-    ] = None,
-    domain: Annotated[
-        str,
-        typer.Option("--domain", help="Amazon domain, e.g. amazon.de"),
-    ] = "amazon.de",
-    source: Annotated[
-        str,
-        typer.Option("--source", help="Logical source ID to track imports"),
-    ] = "amazon_de",
-    store_name: Annotated[
-        str,
-        typer.Option("--store-name", help="Store name to persist for imported orders"),
-    ] = "Amazon",
-    headless: Annotated[
-        bool,
-        typer.Option("--headless/--no-headless", help="Run browser headless during sync"),
-    ] = True,
-    dump_html: Annotated[
-        Path | None,
-        typer.Option("--dump-html", help="Save raw HTML pages to this directory for fixture capture"),
-    ] = None,
-) -> None:
-    _run_connector_sync_command(
-        ctx,
-        source_id="amazon_de",
-        full=True,
-        connector_options={
-            "state_file": state_file,
-            "domain": domain,
-            "headless": headless,
-            "dump_html": dump_html,
-            "years": years,
-            "max_pages_per_year": max_pages_per_year,
-            "store_name": store_name,
-        },
-        tracking_source_id=source,
-    )
-
-
 @amazon_app.command("scrape")
 def amazon_scrape_command(
     ctx: typer.Context,
@@ -910,270 +1040,14 @@ def amazon_cron_example_command(
     runtime = _ctx(ctx)
     target = _resolve_amazon_state_file(state_file, runtime.config)
     command = (
-        "0 7 * * * /usr/bin/env lidltool amazon sync "
-        f"--state-file {target} --db {runtime.config.db_path}"
+        "0 7 * * * /usr/bin/env lidltool connectors sync "
+        f"--source-id amazon_de --full --option state_file={target} --db {runtime.config.db_path}"
         " >> ~/.local/share/lidltool/cron.log 2>&1"
     )
     if runtime.json_output:
         _emit({"ok": True, "cron": command}, json_output=True)
         return
     console.print(command)
-
-
-@rewe_auth_app.command("bootstrap")
-def rewe_auth_bootstrap_command(
-    ctx: typer.Context,
-    state_file: Annotated[
-        Path | None,
-        typer.Option("--state-file", help="Playwright storage-state file for REWE session"),
-    ] = None,
-    domain: Annotated[
-        str,
-        typer.Option("--domain", help="REWE domain, e.g. shop.rewe.de"),
-    ] = "shop.rewe.de",
-) -> None:
-    _run_connector_bootstrap_command(
-        ctx,
-        source_id="rewe_de",
-        options={"state_file": state_file, "domain": domain},
-    )
-
-
-@rewe_app.command("sync")
-def rewe_sync_command(
-    ctx: typer.Context,
-    state_file: Annotated[
-        Path | None,
-        typer.Option("--state-file", help="Playwright storage-state file for REWE session"),
-    ] = None,
-    domain: Annotated[
-        str,
-        typer.Option("--domain", help="REWE domain, e.g. shop.rewe.de"),
-    ] = "shop.rewe.de",
-    max_pages: Annotated[
-        int,
-        typer.Option("--max-pages", help="Maximum order-history pages to scan"),
-    ] = 10,
-    source: Annotated[
-        str,
-        typer.Option("--source", help="Logical source ID to track sync"),
-    ] = "rewe_de",
-    store_name: Annotated[
-        str,
-        typer.Option("--store-name", help="Store name to persist for synced orders"),
-    ] = "REWE",
-    headless: Annotated[
-        bool,
-        typer.Option("--headless/--no-headless", help="Run browser headless during sync"),
-    ] = True,
-) -> None:
-    _run_connector_sync_command(
-        ctx,
-        source_id="rewe_de",
-        full=True,
-        connector_options={
-            "state_file": state_file,
-            "domain": domain,
-            "headless": headless,
-            "max_pages": max_pages,
-            "store_name": store_name,
-        },
-        tracking_source_id=source,
-    )
-
-
-@kaufland_auth_app.command("bootstrap")
-def kaufland_auth_bootstrap_command(
-    ctx: typer.Context,
-    state_file: Annotated[
-        Path | None,
-        typer.Option("--state-file", help="Playwright storage-state file for Kaufland session"),
-    ] = None,
-    domain: Annotated[
-        str,
-        typer.Option("--domain", help="Kaufland domain, e.g. www.kaufland.de"),
-    ] = "www.kaufland.de",
-) -> None:
-    _run_connector_bootstrap_command(
-        ctx,
-        source_id="kaufland_de",
-        options={"state_file": state_file, "domain": domain},
-    )
-
-
-@kaufland_app.command("sync")
-def kaufland_sync_command(
-    ctx: typer.Context,
-    state_file: Annotated[
-        Path | None,
-        typer.Option("--state-file", help="Playwright storage-state file for Kaufland session"),
-    ] = None,
-    domain: Annotated[
-        str,
-        typer.Option("--domain", help="Kaufland domain, e.g. www.kaufland.de"),
-    ] = "www.kaufland.de",
-    max_pages: Annotated[
-        int,
-        typer.Option("--max-pages", help="Maximum order-history pages to scan"),
-    ] = 10,
-    source: Annotated[
-        str,
-        typer.Option("--source", help="Logical source ID to track sync"),
-    ] = "kaufland_de",
-    store_name: Annotated[
-        str,
-        typer.Option("--store-name", help="Store name to persist for synced orders"),
-    ] = "Kaufland",
-    headless: Annotated[
-        bool,
-        typer.Option("--headless/--no-headless", help="Run browser headless during sync"),
-    ] = True,
-) -> None:
-    _run_connector_sync_command(
-        ctx,
-        source_id="kaufland_de",
-        full=True,
-        connector_options={
-            "state_file": state_file,
-            "domain": domain,
-            "headless": headless,
-            "max_pages": max_pages,
-            "store_name": store_name,
-        },
-        tracking_source_id=source,
-    )
-
-
-@dm_auth_app.command("bootstrap")
-def dm_auth_bootstrap_command(
-    ctx: typer.Context,
-    state_file: Annotated[
-        Path | None,
-        typer.Option("--state-file", help="Playwright storage-state file for dm session"),
-    ] = None,
-    domain: Annotated[
-        str,
-        typer.Option("--domain", help="dm domain, e.g. www.dm.de"),
-    ] = "www.dm.de",
-) -> None:
-    _run_connector_bootstrap_command(
-        ctx,
-        source_id="dm_de",
-        options={"state_file": state_file, "domain": domain},
-    )
-
-
-@dm_app.command("sync")
-def dm_sync_command(
-    ctx: typer.Context,
-    state_file: Annotated[
-        Path | None,
-        typer.Option("--state-file", help="Playwright storage-state file for dm session"),
-    ] = None,
-    domain: Annotated[
-        str,
-        typer.Option("--domain", help="dm domain, e.g. www.dm.de"),
-    ] = "www.dm.de",
-    max_pages: Annotated[
-        int,
-        typer.Option(
-            "--max-pages",
-            help="Maximum purchases load-more cycles to scan (<=0 means unlimited)",
-        ),
-    ] = 120,
-    detail_fetch_limit: Annotated[
-        int,
-        typer.Option("--detail-fetch-limit", help="How many detail receipts to parse (-1 means all)"),
-    ] = -1,
-    detail_retry_count: Annotated[
-        int,
-        typer.Option("--detail-retry-count", help="Retries per detail receipt when parsing fails"),
-    ] = 2,
-    detail_retry_backoff_ms: Annotated[
-        int,
-        typer.Option("--detail-retry-backoff-ms", help="Backoff in ms between detail retries"),
-    ] = 800,
-    detail_pause_ms: Annotated[
-        int,
-        typer.Option("--detail-pause-ms", help="Pause in ms between detail receipts"),
-    ] = 120,
-    detail_batch_size: Annotated[
-        int,
-        typer.Option("--detail-batch-size", help="Detail receipts per batch before a longer pause"),
-    ] = 40,
-    detail_batch_pause_ms: Annotated[
-        int,
-        typer.Option("--detail-batch-pause-ms", help="Pause in ms after each detail batch"),
-    ] = 1200,
-    max_consecutive_detail_failures: Annotated[
-        int,
-        typer.Option(
-            "--max-consecutive-detail-failures",
-            help="Abort after this many consecutive detail failures (<=0 disables)",
-        ),
-    ] = 25,
-    persist_state: Annotated[
-        bool,
-        typer.Option(
-            "--persist-state/--no-persist-state",
-            help="Persist refreshed dm session state after successful runs",
-        ),
-    ] = True,
-    state_persist_interval: Annotated[
-        int,
-        typer.Option(
-            "--state-persist-interval",
-            help="Persist refreshed session state every N detail receipts",
-        ),
-    ] = 25,
-    session_keepalive_every: Annotated[
-        int,
-        typer.Option(
-            "--session-keepalive-every",
-            help="Run account keepalive every N detail receipts (<=0 disables)",
-        ),
-    ] = 30,
-    dump_html: Annotated[
-        Path | None,
-        typer.Option("--dump-html", help="Dump visited HTML pages for parser discovery"),
-    ] = None,
-    source: Annotated[
-        str,
-        typer.Option("--source", help="Logical source ID to track sync"),
-    ] = "dm_de",
-    store_name: Annotated[
-        str,
-        typer.Option("--store-name", help="Store name to persist for synced orders"),
-    ] = "dm-drogerie markt",
-    headless: Annotated[
-        bool,
-        typer.Option("--headless/--no-headless", help="Run browser headless during sync"),
-    ] = True,
-) -> None:
-    _run_connector_sync_command(
-        ctx,
-        source_id="dm_de",
-        full=True,
-        connector_options={
-            "state_file": state_file,
-            "domain": domain,
-            "headless": headless,
-            "max_pages": max_pages,
-            "detail_fetch_limit": detail_fetch_limit,
-            "detail_retry_count": detail_retry_count,
-            "detail_retry_backoff_ms": detail_retry_backoff_ms,
-            "detail_pause_ms": detail_pause_ms,
-            "detail_batch_size": detail_batch_size,
-            "detail_batch_pause_ms": detail_batch_pause_ms,
-            "max_consecutive_detail_failures": max_consecutive_detail_failures,
-            "persist_state": persist_state,
-            "state_persist_interval": state_persist_interval,
-            "session_keepalive_every": session_keepalive_every,
-            "dump_html": dump_html,
-            "store_name": store_name,
-        },
-        tracking_source_id=source,
-    )
 
 
 @dm_app.command("scrape")
@@ -1312,68 +1186,6 @@ def dm_scrape_command(
     if out is not None:
         table.add_row("Output file", str(out))
     console.print(table)
-
-
-@rossmann_auth_app.command("bootstrap")
-def rossmann_auth_bootstrap_command(
-    ctx: typer.Context,
-    state_file: Annotated[
-        Path | None,
-        typer.Option("--state-file", help="Playwright storage-state file for Rossmann session"),
-    ] = None,
-    domain: Annotated[
-        str,
-        typer.Option("--domain", help="Rossmann domain, e.g. www.rossmann.de"),
-    ] = "www.rossmann.de",
-) -> None:
-    _run_connector_bootstrap_command(
-        ctx,
-        source_id="rossmann_de",
-        options={"state_file": state_file, "domain": domain},
-    )
-
-
-@rossmann_app.command("sync")
-def rossmann_sync_command(
-    ctx: typer.Context,
-    state_file: Annotated[
-        Path | None,
-        typer.Option("--state-file", help="Playwright storage-state file for Rossmann session"),
-    ] = None,
-    domain: Annotated[
-        str,
-        typer.Option("--domain", help="Rossmann domain, e.g. www.rossmann.de"),
-    ] = "www.rossmann.de",
-    max_pages: Annotated[
-        int,
-        typer.Option("--max-pages", help="Maximum order-history pages to scan"),
-    ] = 10,
-    source: Annotated[
-        str,
-        typer.Option("--source", help="Logical source ID to track sync"),
-    ] = "rossmann_de",
-    store_name: Annotated[
-        str,
-        typer.Option("--store-name", help="Store name to persist for synced orders"),
-    ] = "Rossmann",
-    headless: Annotated[
-        bool,
-        typer.Option("--headless/--no-headless", help="Run browser headless during sync"),
-    ] = True,
-) -> None:
-    _run_connector_sync_command(
-        ctx,
-        source_id="rossmann_de",
-        full=True,
-        connector_options={
-            "state_file": state_file,
-            "domain": domain,
-            "headless": headless,
-            "max_pages": max_pages,
-            "store_name": store_name,
-        },
-        tracking_source_id=source,
-    )
 
 
 def main() -> None:

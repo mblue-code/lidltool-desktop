@@ -51,11 +51,15 @@ class VncRuntime:
     x11vnc_process: subprocess.Popen[str]
 
 
-class AIOAuthState(TypedDict):
+class AIOAuthState(TypedDict, total=False):
     status: Literal["pending", "connected", "error"]
     error: str | None
     provider: str | None
     updated_at: str
+    expected_state: str | None
+    code_verifier: str | None
+    expires_at: str | None
+    redirect_uri: str | None
 
 
 @dataclass(slots=True)
@@ -101,6 +105,10 @@ def initialize_http_api_state(app: FastAPI) -> None:
         error=None,
         provider=None,
         updated_at=datetime.now(tz=UTC).isoformat(),
+        expected_state=None,
+        code_verifier=None,
+        expires_at=None,
+        redirect_uri=None,
     )
 
 

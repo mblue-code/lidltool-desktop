@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from hashlib import sha256
 from typing import Any
 
 from lidltool.connectors.base import BaseConnectorAdapter
@@ -56,12 +58,42 @@ class LidlConnectorAdapter(BaseConnectorAdapter):
                 break
         return refs
 
+    def discover_new_records_with_progress(
+        self,
+        *,
+        progress_cb: Callable[[int, int], None] | None = None,
+    ) -> list[str]:
+        refs: list[str] = []
+        self._summary_cache = {}
+        page_token: str | None = None
+        page_count = 0
+        while True:
+            page = self._client.list_receipts(page_token=page_token, page_size=self._page_size)
+            page_count += 1
+            for summary in page.receipts:
+                ref = summary.get("id")
+                if isinstance(ref, str) and ref:
+                    refs.append(ref)
+                    self._summary_cache[ref] = summary
+            if progress_cb is not None:
+                progress_cb(page_count, len(refs))
+            page_token = page.next_page_token
+            if not page_token:
+                break
+        return refs
+
     def fetch_record_detail(self, record_ref: str) -> dict[str, Any]:
         return self._client.get_receipt(record_ref)
 
     def normalize(self, record_detail: dict[str, Any]) -> dict[str, Any]:
         summary = self._summary_cache.get(str(record_detail.get("id", ""))) or None
         normalized = normalize_receipt(record_detail, summary=summary)
+        store_name = normalized.store_name or normalized.store_address or "Unknown Lidl Store"
+        store_address = normalized.store_address
+        store_id = normalized.store_id or self._fallback_store_id(
+            store_name=store_name,
+            store_address=store_address,
+        )
         items = [
             {
                 "line_no": item.line_no,
@@ -77,20 +109,13 @@ class LidlConnectorAdapter(BaseConnectorAdapter):
             }
             for item in normalized.items
         ]
-        deposit_cents = 0
-        for _item in items:
-            if _item.get("is_deposit"):
-                raw = _item.get("line_total_cents")
-                # Only subtract positive deposits paid; returns (negative) stay in totalAmount
-                if isinstance(raw, int) and raw > 0:
-                    deposit_cents += raw
         return {
             "id": normalized.id,
             "purchased_at": normalized.purchased_at.isoformat(),
-            "store_id": normalized.store_id,
-            "store_name": normalized.store_name,
-            "store_address": normalized.store_address,
-            "total_gross_cents": normalized.total_gross - deposit_cents,
+            "store_id": store_id,
+            "store_name": store_name,
+            "store_address": store_address,
+            "total_gross_cents": normalized.total_gross,
             "currency": normalized.currency,
             "discount_total_cents": normalized.discount_total,
             "fingerprint": normalized.fingerprint,
@@ -122,3 +147,8 @@ class LidlConnectorAdapter(BaseConnectorAdapter):
                     }
                 )
         return discounts
+
+    def _fallback_store_id(self, *, store_name: str, store_address: str | None) -> str:
+        token = "|".join(part for part in (store_name.strip(), (store_address or "").strip()) if part)
+        digest = sha256(token.encode("utf-8")).hexdigest()[:16]
+        return f"store:{digest}"

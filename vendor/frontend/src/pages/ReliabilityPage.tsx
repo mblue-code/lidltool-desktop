@@ -165,59 +165,63 @@ export function ReliabilityPage() {
   return (
     <section className="space-y-4">
       <PageHeader title={t("pages.reliability.title")} description={t("pages.reliability.description")} />
-      <form className="grid gap-3 md:grid-cols-5" onSubmit={submitFilters}>
-        <div className="space-y-2">
-          <Label htmlFor="window-hours">Window (hours)</Label>
-          <Input
-            id="window-hours"
-            type="number"
-            min={1}
-            step={1}
-            value={windowHours}
-            onChange={(event) => setWindowHours(event.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="sync-p95-target">Sync p95 target (ms)</Label>
-          <Input
-            id="sync-p95-target"
-            type="number"
-            min={1}
-            step={1}
-            value={syncP95TargetMs}
-            onChange={(event) => setSyncP95TargetMs(event.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="analytics-p95-target">Analytics p95 target (ms)</Label>
-          <Input
-            id="analytics-p95-target"
-            type="number"
-            min={1}
-            step={1}
-            value={analyticsP95TargetMs}
-            onChange={(event) => setAnalyticsP95TargetMs(event.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="min-success-rate">Minimum success rate</Label>
-          <Input
-            id="min-success-rate"
-            type="number"
-            min={0}
-            max={1}
-            step={0.001}
-            value={minSuccessRate}
-            onChange={(event) => setMinSuccessRate(event.target.value)}
-          />
-        </div>
-        <div className="flex gap-2 self-end">
-          <Button type="submit">Apply</Button>
-          <Button type="button" variant="outline" onClick={resetFilters}>
-            Reset
-          </Button>
-        </div>
-      </form>
+      <Card>
+        <CardContent className="pt-6">
+          <form className="grid gap-3 md:grid-cols-5" onSubmit={submitFilters}>
+            <div className="space-y-2">
+              <Label htmlFor="window-hours">Window (hours)</Label>
+              <Input
+                id="window-hours"
+                type="number"
+                min={1}
+                step={1}
+                value={windowHours}
+                onChange={(event) => setWindowHours(event.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sync-p95-target">Sync p95 target (ms)</Label>
+              <Input
+                id="sync-p95-target"
+                type="number"
+                min={1}
+                step={1}
+                value={syncP95TargetMs}
+                onChange={(event) => setSyncP95TargetMs(event.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="analytics-p95-target">Analytics p95 target (ms)</Label>
+              <Input
+                id="analytics-p95-target"
+                type="number"
+                min={1}
+                step={1}
+                value={analyticsP95TargetMs}
+                onChange={(event) => setAnalyticsP95TargetMs(event.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="min-success-rate">Minimum success rate</Label>
+              <Input
+                id="min-success-rate"
+                type="number"
+                min={0}
+                max={1}
+                step={0.001}
+                value={minSuccessRate}
+                onChange={(event) => setMinSuccessRate(event.target.value)}
+              />
+            </div>
+            <div className="flex gap-2 self-end">
+              <Button type="submit">Apply</Button>
+              <Button type="button" variant="outline" onClick={resetFilters}>
+                Reset
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
 
       {errorMessage ? (
         <Alert variant="destructive">
@@ -226,70 +230,55 @@ export function ReliabilityPage() {
         </Alert>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-3">
-        {loading ? (
-          <>
-            <Skeleton className="h-36 rounded-lg" />
-            <Skeleton className="h-36 rounded-lg" />
-            <Skeleton className="h-36 rounded-lg" />
-          </>
-        ) : null}
-        {!loading && data ? (
-          <>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-muted-foreground">Generated At</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-lg font-semibold">{formatDateTime(data.generated_at)}</p>
-                <p className="text-xs text-muted-foreground">Window: {data.window_hours}h</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-muted-foreground">Thresholds</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1 text-sm">
-                <p>Sync p95: {data.thresholds.sync_p95_target_ms}ms</p>
-                <p>Analytics p95: {data.thresholds.analytics_p95_target_ms}ms</p>
-                <p>Min success: {formatPercent(data.thresholds.min_success_rate)}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-muted-foreground">Endpoints</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-semibold">{data.endpoints.length}</p>
-                <p className="text-xs text-muted-foreground">Active routes in selected window</p>
-              </CardContent>
-            </Card>
-          </>
-        ) : null}
-      </section>
+      {loading ? (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Skeleton className="h-24 rounded-lg" />
+          <Skeleton className="h-24 rounded-lg" />
+          <Skeleton className="h-24 rounded-lg" />
+        </div>
+      ) : null}
+      {!loading && data ? (
+        <section className="rounded-xl border border-border/60 app-dashboard-surface grid divide-y md:divide-y-0 md:divide-x divide-border/40 md:grid-cols-3">
+          <div className="px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Generated At</p>
+            <p className="mt-1 text-lg font-semibold">{formatDateTime(data.generated_at)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Window: {data.window_hours}h</p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Thresholds</p>
+            <div className="mt-1 space-y-0.5 text-sm">
+              <p>Sync p95: {data.thresholds.sync_p95_target_ms}ms</p>
+              <p>Analytics p95: {data.thresholds.analytics_p95_target_ms}ms</p>
+              <p>Min success: {formatPercent(data.thresholds.min_success_rate)}</p>
+            </div>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Endpoints</p>
+            <p className="mt-1 text-2xl font-semibold">{data.endpoints.length}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Active routes in selected window</p>
+          </div>
+        </section>
+      ) : null}
 
-      <section className="grid gap-4 md:grid-cols-3">
-        {!loading && families.length > 0
-          ? families.map(([family, summary]) => (
-              <Card key={family}>
-                <CardHeader className="pb-2">
-                  <CardTitle className="flex items-center justify-between text-base">
-                    <span>{familyDisplayName(family)}</span>
-                    <Badge variant={badgeVariantForHealth(summary.slo_pass)}>
-                      {summary.slo_pass ? "SLO pass" : "SLO fail"}
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-1 text-sm">
-                  <p>Routes: {summary.routes}</p>
-                  <p>p95 latency: {summary.p95_duration_ms === null ? "-" : `${summary.p95_duration_ms}ms`}</p>
-                  <p>Target p95: {summary.p95_target_ms}ms</p>
-                  <p>Avg success: {formatPercent(summary.avg_success_rate)}</p>
-                </CardContent>
-              </Card>
-            ))
-          : null}
-      </section>
+      {!loading && families.length > 0 ? (
+        <section className="rounded-xl border border-border/60 app-dashboard-surface grid divide-y md:divide-y-0 md:divide-x divide-border/40 md:grid-cols-3">
+          {families.map(([family, summary]) => (
+            <div key={family} className="px-4 py-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">{familyDisplayName(family)}</p>
+                <Badge variant={badgeVariantForHealth(summary.slo_pass)}>
+                  {summary.slo_pass ? "SLO pass" : "SLO fail"}
+                </Badge>
+              </div>
+              <div className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+                <p>Routes: {summary.routes}</p>
+                <p>p95: {summary.p95_duration_ms === null ? "-" : `${summary.p95_duration_ms}ms`} / target {summary.p95_target_ms}ms</p>
+                <p>Avg success: {formatPercent(summary.avg_success_rate)}</p>
+              </div>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       <Card>
         <CardHeader>

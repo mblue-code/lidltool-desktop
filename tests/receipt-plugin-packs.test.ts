@@ -253,8 +253,10 @@ test("installs, enables, lists, and uninstalls manual unsigned receipt plugin pa
     list = await manager.listPacks();
     assert.equal(list.packs.length, 1);
     assert.equal(list.packs[0]?.status, "enabled");
-    assert.equal((await manager.getRuntimePolicy()).activePluginSearchPaths.length, 1);
-    assert.equal((await manager.getRuntimePolicy()).allowedTrustClasses[0], "community_unsigned");
+    const runtimePolicy = await manager.getRuntimePolicy();
+    assert.equal(runtimePolicy.activePluginSearchPaths.length, 1);
+    assert.equal(runtimePolicy.activePluginSearchPaths[0], list.packs[0]?.runtimeRoot);
+    assert.equal(runtimePolicy.allowedTrustClasses[0], "community_unsigned");
 
     const uninstall = await manager.uninstall("community.fixture_receipt_de");
     assert.ok(uninstall.removedPath);

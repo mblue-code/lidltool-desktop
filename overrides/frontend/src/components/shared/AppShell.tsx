@@ -202,6 +202,32 @@ function syncBannerWaitingLabel(locale: "en" | "de"): string {
   return locale === "de" ? "Synchronisierungsstatus wird vorbereitet..." : "Preparing sync status...";
 }
 
+function syncBannerStageLabel(
+  locale: "en" | "de",
+  stage: string,
+  detail: string | null
+): string | null {
+  if (stage === "authenticating") {
+    return locale === "de" ? "Gespeicherte Anmeldung wird geprüft..." : "Checking saved sign-in...";
+  }
+  if (stage === "refreshing_auth") {
+    return locale === "de" ? "Belegsitzung wird aktualisiert..." : "Refreshing receipt session...";
+  }
+  if (stage === "healthcheck") {
+    return locale === "de" ? "Zugriff auf den Händler wird geprüft..." : "Validating retailer access...";
+  }
+  if (stage === "discovering" && detail === "looking_for_receipts") {
+    return locale === "de" ? "Es wird nach Belegen gesucht..." : "Looking for receipts...";
+  }
+  if (stage === "processing" && detail === "preparing_import") {
+    return locale === "de" ? "Import wird vorbereitet..." : "Preparing import...";
+  }
+  if (stage === "finalizing") {
+    return locale === "de" ? "Belege werden gespeichert..." : "Saving receipts...";
+  }
+  return null;
+}
+
 function syncBannerOpenConnectorsLabel(locale: "en" | "de"): string {
   return locale === "de" ? "Anbindungen öffnen" : "Open connectors";
 }
@@ -230,19 +256,79 @@ function parseSyncProgress(status: ConnectorSyncStatus): ParsedSyncProgress {
   return { seen, total, latestLine };
 }
 
-function formatSyncLine(line: string | null): string | null {
+function parseSyncFields(line: string | null): Record<string, string> | null {
   if (!line) {
     return null;
   }
-  return line
-    .replace(/^stage=/, "")
-    .replace(/ pages=/g, " • pages=")
-    .replace(/ queued=/g, " • queued=")
-    .replace(/ seen=/g, " • seen=")
-    .replace(/ new=/g, " • new=")
-    .replace(/ items=/g, " • items=")
-    .replace(/ skipped=/g, " • skipped=")
-    .replace(/ current=/g, " • current=");
+  const fields: Record<string, string> = {};
+  for (const segment of line.trim().split(/\s+/)) {
+    const separatorIndex = segment.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+    const key = segment.slice(0, separatorIndex);
+    const value = segment.slice(separatorIndex + 1);
+    if (!key || !value) {
+      continue;
+    }
+    fields[key] = value;
+  }
+  return Object.keys(fields).length > 0 ? fields : null;
+}
+
+function formatSyncLine(locale: "en" | "de", line: string | null): string | null {
+  if (!line) {
+    return null;
+  }
+  const fields = parseSyncFields(line);
+  if (!fields?.stage) {
+    return line;
+  }
+
+  const stageLabel = syncBannerStageLabel(locale, fields.stage, fields.detail ?? null);
+  if (stageLabel) {
+    const extras: string[] = [];
+    if (fields.total && Number(fields.total) > 0) {
+      extras.push(locale === "de" ? `${fields.total} Belege erkannt` : `${fields.total} receipts found`);
+    }
+    if (fields.seen && Number(fields.seen) > 0) {
+      extras.push(locale === "de" ? `${fields.seen} verarbeitet` : `${fields.seen} processed`);
+    }
+    if (fields.new && Number(fields.new) > 0) {
+      extras.push(locale === "de" ? `${fields.new} neu` : `${fields.new} new`);
+    }
+    if (fields.skipped && Number(fields.skipped) > 0) {
+      extras.push(locale === "de" ? `${fields.skipped} bereits vorhanden` : `${fields.skipped} already present`);
+    }
+    return extras.length > 0 ? `${stageLabel} ${extras.join(" • ")}` : stageLabel;
+  }
+
+  const formattedSegments: string[] = [];
+  if (fields.stage) {
+    formattedSegments.push(fields.stage);
+  }
+  if (fields.pages && Number(fields.pages) > 0) {
+    formattedSegments.push(`pages=${fields.pages}`);
+  }
+  if (fields.queued && Number(fields.queued) > 0) {
+    formattedSegments.push(`queued=${fields.queued}`);
+  }
+  if (fields.seen && Number(fields.seen) > 0) {
+    formattedSegments.push(`seen=${fields.seen}`);
+  }
+  if (fields.new && Number(fields.new) > 0) {
+    formattedSegments.push(`new=${fields.new}`);
+  }
+  if (fields.items && Number(fields.items) > 0) {
+    formattedSegments.push(`items=${fields.items}`);
+  }
+  if (fields.skipped && Number(fields.skipped) > 0) {
+    formattedSegments.push(`skipped=${fields.skipped}`);
+  }
+  if (fields.current) {
+    formattedSegments.push(`current=${fields.current}`);
+  }
+  return formattedSegments.join(" • ");
 }
 
 function syncRunKey(sourceId: string, status: ConnectorSyncStatus): string {
@@ -280,12 +366,12 @@ function SyncStatusBanner({
         ? "border-emerald-200 bg-emerald-50/80 text-emerald-950"
         : "border-destructive/30 bg-destructive/5";
   const progressLabel =
-    progress.seen !== null && progress.total !== null
+    progress.seen !== null && progress.seen > 0 && progress.total !== null
       ? syncBannerProgressLabel(locale, progress.seen, progress.total)
-      : progress.seen !== null
+      : progress.seen !== null && progress.seen > 0
         ? syncBannerProgressLabel(locale, progress.seen, null)
         : null;
-  const latestLine = formatSyncLine(progress.latestLine);
+  const latestLine = formatSyncLine(locale, progress.latestLine);
 
   return (
     <Alert className={cn("rounded-xl", alertClassName)}>

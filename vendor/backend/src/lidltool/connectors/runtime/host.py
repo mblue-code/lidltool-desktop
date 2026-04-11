@@ -50,7 +50,12 @@ from lidltool.connectors.sdk.offer import (
     validate_offer_action_response,
 )
 from lidltool.connectors.sdk.receipt import (
+    AuthLifecycleOutput,
+    CancelAuthRequest,
+    CancelAuthResponse,
     ConnectorError,
+    ConfirmAuthRequest,
+    ConfirmAuthResponse,
     DiscoverRecordsRequest,
     DiscoverRecordsResponse,
     EmptyInput,
@@ -70,6 +75,8 @@ from lidltool.connectors.sdk.receipt import (
     ReceiptActionName,
     ReceiptActionRequest,
     ReceiptActionResponse,
+    StartAuthRequest,
+    StartAuthResponse,
     validate_receipt_action_request,
     validate_receipt_action_response,
 )
@@ -79,6 +86,7 @@ from lidltool.connectors.sdk.receipt import (
 class ConnectorRuntimeTarget:
     manifest: ConnectorManifest
     working_directory: Path | None = None
+    environment: dict[str, str] | None = None
     connector: object | None = None
     legacy_auth_delegate: Connector | None = None
 
@@ -140,6 +148,7 @@ class ConnectorRuntimeHost:
             runtime = SubprocessConnectorRuntime(
                 manifest=target.manifest,
                 working_directory=target.working_directory,
+                extra_environment=target.environment,
                 plugin_ai_service=self._plugin_ai_service,
             )
             result = runtime.invoke_action(
@@ -268,10 +277,29 @@ class RuntimeHostedReceiptConnector(Connector):
             raise RuntimeError(output.detail or "connector requires authentication")
         return output.metadata
 
+    def get_auth_status(self) -> dict[str, Any]:
+        response = cast(
+            GetAuthStatusResponse,
+            self._invoke(GetAuthStatusRequest(input=EmptyInput())),
+        )
+        output = response.output
+        if output is None:
+            raise RuntimeError("connector get_auth_status returned no payload")
+        return output.model_dump(mode="python")
+
     def refresh_auth(self) -> dict[str, Any]:
         if self._target.legacy_auth_delegate is not None:
             return self._target.legacy_auth_delegate.refresh_auth()
         return self.authenticate()
+
+    def start_auth(self) -> dict[str, Any]:
+        return self._invoke_auth_action(StartAuthRequest(input=EmptyInput()))
+
+    def cancel_auth(self) -> dict[str, Any]:
+        return self._invoke_auth_action(CancelAuthRequest(input=EmptyInput()))
+
+    def confirm_auth(self) -> dict[str, Any]:
+        return self._invoke_auth_action(ConfirmAuthRequest(input=EmptyInput()))
 
     def healthcheck(self) -> dict[str, Any]:
         response = cast(
@@ -345,10 +373,16 @@ class RuntimeHostedReceiptConnector(Connector):
         except ConnectorRuntimeError as exc:
             self._append_diagnostics(exc.diagnostics)
             raise
-        self._append_diagnostics(result.diagnostics)
         response = validate_receipt_action_response(result.response)
         if response.ok:
+            self._append_diagnostics(result.diagnostics)
             return response
+        if response.error is not None:
+            result.diagnostics.failure_stage = "connector_action"
+            result.diagnostics.failure_code = response.error.code
+            result.diagnostics.failure_retryable = response.error.retryable
+            result.diagnostics.failure_detail = response.error.message
+        self._append_diagnostics(result.diagnostics)
         raise RuntimeError(self._connector_error_message(response.error, action=response.action))
 
     def _append_diagnostics(self, diagnostics: RuntimeInvocationDiagnostics) -> None:
@@ -364,6 +398,20 @@ class RuntimeHostedReceiptConnector(Connector):
         if error is None:
             return f"connector action failed: {action}"
         return f"{action} failed: {error.message}"
+
+    def _invoke_auth_action(
+        self,
+        request: StartAuthRequest | CancelAuthRequest | ConfirmAuthRequest,
+    ) -> dict[str, Any]:
+        response = self._invoke(request)
+        typed_response = cast(
+            StartAuthResponse | CancelAuthResponse | ConfirmAuthResponse,
+            response,
+        )
+        output = typed_response.output
+        if output is None:
+            raise RuntimeError(f"connector {typed_response.action} returned no payload")
+        return output.model_dump(mode="python")
 
 
 class RuntimeHostedOfferConnector:
@@ -461,10 +509,16 @@ class RuntimeHostedOfferConnector:
         except ConnectorRuntimeError as exc:
             self._append_diagnostics(exc.diagnostics)
             raise
-        self._append_diagnostics(result.diagnostics)
         response = validate_offer_action_response(result.response)
         if response.ok:
+            self._append_diagnostics(result.diagnostics)
             return response
+        if response.error is not None:
+            result.diagnostics.failure_stage = "connector_action"
+            result.diagnostics.failure_code = response.error.code
+            result.diagnostics.failure_retryable = response.error.retryable
+            result.diagnostics.failure_detail = response.error.message
+        self._append_diagnostics(result.diagnostics)
         raise RuntimeError(self._connector_error_message(response.error, action=response.action))
 
     def _append_diagnostics(self, diagnostics: RuntimeInvocationDiagnostics) -> None:

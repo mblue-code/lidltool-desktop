@@ -4,10 +4,12 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from lidltool.analytics.normalization import canonicalize_category_name
 from lidltool.db.audit import record_audit_event
-from lidltool.db.models import Document, TrainingHint, Transaction, TransactionItem
+from lidltool.db.models import Category, Document, TrainingHint, Transaction, TransactionItem
 
 _EDITABLE_TRANSACTION_FIELDS = {
     "merchant_name",
@@ -103,7 +105,32 @@ class CorrectionService:
                 original_value=values["before"],
                 corrected_value=values["after"],
                 reason=reason,
-            )
+        )
+        return {"transaction_id": tx.id, "updated_fields": sorted(before_after.keys())}
+
+    def correct_transaction_direct(
+        self,
+        *,
+        transaction_id: str,
+        actor_id: str | None = None,
+        corrections: dict[str, Any],
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        tx = self._session.get(Transaction, transaction_id)
+        if tx is None:
+            raise RuntimeError("transaction not found")
+        before_after = self._apply_transaction_updates(tx=tx, corrections=corrections)
+        if not before_after:
+            return {"transaction_id": tx.id, "updated_fields": []}
+        self._record_direct_correction_audit(
+            action="review.transaction_corrected",
+            source_id=tx.source_id,
+            entity_type="transaction",
+            entity_id=tx.id,
+            before_after=before_after,
+            actor_id=actor_id,
+            reason=reason,
+        )
         return {"transaction_id": tx.id, "updated_fields": sorted(before_after.keys())}
 
     def correct_item(
@@ -141,7 +168,36 @@ class CorrectionService:
                 original_value=values["before"],
                 corrected_value=values["after"],
                 reason=reason,
-            )
+        )
+        return {"transaction_item_id": item.id, "updated_fields": sorted(before_after.keys())}
+
+    def correct_item_direct(
+        self,
+        *,
+        transaction_id: str,
+        item_id: str,
+        actor_id: str | None = None,
+        corrections: dict[str, Any],
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        tx = self._session.get(Transaction, transaction_id)
+        if tx is None:
+            raise RuntimeError("transaction not found")
+        item = self._session.get(TransactionItem, item_id)
+        if item is None or item.transaction_id != tx.id:
+            raise RuntimeError("transaction item not found for transaction")
+        before_after = self._apply_item_updates(item=item, corrections=corrections)
+        if not before_after:
+            return {"transaction_item_id": item.id, "updated_fields": []}
+        self._record_direct_correction_audit(
+            action="review.item_corrected",
+            source_id=tx.source_id,
+            entity_type="transaction_item",
+            entity_id=item.id,
+            before_after=before_after,
+            actor_id=actor_id,
+            reason=reason,
+        )
         return {"transaction_item_id": item.id, "updated_fields": sorted(before_after.keys())}
 
     def _load_document_transaction(self, *, document_id: str) -> tuple[Document, Transaction]:
@@ -187,6 +243,13 @@ class CorrectionService:
                 continue
             before_after[field_name] = {"before": current_value, "after": normalized}
             setattr(item, field_name, normalized)
+            if field_name == "category":
+                canonical_category = canonicalize_category_name(str(normalized)) if normalized else None
+                item.category = canonical_category or (str(normalized) if normalized is not None else None)
+                item.category_id = _resolve_category_id(self._session, item.category)
+                item.category_method = "manual"
+                item.category_confidence = Decimal("1.000")
+                item.category_version = "manual"
         return before_after
 
     def _record_correction_audit(
@@ -216,6 +279,37 @@ class CorrectionService:
                     for key, values in before_after.items()
                 },
                 "reason": reason,
+            },
+        )
+
+    def _record_direct_correction_audit(
+        self,
+        *,
+        action: str,
+        source_id: str,
+        entity_type: str,
+        entity_id: str,
+        before_after: dict[str, dict[str, Any]],
+        actor_id: str | None,
+        reason: str | None,
+    ) -> None:
+        record_audit_event(
+            self._session,
+            action=action,
+            source=source_id,
+            actor_id=actor_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            details={
+                "changes": {
+                    key: {
+                        "before": _to_jsonable(values["before"]),
+                        "after": _to_jsonable(values["after"]),
+                    }
+                    for key, values in before_after.items()
+                },
+                "reason": reason,
+                "document_linked": False,
             },
         )
 
@@ -266,7 +360,17 @@ def _normalize_value(field_name: str, value: Any) -> Any:
         return datetime.fromisoformat(str(value))
     if value is None:
         return None
+    if field_name == "category":
+        return canonicalize_category_name(str(value)) or str(value)
     return str(value)
+
+
+def _resolve_category_id(session: Session, category_name: str | None) -> str | None:
+    if not category_name:
+        return None
+    return session.execute(
+        select(Category.category_id).where(Category.name == category_name).limit(1)
+    ).scalar_one_or_none()
 
 
 def _to_jsonable(value: Any) -> Any:

@@ -573,7 +573,7 @@ class AmazonPlaywrightClient:
         if not self._state_file.exists():
             raise AmazonReauthRequiredError(
                 f"Amazon session state missing: {self._state_file}. "
-                "Run 'lidltool amazon auth bootstrap' first."
+                "Run 'lidltool connectors auth bootstrap --source-id amazon_de' first."
             )
 
         seen_order_ids: set[str] = set()
@@ -581,7 +581,9 @@ class AmazonPlaywrightClient:
         current_year = datetime.now().year
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=self._headless)
+            from lidltool.connectors.auth.browser_runtime import launch_playwright_chromium
+
+            browser = launch_playwright_chromium(playwright=p, headless=self._headless)
             context = browser.new_context(storage_state=str(self._state_file))
             page = context.new_page()
             self._ensure_logged_in(page)
@@ -649,7 +651,7 @@ class AmazonPlaywrightClient:
         url = str(page.url)
         if any(p in url for p in REAUTH_URL_PATTERNS):
             raise AmazonReauthRequiredError(
-                "Amazon session expired or invalid. Run 'lidltool amazon auth bootstrap' again."
+                "Amazon session expired or invalid. Run 'lidltool connectors auth bootstrap --source-id amazon_de' again."
             )
         try:
             content = page.content()
@@ -658,7 +660,7 @@ class AmazonPlaywrightClient:
         if any(m in content for m in REAUTH_HTML_MARKERS):
             raise AmazonReauthRequiredError(
                 "Amazon session expired (auth wall detected). "
-                "Run 'lidltool amazon auth bootstrap' again."
+                "Run 'lidltool connectors auth bootstrap --source-id amazon_de' again."
             )
 
     def _enrich_order_from_details(self, context: BrowserContext, order: dict[str, Any]) -> None:

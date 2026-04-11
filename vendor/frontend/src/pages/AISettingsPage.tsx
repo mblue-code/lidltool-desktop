@@ -9,12 +9,14 @@ import {
   saveAISettings,
   startAIOAuth
 } from "@/api/aiSettings";
+import { fetchOCRSettings, saveOCRSettings } from "@/api/ocrSettings";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
@@ -42,13 +44,26 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   },
   { id: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
   { id: "groq", label: "Groq", baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile" },
-  { id: "ollama", label: "Ollama (local)", baseUrl: "http://localhost:11434/v1", model: "llama3.2" },
+  {
+    id: "local-openai-compatible",
+    label: "Local OpenAI-compatible",
+    baseUrl: "http://localhost:8000/v1",
+    model: "Qwen/Qwen3.5-0.8B"
+  },
   { id: "custom", label: "Custom", baseUrl: "", model: "" }
 ];
 
 const SUPPORTED_OAUTH_PROVIDERS = new Set<"openai-codex" | "github-copilot" | "google-gemini-cli">([
   "openai-codex"
 ]);
+const OCR_PROVIDER_OPTIONS = [
+  { id: "glm_ocr_local", label: "GLM-OCR Local" },
+  { id: "openai_compatible", label: "OpenAI-compatible API" }
+] as const;
+const GLM_LOCAL_API_MODE_OPTIONS = [
+  { id: "openai_chat_completion", label: "OpenAI-compatible (recommended)" },
+  { id: "ollama_generate", label: "Ollama compatibility" }
+] as const;
 
 function inferPreset(baseUrl: string | null, model: string): string {
   const normalizedBase = (baseUrl || "").trim().toLowerCase();
@@ -69,6 +84,10 @@ export function AISettingsPage() {
     queryKey: ["ai-settings"],
     queryFn: fetchAISettings
   });
+  const ocrSettingsQuery = useQuery({
+    queryKey: ["ocr-settings"],
+    queryFn: fetchOCRSettings
+  });
 
   const [activePreset, setActivePreset] = useState<string>("xai");
   const [baseUrl, setBaseUrl] = useState<string>("");
@@ -78,7 +97,19 @@ export function AISettingsPage() {
   const [oauthStatus, setOauthStatus] = useState<"idle" | "pending" | "connected" | "error">("idle");
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [ocrInitialized, setOcrInitialized] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
+  const [ocrDefaultProvider, setOcrDefaultProvider] = useState<string>("glm_ocr_local");
+  const [ocrFallbackEnabled, setOcrFallbackEnabled] = useState(false);
+  const [ocrFallbackProvider, setOcrFallbackProvider] = useState<string>("openai_compatible");
+  const [glmBaseUrl, setGlmBaseUrl] = useState("");
+  const [glmApiMode, setGlmApiMode] = useState<"ollama_generate" | "openai_chat_completion">(
+    "openai_chat_completion"
+  );
+  const [glmModel, setGlmModel] = useState("glm-ocr");
+  const [ocrOpenaiBaseUrl, setOcrOpenaiBaseUrl] = useState("");
+  const [ocrOpenaiModel, setOcrOpenaiModel] = useState("");
+  const [ocrSaveStatus, setOcrSaveStatus] = useState<{ ok: boolean; error: string | null } | null>(null);
 
   useEffect(() => {
     if (!settingsQuery.data || initialized) {
@@ -90,6 +121,31 @@ export function AISettingsPage() {
     setOauthStatus(settingsQuery.data.oauth_connected ? "connected" : "idle");
     setInitialized(true);
   }, [initialized, settingsQuery.data]);
+
+  useEffect(() => {
+    if (!ocrSettingsQuery.data || ocrInitialized) {
+      return;
+    }
+    setOcrDefaultProvider(ocrSettingsQuery.data.default_provider);
+    setOcrFallbackEnabled(ocrSettingsQuery.data.fallback_enabled);
+    setOcrFallbackProvider(ocrSettingsQuery.data.fallback_provider || "openai_compatible");
+    setGlmBaseUrl(ocrSettingsQuery.data.glm_local_base_url || "");
+    setGlmApiMode(ocrSettingsQuery.data.glm_local_api_mode);
+    setGlmModel(ocrSettingsQuery.data.glm_local_model || "glm-ocr");
+    setOcrOpenaiBaseUrl(ocrSettingsQuery.data.openai_base_url || "");
+    setOcrOpenaiModel(ocrSettingsQuery.data.openai_model || "");
+    setOcrInitialized(true);
+  }, [ocrInitialized, ocrSettingsQuery.data]);
+
+  useEffect(() => {
+    if (ocrFallbackProvider !== ocrDefaultProvider) {
+      return;
+    }
+    const nextFallback = OCR_PROVIDER_OPTIONS.find((option) => option.id !== ocrDefaultProvider);
+    if (nextFallback) {
+      setOcrFallbackProvider(nextFallback.id);
+    }
+  }, [ocrDefaultProvider, ocrFallbackProvider]);
 
   useEffect(() => {
     if (oauthStatus !== "pending") {
@@ -141,6 +197,36 @@ export function AISettingsPage() {
       setSaveStatus({
         ok: false,
         error: resolveApiErrorMessage(error, t, t("pages.aiSettings.error.save"))
+      });
+    }
+  });
+  const saveOCRMutation = useMutation({
+    mutationFn: () =>
+      saveOCRSettings({
+        default_provider: ocrDefaultProvider as "glm_ocr_local" | "openai_compatible",
+        fallback_enabled: ocrFallbackEnabled,
+        fallback_provider: ocrFallbackEnabled
+          ? (ocrFallbackProvider as "glm_ocr_local" | "openai_compatible")
+          : undefined,
+        glm_local_base_url: glmBaseUrl.trim(),
+        glm_local_api_mode: glmApiMode,
+        glm_local_model: glmModel.trim(),
+        openai_base_url: ocrOpenaiBaseUrl.trim() || undefined,
+        openai_model: ocrOpenaiModel.trim() || undefined
+      }),
+    onSuccess: (result) => {
+      if (!result.ok) {
+        setOcrSaveStatus({ ok: false, error: result.error || t("pages.aiSettings.ocr.validationFailed") });
+        return;
+      }
+      setOcrSaveStatus({ ok: true, error: null });
+      toast.success(t("pages.aiSettings.ocr.toast.saved"));
+      void queryClient.invalidateQueries({ queryKey: ["ocr-settings"] });
+    },
+    onError: (error) => {
+      setOcrSaveStatus({
+        ok: false,
+        error: resolveApiErrorMessage(error, t, t("pages.aiSettings.ocr.error.save"))
       });
     }
   });
@@ -201,8 +287,140 @@ export function AISettingsPage() {
     <section className="space-y-4">
       <PageHeader title={t("nav.item.aiAssistant")} />
       <Card>
-        <CardContent className="space-y-0 pt-6">
-          <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+        <CardContent className="space-y-4 pt-6">
+          <div className="space-y-1">
+            <h2 className="text-base font-semibold">{t("pages.aiSettings.ocr.title")}</h2>
+            <p className="text-sm text-muted-foreground">{t("pages.aiSettings.ocr.description")}</p>
+          </div>
+
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="ocr-default-provider">{t("pages.aiSettings.ocr.primaryProvider")}</Label>
+              <select
+                id="ocr-default-provider"
+                className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
+                value={ocrDefaultProvider}
+                onChange={(event) => setOcrDefaultProvider(event.target.value)}
+              >
+                {OCR_PROVIDER_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ocr-fallback-provider">{t("pages.aiSettings.ocr.fallbackProvider")}</Label>
+              <select
+                id="ocr-fallback-provider"
+                className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
+                value={ocrFallbackProvider}
+                onChange={(event) => setOcrFallbackProvider(event.target.value)}
+                disabled={!ocrFallbackEnabled}
+              >
+                {OCR_PROVIDER_OPTIONS.filter((option) => option.id !== ocrDefaultProvider).map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border px-3 py-2">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">{t("pages.aiSettings.ocr.enableFallback")}</p>
+              <p className="text-xs text-muted-foreground">{t("pages.aiSettings.ocr.enableFallbackHint")}</p>
+            </div>
+            <Switch checked={ocrFallbackEnabled} onCheckedChange={setOcrFallbackEnabled} />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="ocr-glm-base-url">{t("pages.aiSettings.ocr.glmBaseUrl")}</Label>
+              <Input
+                id="ocr-glm-base-url"
+                value={glmBaseUrl}
+                onChange={(event) => setGlmBaseUrl(event.target.value)}
+                placeholder={
+                  glmApiMode === "ollama_generate"
+                    ? "http://localhost:11434"
+                    : "http://glm-ocr:8080/v1"
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ocr-glm-api-mode">{t("pages.aiSettings.ocr.glmApiMode")}</Label>
+              <select
+                id="ocr-glm-api-mode"
+                className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
+                value={glmApiMode}
+                onChange={(event) =>
+                  setGlmApiMode(event.target.value as "ollama_generate" | "openai_chat_completion")
+                }
+              >
+                {GLM_LOCAL_API_MODE_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">{t("pages.aiSettings.ocr.glmApiModeHint")}</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ocr-glm-model">{t("pages.aiSettings.ocr.glmModel")}</Label>
+              <Input
+                id="ocr-glm-model"
+                value={glmModel}
+                onChange={(event) => setGlmModel(event.target.value)}
+                placeholder="glm-ocr"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="ocr-api-base-url">{t("pages.aiSettings.ocr.apiBaseUrl")}</Label>
+              <Input
+                id="ocr-api-base-url"
+                value={ocrOpenaiBaseUrl}
+                onChange={(event) => setOcrOpenaiBaseUrl(event.target.value)}
+                placeholder="https://api.openai.com/v1"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ocr-api-model">{t("pages.aiSettings.ocr.apiModel")}</Label>
+              <Input
+                id="ocr-api-model"
+                value={ocrOpenaiModel}
+                onChange={(event) => setOcrOpenaiModel(event.target.value)}
+                placeholder="gpt-4o-mini"
+              />
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            {ocrSettingsQuery.data?.openai_credentials_ready
+              ? t("pages.aiSettings.ocr.credentialsReady")
+              : t("pages.aiSettings.ocr.credentialsMissing")}
+          </p>
+
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={() => void saveOCRMutation.mutateAsync()}
+              disabled={saveOCRMutation.isPending}
+            >
+              {saveOCRMutation.isPending ? t("pages.aiSettings.testing") : t("pages.aiSettings.ocr.save")}
+            </Button>
+            {ocrSaveStatus?.ok ? (
+              <p className="text-sm text-green-600">{t("pages.aiSettings.savedSuccessfully")}</p>
+            ) : null}
+            {ocrSaveStatus && !ocrSaveStatus.ok ? (
+              <p className="text-sm text-destructive">{ocrSaveStatus.error}</p>
+            ) : null}
+          </div>
+          <div className="app-section-divider mt-4 flex items-center justify-between gap-3 pt-4 text-sm text-muted-foreground">
             <p>{connectionLabel}</p>
             <Button
               variant="destructive"
@@ -222,8 +440,7 @@ export function AISettingsPage() {
             />
           </div>
 
-          <div className="app-section-divider" />
-
+          <div className="app-section-divider mt-4 pt-4">
           <Tabs defaultValue="api-key" className="space-y-4">
             <TabsList>
               <TabsTrigger value="api-key">{t("pages.aiSettings.tab.apiKey")}</TabsTrigger>
@@ -345,6 +562,7 @@ export function AISettingsPage() {
               ) : null}
             </TabsContent>
           </Tabs>
+          </div>
         </CardContent>
       </Card>
     </section>

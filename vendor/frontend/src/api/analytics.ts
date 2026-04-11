@@ -22,8 +22,17 @@ const DepositAnalyticsSchema = z.object({
 
 export type DepositAnalytics = z.infer<typeof DepositAnalyticsSchema>;
 
-export async function fetchDepositAnalytics(): Promise<DepositAnalytics> {
-  return apiClient.get("/api/v1/analytics/deposits", DepositAnalyticsSchema);
+export async function fetchDepositAnalytics(params?: {
+  fromDate?: string;
+  toDate?: string;
+  sourceIds?: string[];
+}): Promise<DepositAnalytics> {
+  const normalizedSourceIds = Array.from(new Set((params?.sourceIds ?? []).map((value) => value.trim()).filter(Boolean))).sort();
+  return apiClient.get("/api/v1/analytics/deposits", DepositAnalyticsSchema, {
+    from_date: params?.fromDate,
+    to_date: params?.toDate,
+    source_ids: normalizedSourceIds.length > 0 ? normalizedSourceIds.join(",") : undefined
+  });
 }
 
 const HeatmapResponseSchema = z.object({

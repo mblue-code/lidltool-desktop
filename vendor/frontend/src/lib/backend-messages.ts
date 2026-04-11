@@ -35,6 +35,7 @@ const BACKEND_MESSAGE_KEYS = {
   resource_conflict: "backend.error.resourceConflict",
   service_not_ready: "backend.error.serviceNotReady",
   session_user_not_found: "backend.error.sessionUserNotFound",
+  setup_required: "backend.error.setupRequired",
   setup_already_completed: "backend.error.setupAlreadyCompleted",
   source_not_found: "backend.error.sourceNotFound",
   transaction_item_not_found: "backend.error.transactionItemNotFound",

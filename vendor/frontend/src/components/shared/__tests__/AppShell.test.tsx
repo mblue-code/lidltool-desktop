@@ -104,7 +104,11 @@ describe("AppShell", () => {
       model: "gpt-4o-mini",
       api_key_set: true,
       oauth_provider: "openai-codex",
-      oauth_connected: true
+      oauth_connected: true,
+      remote_enabled: true,
+      local_runtime_enabled: false,
+      local_runtime_ready: false,
+      local_runtime_status: "unavailable"
     });
     vi.spyOn(connectorsApi, "fetchConnectorSyncStatus").mockResolvedValue({
       source_id: "lidl_plus_de",
@@ -240,5 +244,26 @@ describe("AppShell", () => {
 
     expect(screen.getByRole("dialog", { name: "AI Assistant" })).toBeInTheDocument();
     expect(screen.getByText("Receipts content")).toBeInTheDocument();
+  });
+
+  it("shows stage-specific sync feedback instead of zeroed metrics during authentication", async () => {
+    vi.spyOn(connectorsApi, "fetchConnectorSyncStatus").mockImplementation(async (sourceId: string) => ({
+      source_id: sourceId,
+      status: sourceId === "edeka_de" ? "running" : "idle",
+      command: null,
+      pid: sourceId === "edeka_de" ? 42 : null,
+      started_at: sourceId === "edeka_de" ? "2026-04-11T13:08:20Z" : null,
+      finished_at: null,
+      return_code: null,
+      output_tail: sourceId === "edeka_de" ? ["stage=authenticating detail=checking_saved_session"] : [],
+      can_cancel: sourceId === "edeka_de"
+    }));
+
+    renderShell();
+
+    expect(await screen.findByText("EDEKA sync")).toBeInTheDocument();
+    expect(screen.getByText("Checking saved sign-in...")).toBeInTheDocument();
+    expect(screen.queryByText(/pages=0/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/seen=0/i)).not.toBeInTheDocument();
   });
 });

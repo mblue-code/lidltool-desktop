@@ -43,10 +43,10 @@ main app offers a clean upstream equivalent.
   `vendor/frontend/src/utils/money-input.ts` parsing path.
   Desktop keeps this stricter euro-input handling because the packaged app still targets local manual entry with
   comma-or-dot decimal input rather than introducing a separate desktop-only amount widget.
-- Connector lifecycle UI stays close to main, but desktop-owned pack install, trust, and update actions still hand off
-  to the Electron control center from `overrides/frontend/src/pages/ConnectorsPage.tsx`.
-  The full app remains the place for one-off setup and sync, while control-center ownership is preserved for trusted
-  pack management.
+- Connector lifecycle UI stays close to main, and desktop-owned pack install, trust, and update actions are surfaced
+  directly on the desktop connectors page in `overrides/frontend/src/pages/ConnectorsPage.tsx`.
+  The full app remains the place for one-off setup and sync, while desktop-specific pack management stays available on
+  the same connectors surface.
 - AI settings stay on a desktop-safe fork of the vendored page and tests.
   The current desktop page keeps chat-oriented provider controls while continuing to hide OCR-provider management and
   other self-hosted runtime assumptions.
@@ -94,9 +94,13 @@ Typical desktop flow:
 - Backend receives:
   - `LIDLTOOL_FRONTEND_DIST`
   - `LIDLTOOL_REPO_ROOT`
+  - `LIDLTOOL_CONFIG_DIR` rooted inside the Electron `userData` profile
+  - `LIDLTOOL_DOCUMENT_STORAGE_PATH` rooted inside the Electron `userData` profile
   - `LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY`
   - desktop-managed connector plugin env vars for explicitly enabled receipt plugin packs
   - `PLAYWRIGHT_BROWSERS_PATH=0` for bundled or managed venv backends
+- Desktop defaults `config.toml`/`token.json` and document storage to the app profile instead of shared
+  `~/.config/lidltool` or `~/.local/share/lidltool` paths, so packaged runs stay isolated from self-hosted state.
 
 Control-center states:
 - full-app-ready: bundled frontend pages are present and the main app can open normally
@@ -120,8 +124,8 @@ Scope:
 - recurring offer scraping and alerts remain out of desktop scope
 
 Management surface:
-- use the Electron control center
-- if the app boots straight into the full web UI, use the desktop menu action `Reload control center`
+- use the connectors page inside the desktop app for local pack import, trusted pack install, enable/disable, and removal
+- the Electron control center still reflects the same pack state, but it is no longer required for basic pack management
 
 Activation model:
 - imported packs install disabled by default
@@ -131,18 +135,18 @@ Activation model:
 - revoked, invalid, or incompatible packs stay visible but blocked from activation
 - enabling, disabling, updating, or removing a pack restarts the local backend when needed
 
-Support and trust labels shown in the control center:
+Support and trust labels shown in the desktop pack UI:
 - `official`: project-maintained desktop path
 - `community_verified`: signed community pack allowed by trusted desktop distribution
 - `community_unsigned`: manual import only, kept under conservative trust labeling
 - `local_custom`: operator-supplied local pack with no upstream support promise
 
 Desktop workflow:
-1. Open the control center.
+1. Open the connectors page in the desktop app.
 2. Use `Import local pack` for a ZIP file, or choose `Install trusted pack` for a verified catalog entry.
 3. Review the status, trust, support, and market-profile messaging.
 4. Enable the pack explicitly if you want desktop to load it into the next backend run.
-5. Use the same control center to install a trusted update, disable a pack, or remove it from local storage.
+5. Use the same connectors page to install a trusted update, disable a pack, or remove it from local storage.
 
 ### Pack format
 
@@ -767,3 +771,277 @@ Observed result:
   - token: `/tmp/lidltool-import-fresh-config/token.json`
   - documents: `/tmp/lidltool-import-fresh-docs/example.txt`
   - credential key: `/tmp/lidltool-import-fresh-userdata/credential_encryption_key.txt`
+
+## Electron security hardening plan
+
+This section defines the desktop security-hardening plan for AI-driven Python analysis in the Electron product.
+
+### Problem statement
+
+Desktop currently ships an agent tool surface that includes arbitrary Python execution for flexible analysis. That is
+useful for open-ended analytics, but the current host-subprocess pattern is not an acceptable security boundary for a
+packaged desktop app on macOS or Windows.
+
+We need to preserve Python-based analysis while removing host-level arbitrary code execution from the normal desktop
+runtime path.
+
+### Non-goals
+
+- Do not preserve compatibility with older desktop installs.
+- Do not design a migration path for earlier sandbox or exec-tool formats.
+- Do not support arbitrary shell or terminal access from the agent.
+- Do not optimize this design around self-hosted Docker deployments; this section is for the Electron desktop product.
+
+### Migration assumption
+
+There is currently no production installation base for desktop, so we do not need migration shims, dual-write paths,
+legacy schema compatibility, upgrade jobs, or compatibility with older analysis worker formats. We can ship the first
+secure implementation as the only supported desktop execution path.
+
+### Security goals
+
+- Keep Python execution available for analytics.
+- Remove arbitrary host Python execution from the main backend runtime.
+- Prevent agent-driven access to secrets, user files, plugin payloads, and network by default.
+- Restrict analysis runs to a job-local workspace plus a read-only data snapshot.
+- Enforce timeout, memory, output-size, and concurrency limits outside the Python runtime.
+- Keep the implementation fully inside the packaged Electron app for macOS and Windows.
+
+### Recommended architecture
+
+Desktop runtime layout:
+
+1. Electron renderer creates agent requests and sends structured tool calls to the local backend.
+2. The local backend acts as an analysis broker, not as the execution environment.
+3. The broker prepares a job directory and a read-only database snapshot or reduced analysis dataset.
+4. The broker launches a packaged sandbox worker as a separate helper process.
+5. The worker executes Python inside a real sandbox boundary and writes structured results back to the job directory.
+6. The broker validates results, stores audit metadata, returns sanitized output to the frontend, and cleans up.
+
+### Isolation model
+
+Primary boundary:
+
+- Use a dedicated packaged analysis worker instead of host Python in the main backend.
+- Run Python inside a WASI/WebAssembly sandbox or equivalent restricted runtime inside the helper.
+- Mount only the per-job workspace into the worker.
+- Do not provide network, subprocess spawning, shared user-data directories, config paths, document paths, or plugin
+  paths to the worker.
+
+Defense in depth:
+
+- Validate submitted code before execution.
+- Provide a narrow allowed module set.
+- Strip dangerous builtins.
+- Cap stdout, stderr, and artifact sizes.
+- Restrict result formats to declared structured outputs.
+
+### Data-access model
+
+Allowed worker inputs:
+
+- a read-only SQLite snapshot, or
+- a broker-generated reduced dataset containing only approved tables/views.
+
+Disallowed worker inputs:
+
+- live primary database path
+- `config.toml`
+- `token.json`
+- credential encryption key
+- document storage
+- plugin directories
+- arbitrary filesystem access outside the job workspace
+
+Recommended first implementation:
+
+- Create a read-only SQLite snapshot per job because it minimizes application changes.
+- Move to reduced approved datasets later if snapshot size or privacy scope becomes an issue.
+
+### Runtime policy
+
+Every analysis run must enforce:
+
+- timeout
+- memory limit
+- single-job or low-concurrency execution
+- max output bytes
+- max returned rows
+- max artifact count
+- full cleanup on timeout or crash
+
+Platform-specific enforcement:
+
+- Windows: wrap the worker process in a Job Object and apply process/memory kill behavior there.
+- macOS: launch the worker in its own process group and kill the entire group on timeout or failure.
+
+### Packaging model
+
+The desktop app bundle should contain:
+
+- Electron shell
+- bundled backend runtime
+- bundled frontend assets
+- bundled analysis worker helper
+- worker runtime assets required for sandboxed Python execution
+
+Packaging expectations:
+
+- macOS app bundle contains a signed helper binary under desktop resources.
+- Windows installer contains the helper executable under desktop resources.
+- Helper resolution follows the same packaged-versus-dev lookup pattern as the existing backend runtime.
+
+### API and tooling changes
+
+Replace the current raw exec path with a dedicated analysis path.
+
+Backend:
+
+- Add `POST /api/v1/tools/analysis-python`.
+- Remove desktop reliance on `POST /api/v1/tools/exec`.
+- Keep the old raw exec path disabled for desktop builds.
+
+Frontend agent tools:
+
+- Remove `execute_python` from the desktop-exposed tool list.
+- Add `run_analysis_python` with a description that explicitly states:
+  - no network
+  - read-only dataset access only
+  - structured outputs preferred
+  - host shell access unavailable
+
+### Backend broker responsibilities
+
+Create a new desktop analysis broker module responsible for:
+
+- auth and policy checks
+- request schema validation
+- code hashing and audit metadata
+- job directory creation
+- snapshot generation
+- worker launch
+- timeout and resource enforcement
+- result parsing
+- cleanup
+- error normalization
+
+### Worker contract
+
+The worker should accept a manifest containing:
+
+- job id
+- code
+- timeout
+- memory limit
+- mounted input files
+- declared output path
+- allowed module profile
+
+The worker should return structured JSON containing:
+
+- `ok`
+- `stdout`
+- `stderr`
+- `exit_code`
+- `artifacts`
+- `metrics`
+- `truncated`
+- `policy_version`
+
+### Audit and observability
+
+The desktop app should record for each analysis run:
+
+- user id
+- chat thread id if present
+- code hash
+- start/end timestamps
+- duration
+- timeout/memory policy
+- worker exit status
+- output size
+- artifact count
+- sandbox version
+
+Do not store raw submitted code long-term unless product/privacy policy explicitly allows it. Prefer storing a code
+hash and short execution summary.
+
+### Phase plan
+
+Phase 1: secure broker skeleton
+
+- Add a new analysis broker module.
+- Add the new `analysis-python` endpoint.
+- Add a packaged helper that only validates manifests and echoes a static result.
+- Add job-directory creation, cleanup, timeout plumbing, and audit logging.
+- Remove desktop dependence on the old raw exec route from the agent tool list.
+
+Phase 2: snapshot-based execution
+
+- Generate per-job read-only SQLite snapshots.
+- Pass only the snapshot and a manifest into the helper.
+- Return structured stdout/stderr/results through the broker.
+- Add output-size and concurrency controls.
+
+Phase 3: real sandbox enforcement
+
+- Replace any placeholder execution path with the real sandbox runtime.
+- Enforce no-network, no-subprocess, no-host-filesystem guarantees in the worker boundary.
+- Add AST validation and restricted builtins as defense in depth.
+
+Phase 4: UX and diagnostics
+
+- Show sandbox status in desktop diagnostics.
+- Show clear user-facing errors for timeouts, policy violations, and unavailable worker runtime.
+- Add test coverage for packaged macOS and Windows builds.
+
+### Acceptance criteria
+
+Desktop is considered hardened for agent-driven Python analysis when all of the following are true:
+
+- The agent cannot trigger host-level arbitrary Python execution from the normal desktop tool path.
+- Analysis code runs only in the packaged sandbox worker.
+- The worker cannot read config, token, credential key, documents, or plugin payloads.
+- The worker cannot open outbound network connections.
+- The worker cannot spawn subprocesses.
+- The worker can only access the provided analysis snapshot/workspace.
+- The worker is terminated reliably on timeout or memory breach.
+- Packaged builds for macOS and Windows both pass the same analysis-worker integration tests.
+
+### Sprint 1 scope
+
+Sprint 1 should establish the new architecture without yet delivering the final sandbox runtime.
+
+Sprint 1 deliverables:
+
+- new `analysis-python` endpoint and request/response schema
+- new backend analysis broker module
+- job workspace creation and cleanup
+- packaged helper path resolution in desktop runtime/build flow
+- placeholder helper that returns deterministic JSON without executing host Python
+- desktop tool-list swap from raw `execute_python` to `run_analysis_python`
+- audit logging for requests and worker results
+- tests proving the desktop agent no longer depends on `/api/v1/tools/exec`
+
+Sprint 1 explicit exclusions:
+
+- final WASI runtime integration
+- pandas/dataframe ergonomics
+- reduced-dataset export format
+- migration support for old desktop installs
+
+### Sprint 1 implementation checklist
+
+- Add a new analysis module tree under `apps/desktop/vendor/backend/src/lidltool/analysis/`.
+- Add broker entry points for manifest building, job workspace allocation, helper launch, and cleanup.
+- Add `POST /api/v1/tools/analysis-python` to the desktop backend.
+- Keep `http_tools_exec_enabled` disabled by default and stop relying on it in desktop agent flows.
+- Replace desktop agent `execute_python` usage with `run_analysis_python`.
+- Add build-time packaging for an `analysis-worker` resource.
+- Add runtime helper lookup for packaged and dev modes.
+- Add integration tests for:
+  - endpoint auth
+  - deterministic helper execution
+  - timeout handling
+  - cleanup behavior
+  - tool-list migration away from `/api/v1/tools/exec`

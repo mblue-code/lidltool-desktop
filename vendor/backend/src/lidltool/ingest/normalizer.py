@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -99,6 +100,24 @@ def to_decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:
     return default
 
 
+def _normalize_store_field(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _fallback_store_id(*, store_id: Any, store_name: Any, store_address: Any) -> str | None:
+    explicit = _normalize_store_field(store_id)
+    if explicit is not None:
+        return explicit
+    parts = [part for part in (_normalize_store_field(store_name), _normalize_store_field(store_address)) if part]
+    if not parts:
+        return None
+    digest = hashlib.sha1("::".join(parts).encode("utf-8")).hexdigest()[:16]
+    return f"store:{digest}"
+
+
 def normalize_receipt(
     receipt_detail: dict[str, Any],
     summary: dict[str, Any] | None = None,
@@ -161,7 +180,15 @@ def normalize_receipt(
         raw_discounts = raw_item.get("discounts")
         discounts: list[dict[str, Any]] = raw_discounts if isinstance(raw_discounts, list) else []
 
-        category = categorize_name(name, category_rules or [])
+        source_category = _first_present(
+            raw_item,
+            ["category", "department", "group", "itemCategory", "section"],
+        )
+        category = (
+            str(source_category)
+            if source_category is not None and str(source_category).strip()
+            else categorize_name(name, category_rules or [])
+        )
         normalized_items.append(
             NormalizedReceiptItem(
                 line_no=idx,
@@ -185,12 +212,20 @@ def normalize_receipt(
         item_names=[item.name for item in normalized_items],
     )
 
+    normalized_store_name = _normalize_store_field(store_name)
+    normalized_store_address = _normalize_store_field(store_address)
+    normalized_store_id = _fallback_store_id(
+        store_id=store_id,
+        store_name=normalized_store_name,
+        store_address=normalized_store_address,
+    )
+
     return NormalizedReceipt(
         id=rid,
         purchased_at=purchased_at,
-        store_id=str(store_id) if store_id else None,
-        store_name=str(store_name) if store_name else None,
-        store_address=str(store_address) if store_address else None,
+        store_id=normalized_store_id,
+        store_name=normalized_store_name,
+        store_address=normalized_store_address,
         total_gross=total_gross,
         currency=currency,
         discount_total=discount_total,

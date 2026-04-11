@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+import os
+from datetime import UTC, datetime, time, timedelta, tzinfo
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ALLOWED_RULE_TYPES = {
     "category_auto_tagging",
     "budget_alert",
+    "offer_refresh",
     "weekly_summary",
     "recurring_due_soon_alert",
     "recurring_overdue_alert",
@@ -24,6 +27,59 @@ def _as_dict(value: dict[str, Any] | None) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _normalize_weekday(value: object) -> int:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        weekday_map = {
+            "mon": 0,
+            "monday": 0,
+            "tue": 1,
+            "tues": 1,
+            "tuesday": 1,
+            "wed": 2,
+            "wednesday": 2,
+            "thu": 3,
+            "thur": 3,
+            "thurs": 3,
+            "thursday": 3,
+            "fri": 4,
+            "friday": 4,
+            "sat": 5,
+            "saturday": 5,
+            "sun": 6,
+            "sunday": 6,
+        }
+        if normalized in weekday_map:
+            return weekday_map[normalized]
+    weekday = int(value)
+    if weekday < 0 or weekday > 6:
+        raise ValueError("trigger_config.schedule.weekday must be between 0 and 6")
+    return weekday
+
+
+def _normalize_timezone_name(value: object) -> str | None:
+    if value is None:
+        return None
+    timezone_name = str(value).strip()
+    if not timezone_name:
+        return None
+    try:
+        ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError("trigger_config.schedule.timezone must be a valid IANA timezone") from exc
+    return timezone_name
+
+
+def _resolve_schedule_timezone(schedule: dict[str, Any]) -> tzinfo:
+    timezone_name = _normalize_timezone_name(schedule.get("timezone"))
+    if timezone_name:
+        return ZoneInfo(timezone_name)
+    env_timezone = _normalize_timezone_name(os.getenv("TZ"))
+    if env_timezone:
+        return ZoneInfo(env_timezone)
+    return datetime.now().astimezone().tzinfo or UTC
+
+
 def validate_trigger_config(value: dict[str, Any] | None) -> dict[str, Any]:
     trigger = _as_dict(value)
     schedule = trigger.get("schedule")
@@ -31,10 +87,30 @@ def validate_trigger_config(value: dict[str, Any] | None) -> dict[str, Any]:
         schedule = {}
     if not isinstance(schedule, dict):
         raise ValueError("trigger_config.schedule must be an object")
-    interval_seconds = int(schedule.get("interval_seconds", 3600))
-    if interval_seconds < 60:
-        raise ValueError("trigger_config.schedule.interval_seconds must be >= 60")
-    out: dict[str, Any] = {"schedule": {"interval_seconds": interval_seconds}}
+    schedule_mode = str(schedule.get("mode") or "interval").strip().lower()
+    if schedule_mode == "weekly":
+        weekday = _normalize_weekday(schedule.get("weekday", 0))
+        hour = int(schedule.get("hour", 9))
+        minute = int(schedule.get("minute", 0))
+        timezone_name = _normalize_timezone_name(schedule.get("timezone"))
+        if hour < 0 or hour > 23:
+            raise ValueError("trigger_config.schedule.hour must be between 0 and 23")
+        if minute < 0 or minute > 59:
+            raise ValueError("trigger_config.schedule.minute must be between 0 and 59")
+        normalized_schedule: dict[str, Any] = {
+            "mode": "weekly",
+            "weekday": weekday,
+            "hour": hour,
+            "minute": minute,
+        }
+        if timezone_name:
+            normalized_schedule["timezone"] = timezone_name
+        out = {"schedule": normalized_schedule}
+    else:
+        interval_seconds = int(schedule.get("interval_seconds", 3600))
+        if interval_seconds < 60:
+            raise ValueError("trigger_config.schedule.interval_seconds must be >= 60")
+        out = {"schedule": {"mode": "interval", "interval_seconds": interval_seconds}}
     merchant_contains = trigger.get("merchant_contains")
     if merchant_contains is not None:
         out["merchant_contains"] = str(merchant_contains).strip()
@@ -66,6 +142,28 @@ def validate_action_config(rule_type: str, value: dict[str, Any] | None) -> dict
         out["period"] = str(action.get("period", "monthly")).strip().lower()
         if out["period"] not in {"monthly", "yearly"}:
             raise ValueError("budget_alert action_config.period must be monthly or yearly")
+        return out
+    if rule_type == "offer_refresh":
+        raw_source_ids = action.get("source_ids")
+        if raw_source_ids is None:
+            out["source_ids"] = []
+        elif isinstance(raw_source_ids, (list, tuple)):
+            source_ids: list[str] = []
+            seen: set[str] = set()
+            for item in raw_source_ids:
+                candidate = str(item).strip()
+                if not candidate or candidate in seen:
+                    continue
+                seen.add(candidate)
+                source_ids.append(candidate)
+            out["source_ids"] = source_ids
+        else:
+            raise ValueError("offer_refresh action_config.source_ids must be a list or tuple")
+        discovery_limit = action.get("discovery_limit")
+        if discovery_limit is not None:
+            out["discovery_limit"] = int(discovery_limit)
+            if out["discovery_limit"] < 1:
+                raise ValueError("offer_refresh action_config.discovery_limit must be >= 1")
         return out
     if rule_type == "weekly_summary":
         out["months_back"] = int(action.get("months_back", 3))
@@ -104,5 +202,21 @@ def next_run_at(*, trigger_config: dict[str, Any], from_time: datetime | None = 
     schedule = trigger_config.get("schedule") if isinstance(trigger_config, dict) else {}
     if not isinstance(schedule, dict):
         schedule = {}
+    schedule_mode = str(schedule.get("mode") or "interval").strip().lower()
+    if schedule_mode == "weekly":
+        local_tz = _resolve_schedule_timezone(schedule)
+        local_base = base.astimezone(local_tz)
+        weekday = _normalize_weekday(schedule.get("weekday", 0))
+        hour = int(schedule.get("hour", 9))
+        minute = int(schedule.get("minute", 0))
+        days_ahead = (weekday - local_base.date().weekday()) % 7
+        candidate_date = local_base.date() + timedelta(days=days_ahead)
+        candidate = datetime.combine(
+            candidate_date,
+            time(hour=hour, minute=minute, tzinfo=local_tz),
+        )
+        if candidate <= local_base:
+            candidate = candidate + timedelta(days=7)
+        return candidate.astimezone(UTC)
     interval_seconds = int(schedule.get("interval_seconds", 3600))
     return base + timedelta(seconds=max(interval_seconds, 60))

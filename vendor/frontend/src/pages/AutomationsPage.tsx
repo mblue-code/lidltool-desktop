@@ -163,6 +163,10 @@ const automationSubmitSchema = z.discriminatedUnion("ruleType", [
 
 type AutomationSubmitValues = z.infer<typeof automationSubmitSchema>;
 
+function isEditableRuleType(value: string): value is RuleType {
+  return value === "category_auto_tagging" || value === "budget_alert" || value === "weekly_summary";
+}
+
 function parseOffset(raw: string | null): number {
   const value = Number(raw ?? "0");
   if (!Number.isFinite(value)) {
@@ -227,12 +231,9 @@ function toFormState(rule: AutomationRule): AutomationFormValues {
   const trigger = rule.trigger_config || {};
   const action = rule.action_config || {};
   const schedule = trigger.schedule as Record<string, unknown> | undefined;
-  const editableRuleType: RuleType =
-    rule.rule_type === "category_auto_tagging" ||
-    rule.rule_type === "budget_alert" ||
-    rule.rule_type === "weekly_summary"
-      ? rule.rule_type
-      : "weekly_summary";
+  const editableRuleType: RuleType = isEditableRuleType(rule.rule_type)
+    ? rule.rule_type
+    : "weekly_summary";
   return {
     name: rule.name,
     ruleType: editableRuleType,
@@ -342,6 +343,10 @@ export function AutomationsPage() {
   }
 
   function beginEdit(rule: AutomationRule): void {
+    if (!isEditableRuleType(rule.rule_type)) {
+      setMutationError("This automation template is currently managed from its owning page.");
+      return;
+    }
     setEditingRuleId(rule.id);
     form.reset(toFormState(rule));
     setMutationError(null);
@@ -499,7 +504,13 @@ export function AutomationsPage() {
                     <TableCell>{rule.last_run_at ? formatDateTime(rule.last_run_at) : "-"}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-2">
-                        <Button type="button" variant="outline" size="sm" onClick={() => beginEdit(rule)}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => beginEdit(rule)}
+                          disabled={!isEditableRuleType(rule.rule_type)}
+                        >
                           Edit
                         </Button>
                         <Button

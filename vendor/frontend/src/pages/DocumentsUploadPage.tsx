@@ -16,7 +16,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -114,6 +114,7 @@ export function DocumentsUploadPage() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState<boolean>(false);
+  const [showAdvancedFields, setShowAdvancedFields] = useState(false);
   const [uploadState, setUploadState] = useState<UploadStatus>("idle");
 
   const uploadFormSchema = useMemo(
@@ -182,6 +183,32 @@ export function DocumentsUploadPage() {
 
   const currentStatus = statusQuery.data?.status || uploadResult?.status || "pending";
 
+  async function startProcessing(documentId: string): Promise<void> {
+    setUploadState("processing");
+    try {
+      const result = await processMutation.mutateAsync(documentId);
+      const reusedSuffix = result.reused ? " (reused)" : "";
+      setProcessResult(result);
+      setTimeline((previous) => [
+        {
+          key: `process:${result.job_id}:${Date.now()}`,
+          title: t("pages.documentsUpload.timeline.processTitle"),
+          detail: t("pages.documentsUpload.timeline.processDetail", {
+            jobId: result.job_id,
+            status: result.status,
+            reusedSuffix
+          }),
+          createdAt: new Date().toISOString()
+        },
+        ...previous
+      ]);
+      setStatusMessage(t("pages.documentsUpload.processingStarted"));
+    } catch (error) {
+      setErrorMessage(resolveApiErrorMessage(error, t, t("pages.documentsUpload.processFailed")));
+      setUploadState("error");
+    }
+  }
+
   useEffect(() => {
     if (!statusQuery.data || !activeDocumentId) {
       return;
@@ -236,43 +263,12 @@ export function DocumentsUploadPage() {
       ]);
       lastStatusRef.current = null;
       setStatusMessage(t("pages.documentsUpload.uploaded"));
-      setUploadState("idle");
+      await startProcessing(result.document_id);
     } catch (error) {
       setErrorMessage(resolveApiErrorMessage(error, t, t("pages.documentsUpload.uploadFailed")));
       setUploadState("error");
     }
   });
-
-  async function handleProcess(): Promise<void> {
-    if (!uploadResult) {
-      return;
-    }
-    setStatusMessage(null);
-    setErrorMessage(null);
-    setUploadState("processing");
-    try {
-      const result = await processMutation.mutateAsync(uploadResult.document_id);
-      const reusedSuffix = result.reused ? " (reused)" : "";
-      setProcessResult(result);
-      setTimeline((previous) => [
-        {
-          key: `process:${result.job_id}:${Date.now()}`,
-          title: t("pages.documentsUpload.timeline.processTitle"),
-          detail: t("pages.documentsUpload.timeline.processDetail", {
-            jobId: result.job_id,
-            status: result.status,
-            reusedSuffix
-          }),
-          createdAt: new Date().toISOString()
-        },
-        ...previous
-      ]);
-      setStatusMessage(t("pages.documentsUpload.processingStarted"));
-    } catch (error) {
-      setErrorMessage(resolveApiErrorMessage(error, t, t("pages.documentsUpload.processFailed")));
-      setUploadState("error");
-    }
-  }
 
   function handleFileInputChange(event: ChangeEvent<HTMLInputElement>): void {
     const nextFile = event.target.files?.[0] || null;
@@ -306,7 +302,7 @@ export function DocumentsUploadPage() {
 
   return (
     <section className="space-y-4">
-      <PageHeader title={t("nav.item.ocrImport")} />
+      <PageHeader title={t("nav.item.ocrImport")} description={t("pages.documentsUpload.description")} />
       <Card>
         <CardContent className="space-y-4 pt-6">
           <div
@@ -345,44 +341,54 @@ export function DocumentsUploadPage() {
             ) : null}
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="document-source">{t("pages.documentsUpload.source")}</Label>
-              <Input id="document-source" placeholder="ocr_upload" {...form.register("source")} />
-              {form.formState.errors.source ? (
-                <p className="text-xs text-destructive">{form.formState.errors.source.message}</p>
-              ) : null}
+          <Button type="button" variant="outline" size="sm" onClick={() => setShowAdvancedFields((current) => !current)}>
+            {t(showAdvancedFields ? "pages.documentsUpload.hideAdvanced" : "pages.documentsUpload.showAdvanced")}
+          </Button>
+
+          {showAdvancedFields ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="document-source">{t("pages.documentsUpload.source")}</Label>
+                <Input id="document-source" placeholder="ocr_upload" {...form.register("source")} />
+                {form.formState.errors.source ? (
+                  <p className="text-xs text-destructive">{form.formState.errors.source.message}</p>
+                ) : null}
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="document-metadata">{t("pages.documentsUpload.metadataJson")}</Label>
+                <Textarea id="document-metadata" rows={5} {...form.register("metadataJson")} />
+                {form.formState.errors.metadataJson ? (
+                  <p className="text-xs text-destructive">{form.formState.errors.metadataJson.message}</p>
+                ) : null}
+              </div>
             </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="document-metadata">{t("pages.documentsUpload.metadataJson")}</Label>
-              <Textarea id="document-metadata" rows={5} {...form.register("metadataJson")} />
-              {form.formState.errors.metadataJson ? (
-                <p className="text-xs text-destructive">{form.formState.errors.metadataJson.message}</p>
-              ) : null}
-            </div>
-          </div>
+          ) : null}
 
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               onClick={() => void handleUpload()}
-              disabled={!selectedFile || uploadMutation.isPending}
+              disabled={!selectedFile || uploadMutation.isPending || processMutation.isPending}
             >
-              {uploadMutation.isPending ? t("pages.documentsUpload.uploading") : t("pages.documentsUpload.upload")}
+              {uploadMutation.isPending || processMutation.isPending
+                ? t("pages.documentsUpload.uploading")
+                : t("pages.documentsUpload.upload")}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              aria-label={
-                processMutation.isPending
-                  ? t("pages.documentsUpload.startingProcessAria")
-                  : t("pages.documentsUpload.triggerProcessAria")
-              }
-              onClick={() => void handleProcess()}
-              disabled={!uploadResult || processMutation.isPending}
-            >
-              {processMutation.isPending ? t("pages.documentsUpload.startingProcess") : t("pages.documentsUpload.triggerProcess")}
-            </Button>
+            {uploadResult ? (
+              <Button
+                type="button"
+                variant="outline"
+                aria-label={
+                  processMutation.isPending
+                    ? t("pages.documentsUpload.startingProcessAria")
+                    : t("pages.documentsUpload.triggerProcessAria")
+                }
+                onClick={() => void startProcessing(uploadResult.document_id)}
+                disabled={processMutation.isPending}
+              >
+                {processMutation.isPending ? t("pages.documentsUpload.startingProcess") : t("pages.documentsUpload.triggerProcess")}
+              </Button>
+            ) : null}
             <UploadStateChip state={uploadState} />
             <span className="sr-only" aria-live="polite">
               State: {uploadState}
@@ -412,11 +418,8 @@ export function DocumentsUploadPage() {
               <AlertDescription>{errorMessage}</AlertDescription>
             </Alert>
           ) : null}
-
-          <div className="app-section-divider space-y-4">
-            <h2 className="font-semibold leading-none tracking-tight">{t("pages.documentsUpload.timelineTitle")}</h2>
-          </div>
-
+          <div className="app-section-divider mt-4 pt-4 space-y-4">
+          <p className="text-sm font-medium">{t("pages.documentsUpload.timelineTitle")}</p>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="font-mono text-xs">
               {uploadResult?.document_id ? `doc: ${uploadResult.document_id}` : t("pages.documentsUpload.noDocument")}
@@ -444,6 +447,7 @@ export function DocumentsUploadPage() {
               ))}
             </ol>
           )}
+          </div>
         </CardContent>
       </Card>
     </section>

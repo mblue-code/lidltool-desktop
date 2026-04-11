@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import re
 import time
-from io import BytesIO
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -1342,14 +1342,16 @@ class DmPlaywrightClient:
         if not self._state_file.exists():
             raise DmReauthRequiredError(
                 f"dm session state missing: {self._state_file}. "
-                "Run 'lidltool dm auth bootstrap' first."
+                "Run 'lidltool connectors auth bootstrap --source-id dm_de' first."
             )
 
         out: list[dict[str, Any]] = []
         seen: set[str] = set()
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=self._headless)
+            from lidltool.connectors.auth.browser_runtime import launch_playwright_chromium
+
+            browser = launch_playwright_chromium(playwright=playwright, headless=self._headless)
             context = browser.new_context(storage_state=str(self._state_file))
             page = context.new_page()
             detail_page = context.new_page() if self._detail_fetch_limit != 0 else None
@@ -1637,12 +1639,12 @@ class DmPlaywrightClient:
             try:
                 detail_page.goto(details_url, wait_until="domcontentloaded")
                 detail_page.wait_for_timeout(1500)
-            except Exception:
+            except Exception as exc:
                 if api_unauthorized:
                     raise DmReauthRequiredError(
                         "dm session is not authorized for account eBon API access. "
-                        "Run 'lidltool dm auth bootstrap' again, open 'Meine Einkaeufe', then retry."
-                    )
+                        "Run 'lidltool connectors auth bootstrap --source-id dm_de' again, open 'Meine Einkaeufe', then retry."
+                    ) from exc
                 return None
 
         self._dismiss_common_overlays(detail_page)
@@ -1673,7 +1675,7 @@ class DmPlaywrightClient:
         if detail_payload is None and api_unauthorized:
             raise DmReauthRequiredError(
                 "dm session is not authorized for account eBon API access. "
-                "Run 'lidltool dm auth bootstrap' again, open 'Meine Einkaeufe', then retry."
+                "Run 'lidltool connectors auth bootstrap --source-id dm_de' again, open 'Meine Einkaeufe', then retry."
             )
         return detail_payload
 
@@ -1689,9 +1691,8 @@ class DmPlaywrightClient:
             "button:has-text('Kassenbon')",
             "button:has-text('Bon anzeigen')",
         )
-        response_predicate = (
-            lambda response: _DM_DOWNLOAD_URL_TOKEN in response.url and "/download" in response.url
-        )
+        def response_predicate(response: Any) -> bool:
+            return _DM_DOWNLOAD_URL_TOKEN in response.url and "/download" in response.url
 
         for selector in selectors:
             try:
@@ -1820,7 +1821,7 @@ class DmPlaywrightClient:
         url = str(page.url).lower()
         if any(pattern in url for pattern in _REAUTH_URL_PATTERNS):
             raise DmReauthRequiredError(
-                "dm session expired or invalid. Run 'lidltool dm auth bootstrap' again."
+                "dm session expired or invalid. Run 'lidltool connectors auth bootstrap --source-id dm_de' again."
             )
 
     def _dismiss_common_overlays(self, page: Page) -> None:
@@ -1863,7 +1864,7 @@ class DmPlaywrightClient:
         if (has_error or has_login_iframe) and not has_positive_auth:
             raise DmReauthRequiredError(
                 "dm session was captured without a fully authenticated account page. "
-                "Run 'lidltool dm auth bootstrap' again, accept privacy notices, open 'Meine Einkaeufe', then press Enter."
+                "Run 'lidltool connectors auth bootstrap --source-id dm_de' again, accept privacy notices, open 'Meine Einkaeufe', then press Enter."
             )
 
     def _maybe_dump_html(self, page: Page, *, prefix: str) -> None:

@@ -204,6 +204,32 @@ describe("DashboardPage", () => {
           };
         }
 
+        if (url.pathname === "/api/v1/analytics/deposits") {
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              result: {
+                date_from: url.searchParams.get("from_date") ?? "2026-02-01",
+                date_to: url.searchParams.get("to_date") ?? "2026-02-29",
+                total_paid_cents: 2675,
+                total_returned_cents: 0,
+                net_outstanding_cents: 2675,
+                monthly: [
+                  {
+                    month: "2026-02",
+                    paid_cents: 2675,
+                    returned_cents: 0,
+                    net_cents: 2675
+                  }
+                ]
+              },
+              warnings: [],
+              error: null
+            })
+          };
+        }
+
         throw new Error(`Unexpected request ${url.pathname}`);
       })
     );
@@ -216,11 +242,19 @@ describe("DashboardPage", () => {
       expect(screen.getByDisplayValue("2024")).toBeInTheDocument();
       expect(screen.getByRole("combobox", { name: "Month" })).toHaveTextContent("March");
       expect(screen.getByText("Backend warnings")).toBeInTheDocument();
+      expect(screen.getByText("Spend total")).toBeInTheDocument();
+      expect(screen.getByText("Before savings")).toBeInTheDocument();
+      expect(screen.getByText("Spend excludes deposit; VAT-exclusive totals only when tax data is available.")).toBeInTheDocument();
     });
 
     await waitFor(() => {
       const initialCalls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
       expect(initialCalls.some((url) => url.includes("/api/v1/dashboard/cards?year=2024&month=3"))).toBe(true);
+      expect(
+        initialCalls.some(
+          (url) => url.includes("/api/v1/analytics/deposits?from_date=2024-03-01&to_date=2024-03-31")
+        )
+      ).toBe(true);
       expect(
         initialCalls.some(
           (url) => url.includes("/api/v1/dashboard/savings-breakdown?year=2024&month=3&view=normalized")
@@ -233,6 +267,9 @@ describe("DashboardPage", () => {
     await waitFor(() => {
       const calls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
       expect(calls.some((url) => url.includes("/api/v1/dashboard/cards?year=2025&month=3"))).toBe(true);
+      expect(
+        calls.some((url) => url.includes("/api/v1/analytics/deposits?from_date=2025-03-01&to_date=2025-03-31"))
+      ).toBe(true);
     });
   });
 
@@ -270,6 +307,34 @@ describe("DashboardPage", () => {
       expect(createObjectUrlSpy).toHaveBeenCalledTimes(2);
       expect(revokeObjectUrlSpy).toHaveBeenCalledTimes(2);
       expect(screen.getByText("Exported CSV snapshot.")).toBeInTheDocument();
+    });
+  });
+
+  it("passes the active retailer filter to deposit analytics and refreshes data on demand", async () => {
+    renderDashboardRoute("/?year=2026&month=2&retailers=lidl");
+
+    await waitFor(() => {
+      const calls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
+      expect(
+        calls.some(
+          (url) =>
+            url.includes("/api/v1/analytics/deposits?from_date=2026-02-01&to_date=2026-02-28&source_ids=lidl")
+        )
+      ).toBe(true);
+      expect(screen.getByRole("button", { name: "Refresh data" })).toBeInTheDocument();
+    });
+
+    const depositCallsBefore = vi
+      .mocked(fetch)
+      .mock.calls.filter((call) => String(call[0]).includes("/api/v1/analytics/deposits")).length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh data" }));
+
+    await waitFor(() => {
+      const depositCallsAfter = vi
+        .mocked(fetch)
+        .mock.calls.filter((call) => String(call[0]).includes("/api/v1/analytics/deposits")).length;
+      expect(depositCallsAfter).toBeGreaterThan(depositCallsBefore);
     });
   });
 });

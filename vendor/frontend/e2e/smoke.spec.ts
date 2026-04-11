@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 function okEnvelope(result: unknown): Record<string, unknown> {
   return {
@@ -8,6 +8,121 @@ function okEnvelope(result: unknown): Record<string, unknown> {
     error: null
   };
 }
+
+const AUTHENTICATED_USER = {
+  user_id: "user-1",
+  username: "admin",
+  display_name: "Admin",
+  is_admin: true,
+  preferred_locale: "en" as const
+};
+
+async function mockAuthenticatedSession(page: Page): Promise<void> {
+  await page.route("**/api/v1/auth/setup-required", async (route) => {
+    await route.fulfill({
+      json: okEnvelope({
+        required: false,
+        bootstrap_token_required: false
+      })
+    });
+  });
+
+  await page.route("**/api/v1/auth/me", async (route) => {
+    await route.fulfill({
+      json: okEnvelope(AUTHENTICATED_USER)
+    });
+  });
+
+  await page.route("**/api/v1/settings/ai", async (route) => {
+    await route.fulfill({
+      json: okEnvelope({
+        enabled: false,
+        base_url: null,
+        model: "gpt-5.4-mini",
+        api_key_set: false,
+        oauth_provider: null,
+        oauth_connected: false,
+        remote_enabled: false,
+        local_runtime_enabled: false,
+        local_runtime_ready: false,
+        local_runtime_status: "idle"
+      })
+    });
+  });
+
+  await page.route("**/api/v1/connectors/*/sync/status", async (route) => {
+    const sourceId = new URL(route.request().url()).pathname.split("/")[4] ?? "unknown";
+    await route.fulfill({
+      json: okEnvelope({
+        source_id: sourceId,
+        status: "idle",
+        command: null,
+        pid: null,
+        started_at: null,
+        finished_at: null,
+        return_code: null,
+        output_tail: [],
+        can_cancel: false
+      })
+    });
+  });
+
+  await page.route("**/api/v1/sources", async (route) => {
+    await route.fulfill({
+      json: okEnvelope({
+        sources: [
+          {
+            id: "lidl",
+            kind: "retailer",
+            display_name: "Lidl",
+            status: "connected",
+            enabled: true,
+            family_share_mode: "all"
+          }
+        ]
+      })
+    });
+  });
+
+  await page.route("**/api/v1/analytics/deposits", async (route) => {
+    await route.fulfill({
+      json: okEnvelope({
+        date_from: "2026-01-01",
+        date_to: "2026-12-31",
+        total_paid_cents: 0,
+        total_returned_cents: 0,
+        net_outstanding_cents: 0,
+        monthly: []
+      })
+    });
+  });
+
+  await page.route("**/api/v1/recurring-bills/analytics/calendar**", async (route) => {
+    await route.fulfill({
+      json: okEnvelope({
+        year: 2026,
+        month: 4,
+        days: [],
+        count: 0
+      })
+    });
+  });
+
+  await page.route("**/api/v1/recurring-bills/analytics/forecast**", async (route) => {
+    await route.fulfill({
+      json: okEnvelope({
+        months: 3,
+        points: [],
+        total_projected_cents: 0,
+        currency: "EUR"
+      })
+    });
+  });
+}
+
+test.beforeEach(async ({ page }) => {
+  await mockAuthenticatedSession(page);
+});
 
 test("dashboard smoke: renders KPI cards from API", async ({ page }) => {
   await page.route("**/api/v1/dashboard/**", async (route) => {
@@ -85,11 +200,13 @@ test("dashboard smoke: renders KPI cards from API", async ({ page }) => {
   });
 
   await page.goto("/");
+  const main = page.locator("#main-content");
+  const summary = main.getByRole("region", { name: "Dashboard summary" });
 
-  await expect(page.getByRole("heading", { name: "Dashboard", level: 1 })).toBeVisible();
-  await expect(page.getByText("Paid Total")).toBeVisible();
-  await expect(page.getByText("Saved Total")).toBeVisible();
-  await expect(page.getByText(/^Savings Rate$/)).toBeVisible();
+  await expect(main.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  await expect(summary.getByRole("link", { name: /Net spend €264\.00/ })).toBeVisible();
+  await expect(summary.getByRole("link", { name: /Gross spend €296\.00/ })).toBeVisible();
+  await expect(summary.getByRole("link", { name: /Savings rate 10\.81%/ })).toBeVisible();
 });
 
 test("transaction detail smoke: submits override mutation", async ({ page }) => {
@@ -170,14 +287,15 @@ test("transaction detail smoke: submits override mutation", async ({ page }) => 
   });
 
   await page.goto("/transactions/tx-1");
+  const main = page.locator("#main-content");
 
-  await expect(page.getByRole("heading", { name: "Transaction Detail" })).toBeVisible();
+  await expect(main.getByText("Transaction Detail #tx-1")).toBeVisible();
   await page.getByLabel("Merchant Name").fill("Store Beta");
-  await page.getByRole("button", { name: "Apply override" }).click();
+  await page.getByRole("button", { name: "Apply correction" }).click();
 
-  await expect(page.getByText("Overrides applied.")).toBeVisible();
-  expect(overrideRequest).not.toBeNull();
-  expect((overrideRequest?.transaction_corrections as Record<string, unknown>)?.merchant_name).toBe("Store Beta");
+  await expect.poll(() => {
+    return (overrideRequest?.transaction_corrections as Record<string, unknown> | undefined)?.merchant_name ?? null;
+  }).toBe("Store Beta");
 });
 
 test("review queue smoke: patches and rejects a pending document", async ({ page }) => {
@@ -302,6 +420,8 @@ test("review queue smoke: patches and rejects a pending document", async ({ page
 
   page.once("dialog", (dialog) => void dialog.accept());
   await page.getByRole("button", { name: "Reject" }).click();
+  await expect(page.getByRole("heading", { name: "Reject this document?" })).toBeVisible();
+  await page.getByRole("dialog", { name: "Reject this document?" }).getByRole("button", { name: "Reject" }).click();
 
   await expect(page.getByText('Review status updated to "rejected".')).toBeVisible();
   expect(transactionPatchCalls).toBe(1);
@@ -381,9 +501,10 @@ test("automations smoke: toggles a rule from list action", async ({ page }) => {
   });
 
   await page.goto("/automations");
+  const main = page.locator("#main-content");
 
-  await expect(page.getByRole("heading", { name: "Automations", level: 1 })).toBeVisible();
-  await expect(page.getByText("Weekly summary rule")).toBeVisible();
+  await expect(main.getByRole("heading", { name: "Automations", level: 1 })).toBeVisible();
+  await expect(main.getByText("Weekly summary rule")).toBeVisible();
 
   await page.getByRole("button", { name: "Disable" }).click();
   await expect(page.getByRole("heading", { name: "Disable automation rule" })).toBeVisible();
@@ -431,8 +552,10 @@ test("automation inbox smoke: opens execution payload dialog", async ({ page }) 
   });
 
   await page.goto("/automation-inbox");
+  const main = page.locator("#main-content");
 
-  await expect(page.getByRole("heading", { name: "Automation Inbox", level: 1 })).toBeVisible();
+  await expect(main.getByRole("heading", { name: "Automations", level: 1 })).toBeVisible();
+  await expect(main.getByText("Automation Inbox")).toBeVisible();
   await page.getByRole("button", { name: "View payload" }).click();
 
   await expect(page.getByRole("heading", { name: "Execution payload" })).toBeVisible();

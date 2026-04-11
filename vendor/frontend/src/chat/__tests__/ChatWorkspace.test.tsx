@@ -19,18 +19,19 @@ vi.mock("@/api/aiSettings", () => ({
   fetchAIAgentConfig: vi.fn(async () => ({
     proxy_url: "http://localhost",
     auth_token: "token",
-    model: "Qwen/Qwen3.5-0.8B",
-    default_model: "Qwen/Qwen3.5-0.8B",
-    local_model: "Qwen/Qwen3.5-0.8B",
-    preferred_model: "Qwen/Qwen3.5-0.8B",
+    model: "qwen3.5:0.8b",
+    default_model: "qwen3.5:0.8b",
+    local_model: "qwen3.5:0.8b",
+    preferred_model: "qwen3.5:0.8b",
     oauth_provider: null,
     oauth_connected: false,
     available_models: [
       {
-        id: "Qwen/Qwen3.5-0.8B",
-        label: "Qwen",
+        id: "qwen3.5:0.8b",
+        label: "Local Qwen (tiny)",
         source: "local",
-        enabled: true
+        enabled: true,
+        description: "Very small shipped local fallback model. Private and available by default, but weaker for deeper analysis."
       }
     ]
   }))
@@ -143,260 +144,6 @@ describe("ChatWorkspacePage", () => {
 
     expect(screen.getAllByText("Existing thread")).toHaveLength(1);
     expect(screen.getAllByText("New chat").length).toBeGreaterThan(0);
-  });
-
-  it("defaults to the local model when ChatGPT is not connected", async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false }
-      }
-    });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChatWorkspacePage />
-      </QueryClientProvider>
-    );
-
-    expect(await screen.findByLabelText("Model")).toHaveValue("Qwen/Qwen3.5-0.8B");
-  });
-
-  it("keeps the local model as default when ChatGPT is connected", async () => {
-    const aiSettingsModule = await import("@/api/aiSettings");
-    vi.mocked(aiSettingsModule.fetchAIAgentConfig).mockResolvedValueOnce({
-      proxy_url: "http://localhost",
-      auth_token: "token",
-      model: "Qwen/Qwen3.5-0.8B",
-      default_model: "Qwen/Qwen3.5-0.8B",
-      local_model: "Qwen/Qwen3.5-0.8B",
-      preferred_model: "Qwen/Qwen3.5-0.8B",
-      oauth_provider: "openai-codex",
-      oauth_connected: true,
-      available_models: [
-        {
-          id: "Qwen/Qwen3.5-0.8B",
-          label: "Local Qwen (tiny)",
-          source: "local",
-          enabled: true,
-          description: "Very small local fallback model. Private and easy to run, but weaker for deeper analysis."
-        },
-        {
-          id: "gpt-5.2-codex",
-          label: "ChatGPT",
-          source: "oauth",
-          enabled: true,
-          description: "Uses your ChatGPT sign-in. Good for stronger reasoning when you choose it."
-        }
-      ]
-    });
-
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false }
-      }
-    });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChatWorkspacePage />
-      </QueryClientProvider>
-    );
-
-    expect(await screen.findByLabelText("Model")).toHaveValue("Qwen/Qwen3.5-0.8B");
-    expect(
-      screen.getByText("Very small local fallback model. Private and easy to run, but weaker for deeper analysis.")
-    ).toBeInTheDocument();
-  });
-
-  it("allows switching to ChatGPT and persists that model id", async () => {
-    const aiSettingsModule = await import("@/api/aiSettings");
-    vi.mocked(aiSettingsModule.fetchAIAgentConfig).mockResolvedValueOnce({
-      proxy_url: "http://localhost",
-      auth_token: "token",
-      model: "Qwen/Qwen3.5-0.8B",
-      default_model: "Qwen/Qwen3.5-0.8B",
-      local_model: "Qwen/Qwen3.5-0.8B",
-      preferred_model: "Qwen/Qwen3.5-0.8B",
-      oauth_provider: "openai-codex",
-      oauth_connected: true,
-      available_models: [
-        {
-          id: "Qwen/Qwen3.5-0.8B",
-          label: "Local Qwen (tiny)",
-          source: "local",
-          enabled: true,
-          description: "Very small local fallback model. Private and easy to run, but weaker for deeper analysis."
-        },
-        {
-          id: "gpt-5.2-codex",
-          label: "ChatGPT",
-          source: "oauth",
-          enabled: true,
-          description: "Uses your ChatGPT sign-in. Good for stronger reasoning when you choose it."
-        }
-      ]
-    });
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = new URL(String(input));
-        const method = (init?.method ?? "GET").toUpperCase();
-
-        if (url.pathname === "/api/v1/chat/threads" && method === "GET") {
-          return {
-            ok: true,
-            json: async () => ({
-              ok: true,
-              result: {
-                items: [
-                  {
-                    thread_id: "t1",
-                    user_id: "u1",
-                    title: "Existing thread",
-                    stream_status: "idle",
-                    created_at: "2026-02-22T00:00:00Z",
-                    updated_at: "2026-02-22T00:00:00Z",
-                    archived_at: null
-                  }
-                ],
-                total: 1
-              },
-              warnings: [],
-              error: null
-            })
-          };
-        }
-        if (url.pathname === "/api/v1/chat/threads/t1/messages" && method === "GET") {
-          return {
-            ok: true,
-            json: async () => ({
-              ok: true,
-              result: { items: [], total: 0 },
-              warnings: [],
-              error: null
-            })
-          };
-        }
-        if (url.pathname === "/api/v1/chat/threads/t1/messages" && method === "POST") {
-          return {
-            ok: true,
-            json: async () => ({
-              ok: true,
-              result: {
-                thread: {
-                  thread_id: "t1",
-                  user_id: "u1",
-                  title: "Existing thread",
-                  stream_status: "idle",
-                  created_at: "2026-02-22T00:00:00Z",
-                  updated_at: "2026-02-22T00:00:00Z",
-                  archived_at: null
-                },
-                message: {
-                  message_id: "m-user-1",
-                  thread_id: "t1",
-                  role: "user",
-                  content_json: [{ type: "text", text: "hello" }],
-                  tool_name: null,
-                  tool_call_id: null,
-                  usage_json: null,
-                  error: null,
-                  created_at: "2026-02-22T00:00:00Z"
-                }
-              },
-              warnings: [],
-              error: null
-            })
-          };
-        }
-        if (url.pathname === "/api/v1/chat/threads/t1" && method === "PATCH") {
-          return {
-            ok: true,
-            json: async () => ({
-              ok: true,
-              result: {
-                thread_id: "t1",
-                user_id: "u1",
-                title: "Existing thread",
-                stream_status: "streaming",
-                created_at: "2026-02-22T00:00:00Z",
-                updated_at: "2026-02-22T00:00:00Z",
-                archived_at: null
-              },
-              warnings: [],
-              error: null
-            })
-          };
-        }
-        if (url.pathname === "/api/v1/chat/threads/t1/runs" && method === "POST") {
-          return {
-            ok: true,
-            json: async () => ({
-              ok: true,
-              result: {
-                thread: {
-                  thread_id: "t1",
-                  user_id: "u1",
-                  title: "Existing thread",
-                  stream_status: "idle",
-                  created_at: "2026-02-22T00:00:00Z",
-                  updated_at: "2026-02-22T00:00:00Z",
-                  archived_at: null
-                },
-                messages: [],
-                run: {
-                  run_id: "r1",
-                  thread_id: "t1",
-                  message_id: null,
-                  model_id: "Qwen/Qwen3.5-0.8B",
-                  prompt_tokens: null,
-                  completion_tokens: null,
-                  latency_ms: 10,
-                  status: "ok",
-                  created_at: "2026-02-22T00:00:00Z"
-                }
-              },
-              warnings: [],
-              error: null
-            })
-          };
-        }
-
-        throw new Error(`Unexpected request: ${method} ${url.pathname}`);
-      })
-    );
-
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false }
-      }
-    });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChatWorkspacePage />
-      </QueryClientProvider>
-    );
-
-    const modelSelect = await screen.findByLabelText("Model");
-    fireEvent.change(modelSelect, { target: { value: "gpt-5.2-codex" } });
-    fireEvent.change(screen.getByPlaceholderText(/Ask about your spending, products, or trends/), {
-      target: { value: "hello" }
-    });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled());
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-
-    await waitFor(() => expect(promptMock).toHaveBeenCalledWith("hello"));
-
-    const runCall = vi.mocked(fetch).mock.calls.find((call) => {
-      const url = new URL(String(call[0]));
-      return url.pathname === "/api/v1/chat/threads/t1/runs";
-    });
-    expect(runCall).toBeDefined();
-    expect(JSON.parse(String(runCall?.[1]?.body))).toMatchObject({
-      model_id: "gpt-5.2-codex"
-    });
   });
 
   it("uses runtime path and persists run data instead of /stream", async () => {
@@ -515,7 +262,7 @@ describe("ChatWorkspacePage", () => {
                   run_id: "r1",
                   thread_id: "t1",
                   message_id: null,
-                  model_id: "gpt-5.2-codex",
+                  model_id: "qwen3.5:0.8b",
                   prompt_tokens: null,
                   completion_tokens: null,
                   latency_ms: 10,
@@ -899,7 +646,7 @@ describe("ChatWorkspacePage", () => {
                   run_id: "r1",
                   thread_id: "t1",
                   message_id: null,
-                  model_id: "gpt-5.2-codex",
+                  model_id: "qwen3.5:0.8b",
                   prompt_tokens: null,
                   completion_tokens: null,
                   latency_ms: 10,

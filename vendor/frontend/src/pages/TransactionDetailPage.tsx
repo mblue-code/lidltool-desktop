@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Copy, ExternalLink } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useParams } from "react-router-dom";
 import { z } from "zod";
@@ -77,6 +77,7 @@ export function TransactionDetailPage() {
   const [sharingStatus, setSharingStatus] = useState<string | null>(null);
   const [previewFailed, setPreviewFailed] = useState<boolean>(false);
   const [rawCopyStatus, setRawCopyStatus] = useState<string | null>(null);
+  const lastResetTransactionIdRef = useRef<string | null>(null);
 
   const {
     data,
@@ -152,6 +153,7 @@ export function TransactionDetailPage() {
     if (!detail) {
       return;
     }
+    const shouldResetStatuses = lastResetTransactionIdRef.current !== detail.transaction.id;
     form.reset({
       mode: "local",
       actorId: "ledger-ui",
@@ -160,8 +162,11 @@ export function TransactionDetailPage() {
       itemId: "",
       itemCategory: ""
     });
-    setMutationStatus(null);
-    setSharingStatus(null);
+    if (shouldResetStatuses) {
+      setMutationStatus(null);
+      setSharingStatus(null);
+      lastResetTransactionIdRef.current = detail.transaction.id;
+    }
   }, [detail, form]);
 
   if (!txId) {
@@ -250,7 +255,7 @@ export function TransactionDetailPage() {
           item_corrections: itemCorrections
         }
       });
-      await refetch();
+      void refetch();
       setMutationStatus(t("pages.transactionDetail.override.applied"));
     } catch (err) {
       setMutationStatus(resolveApiErrorMessage(err, t, t("pages.transactionDetail.override.failed")));
@@ -281,7 +286,7 @@ export function TransactionDetailPage() {
     setSharingStatus(t("pages.transactionDetail.sharingUpdating"));
     try {
       await sharingMutation.mutateAsync({ transactionId: txId, mode });
-      await refetch();
+      void refetch();
       setSharingStatus(t("pages.transactionDetail.sharingUpdated"));
     } catch (error) {
       setSharingStatus(resolveApiErrorMessage(error, t, t("pages.transactionDetail.sharingFailed")));
@@ -295,7 +300,7 @@ export function TransactionDetailPage() {
     setSharingStatus(t("pages.transactionDetail.itemSharingUpdating"));
     try {
       await itemSharingMutation.mutateAsync({ transactionId: txId, itemId, familyShared });
-      await refetch();
+      void refetch();
       setSharingStatus(t("pages.transactionDetail.itemSharingUpdated"));
     } catch (error) {
       setSharingStatus(resolveApiErrorMessage(error, t, t("pages.transactionDetail.itemSharingFailed")));

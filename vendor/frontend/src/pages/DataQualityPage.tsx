@@ -1,8 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
-import { fetchLowConfidenceOcr, fetchUnmatchedItems } from "@/api/quality";
+import {
+  fetchLowConfidenceOcr,
+  fetchQualityRecategorizeStatus,
+  fetchUnmatchedItems,
+  startQualityRecategorize
+} from "@/api/quality";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -16,6 +21,7 @@ import { formatEurFromCents } from "@/utils/format";
 export function DataQualityPage() {
   const { t } = useI18n();
   const [threshold, setThreshold] = useState("0.85");
+  const [recategorizeJobId, setRecategorizeJobId] = useState<string | null>(null);
 
   const unmatchedQuery = useQuery({
     queryKey: ["quality-unmatched"],
@@ -25,6 +31,32 @@ export function DataQualityPage() {
     queryKey: ["quality-low-confidence", threshold],
     queryFn: () => fetchLowConfidenceOcr({ threshold: Number(threshold), limit: 200 })
   });
+  const recategorizeMutation = useMutation({
+    mutationFn: () =>
+      startQualityRecategorize({
+        only_fallback_other: true,
+        include_suspect_model_items: true,
+        max_transactions: 500
+      }),
+    onSuccess: (job) => {
+      setRecategorizeJobId(job.job_id);
+    }
+  });
+  const recategorizeStatusQuery = useQuery({
+    queryKey: ["quality-recategorize-status", recategorizeJobId],
+    queryFn: () => fetchQualityRecategorizeStatus(recategorizeJobId ?? ""),
+    enabled: Boolean(recategorizeJobId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "queued" || status === "running" ? 1500 : false;
+    }
+  });
+
+  const recategorizeJob = recategorizeStatusQuery.data;
+  const recategorizeRunning =
+    recategorizeMutation.isPending ||
+    recategorizeJob?.status === "queued" ||
+    recategorizeJob?.status === "running";
 
   return (
     <section className="space-y-4">
@@ -56,6 +88,35 @@ export function DataQualityPage() {
           </div>
         </div>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Tools</CardTitle>
+          <Button onClick={() => recategorizeMutation.mutate()} disabled={recategorizeRunning}>
+            {recategorizeRunning ? "Repairing categories..." : "Repair item categories"}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <p>
+            Re-run categorization for items that are still in <code>other</code>, were assigned via
+            <code> fallback_other</code>, or were previously labeled by the local model and look suspicious in context.
+            This uses the configured local text runtime and writes results back into the normal transaction path.
+          </p>
+          {recategorizeMutation.isError ? (
+            <p className="text-destructive">Failed to start recategorization.</p>
+          ) : null}
+          {recategorizeJob ? (
+            <div className="rounded-md border p-3 text-foreground">
+              <p>Status: {recategorizeJob.status}</p>
+              <p>Transactions scanned: {recategorizeJob.transaction_count}</p>
+              <p>Candidate items: {recategorizeJob.candidate_item_count}</p>
+              <p>Updated items: {recategorizeJob.updated_item_count}</p>
+              <p>Updated transactions: {recategorizeJob.updated_transaction_count}</p>
+              {recategorizeJob.error ? <p className="text-destructive">Error: {recategorizeJob.error}</p> : null}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

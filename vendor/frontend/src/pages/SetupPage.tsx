@@ -164,9 +164,9 @@ export function SetupPage() {
           </Button>
         </form>
 
-        <div className="app-soft-surface rounded-md border border-border/60 p-4">
-          <p className="mb-2 text-sm font-medium">{t("auth.setup.restoreTitle")}</p>
-          <p className="mb-3 text-sm text-muted-foreground">{t("auth.setup.restoreDescription")}</p>
+        <div className="app-section-divider space-y-3">
+          <p className="text-sm font-medium">{t("auth.setup.restoreTitle")}</p>
+          <p className="text-sm text-muted-foreground">{t("auth.setup.restoreDescription")}</p>
           <form className="space-y-3" onSubmit={(event) => void handleRestoreBackup(event)}>
             <div className="space-y-1.5">
               <Label htmlFor="restore-dir">{t("auth.setup.restoreDirectory")}</Label>
@@ -188,7 +188,7 @@ export function SetupPage() {
             </Button>
           </form>
           {!desktopApi ? (
-            <p className="mt-2 text-xs text-muted-foreground">{t("auth.setup.restoreUnavailable")}</p>
+            <p className="text-xs text-muted-foreground">{t("auth.setup.restoreUnavailable")}</p>
           ) : null}
         </div>
       </div>

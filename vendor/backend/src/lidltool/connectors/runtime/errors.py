@@ -20,6 +20,10 @@ class ConnectorRuntimeError(RuntimeError):
         self.code = code
         self.diagnostics = diagnostics
         self.retryable = retryable
+        self.diagnostics.failure_stage = "runtime"
+        self.diagnostics.failure_code = code
+        self.diagnostics.failure_retryable = retryable
+        self.diagnostics.failure_detail = message
 
     def to_payload(self) -> RuntimeErrorPayload:
         return RuntimeErrorPayload(

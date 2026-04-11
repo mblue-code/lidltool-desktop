@@ -7,6 +7,7 @@ from uuid import uuid4
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
+from lidltool.analytics.item_categorizer import ensure_category_taxonomy
 from lidltool.db.models import (
     AnalyticsMetadata,
     Category,
@@ -32,6 +33,7 @@ def _to_int_unit_price(line_total_cents: int, qty: Decimal, fallback: int | None
 def rebuild_item_observations(session: Session) -> int:
     session.flush()
     session.execute(delete(ItemObservation))
+    ensure_category_taxonomy(session)
 
     category_map = {
         (row.name or "").strip().lower(): row.category_id
@@ -90,7 +92,7 @@ def rebuild_item_observations(session: Session) -> int:
                 basket_alloc = 0
 
             normalized_category = (item.category or "").strip().lower()
-            category_id = category_map.get(normalized_category)
+            category_id = item.category_id or category_map.get(normalized_category)
 
             session.add(
                 ItemObservation(
@@ -135,6 +137,7 @@ def refresh_observations_for_transaction(
     session.execute(
         delete(ItemObservation).where(ItemObservation.transaction_id == transaction_id)
     )
+    ensure_category_taxonomy(session)
     transaction = session.execute(
         select(Transaction)
         .where(Transaction.id == transaction_id)
@@ -195,7 +198,8 @@ def refresh_observations_for_transaction(
                 line_total_net_cents=line_total_net,
                 basket_discount_alloc_cents=basket_alloc,
                 category=item.category,
-                category_id=category_map.get((item.category or "").strip().lower()),
+                category_id=item.category_id
+                or category_map.get((item.category or "").strip().lower()),
                 merchant_name=transaction.merchant_name,
             )
         )

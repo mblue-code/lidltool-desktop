@@ -23,7 +23,7 @@ class AutomationScheduler:
         self._session_factory = session_factory
         self._config = config
         self._service_factory = service_factory or (
-            lambda sessions: AutomationService(session_factory=sessions)
+            lambda sessions: AutomationService(session_factory=sessions, config=config)
         )
         self._stop_event = threading.Event()
         self._worker: threading.Thread | None = None

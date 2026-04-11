@@ -17,7 +17,8 @@ def log_runtime_invocation(
         (
             "connector.runtime request_id=%s source_id=%s plugin_id=%s action=%s "
             "transport=%s runtime_kind=%s duration_ms=%s exit_code=%s timed_out=%s "
-            "canceled=%s cleanup_attempted=%s error=%s stderr_excerpt=%s"
+            "canceled=%s cleanup_attempted=%s failure_stage=%s failure_code=%s "
+            "failure_retryable=%s error=%s stderr_excerpt=%s stdout_excerpt=%s"
         ),
         diagnostics.request_id,
         diagnostics.source_id,
@@ -30,6 +31,10 @@ def log_runtime_invocation(
         diagnostics.timed_out,
         diagnostics.canceled,
         diagnostics.cleanup_attempted,
+        diagnostics.failure_stage,
+        diagnostics.failure_code,
+        diagnostics.failure_retryable,
         error,
         diagnostics.stderr_excerpt,
+        diagnostics.stdout_excerpt,
     )

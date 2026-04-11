@@ -8,13 +8,15 @@ from sqlalchemy.orm import Session
 
 from lidltool.automations.schemas import next_run_at
 from lidltool.automations.templates import execute_template
+from lidltool.config import AppConfig
 from lidltool.db.audit import record_audit_event
 from lidltool.db.models import AutomationExecution, AutomationRule
 
 
 class AutomationEngine:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, config: AppConfig | None = None) -> None:
         self._session = session
+        self._config = config
 
     def list_due_rules(self, *, now: datetime, limit: int) -> list[AutomationRule]:
         stmt = (
@@ -46,7 +48,12 @@ class AutomationEngine:
         self._session.add(execution)
         self._session.flush()
         try:
-            result = execute_template(self._session, rule=rule, triggered_at=triggered)
+            result = execute_template(
+                self._session,
+                rule=rule,
+                triggered_at=triggered,
+                config=self._config,
+            )
             execution.status = result.status
             execution.result = result.payload
             execution.executed_at = datetime.now(tz=UTC)

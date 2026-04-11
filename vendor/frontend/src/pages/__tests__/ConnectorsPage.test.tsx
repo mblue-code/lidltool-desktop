@@ -221,9 +221,78 @@ describe("ConnectorsPage", () => {
       fields: []
     });
 
+    const installReceiptPluginFromDialogMock = vi.fn().mockResolvedValue({
+      action: "installed",
+      pack: {
+        pluginId: "community.edeka_de",
+        sourceId: "edeka_de",
+        displayName: "EDEKA",
+        version: "0.3.0",
+        trustClass: "community_unsigned",
+        enabled: false,
+        status: "disabled",
+        trustStatus: "unsigned",
+        trustReason: null,
+        compatibilityReason: null,
+        installedVia: "manual_file",
+        catalogEntryId: null
+      },
+      restartedBackend: false,
+      backendStatus: null
+    });
+    const installReceiptPluginFromCatalogEntryMock = vi.fn().mockResolvedValue({
+      action: "updated",
+      pack: {
+        pluginId: "community.amazon_de",
+        sourceId: "amazon_de",
+        displayName: "Amazon",
+        version: "1.4.0",
+        trustClass: "community_verified",
+        enabled: true,
+        status: "enabled",
+        trustStatus: "trusted",
+        trustReason: null,
+        compatibilityReason: null,
+        installedVia: "catalog_url",
+        catalogEntryId: "connector.amazon"
+      },
+      restartedBackend: true,
+      backendStatus: { running: true }
+    });
+    const enableReceiptPluginMock = vi.fn().mockResolvedValue({
+      pack: {
+        pluginId: "community.rewe_de",
+        sourceId: "rewe_de",
+        displayName: "REWE",
+        version: "0.9.0",
+        trustClass: "community_unsigned",
+        enabled: true,
+        status: "enabled",
+        trustStatus: "unsigned",
+        trustReason: null,
+        compatibilityReason: null,
+        installedVia: "manual_file",
+        catalogEntryId: null
+      },
+      restartedBackend: true,
+      backendStatus: { running: true }
+    });
+    const disableReceiptPluginMock = vi.fn();
+    const uninstallReceiptPluginMock = vi.fn().mockResolvedValue({
+      pluginId: "community.rewe_de",
+      removedPath: "/tmp/plugins/rewe",
+      restartedBackend: true,
+      backendStatus: { running: true }
+    });
+
     Object.defineProperty(window, "desktopApi", {
       configurable: true,
       value: {
+        installReceiptPluginFromDialog: installReceiptPluginFromDialogMock,
+        installReceiptPluginFromCatalogEntry: installReceiptPluginFromCatalogEntryMock,
+        enableReceiptPlugin: enableReceiptPluginMock,
+        disableReceiptPlugin: disableReceiptPluginMock,
+        uninstallReceiptPlugin: uninstallReceiptPluginMock,
         getReleaseMetadata: vi.fn().mockResolvedValue({
           active_release_variant: { display_name: "Desktop Universal Shell" },
           selected_market_profile: { display_name: "Germany" },
@@ -299,12 +368,13 @@ describe("ConnectorsPage", () => {
     renderPage();
 
     expect(await screen.findByText("Connectors")).toBeInTheDocument();
-    expect(screen.getByText("Desktop pack management stays native")).toBeInTheDocument();
+    expect(screen.getByText("Desktop receipt packs can be managed here")).toBeInTheDocument();
     expect(await screen.findByText("Amazon")).toBeInTheDocument();
     expect(await screen.findByText("Electron-managed connector")).toBeInTheDocument();
     expect(await screen.findByText("Stored receipt packs")).toBeInTheDocument();
     expect(await screen.findByText("REWE")).toBeInTheDocument();
-    expect(await screen.findByText("Update available in control center")).toBeInTheDocument();
+    expect(await screen.findByText("Trusted pack update available")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Import local pack" })).toBeInTheDocument();
   });
 
   it("saves connector settings before continuing setup", async () => {
@@ -323,6 +393,30 @@ describe("ConnectorsPage", () => {
         },
         clear_secret_keys: undefined
       });
+    });
+  });
+
+  it("imports a local pack and enables a stored pack from the connectors page", async () => {
+    renderPage();
+
+    const importButton = await screen.findByRole("button", { name: "Import local pack" });
+    await waitFor(() => {
+      expect(importButton).not.toBeDisabled();
+    });
+    fireEvent.click(importButton);
+
+    await waitFor(() => {
+      expect(window.desktopApi?.installReceiptPluginFromDialog).toHaveBeenCalled();
+    });
+
+    const enableButton = await screen.findByRole("button", { name: "Enable pack" });
+    await waitFor(() => {
+      expect(enableButton).not.toBeDisabled();
+    });
+    fireEvent.click(enableButton);
+
+    await waitFor(() => {
+      expect(window.desktopApi?.enableReceiptPlugin).toHaveBeenCalledWith("community.rewe_de");
     });
   });
 });

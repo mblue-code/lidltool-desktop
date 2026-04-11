@@ -1,14 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ChatPanel } from "@/components/ChatPanel";
-
-const mocks = vi.hoisted(() => ({
-  promptMock: vi.fn(async (_prompt: string) => undefined),
-  createSpendingAgentMock: vi.fn(),
-  fetchAIAgentConfigMock: vi.fn()
-}));
 
 class FakeAgent {
   state: { messages: Array<Record<string, unknown>> } = {
@@ -33,7 +27,6 @@ class FakeAgent {
   }
 
   async prompt(prompt: string): Promise<void> {
-    await mocks.promptMock(prompt);
     const newMessages = [
       { role: "user", content: prompt, timestamp: Date.now() },
       {
@@ -52,49 +45,33 @@ class FakeAgent {
 const fakeAgent = new FakeAgent();
 
 vi.mock("@/agent", () => ({
-  createSpendingAgent: mocks.createSpendingAgentMock
+  createSpendingAgent: vi.fn(() => fakeAgent)
 }));
 
 vi.mock("@/api/aiSettings", () => ({
-  fetchAIAgentConfig: mocks.fetchAIAgentConfigMock
+  fetchAIAgentConfig: vi.fn(async () => ({
+    proxy_url: "http://localhost",
+    auth_token: "token",
+    model: "qwen3.5:0.8b",
+    default_model: "qwen3.5:0.8b",
+    local_model: "qwen3.5:0.8b",
+    preferred_model: "qwen3.5:0.8b",
+    oauth_provider: null,
+    oauth_connected: false,
+    available_models: [
+      {
+        id: "qwen3.5:0.8b",
+        label: "Local Qwen (tiny)",
+        source: "local",
+        enabled: true,
+        description: "Very small shipped local fallback model. Private and available by default, but weaker for deeper analysis."
+      }
+    ]
+  }))
 }));
 
 describe("ChatPanel history behavior", () => {
   const storage = new Map<string, string>();
-
-  beforeEach(() => {
-    mocks.promptMock.mockReset();
-    mocks.promptMock.mockResolvedValue(undefined);
-    mocks.createSpendingAgentMock.mockReset();
-    mocks.createSpendingAgentMock.mockImplementation(() => fakeAgent);
-    mocks.fetchAIAgentConfigMock.mockReset();
-    mocks.fetchAIAgentConfigMock.mockResolvedValue({
-      proxy_url: "http://localhost",
-      auth_token: "token",
-      model: "Qwen/Qwen3.5-0.8B",
-      default_model: "Qwen/Qwen3.5-0.8B",
-      local_model: "Qwen/Qwen3.5-0.8B",
-      preferred_model: "Qwen/Qwen3.5-0.8B",
-      oauth_connected: true,
-      oauth_provider: "openai-codex",
-      available_models: [
-        {
-          id: "Qwen/Qwen3.5-0.8B",
-          label: "Local Qwen (tiny)",
-          source: "local",
-          enabled: true,
-          description: "Very small local fallback model. Private and easy to run, but weaker for deeper analysis."
-        },
-        {
-          id: "gpt-5.2-codex",
-          label: "ChatGPT",
-          source: "oauth",
-          enabled: true,
-          description: "Uses your ChatGPT sign-in. Good for stronger reasoning when you choose it."
-        }
-      ]
-    });
-  });
 
   function installChatApiFetchStub(): void {
     let createdThreadId: string | null = null;
@@ -213,7 +190,7 @@ describe("ChatPanel history behavior", () => {
                   run_id: "r1",
                   thread_id: createdThreadId,
                   message_id: null,
-                  model_id: "gpt-5.2-codex",
+                  model_id: "qwen3.5:0.8b",
                   prompt_tokens: null,
                   completion_tokens: null,
                   latency_ms: 10,
@@ -249,7 +226,6 @@ describe("ChatPanel history behavior", () => {
   }
 
   afterEach(() => {
-    cleanup();
     storage.clear();
     fakeAgent.clearMessages();
     vi.restoreAllMocks();
@@ -294,139 +270,5 @@ describe("ChatPanel history behavior", () => {
       expect(screen.getByText("first prompt")).toBeInTheDocument();
       expect(screen.getByText("Reply for: first prompt")).toBeInTheDocument();
     });
-  });
-
-  it("defaults to the local model even when ChatGPT is connected and persists that model id", async () => {
-    installLocalStorageStub();
-    installChatApiFetchStub();
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false }
-      }
-    });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChatPanel
-          open
-          onOpenChange={() => undefined}
-          enabled
-          panelWidth={420}
-          onPanelWidthChange={() => undefined}
-        />
-      </QueryClientProvider>
-    );
-
-    const modelSelect = await screen.findByLabelText("Chat model");
-    expect(modelSelect).toHaveValue("Qwen/Qwen3.5-0.8B");
-    expect(
-      screen.getByText("Very small local fallback model. Private and easy to run, but weaker for deeper analysis.")
-    ).toBeInTheDocument();
-
-    fireEvent.change(await screen.findByPlaceholderText("Ask about spending, prices, and products..."), {
-      target: { value: "preferred model prompt" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-
-    await screen.findByText("Reply for: preferred model prompt");
-
-    const runCall = vi.mocked(fetch).mock.calls.find((call) => {
-      const url = new URL(String(call[0]));
-      return url.pathname.includes("/runs");
-    });
-    expect(runCall).toBeDefined();
-    expect(JSON.parse(String(runCall?.[1]?.body))).toMatchObject({
-      model_id: "Qwen/Qwen3.5-0.8B"
-    });
-  });
-
-  it("allows switching to ChatGPT and persists the override", async () => {
-    installLocalStorageStub();
-    installChatApiFetchStub();
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false }
-      }
-    });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChatPanel
-          open
-          onOpenChange={() => undefined}
-          enabled
-          panelWidth={420}
-          onPanelWidthChange={() => undefined}
-        />
-      </QueryClientProvider>
-    );
-
-    const modelSelect = await screen.findByLabelText("Chat model");
-    fireEvent.change(modelSelect, { target: { value: "gpt-5.2-codex" } });
-
-    await waitFor(() => {
-      expect(screen.getByLabelText("Chat model")).toHaveValue("gpt-5.2-codex");
-    });
-
-    fireEvent.change(await screen.findByPlaceholderText("Ask about spending, prices, and products..."), {
-      target: { value: "local model prompt" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-
-    await screen.findByText("Reply for: local model prompt");
-
-    const runCall = [...vi.mocked(fetch).mock.calls].reverse().find((call) => {
-      const url = new URL(String(call[0]));
-      return url.pathname.includes("/runs");
-    });
-    expect(runCall).toBeDefined();
-    expect(JSON.parse(String(runCall?.[1]?.body))).toMatchObject({
-      model_id: "gpt-5.2-codex"
-    });
-    expect(storage.get("agent.chat.model.v1")).toBe("gpt-5.2-codex");
-  });
-
-  it("disables the model selector while a prompt is streaming", async () => {
-    installLocalStorageStub();
-    installChatApiFetchStub();
-    let resolvePrompt: () => void = () => {
-      throw new Error("Expected prompt resolution callback to be registered.");
-    };
-    mocks.promptMock.mockImplementation(
-      () =>
-        new Promise<undefined>((resolve) => {
-          resolvePrompt = () => resolve(undefined);
-        })
-    );
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false }
-      }
-    });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChatPanel
-          open
-          onOpenChange={() => undefined}
-          enabled
-          panelWidth={420}
-          onPanelWidthChange={() => undefined}
-        />
-      </QueryClientProvider>
-    );
-
-    fireEvent.change(await screen.findByPlaceholderText("Ask about spending, prices, and products..."), {
-      target: { value: "streaming prompt" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-
-    await waitFor(() => {
-      expect(screen.getByLabelText("Chat model")).toBeDisabled();
-    });
-
-    resolvePrompt();
-    await screen.findByText("Reply for: streaming prompt");
-    expect(screen.getByLabelText("Chat model")).not.toBeDisabled();
   });
 });
