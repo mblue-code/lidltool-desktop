@@ -47,6 +47,9 @@ main app offers a clean upstream equivalent.
   directly on the desktop connectors page in `overrides/frontend/src/pages/ConnectorsPage.tsx`.
   The full app remains the place for one-off setup and sync, while desktop-specific pack management stays available on
   the same connectors surface.
+  Desktop sync-status banners and connector actions now follow the backend connector discovery payload instead of a
+  hardcoded retailer list, so newly imported pluginized merchants do not require Electron UI source edits just to show
+  status or sync affordances.
 - AI settings stay on a desktop-safe fork of the vendored page and tests.
   The current desktop page keeps chat-oriented provider controls while continuing to hide OCR-provider management and
   other self-hosted runtime assumptions.
@@ -122,6 +125,7 @@ Scope:
 - trusted URL install/update is supported only for signed catalog entries
 - offer/deal plugins remain out of desktop scope
 - recurring offer scraping and alerts remain out of desktop scope
+- `dm_de` is now one of these optional receipt plugins rather than a built-in desktop connector
 
 Management surface:
 - use the connectors page inside the desktop app for local pack import, trusted pack install, enable/disable, and removal
@@ -147,6 +151,11 @@ Desktop workflow:
 3. Review the status, trust, support, and market-profile messaging.
 4. Enable the pack explicitly if you want desktop to load it into the next backend run.
 5. Use the same connectors page to install a trusted update, disable a pack, or remove it from local storage.
+
+Third-party authoring reference:
+- the clean-break template lives in `examples/reference_receipt_plugin_template`
+- build a manual-import ZIP with `python examples/reference_receipt_plugin_template/build_desktop_pack.py`
+- use the checklist in that template README to verify import, enable, bootstrap, sync, and uninstall behavior
 
 ### Pack format
 

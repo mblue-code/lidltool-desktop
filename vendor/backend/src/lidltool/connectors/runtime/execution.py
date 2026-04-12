@@ -18,7 +18,6 @@ from lidltool.connectors.base import (
     require_connector_action_scope,
     validate_connector_scope_contract,
 )
-from lidltool.connectors.dm_adapter import DmConnectorAdapter
 from lidltool.connectors.kaufland_adapter import KauflandConnectorAdapter
 from lidltool.connectors.lidl_adapter import LidlConnectorAdapter
 from lidltool.connectors.lifecycle import connector_runtime_options
@@ -40,8 +39,6 @@ from lidltool.connectors.runtime.host import (
 )
 from lidltool.connectors.sdk.manifest import ConnectorManifest
 from lidltool.connectors.sdk.offer import OfferConnector
-from lidltool.dm.client_playwright import DmClientError, DmPlaywrightClient
-from lidltool.dm.session import default_dm_state_file
 from lidltool.kaufland.client_playwright import KauflandClientError, KauflandPlaywrightClient
 from lidltool.kaufland.session import default_kaufland_state_file
 from lidltool.lidl.client import LidlClientError, create_lidl_client
@@ -248,6 +245,8 @@ class ConnectorExecutionService:
                             source_config=source_config,
                             source_id=manifest.source_id,
                             tracking_source_id=tracking_source_id or manifest.source_id,
+                            manifest=manifest,
+                            working_directory=self._working_directory_for(entry),
                             connector_options=options,
                             runtime_context=runtime_context,
                         ),
@@ -293,6 +292,8 @@ class ConnectorExecutionService:
                         source_config=self._config.model_copy(update={"source": manifest.source_id}),
                         source_id=manifest.source_id,
                         tracking_source_id=manifest.source_id,
+                        manifest=manifest,
+                        working_directory=self._working_directory_for(entry),
                     ),
                 ),
                 action_timeouts_s=default_offer_runtime_action_timeouts(
@@ -429,65 +430,6 @@ class ConnectorExecutionService:
                 connector=kaufland_connector,
                 metadata={"state_file": str(state_file), "domain": domain},
                 handled_exceptions=(KauflandClientError,),
-            )
-        if manifest.source_id == "dm_de":
-            state_file = self._resolve_state_file(
-                connector_options.get("state_file"),
-                default_dm_state_file(source_config),
-            )
-            domain = _string_option(connector_options, "domain", "www.dm.de")
-            headless = _bool_option(connector_options, "headless", True)
-            max_pages = _int_option(connector_options, "max_pages", 120)
-            detail_fetch_limit = _int_option(connector_options, "detail_fetch_limit", -1)
-            detail_retry_count = _int_option(connector_options, "detail_retry_count", 2)
-            detail_retry_backoff_ms = _int_option(
-                connector_options, "detail_retry_backoff_ms", 800
-            )
-            detail_pause_ms = _int_option(connector_options, "detail_pause_ms", 120)
-            detail_batch_size = _int_option(connector_options, "detail_batch_size", 40)
-            detail_batch_pause_ms = _int_option(connector_options, "detail_batch_pause_ms", 1200)
-            max_consecutive_detail_failures = _int_option(
-                connector_options, "max_consecutive_detail_failures", 25
-            )
-            persist_state = _bool_option(connector_options, "persist_state", True)
-            state_persist_interval = _int_option(connector_options, "state_persist_interval", 25)
-            session_keepalive_every = _int_option(connector_options, "session_keepalive_every", 30)
-            dump_html = _resolve_optional_path(connector_options.get("dump_html"))
-            store_name = _string_option(
-                connector_options, "store_name", "dm-drogerie markt"
-            )
-            dm_client = DmPlaywrightClient(
-                state_file=state_file,
-                domain=domain,
-                headless=headless,
-                max_pages=max_pages,
-                detail_fetch_limit=detail_fetch_limit,
-                detail_retry_count=detail_retry_count,
-                detail_retry_backoff_ms=detail_retry_backoff_ms,
-                detail_pause_ms=detail_pause_ms,
-                detail_batch_size=detail_batch_size,
-                detail_batch_pause_ms=detail_batch_pause_ms,
-                max_consecutive_detail_failures=max_consecutive_detail_failures,
-                persist_state_on_success=persist_state,
-                state_persist_interval=state_persist_interval,
-                session_keepalive_every=session_keepalive_every,
-                dump_html_dir=dump_html,
-            )
-            dm_connector: Connector = DmConnectorAdapter(
-                client=dm_client,
-                source=tracking_source_id,
-                store_name=store_name,
-            )
-            metadata = {"state_file": str(state_file), "domain": domain}
-            if dump_html is not None:
-                metadata["dump_html"] = str(dump_html)
-            return self._resolved_receipt_connector(
-                manifest=manifest,
-                source_config=source_config,
-                client=None,
-                connector=dm_connector,
-                metadata=metadata,
-                handled_exceptions=(DmClientError,),
             )
         if manifest.source_id == "netto_de":
             netto_connector: Connector = NettoConnectorAdapter(source=tracking_source_id)

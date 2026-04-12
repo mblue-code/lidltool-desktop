@@ -236,6 +236,8 @@ from lidltool.connectors.lifecycle import (
     update_connector_config,
 )
 from lidltool.connectors.management import plugin_management_payload
+from lidltool.connectors.release_policy import release_policy_payload
+from lidltool.connectors.registry import get_connector_registry
 from lidltool.connectors.runtime.execution import ConnectorExecutionService
 from lidltool.db.audit import list_transaction_history
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
@@ -1889,8 +1891,19 @@ def _normalize_cascade_source_ids(source_ids: list[str]) -> list[str]:
     return normalized
 
 
-def _connector_is_preview_source(source_id: str) -> bool:
-    return source_id not in {"lidl_plus_de", "dm_de", "edeka_de"}
+def _connector_is_preview_source(
+    source_id: str,
+    *,
+    config: AppConfig,
+    manifest: ConnectorManifest | None = None,
+) -> bool:
+    resolved_manifest = manifest
+    if resolved_manifest is None:
+        resolved_manifest = get_connector_registry(config).get_manifest(source_id)
+    return (
+        release_policy_payload(source_id=source_id, manifest=resolved_manifest).get("maturity")
+        == "preview"
+    )
 
 
 def _idle_connector_cascade_status() -> dict[str, Any]:
@@ -1960,7 +1973,7 @@ def _start_connector_cascade_session(
     cascade_sessions[user_id] = cascade
     worker.start()
 
-    if any(_connector_is_preview_source(source_id) for source_id in source_ids):
+    if any(_connector_is_preview_source(source_id, config=config) for source_id in source_ids):
         warnings.append(
             "cascade includes preview connectors that are not fully live-validated yet"
         )
@@ -7443,7 +7456,10 @@ def create_app(
             else:
                 result = _serialize_connector_cascade(cascade, request=request)
                 selected_source_ids = cast(list[str], result["source_ids"])
-                if any(_connector_is_preview_source(source_id) for source_id in selected_source_ids):
+                if any(
+                    _connector_is_preview_source(source_id, config=app_config)
+                    for source_id in selected_source_ids
+                ):
                     warnings.append(
                         "cascade includes preview connectors that are not fully live-validated yet"
                     )
@@ -7568,7 +7584,7 @@ def create_app(
                     "bootstrap": _serialize_connector_bootstrap(prev),
                     "remote_login_url": existing_remote_url,
                 }
-                if _connector_is_preview_source(source_id):
+                if _connector_is_preview_source(source_id, config=app_config):
                     warnings.append(
                         _warning(
                             "preview connector bootstrap started; this connector is not live-validated yet",
@@ -7612,7 +7628,11 @@ def create_app(
                 "bootstrap": _serialize_connector_bootstrap(bootstrap),
                 "remote_login_url": remote_login_url,
             }
-            if _connector_is_preview_source(manifest.source_id):
+            if _connector_is_preview_source(
+                manifest.source_id,
+                config=app_config,
+                manifest=manifest,
+            ):
                 warnings.append(
                     _warning(
                         "preview connector bootstrap started; this connector is not live-validated yet",
@@ -7657,7 +7677,7 @@ def create_app(
             else:
                 result = dict(_serialize_connector_bootstrap(bootstrap))
                 result["remote_login_url"] = remote_login_url
-            if _connector_is_preview_source(source_id):
+            if _connector_is_preview_source(source_id, config=app_config):
                 warnings.append(
                     "preview connector status only; this connector is not live-validated yet"
                 )
@@ -7692,7 +7712,7 @@ def create_app(
                 }
             if not _connector_any_running(bootstrap_sessions):
                 _stop_vnc_runtime(app)
-            if _connector_is_preview_source(source_id):
+            if _connector_is_preview_source(source_id, config=app_config):
                 warnings.append(
                     "preview connector cancellation only; this connector is not live-validated yet"
                 )
@@ -7771,7 +7791,7 @@ def create_app(
                 thread_name=f"connector-sync-{source_id}",
             )
 
-            if _connector_is_preview_source(source_id):
+            if _connector_is_preview_source(source_id, config=app_config):
                 warnings.append(
                     _warning(
                         "preview connector sync; this connector is not live-validated yet",

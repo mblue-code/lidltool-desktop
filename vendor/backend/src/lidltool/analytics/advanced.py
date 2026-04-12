@@ -863,16 +863,10 @@ def deposit_analytics(
     *,
     date_from: date | None = None,
     date_to: date | None = None,
-    source_ids: list[str] | None = None,
     visibility: VisibilityContext | None = None,
 ) -> dict[str, Any]:
     """Return deposit (Pfand) totals: paid, returned, net outstanding, and monthly breakdown."""
     start, end = _date_window(date_from, date_to, default_days=365 * 5)
-    normalized_source_ids = (
-        sorted({source_id.strip() for source_id in source_ids if source_id.strip()})
-        if source_ids is not None
-        else None
-    ) or None
 
     vis_ids = visible_transaction_ids_subquery(visibility) if visibility is not None else None
 
@@ -909,8 +903,6 @@ def deposit_analytics(
     )
     if vis_ids is not None:
         stmt = stmt.where(Transaction.id.in_(vis_ids))
-    if normalized_source_ids is not None:
-        stmt = stmt.where(Transaction.source_id.in_(normalized_source_ids))
 
     rows = session.execute(stmt).all()
 

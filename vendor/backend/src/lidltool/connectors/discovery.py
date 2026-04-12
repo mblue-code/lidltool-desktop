@@ -12,6 +12,7 @@ from lidltool.api.source_models import serialize_source_sync_status
 from lidltool.config import AppConfig
 from lidltool.connectors.auth.auth_orchestration import ConnectorAuthOrchestrationService
 from lidltool.connectors.lifecycle import reconcile_connector_lifecycle
+from lidltool.connectors.release_policy import connector_release_policy
 from lidltool.connectors.registry import (
     ConnectorRegistry,
     get_connector_registry,
@@ -20,16 +21,6 @@ from lidltool.connectors.registry import (
 )
 from lidltool.connectors.sdk.manifest import ConnectorManifest
 from lidltool.db.models import Source
-
-_LISTED_RECEIPT_CONNECTORS = {
-    "lidl_plus_de",
-    "edeka_de",
-    "amazon_de",
-    "kaufland_de",
-    "dm_de",
-    "rossmann_de",
-    "rewe_de",
-}
 
 _ORIGIN_LABELS: dict[str, str] = {
     "builtin": "Built-in",
@@ -214,9 +205,10 @@ def _normalize_origin(value: Any) -> str:
 
 
 def _should_list_connector(*, source_id: str, manifest: ConnectorManifest | None) -> bool:
-    if source_id in _LISTED_RECEIPT_CONNECTORS:
-        return True
     if manifest is None:
+        return True
+    release = connector_release_policy(source_id=source_id, manifest=manifest)
+    if release.default_visibility == "default":
         return True
     return _supports_bootstrap(manifest) or _supports_sync(manifest)
 

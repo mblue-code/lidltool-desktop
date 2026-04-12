@@ -15,6 +15,13 @@ AuthKind = Literal[
     "none",
 ]
 AuthLifecycleCapabilityAction = Literal["start_auth", "cancel_auth", "confirm_auth"]
+AuthBootstrapMethod = Literal[
+    "browser",
+    "oauth_pkce",
+    "headless_refresh",
+    "manual_token_import",
+    "session_file_import",
+]
 DEFAULT_RESERVED_AUTH_ACTIONS: tuple[AuthLifecycleCapabilityAction, ...] = (
     "start_auth",
     "cancel_auth",
@@ -32,13 +39,20 @@ class ConnectorAuthCapabilities(BaseModel):
     supports_manual_confirm: bool = False
     supports_oauth_callback: bool = False
     supports_session_file: bool = False
+    bootstrap_methods: tuple[AuthBootstrapMethod, ...] = ()
     implemented_actions: tuple[AuthLifecycleCapabilityAction, ...] = ()
     compatibility_actions: tuple[AuthLifecycleCapabilityAction, ...] = ()
     reserved_actions: tuple[AuthLifecycleCapabilityAction, ...] = DEFAULT_RESERVED_AUTH_ACTIONS
 
-    @field_validator("implemented_actions", "compatibility_actions", "reserved_actions", mode="before")
+    @field_validator(
+        "bootstrap_methods",
+        "implemented_actions",
+        "compatibility_actions",
+        "reserved_actions",
+        mode="before",
+    )
     @classmethod
-    def _normalize_actions(cls, value: Any) -> tuple[AuthLifecycleCapabilityAction, ...]:
+    def _normalize_actions(cls, value: Any) -> tuple[str, ...]:
         if value is None:
             return ()
         if not isinstance(value, (list, tuple)):
@@ -91,6 +105,17 @@ def infer_auth_capabilities(
     supports_headless_refresh = auth_kind == "oauth_pkce"
     supports_manual_confirm = "confirm_auth" in optional
     supports_session_file = auth_kind == "browser_session"
+    bootstrap_methods: tuple[AuthBootstrapMethod, ...] = ()
+    if supports_live_session_bootstrap:
+        bootstrap_methods = ("browser",)
+    if auth_kind == "oauth_pkce":
+        bootstrap_methods = tuple(
+            dict.fromkeys((*bootstrap_methods, "oauth_pkce", "headless_refresh"))
+        )
+    if supports_session_file:
+        bootstrap_methods = tuple(dict.fromkeys((*bootstrap_methods, "session_file_import")))
+    if auth_kind in {"api_key", "cookie_import", "file_import", "manual_only"}:
+        bootstrap_methods = tuple(dict.fromkeys((*bootstrap_methods, "manual_token_import")))
 
     compatibility_actions: tuple[AuthLifecycleCapabilityAction, ...] = ()
     if supports_live_session_bootstrap:
@@ -106,6 +131,7 @@ def infer_auth_capabilities(
             supports_manual_confirm=False,
             supports_oauth_callback=False,
             supports_session_file=False,
+            bootstrap_methods=(),
             reserved_actions=(),
         )
 
@@ -117,6 +143,7 @@ def infer_auth_capabilities(
         supports_manual_confirm=supports_manual_confirm,
         supports_oauth_callback=False,
         supports_session_file=supports_session_file,
+        bootstrap_methods=bootstrap_methods,
         implemented_actions=optional,  # future external runtime-hosted plugins
         compatibility_actions=compatibility_actions,
         reserved_actions=reserved,

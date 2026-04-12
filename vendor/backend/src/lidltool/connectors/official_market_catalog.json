@@ -48,7 +48,6 @@
         "builtin.lidl_plus_de",
         "builtin.amazon_de",
         "builtin.kaufland_de",
-        "builtin.dm_de",
         "builtin.rossmann_de"
       ],
       "supported_products": ["self_hosted", "desktop"],

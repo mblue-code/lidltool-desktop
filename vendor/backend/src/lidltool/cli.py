@@ -41,8 +41,6 @@ from lidltool.connectors.runtime.execution import ConnectorExecutionService
 from lidltool.deployment_policy import evaluate_deployment_policy
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
 from lidltool.db.models import Source, Transaction, User
-from lidltool.dm.client_playwright import DmClientError, DmPlaywrightClient
-from lidltool.dm.session import default_dm_state_file
 from lidltool.ingest.sync import SyncProgress, SyncService
 from lidltool.logging import configure_logging
 
@@ -52,14 +50,12 @@ connectors_app = typer.Typer(help="Connector platform commands")
 connectors_auth_app = typer.Typer(help="Connector authentication commands")
 stats_app = typer.Typer(help="Analytics commands")
 amazon_app = typer.Typer(help="Amazon connector commands")
-dm_app = typer.Typer(help="dm connector commands")
 users_app = typer.Typer(help="User management commands")
 app.add_typer(auth_app, name="auth")
 app.add_typer(connectors_app, name="connectors")
 connectors_app.add_typer(connectors_auth_app, name="auth")
 app.add_typer(stats_app, name="stats")
 app.add_typer(amazon_app, name="amazon")
-app.add_typer(dm_app, name="dm")
 app.add_typer(users_app, name="users")
 console = Console()
 LOGGER = logging.getLogger(__name__)
@@ -126,11 +122,6 @@ def _create_session_factory(config: AppConfig) -> sessionmaker[Session]:
 
 def _resolve_amazon_state_file(path: Path | None, config: AppConfig) -> Path:
     target = path or default_amazon_state_file(config)
-    return target.expanduser().resolve()
-
-
-def _resolve_dm_state_file(path: Path | None, config: AppConfig) -> Path:
-    target = path or default_dm_state_file(config)
     return target.expanduser().resolve()
 
 
@@ -1048,144 +1039,6 @@ def amazon_cron_example_command(
         _emit({"ok": True, "cron": command}, json_output=True)
         return
     console.print(command)
-
-
-@dm_app.command("scrape")
-def dm_scrape_command(
-    ctx: typer.Context,
-    state_file: Annotated[
-        Path | None,
-        typer.Option("--state-file", help="Playwright storage-state file for dm session"),
-    ] = None,
-    domain: Annotated[
-        str,
-        typer.Option("--domain", help="dm domain, e.g. www.dm.de"),
-    ] = "www.dm.de",
-    max_pages: Annotated[
-        int,
-        typer.Option(
-            "--max-pages",
-            help="Maximum purchases load-more cycles to scan (<=0 means unlimited)",
-        ),
-    ] = 120,
-    detail_fetch_limit: Annotated[
-        int,
-        typer.Option("--detail-fetch-limit", help="How many detail receipts to parse (-1 means all)"),
-    ] = -1,
-    detail_retry_count: Annotated[
-        int,
-        typer.Option("--detail-retry-count", help="Retries per detail receipt when parsing fails"),
-    ] = 2,
-    detail_retry_backoff_ms: Annotated[
-        int,
-        typer.Option("--detail-retry-backoff-ms", help="Backoff in ms between detail retries"),
-    ] = 800,
-    detail_pause_ms: Annotated[
-        int,
-        typer.Option("--detail-pause-ms", help="Pause in ms between detail receipts"),
-    ] = 120,
-    detail_batch_size: Annotated[
-        int,
-        typer.Option("--detail-batch-size", help="Detail receipts per batch before a longer pause"),
-    ] = 40,
-    detail_batch_pause_ms: Annotated[
-        int,
-        typer.Option("--detail-batch-pause-ms", help="Pause in ms after each detail batch"),
-    ] = 1200,
-    max_consecutive_detail_failures: Annotated[
-        int,
-        typer.Option(
-            "--max-consecutive-detail-failures",
-            help="Abort after this many consecutive detail failures (<=0 disables)",
-        ),
-    ] = 25,
-    persist_state: Annotated[
-        bool,
-        typer.Option(
-            "--persist-state/--no-persist-state",
-            help="Persist refreshed dm session state after successful runs",
-        ),
-    ] = True,
-    state_persist_interval: Annotated[
-        int,
-        typer.Option(
-            "--state-persist-interval",
-            help="Persist refreshed session state every N detail receipts",
-        ),
-    ] = 25,
-    session_keepalive_every: Annotated[
-        int,
-        typer.Option(
-            "--session-keepalive-every",
-            help="Run account keepalive every N detail receipts (<=0 disables)",
-        ),
-    ] = 30,
-    headless: Annotated[
-        bool,
-        typer.Option("--headless/--no-headless", help="Run browser headless during scrape"),
-    ] = True,
-    dump_html: Annotated[
-        Path | None,
-        typer.Option("--dump-html", help="Dump visited HTML pages for parser discovery"),
-    ] = None,
-    out: Annotated[
-        Path | None,
-        typer.Option("--out", help="Optional path to write scraped JSON"),
-    ] = None,
-) -> None:
-    runtime = _ctx(ctx)
-    target_state = _resolve_dm_state_file(state_file, runtime.config)
-    client = DmPlaywrightClient(
-        state_file=target_state,
-        domain=domain,
-        headless=headless,
-        max_pages=max_pages,
-        detail_fetch_limit=detail_fetch_limit,
-        detail_retry_count=detail_retry_count,
-        detail_retry_backoff_ms=detail_retry_backoff_ms,
-        detail_pause_ms=detail_pause_ms,
-        detail_batch_size=detail_batch_size,
-        detail_batch_pause_ms=detail_batch_pause_ms,
-        max_consecutive_detail_failures=max_consecutive_detail_failures,
-        persist_state_on_success=persist_state,
-        state_persist_interval=state_persist_interval,
-        session_keepalive_every=session_keepalive_every,
-        dump_html_dir=dump_html,
-    )
-
-    try:
-        orders = client.fetch_receipts()
-    except DmClientError as exc:
-        if runtime.json_output:
-            _emit({"ok": False, "error": str(exc)}, json_output=True)
-            raise typer.Exit(code=1) from exc
-        raise typer.BadParameter(str(exc)) from exc
-
-    payload = {
-        "ok": True,
-        "orders_fetched": len(orders),
-        "state_file": str(target_state),
-        "dump_html": str(dump_html) if dump_html is not None else None,
-        "orders": orders,
-    }
-    if out is not None:
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-
-    if runtime.json_output:
-        _emit(payload, json_output=True)
-        return
-
-    table = Table(title="dm Scrape Result")
-    table.add_column("Metric")
-    table.add_column("Value")
-    table.add_row("Orders fetched", str(len(orders)))
-    table.add_row("State file", str(target_state))
-    if dump_html is not None:
-        table.add_row("HTML dump dir", str(dump_html))
-    if out is not None:
-        table.add_row("Output file", str(out))
-    console.print(table)
 
 
 def main() -> None:

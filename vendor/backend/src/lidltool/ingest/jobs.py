@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
@@ -32,12 +32,13 @@ from lidltool.connectors.runtime.execution import ConnectorExecutionService
 from lidltool.connectors.runtime.logging import log_runtime_invocation
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
 from lidltool.db.models import Document, IngestionJob, Source, SourceAccount
-from lidltool.dm.client_playwright import DmPlaywrightClient
 from lidltool.kaufland.client_playwright import KauflandPlaywrightClient
-from lidltool.ingest.ocr_ingest import OcrIngestService
 from lidltool.ingest.sync import SyncProgress, SyncResult, SyncService
 from lidltool.lidl.client import create_lidl_client
 from lidltool.rossmann.client_playwright import RossmannPlaywrightClient
+
+if TYPE_CHECKING:
+    from lidltool.ingest.ocr_ingest import OcrIngestService
 
 LOGGER = logging.getLogger(__name__)
 JOB_STATUS_QUEUED = "queued"
@@ -536,6 +537,8 @@ class JobService:
     def _run_ocr_job(self, job_id: str, document_id: str) -> None:
         LOGGER.info("job.lifecycle.running_ocr job_id=%s document_id=%s", job_id, document_id)
         try:
+            from lidltool.ingest.ocr_ingest import OcrIngestService
+
             service = OcrIngestService(session_factory=self._session_factory, config=self._config)
             result = self._run_ocr_with_timeout_retry(
                 service=service,
@@ -592,7 +595,6 @@ class JobService:
     def _build_source_connector(self, *, source_config: AppConfig) -> tuple[Any | None, Connector]:
         connector_execution_module.create_lidl_client = create_lidl_client
         connector_execution_module.AmazonPlaywrightClient = AmazonPlaywrightClient
-        connector_execution_module.DmPlaywrightClient = DmPlaywrightClient
         connector_execution_module.KauflandPlaywrightClient = KauflandPlaywrightClient
         connector_execution_module.RossmannPlaywrightClient = RossmannPlaywrightClient
         resolved = ConnectorExecutionService(

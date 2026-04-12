@@ -96,6 +96,16 @@ function sourceJourneySummary(source: SyncSourceId): string {
   return "Use a receipt pack when you want an occasional local sync for another retailer, then review or export the results on this computer.";
 }
 
+function sourceSyncNotice(source: SyncSourceId, locale: string): string | null {
+  if (source !== "dm") {
+    return null;
+  }
+  if (locale === "de") {
+    return "dm-Syncs können sichtbar länger dauern. Die Desktop-App hält dabei absichtliche Wartephasen ein, damit Login, Session und Detailseiten stabil bleiben.";
+  }
+  return "dm sync can take noticeably longer. The desktop app keeps intentional wait phases so login, session refresh, and receipt detail pages stay stable.";
+}
+
 export default function App() {
   const { locale, setLocale, t } = useDesktopI18n();
   const [{ year, month }] = useState(defaultYearMonth);
@@ -1049,6 +1059,12 @@ export default function App() {
             <span className="status-chip status-disabled">{SOURCE_OPTIONS.find((option) => option.id === source)?.label}</span>
           </div>
           <p>{sourceJourneySummary(source)}</p>
+          {sourceSyncNotice(source, locale) ? (
+            <div className="callout warning">
+              <strong>dm</strong>
+              <span>{sourceSyncNotice(source, locale)}</span>
+            </div>
+          ) : null}
           <label>
             {t("common.source")}
             <select value={source} onChange={(event) => setSource(event.target.value as SyncSourceId)}>

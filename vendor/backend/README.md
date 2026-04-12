@@ -303,7 +303,11 @@ lidltool connectors sync --source-id kaufland_de --full --option max_pages=10
 
 If the session expires, re-run `lidltool connectors auth bootstrap --source-id kaufland_de`.
 
-### 11. Direct dm connector (session auth + live sync)
+### 11. dm receipt plugin (session auth + live sync)
+
+The `dm_de` connector now ships as an external receipt plugin. In self-hosted mode,
+enable repo-managed plugins from `./plugins`; in desktop mode, install the dm receipt
+plugin pack before bootstrap/sync.
 
 Bootstrap dm session once (headful browser):
 
@@ -626,7 +630,7 @@ Sprint 5 Source management contracts are available:
 - `source_status` for deterministic source status (`connected`, `expired_auth`, `healthy`, `failing`).
 - `sync` supports optional source-scoped trigger via `params.source`.
 - `sync_status` (`job_id` mode) exposes additive `progress`, `timeline`, and `warnings` fields.
-- Source routing now includes `lidl_plus_de`, `amazon_de`, `rewe_de`, `kaufland_de`, `dm_de`, and `rossmann_de` in async job mode.
+- Source routing includes `lidl_plus_de`, `amazon_de`, `rewe_de`, `kaufland_de`, `rossmann_de`, and installed receipt plugins such as `dm_de` in async job mode.
 
 Sprint 6 recovery/auth contracts are additive:
 

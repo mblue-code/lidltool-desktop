@@ -1,7 +1,5 @@
 from lidltool.connectors.amazon_adapter import AmazonConnectorAdapter
 from lidltool.connectors.base import BaseConnectorAdapter, Connector
-from lidltool.connectors.dm_adapter import DmConnectorAdapter
-from lidltool.connectors.edeka_adapter import EdekaConnectorAdapter
 from lidltool.connectors.kaufland_adapter import KauflandConnectorAdapter
 from lidltool.connectors.lidl_adapter import LidlConnectorAdapter
 from lidltool.connectors.netto_adapter import NettoConnectorAdapter
@@ -30,8 +28,6 @@ __all__ = [
     "ConnectorRegistry",
     "Connector",
     "connector_distribution_payload",
-    "DmConnectorAdapter",
-    "EdekaConnectorAdapter",
     "get_connector_market_catalog",
     "ConnectorPolicy",
     "KauflandConnectorAdapter",

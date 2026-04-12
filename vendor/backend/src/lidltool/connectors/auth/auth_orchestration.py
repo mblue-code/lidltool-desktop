@@ -33,9 +33,6 @@ from lidltool.connectors.auth.auth_status import (
 from lidltool.connectors.lifecycle import connector_runtime_options
 from lidltool.connectors.registry import ConnectorRegistry, get_connector_registry
 from lidltool.connectors.sdk.manifest import ConnectorManifest
-from lidltool.dm.bootstrap_playwright import run_dm_headful_bootstrap
-from lidltool.dm.client_playwright import DmClientError
-from lidltool.dm.session import default_dm_state_file
 from lidltool.kaufland.bootstrap_playwright import run_kaufland_headful_bootstrap
 from lidltool.kaufland.client_playwright import KauflandClientError
 from lidltool.kaufland.session import default_kaufland_state_file
@@ -212,14 +209,6 @@ _BUILTIN_AUTH_BRIDGES: dict[str, _BuiltinAuthBridge] = {
         state_file_resolver=default_kaufland_state_file,
         bootstrap_runner=run_kaufland_headful_bootstrap,
         default_domain="www.kaufland.de",
-    ),
-    "dm_de": _BuiltinAuthBridge(
-        source_id="dm_de",
-        auth_kind="browser_session",
-        handled_exceptions=(DmClientError,),
-        state_file_resolver=default_dm_state_file,
-        bootstrap_runner=run_dm_headful_bootstrap,
-        default_domain="www.dm.de",
     ),
     "rossmann_de": _BuiltinAuthBridge(
         source_id="rossmann_de",

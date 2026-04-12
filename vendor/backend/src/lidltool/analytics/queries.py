@@ -374,13 +374,13 @@ def dashboard_totals(
 ) -> dict[str, Any]:
     start, end = _period_bounds(year, month)
     normalized_source_ids = _normalize_source_ids(source_ids)
-    paid_stmt = select(func.coalesce(func.sum(Transaction.total_gross_cents), 0)).where(
+    gross_stmt = select(func.coalesce(func.sum(Transaction.total_gross_cents), 0)).where(
         Transaction.purchased_at >= start,
         Transaction.purchased_at < end,
     )
-    paid_stmt = _apply_source_filter(paid_stmt, normalized_source_ids)
-    paid_stmt = _apply_transaction_visibility(paid_stmt, visibility)
-    paid_cents = int(session.execute(paid_stmt).scalar_one())
+    gross_stmt = _apply_source_filter(gross_stmt, normalized_source_ids)
+    gross_stmt = _apply_transaction_visibility(gross_stmt, visibility)
+    gross_cents = int(session.execute(gross_stmt).scalar_one())
     discount_stmt = (
         select(func.coalesce(func.sum(DiscountEvent.amount_cents), 0))
         .join(Transaction, Transaction.id == DiscountEvent.transaction_id)
@@ -399,8 +399,7 @@ def dashboard_totals(
     receipt_count_stmt = _apply_source_filter(receipt_count_stmt, normalized_source_ids)
     receipt_count_stmt = _apply_transaction_visibility(receipt_count_stmt, visibility)
     receipt_count = int(session.execute(receipt_count_stmt).scalar_one())
-    gross_cents = paid_cents + discount_total_cents
-    net_cents = paid_cents
+    net_cents = gross_cents - discount_total_cents
     savings_rate = _safe_ratio(discount_total_cents, gross_cents)
     return {
         "period": {
@@ -417,8 +416,8 @@ def dashboard_totals(
             "net_currency": str(cents_to_currency(net_cents)),
             "discount_total_cents": discount_total_cents,
             "discount_total_currency": str(cents_to_currency(discount_total_cents)),
-            "paid_cents": paid_cents,
-            "paid_currency": str(cents_to_currency(paid_cents)),
+            "paid_cents": net_cents,
+            "paid_currency": str(cents_to_currency(net_cents)),
             "saved_cents": discount_total_cents,
             "saved_currency": str(cents_to_currency(discount_total_cents)),
             "savings_rate": savings_rate,
@@ -444,7 +443,7 @@ def dashboard_trends(
     start, end = _period_bounds(year, start_month)
     _, series_end = _period_bounds(year, end_month)
     normalized_source_ids = _normalize_source_ids(source_ids)
-    paid_stmt = (
+    gross_stmt = (
         select(
             func.strftime("%Y", Transaction.purchased_at),
             func.strftime("%m", Transaction.purchased_at),
@@ -456,8 +455,8 @@ def dashboard_trends(
             func.strftime("%m", Transaction.purchased_at),
         )
     )
-    paid_stmt = _apply_source_filter(paid_stmt, normalized_source_ids)
-    paid_stmt = _apply_transaction_visibility(paid_stmt, visibility)
+    gross_stmt = _apply_source_filter(gross_stmt, normalized_source_ids)
+    gross_stmt = _apply_transaction_visibility(gross_stmt, visibility)
     saved_stmt = (
         select(
             func.strftime("%Y", Transaction.purchased_at),
@@ -473,14 +472,14 @@ def dashboard_trends(
     )
     saved_stmt = _apply_source_filter(saved_stmt, normalized_source_ids)
     saved_stmt = _apply_transaction_visibility(saved_stmt, visibility)
-    paid_rows = session.execute(paid_stmt).all()
+    gross_rows = session.execute(gross_stmt).all()
     saved_rows = session.execute(saved_stmt).all()
 
-    paid_map: dict[str, int] = {}
-    for year_s, month_s, total in paid_rows:
+    gross_map: dict[str, int] = {}
+    for year_s, month_s, total in gross_rows:
         if year_s is None or month_s is None:
             continue
-        paid_map[f"{year_s}-{month_s}"] = int(total or 0)
+        gross_map[f"{year_s}-{month_s}"] = int(total or 0)
     saved_map: dict[str, int] = {}
     for year_s, month_s, total in saved_rows:
         if year_s is None or month_s is None:
@@ -490,10 +489,9 @@ def dashboard_trends(
     points: list[dict[str, Any]] = []
     for month in range(start_month, end_month + 1):
         key = _month_key(year, month)
-        paid_cents = paid_map.get(key, 0)
+        gross_cents = gross_map.get(key, 0)
         discount_total_cents = saved_map.get(key, 0)
-        gross_cents = paid_cents + discount_total_cents
-        net_cents = paid_cents
+        net_cents = gross_cents - discount_total_cents
         points.append(
             {
                 "year": year,
@@ -505,9 +503,9 @@ def dashboard_trends(
                 "net_currency": str(cents_to_currency(net_cents)),
                 "discount_total_cents": discount_total_cents,
                 "discount_total_currency": str(cents_to_currency(discount_total_cents)),
-                "paid_cents": paid_cents,
+                "paid_cents": net_cents,
                 "saved_cents": discount_total_cents,
-                "paid_currency": str(cents_to_currency(paid_cents)),
+                "paid_currency": str(cents_to_currency(net_cents)),
                 "saved_currency": str(cents_to_currency(discount_total_cents)),
                 "savings_rate": _safe_ratio(discount_total_cents, gross_cents),
             }
@@ -592,7 +590,7 @@ def dashboard_retailer_composition(
 ) -> dict[str, Any]:
     start, end = _period_bounds(year, month)
     normalized_source_ids = _normalize_source_ids(source_ids)
-    paid_stmt = (
+    gross_stmt = (
         select(
             Transaction.source_id,
             func.coalesce(Source.display_name, Transaction.merchant_name, Transaction.source_id),
@@ -607,9 +605,9 @@ def dashboard_retailer_composition(
             func.coalesce(Source.display_name, Transaction.merchant_name, Transaction.source_id),
         )
     )
-    paid_stmt = _apply_source_filter(paid_stmt, normalized_source_ids)
-    paid_stmt = _apply_transaction_visibility(paid_stmt, visibility)
-    paid_rows = session.execute(paid_stmt).all()
+    gross_stmt = _apply_source_filter(gross_stmt, normalized_source_ids)
+    gross_stmt = _apply_transaction_visibility(gross_stmt, visibility)
+    gross_rows = session.execute(gross_stmt).all()
     saved_stmt = (
         select(Transaction.source_id, func.coalesce(func.sum(DiscountEvent.amount_cents), 0))
         .join(Transaction, Transaction.id == DiscountEvent.transaction_id)
@@ -620,16 +618,15 @@ def dashboard_retailer_composition(
     saved_stmt = _apply_transaction_visibility(saved_stmt, visibility)
     saved_rows = session.execute(saved_stmt).all()
 
-    paid_map = {str(source_id): int(total or 0) for source_id, _, total, _ in paid_rows}
+    gross_map = {str(source_id): int(total or 0) for source_id, _, total, _ in gross_rows}
     saved_map = {str(source_id): int(total or 0) for source_id, total in saved_rows}
-    count_map = {str(source_id): int(count or 0) for source_id, _, _, count in paid_rows}
-    name_map = {str(source_id): str(name) for source_id, name, _, _ in paid_rows}
-    source_ids = sorted(set(paid_map.keys()) | set(saved_map.keys()))
+    count_map = {str(source_id): int(count or 0) for source_id, _, _, count in gross_rows}
+    name_map = {str(source_id): str(name) for source_id, name, _, _ in gross_rows}
+    source_ids = sorted(set(gross_map.keys()) | set(saved_map.keys()))
 
-    paid_total = sum(paid_map.get(source_id, 0) for source_id in source_ids)
+    gross_total = sum(gross_map.get(source_id, 0) for source_id in source_ids)
     discount_total = sum(saved_map.get(source_id, 0) for source_id in source_ids)
-    gross_total = paid_total + discount_total
-    net_total = paid_total
+    net_total = gross_total - discount_total
 
     retailers = sorted(
         [
@@ -637,28 +634,33 @@ def dashboard_retailer_composition(
                 "source_id": source_id,
                 "retailer": name_map.get(source_id, source_id),
                 "receipt_count": count_map.get(source_id, 0),
-                "gross_cents": paid_map.get(source_id, 0) + saved_map.get(source_id, 0),
-                "gross_currency": str(
-                    cents_to_currency(paid_map.get(source_id, 0) + saved_map.get(source_id, 0))
+                "gross_cents": gross_map.get(source_id, 0),
+                "gross_currency": str(cents_to_currency(gross_map.get(source_id, 0))),
+                "net_cents": gross_map.get(source_id, 0) - saved_map.get(source_id, 0),
+                "net_currency": str(
+                    cents_to_currency(gross_map.get(source_id, 0) - saved_map.get(source_id, 0))
                 ),
-                "net_cents": paid_map.get(source_id, 0),
-                "net_currency": str(cents_to_currency(paid_map.get(source_id, 0))),
                 "discount_total_cents": saved_map.get(source_id, 0),
                 "discount_total_currency": str(cents_to_currency(saved_map.get(source_id, 0))),
-                "paid_cents": paid_map.get(source_id, 0),
+                "paid_cents": gross_map.get(source_id, 0) - saved_map.get(source_id, 0),
                 "saved_cents": saved_map.get(source_id, 0),
-                "paid_currency": str(cents_to_currency(paid_map.get(source_id, 0))),
-                "saved_currency": str(cents_to_currency(saved_map.get(source_id, 0))),
-                "gross_share": _safe_ratio(
-                    paid_map.get(source_id, 0) + saved_map.get(source_id, 0),
-                    gross_total,
+                "paid_currency": str(
+                    cents_to_currency(gross_map.get(source_id, 0) - saved_map.get(source_id, 0))
                 ),
-                "net_share": _safe_ratio(paid_map.get(source_id, 0), net_total),
-                "paid_share": _safe_ratio(paid_map.get(source_id, 0), net_total),
+                "saved_currency": str(cents_to_currency(saved_map.get(source_id, 0))),
+                "gross_share": _safe_ratio(gross_map.get(source_id, 0), gross_total),
+                "net_share": _safe_ratio(
+                    gross_map.get(source_id, 0) - saved_map.get(source_id, 0),
+                    net_total,
+                ),
+                "paid_share": _safe_ratio(
+                    gross_map.get(source_id, 0) - saved_map.get(source_id, 0),
+                    net_total,
+                ),
                 "saved_share": _safe_ratio(saved_map.get(source_id, 0), discount_total),
                 "savings_rate": _safe_ratio(
                     saved_map.get(source_id, 0),
-                    paid_map.get(source_id, 0) + saved_map.get(source_id, 0),
+                    gross_map.get(source_id, 0),
                 ),
             }
             for source_id in source_ids
@@ -676,9 +678,9 @@ def dashboard_retailer_composition(
             "net_currency": str(cents_to_currency(net_total)),
             "discount_total_cents": discount_total,
             "discount_total_currency": str(cents_to_currency(discount_total)),
-            "paid_cents": paid_total,
+            "paid_cents": net_total,
             "saved_cents": discount_total,
-            "paid_currency": str(cents_to_currency(paid_total)),
+            "paid_currency": str(cents_to_currency(net_total)),
             "saved_currency": str(cents_to_currency(discount_total)),
             "savings_rate": _safe_ratio(discount_total, gross_total),
         },

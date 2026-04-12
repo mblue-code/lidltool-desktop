@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarCheck, Euro, Info, Package, Percent, PiggyBank, RefreshCw, TrendingDown } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { CalendarCheck, Euro, Package, Percent, PiggyBank, TrendingDown } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { fetchRecurringCalendar, fetchRecurringForecast } from "@/api/recurringBills";
@@ -31,7 +31,6 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { type TranslationKey, useI18n } from "@/i18n";
 import { resolveApiErrorMessage, resolveApiWarningMessage } from "@/lib/backend-messages";
@@ -121,47 +120,6 @@ function readSpendView(raw: string | null): SpendView {
   return raw === "net" ? "net" : "gross";
 }
 
-function discountViewLabel(locale: "en" | "de", view: DiscountView): string {
-  if (view === "normalized") {
-    return locale === "de" ? "Normalisiert" : "Normalized";
-  }
-  return locale === "de" ? "Nativ" : "Native";
-}
-
-function spendViewLabel(locale: "en" | "de", spendView: SpendView): string {
-  if (spendView === "gross") {
-    return locale === "de" ? "Vor Ersparnissen" : "Before savings";
-  }
-  return locale === "de" ? "Ausgaben" : "Spend total";
-}
-
-function spendMetricSubtitle(locale: "en" | "de", spendView: SpendView): string {
-  if (spendView === "gross") {
-    return locale === "de"
-      ? "Ausgaben plus erfasste Ersparnisse, ohne Pfand."
-      : "Spend plus recorded savings, excluding deposit.";
-  }
-  return locale === "de"
-    ? "Nach erfassten Rabatten, ohne Pfand."
-    : "After recorded discounts, excluding deposit.";
-}
-
-function spendTotalsInfoLabel(locale: "en" | "de"): string {
-  return locale === "de" ? "Hinweis zu Ausgabensummen" : "Spend totals info";
-}
-
-function spendTotalsInfoBody(locale: "en" | "de"): string {
-  return locale === "de"
-    ? "Die Ausgabensummen auf dem Dashboard schließen Pfand aus. \"Ausgaben\" zeigt, was Sie nach erfassten Rabatten für Waren bezahlt haben. \"Vor Ersparnissen\" rechnet die erfassten Ersparnisse wieder hinzu. Umsatzsteuerfreie Summen sind nur dort möglich, wo der Händler Steuerdaten liefert."
-    : "Dashboard spend totals exclude deposit. \"Spend total\" shows what you paid for goods after recorded discounts. \"Before savings\" adds recorded savings back in. VAT-exclusive totals are only available where the retailer provides tax data.";
-}
-
-function spendTotalsInlineNote(locale: "en" | "de"): string {
-  return locale === "de"
-    ? "Ausgaben ohne Pfand; Umsatzsteuerfreie Summen nur bei verfügbaren Steuerdaten."
-    : "Spend excludes deposit; VAT-exclusive totals only when tax data is available.";
-}
-
 function readRetailerIds(raw: string | null): string[] {
   if (!raw) {
     return [];
@@ -192,72 +150,6 @@ function monthIsoEnd(year: number, month: number): string {
   const nextMonth = month === 12 ? 1 : month + 1;
   const nextYear = month === 12 ? year + 1 : year;
   return `${nextYear}-${String(nextMonth).padStart(2, "0")}-01T00:00:00Z`;
-}
-
-function monthDateStart(year: number, month: number): string {
-  return `${year}-${String(month).padStart(2, "0")}-01`;
-}
-
-function monthDateEnd(year: number, month: number): string {
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-}
-
-function discountViewInfoLabel(locale: "en" | "de"): string {
-  return locale === "de" ? "Hinweis zur Rabattansicht" : "Discount view info";
-}
-
-function discountViewInfoBody(locale: "en" | "de"): string {
-  return locale === "de"
-    ? "\"Nativ\" zeigt Rabatte so, wie der Händler sie gemeldet hat. \"Normalisiert\" fasst händlerspezifische Rabatttypen in gemeinsame Gruppen wie Aktion, Coupon oder Treue zusammen. Das ändert nur die Aufschlüsselung nach Typ, nicht die Summen auf dem Beleg."
-    : "\"Native\" shows discounts exactly as the retailer reported them. \"Normalized\" groups retailer-specific discount types into shared buckets such as promotion, coupon, or loyalty. It only changes the breakdown by type, not the receipt totals.";
-}
-
-function discountTypeLabel(locale: "en" | "de", view: DiscountView, bucket: string): string {
-  if (view === "native") {
-    return bucket;
-  }
-
-  const normalizedBucket = bucket.trim().toLowerCase();
-  if (locale === "de") {
-    switch (normalizedBucket) {
-      case "promotion":
-        return "Promotion";
-      case "coupon":
-        return "Coupon";
-      case "loyalty":
-        return "Treue";
-      case "markdown":
-        return "MHD";
-      case "cashback":
-        return "Cashback";
-      case "other":
-        return "Sonstiges";
-      case "unknown":
-        return "Unbekannt";
-      default:
-        return bucket;
-    }
-  }
-
-  switch (normalizedBucket) {
-    case "promotion":
-      return "Promotion";
-    case "coupon":
-      return "Coupon";
-    case "loyalty":
-      return "Loyalty";
-    case "markdown":
-      return "MHD";
-    case "cashback":
-      return "Cashback";
-    case "other":
-      return "Other";
-    case "unknown":
-      return "Unknown";
-    default:
-      return bucket;
-  }
 }
 
 function labelFromTrendPoint(point: { year: number; month: number; period_key: string }): string {
@@ -309,8 +201,7 @@ function downloadBlob(filename: string, type: string, content: string): boolean 
 }
 
 export function DashboardPage() {
-  const { locale, t } = useI18n();
-  const queryClient = useQueryClient();
+  const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const [showFilters, setShowFilters] = useState(() => searchParams.toString() !== "");
   const today = new Date();
@@ -331,24 +222,6 @@ export function DashboardPage() {
   const selectedRetailerIds = readRetailerIds(searchParams.get("retailers"));
 
   const [exportStatus, setExportStatus] = useState<string | null>(null);
-  const depositDateBounds = useMemo(() => {
-    if (periodMode === "month") {
-      return {
-        fromDate: monthDateStart(year, month),
-        toDate: monthDateEnd(year, month)
-      };
-    }
-    if (periodMode === "range") {
-      return {
-        fromDate: monthDateStart(year, startMonth),
-        toDate: monthDateEnd(year, endMonth)
-      };
-    }
-    return {
-      fromDate: `${year}-01-01`,
-      toDate: `${year}-12-31`
-    };
-  }, [endMonth, month, periodMode, startMonth, year]);
 
   function updateSearchParams(nextValues: Partial<{
     year: number;
@@ -394,7 +267,7 @@ export function DashboardPage() {
 
   const sourcesQuery = useQuery({ queryKey: ["sources"], queryFn: fetchSources });
 
-  const { data, error, isPending, isFetching, refetch: refetchDashboard } = useQuery(
+  const { data, error, isPending, isFetching } = useQuery(
     dashboardPanelsQueryOptions({
       year,
       periodMode,
@@ -405,15 +278,7 @@ export function DashboardPage() {
       sourceIds: selectedRetailerIds
     })
   );
-  const depositQuery = useQuery({
-    queryKey: ["deposit-analytics", depositDateBounds.fromDate, depositDateBounds.toDate, selectedRetailerIds],
-    queryFn: () =>
-      fetchDepositAnalytics({
-        fromDate: depositDateBounds.fromDate,
-        toDate: depositDateBounds.toDate,
-        sourceIds: selectedRetailerIds
-      })
-  });
+  const depositQuery = useQuery({ queryKey: ["deposit-analytics"], queryFn: fetchDepositAnalytics });
   const recurringCalendarQuery = useQuery({
     queryKey: [
       "dashboard-recurring-calendar",
@@ -437,12 +302,6 @@ export function DashboardPage() {
   const composition = data?.composition ?? null;
   const warnings = data?.warnings ?? [];
   const loading = isPending || isFetching;
-  const refreshing =
-    isFetching ||
-    depositQuery.isFetching ||
-    sourcesQuery.isFetching ||
-    recurringCalendarQuery.isFetching ||
-    recurringForecastQuery.isFetching;
   const errorMessage = error ? resolveApiErrorMessage(error, t, t("pages.dashboard.loadError")) : null;
 
   const trendPoints = trends?.points ?? [];
@@ -498,7 +357,8 @@ export function DashboardPage() {
     1
   );
   const maxBreakdownSaved = Math.max(...breakdownRows.map((row) => row.saved_cents), 1);
-  const spendColumnTitle = spendViewLabel(locale, spendView);
+  const spendColumnTitle =
+    spendView === "gross" ? t("pages.dashboard.card.grossSpend") : t("pages.dashboard.card.netSpend");
   const recurringForecastMax = Math.max(
     ...(recurringForecastQuery.data?.points ?? []).map((point) => point.projected_cents),
     1
@@ -534,13 +394,13 @@ export function DashboardPage() {
 
   const trendTitle =
     periodMode === "month"
-      ? t("pages.dashboard.trendTitle.month", { spendView: spendViewLabel(locale, spendView) })
+      ? t("pages.dashboard.trendTitle.month", { spendView })
       : periodMode === "range"
         ? t("pages.dashboard.trendTitle.range", {
             rangeLabel: `${monthName(startMonth)}-${monthName(endMonth)} ${year}`,
-            spendView: spendViewLabel(locale, spendView)
+            spendView
           })
-        : t("pages.dashboard.trendTitle.year", { year, spendView: spendViewLabel(locale, spendView) });
+        : t("pages.dashboard.trendTitle.year", { year, spendView });
 
   const exportRows = useMemo<ExportRow[]>(() => {
     const rows: ExportRow[] = [];
@@ -604,18 +464,6 @@ export function DashboardPage() {
     setExportStatus(downloaded ? t("pages.dashboard.exportedCsv") : t("pages.dashboard.downloadUnavailable"));
   }
 
-  async function refreshDashboard(): Promise<void> {
-    setExportStatus(null);
-    await Promise.all([
-      refetchDashboard(),
-      depositQuery.refetch(),
-      sourcesQuery.refetch(),
-      recurringCalendarQuery.refetch(),
-      recurringForecastQuery.refetch()
-    ]);
-    await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-  }
-
   return (
     <section className="space-y-4">
       <PageHeader title={t("nav.item.overview")} description={t("pages.dashboard.description")}>
@@ -639,10 +487,6 @@ export function DashboardPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => void refreshDashboard()} disabled={refreshing}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            {t(refreshing ? "pages.dashboard.refreshing" : "pages.dashboard.refresh")}
-          </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => setShowFilters((current) => !current)}>
             {t(showFilters ? "pages.dashboard.hideFilters" : "pages.dashboard.showFilters")}
           </Button>
@@ -809,56 +653,20 @@ export function DashboardPage() {
             </div>
 
             <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <Label htmlFor="dashboard-spend-view">{t("pages.dashboard.spendView")}</Label>
-                <TooltipProvider delayDuration={150}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={spendTotalsInfoLabel(locale)}
-                        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <Info className="h-3.5 w-3.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-xs text-xs leading-relaxed">
-                      {spendTotalsInfoBody(locale)}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
+              <Label htmlFor="dashboard-spend-view">{t("pages.dashboard.spendView")}</Label>
               <Select value={spendView} onValueChange={(nextView) => updateSearchParams({ spend: nextView as SpendView })}>
                 <SelectTrigger id="dashboard-spend-view" className={DASHBOARD_CONTROL_CLASS}>
                   <SelectValue placeholder={t("pages.dashboard.selectSpendView")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="net">{spendViewLabel(locale, "net")}</SelectItem>
-                  <SelectItem value="gross">{spendViewLabel(locale, "gross")}</SelectItem>
+                  <SelectItem value="net">{t("pages.dashboard.spendView.net")}</SelectItem>
+                  <SelectItem value="gross">{t("pages.dashboard.spendView.gross")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <Label htmlFor="dashboard-discount-view">{t("pages.dashboard.discountView")}</Label>
-                <TooltipProvider delayDuration={150}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={discountViewInfoLabel(locale)}
-                        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <Info className="h-3.5 w-3.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-xs text-xs leading-relaxed">
-                      {discountViewInfoBody(locale)}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
+              <Label htmlFor="dashboard-discount-view">{t("pages.dashboard.discountView")}</Label>
               <Select value={view} onValueChange={(nextView) => updateSearchParams({ view: nextView as DiscountView })}>
                 <SelectTrigger id="dashboard-discount-view" className={DASHBOARD_CONTROL_CLASS}>
                   <SelectValue placeholder={t("pages.dashboard.selectDiscountView")} />
@@ -924,25 +732,6 @@ export function DashboardPage() {
         <h2 id="dashboard-summary-heading" className="sr-only">
           Dashboard summary
         </h2>
-        <div className="flex items-center justify-between gap-3 border-b border-border/40 px-4 py-3 text-xs text-muted-foreground">
-          <p>{spendTotalsInlineNote(locale)}</p>
-          <TooltipProvider delayDuration={150}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={spendTotalsInfoLabel(locale)}
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <Info className="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-sm text-xs leading-relaxed">
-                {spendTotalsInfoBody(locale)}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
         {loading ? (
           <div className="grid gap-4 p-4 lg:grid-cols-3 2xl:grid-cols-5">
             <Skeleton className="h-20 rounded-lg" />
@@ -955,20 +744,18 @@ export function DashboardPage() {
           <div className="grid divide-y lg:divide-y-0 lg:divide-x divide-border/40 lg:grid-cols-3 2xl:grid-cols-5">
             <Link to={ledgerLink}>
               <MetricCard
-                title={spendViewLabel(locale, "net")}
+                title={t("pages.dashboard.card.netSpend")}
                 value={netSpendCents !== null ? formatEurFromCents(netSpendCents) : "—"}
                 icon={<TrendingDown className="h-3.5 w-3.5" />}
                 iconClassName="bg-primary/10 text-primary"
-                subtitle={spendMetricSubtitle(locale, "net")}
               />
             </Link>
             <Link to={ledgerLink}>
               <MetricCard
-                title={spendViewLabel(locale, "gross")}
+                title={t("pages.dashboard.card.grossSpend")}
                 value={grossSpendCents !== null ? formatEurFromCents(grossSpendCents) : "—"}
                 icon={<Euro className="h-3.5 w-3.5" />}
                 iconClassName="bg-muted text-muted-foreground"
-                subtitle={spendMetricSubtitle(locale, "gross")}
               />
             </Link>
             <Link to={savingsLedgerLink}>
@@ -1093,9 +880,9 @@ export function DashboardPage() {
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-medium">{labelFromTrendPoint(point)}</span>
                         <span className="text-muted-foreground">
-                          {spendViewLabel(locale, spendView)} {formatEurFromCents(spendCents)} | {spendViewLabel(locale, "net")}{" "}
-                          {formatEurFromCents(netCents)} | {spendViewLabel(locale, "gross")} {formatEurFromCents(grossCents)} |{" "}
-                          {t("pages.dashboard.trendSavings")} {formatEurFromCents(pointSavingsCents)}
+                          {spendView === "gross" ? t("pages.dashboard.trendGross") : t("pages.dashboard.trendNet")}{" "}
+                          {formatEurFromCents(spendCents)} | {t("pages.dashboard.trendNet")} {formatEurFromCents(netCents)} | {t("pages.dashboard.trendGross")}{" "}
+                          {formatEurFromCents(grossCents)} | {t("pages.dashboard.trendSavings")} {formatEurFromCents(pointSavingsCents)}
                         </span>
                       </div>
                       <div className="h-2 rounded-full bg-muted">
@@ -1112,9 +899,7 @@ export function DashboardPage() {
         <Card>
           <CardHeader className="space-y-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base">
-                {t("pages.dashboard.savingsByType", { view: discountViewLabel(locale, view) })}
-              </CardTitle>
+              <CardTitle className="text-base">{t("pages.dashboard.savingsByType", { view })}</CardTitle>
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -1145,7 +930,7 @@ export function DashboardPage() {
                   return (
                     <li key={row.type} className="space-y-1">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium">{discountTypeLabel(locale, view, row.type)}</span>
+                        <span className="font-medium">{row.type}</span>
                         <span className="text-muted-foreground">
                           {formatEurFromCents(row.saved_cents)} ({row.discount_events} {t("pages.dashboard.events").toLowerCase()})
                         </span>
@@ -1169,7 +954,7 @@ export function DashboardPage() {
                 <TableBody>
                   {breakdownRows.map((row) => (
                     <TableRow key={row.type}>
-                      <TableCell>{discountTypeLabel(locale, view, row.type)}</TableCell>
+                      <TableCell>{row.type}</TableCell>
                       <TableCell className="tabular-nums">{formatEurFromCents(row.saved_cents)}</TableCell>
                       <TableCell className="tabular-nums">{row.discount_events}</TableCell>
                     </TableRow>

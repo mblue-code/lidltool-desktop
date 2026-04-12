@@ -13,48 +13,21 @@ from typing import Any, Literal
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from lidltool.connectors.sdk.runtime import (
+    AUTH_BROWSER_METADATA_KEY,
+    AuthBrowserMode,
+    AuthBrowserPlan,
+    AuthBrowserResult,
+    AuthBrowserStartRequest,
+    build_auth_browser_metadata,
+    build_auth_browser_runtime_context,
+    parse_auth_browser_runtime_context,
+    parse_auth_browser_start_request,
+)
 
-AuthBrowserMode = Literal["local_display", "remote_vnc", "headless_capture_only"]
-
-AUTH_BROWSER_METADATA_KEY = "auth_browser"
 AUTH_BROWSER_MODE_ENV = "LIDLTOOL_AUTH_BROWSER_MODE"
 AUTH_BROWSER_EXECUTABLE_ENV = "LIDLTOOL_PLAYWRIGHT_BROWSER_EXECUTABLE_PATH"
 AUTH_BROWSER_CHANNEL_ENV = "LIDLTOOL_PLAYWRIGHT_BROWSER_CHANNEL"
-
-
-class AuthBrowserPlan(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    start_url: str
-    callback_url_prefixes: tuple[str, ...]
-    timeout_seconds: int = Field(default=900, ge=1, le=7200)
-    wait_until: Literal["domcontentloaded", "load", "networkidle"] = "domcontentloaded"
-    interactive: bool = True
-
-
-class AuthBrowserStartRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    flow_id: str
-    plan: AuthBrowserPlan
-
-
-class AuthBrowserResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    flow_id: str
-    session_id: str
-    mode: AuthBrowserMode
-    start_url: str
-    final_url: str
-    callback_url: str
-    started_at: str
-    completed_at: str
-
-
-_REQUEST_ADAPTER: TypeAdapter[AuthBrowserStartRequest] = TypeAdapter(AuthBrowserStartRequest)
-_RESULT_ADAPTER: TypeAdapter[AuthBrowserResult] = TypeAdapter(AuthBrowserResult)
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +69,7 @@ class AuthBrowserRuntimeService:
     ) -> AuthBrowserResult:
         env = dict(os.environ if environment is None else environment)
         started = self.start_session(request, environment=env)
-        callback_url = self._wait_for_callback(
+        callback_url, storage_state = self._capture_browser_result(
             request=request,
             environment=env,
         )
@@ -110,15 +83,17 @@ class AuthBrowserRuntimeService:
             callback_url=callback_url,
             started_at=started.handle.started_at.isoformat(),
             completed_at=completed_at.isoformat(),
+            storage_state=storage_state,
         )
 
-    def _wait_for_callback(
+    def _capture_browser_result(
         self,
         *,
         request: AuthBrowserStartRequest,
         environment: Mapping[str, str],
-    ) -> str:
+    ) -> tuple[str, dict[str, Any] | None]:
         callback_prefixes = tuple(request.plan.callback_url_prefixes)
+        normalized_start_url = _normalize_browser_url(request.plan.start_url)
         mode = self._resolve_mode(env=environment, interactive=request.plan.interactive)
         headless = mode == "headless_capture_only"
         if request.plan.interactive and mode == "headless_capture_only":
@@ -137,6 +112,7 @@ class AuthBrowserRuntimeService:
                 )
                 captured_url: str | None = None
                 captured_error: str | None = None
+                saw_navigation_away = False
 
                 def capture(url: str | None) -> None:
                     nonlocal captured_url
@@ -144,11 +120,28 @@ class AuthBrowserRuntimeService:
                         str(url or "").strip(),
                         callback_prefixes,
                     )
-                    if matched is not None:
+                    if _should_accept_callback_candidate(
+                        candidate=matched,
+                        start_url=normalized_start_url,
+                        require_navigation_away_before_completion=request.plan.require_navigation_away_before_completion,
+                        saw_navigation_away=saw_navigation_away,
+                    ):
                         captured_url = matched
 
                 def attach_page(page: Any) -> None:
-                    page.on("framenavigated", lambda frame: capture(frame.url))
+                    def handle_frame_navigation(frame: Any) -> None:
+                        nonlocal saw_navigation_away
+                        try:
+                            is_main_frame = frame == page.main_frame
+                        except Exception:
+                            is_main_frame = True
+                        if is_main_frame:
+                            normalized_url = _normalize_browser_url(getattr(frame, "url", ""))
+                            if normalized_url and normalized_url != normalized_start_url:
+                                saw_navigation_away = True
+                        capture(getattr(frame, "url", ""))
+
+                    page.on("framenavigated", handle_frame_navigation)
 
                 context.on("request", lambda req: capture(req.url))
                 context.on("requestfailed", lambda req: capture(req.url))
@@ -169,7 +162,10 @@ class AuthBrowserRuntimeService:
                 while captured_url is None and captured_error is None:
                     captured_url = _discover_callback_candidate(
                         context=context,
+                        start_url=normalized_start_url,
                         callback_prefixes=callback_prefixes,
+                        require_navigation_away_before_completion=request.plan.require_navigation_away_before_completion,
+                        saw_navigation_away=saw_navigation_away,
                     )
                     if captured_url is not None:
                         break
@@ -180,14 +176,22 @@ class AuthBrowserRuntimeService:
                     except PlaywrightError as exc:
                         captured_url = _discover_callback_candidate(
                             context=context,
+                            start_url=normalized_start_url,
                             callback_prefixes=callback_prefixes,
+                            require_navigation_away_before_completion=request.plan.require_navigation_away_before_completion,
+                            saw_navigation_away=saw_navigation_away,
                         )
                         if captured_url is not None:
                             break
                         captured_error = str(exc)
                         break
 
-                context.close()
+                try:
+                    storage_state = context.storage_state() if request.plan.capture_storage_state else None
+                    context.close()
+                except PlaywrightError as exc:
+                    context.close()
+                    raise RuntimeError(f"browser auth storage-state capture failed: {exc}") from exc
 
         if captured_error is not None:
             raise RuntimeError(f"browser auth session failed before callback capture: {captured_error}")
@@ -195,7 +199,9 @@ class AuthBrowserRuntimeService:
             raise RuntimeError(
                 "browser auth did not complete before timeout; retry bootstrap and finish the login flow."
             )
-        return captured_url
+        if request.plan.capture_storage_state and not isinstance(storage_state, dict):
+            raise RuntimeError("browser auth storage-state capture returned no data")
+        return captured_url, storage_state
 
     def _resolve_mode(
         self,
@@ -220,14 +226,22 @@ class AuthBrowserRuntimeService:
 def _discover_callback_candidate(
     *,
     context: Any,
+    start_url: str,
     callback_prefixes: tuple[str, ...],
+    require_navigation_away_before_completion: bool,
+    saw_navigation_away: bool,
 ) -> str | None:
     for page in list(getattr(context, "pages", ())):
         candidate = _discover_callback_candidate_from_page(
             page=page,
             callback_prefixes=callback_prefixes,
         )
-        if candidate is not None:
+        if _should_accept_callback_candidate(
+            candidate=candidate,
+            start_url=start_url,
+            require_navigation_away_before_completion=require_navigation_away_before_completion,
+            saw_navigation_away=saw_navigation_away,
+        ):
             return candidate
     return None
 
@@ -313,6 +327,27 @@ def _match_callback_candidate(candidate: str, callback_prefixes: tuple[str, ...]
                 matched = matched[:delimiter_index]
         return matched.rstrip(".,;")
     return None
+
+
+def _normalize_browser_url(url: str | None) -> str:
+    return str(url or "").strip()
+
+
+def _should_accept_callback_candidate(
+    *,
+    candidate: str | None,
+    start_url: str,
+    require_navigation_away_before_completion: bool,
+    saw_navigation_away: bool,
+) -> bool:
+    if candidate is None:
+        return False
+    if not require_navigation_away_before_completion:
+        return True
+    normalized_candidate = _normalize_browser_url(candidate)
+    if normalized_candidate != start_url:
+        return True
+    return saw_navigation_away
 
 
 def _launch_auth_browser(
@@ -413,36 +448,3 @@ def _detect_system_chromium_executable() -> Path | None:
         if resolved.exists():
             return resolved
     return None
-
-
-def build_auth_browser_metadata(
-    *,
-    flow_id: str,
-    plan: AuthBrowserPlan,
-) -> dict[str, Any]:
-    payload = AuthBrowserStartRequest(flow_id=flow_id, plan=plan)
-    return {AUTH_BROWSER_METADATA_KEY: payload.model_dump(mode="python")}
-
-
-def parse_auth_browser_start_request(metadata: Mapping[str, Any] | None) -> AuthBrowserStartRequest | None:
-    if not isinstance(metadata, Mapping):
-        return None
-    payload = metadata.get(AUTH_BROWSER_METADATA_KEY)
-    if payload is None:
-        return None
-    return _REQUEST_ADAPTER.validate_python(payload)
-
-
-def build_auth_browser_runtime_context(result: AuthBrowserResult) -> dict[str, Any]:
-    return {AUTH_BROWSER_METADATA_KEY: result.model_dump(mode="python")}
-
-
-def parse_auth_browser_runtime_context(
-    runtime_context: Mapping[str, Any] | None,
-) -> AuthBrowserResult | None:
-    if not isinstance(runtime_context, Mapping):
-        return None
-    payload = runtime_context.get(AUTH_BROWSER_METADATA_KEY)
-    if payload is None:
-        return None
-    return _RESULT_ADAPTER.validate_python(payload)

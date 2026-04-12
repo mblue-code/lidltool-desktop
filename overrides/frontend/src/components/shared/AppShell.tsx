@@ -32,7 +32,11 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { useTheme } from "next-themes";
 
 import { fetchAISettings } from "@/api/aiSettings";
-import { fetchConnectorSyncStatus, type ConnectorSyncStatus } from "@/api/connectors";
+import {
+  fetchConnectors,
+  fetchConnectorSyncStatus,
+  type ConnectorSyncStatus
+} from "@/api/connectors";
 import { logout } from "@/api/auth";
 import type { CurrentUser } from "@/api/users";
 import { getSidePanelPageContext } from "@/agent/page-context";
@@ -125,24 +129,6 @@ const GLOBAL_SYNC_DISMISS_STORAGE_KEY = "app.global_sync_banner.dismissed";
 const CHAT_PANEL_WIDTH_DEFAULT = 420;
 const CHAT_PANEL_WIDTH_MIN = 320;
 const CHAT_PANEL_WIDTH_MAX = 860;
-const GLOBAL_SYNC_SOURCE_IDS = [
-  "lidl_plus_de",
-  "amazon_de",
-  "edeka_de",
-  "rewe_de",
-  "kaufland_de",
-  "dm_de",
-  "rossmann_de"
-] as const;
-const CONNECTOR_DISPLAY_NAMES: Record<(typeof GLOBAL_SYNC_SOURCE_IDS)[number], string> = {
-  lidl_plus_de: "Lidl",
-  amazon_de: "Amazon",
-  edeka_de: "EDEKA",
-  rewe_de: "REWE",
-  kaufland_de: "Kaufland",
-  dm_de: "dm",
-  rossmann_de: "Rossmann"
-};
 
 type ParsedSyncProgress = {
   seen: number | null;
@@ -336,17 +322,16 @@ function syncRunKey(sourceId: string, status: ConnectorSyncStatus): string {
 }
 
 function SyncStatusBanner({
-  sourceId,
+  sourceLabel,
   status,
   onDismiss
 }: {
-  sourceId: string;
+  sourceLabel: string;
   status: ConnectorSyncStatus;
   onDismiss?: (() => void) | undefined;
 }) {
   const { locale, t } = useI18n();
   const progress = parseSyncProgress(status);
-  const sourceLabel = CONNECTOR_DISPLAY_NAMES[sourceId as keyof typeof CONNECTOR_DISPLAY_NAMES] ?? sourceId;
   const Icon =
     status.status === "running"
       ? LoaderCircle
@@ -676,10 +661,18 @@ export function AppShell({ user }: AppShellProps) {
     queryKey: ["ai-settings"],
     queryFn: fetchAISettings
   });
+  const connectorsQuery = useQuery({
+    queryKey: ["connectors"],
+    queryFn: fetchConnectors
+  });
+  const globalSyncConnectors =
+    connectorsQuery.data?.connectors.filter(
+      (connector) => connector.supports_sync && connector.install_state === "installed"
+    ) ?? [];
   const connectorSyncQueries = useQueries({
-    queries: GLOBAL_SYNC_SOURCE_IDS.map((sourceId) => ({
-      queryKey: ["global-connector-sync-status", sourceId],
-      queryFn: () => fetchConnectorSyncStatus(sourceId),
+    queries: globalSyncConnectors.map((connector) => ({
+      queryKey: ["global-connector-sync-status", connector.source_id],
+      queryFn: () => fetchConnectorSyncStatus(connector.source_id),
       refetchInterval: (query: { state: { data?: ConnectorSyncStatus } }) =>
         query.state.data?.status === "running" ? 1500 : 5000,
       retry: false
@@ -687,7 +680,13 @@ export function AppShell({ user }: AppShellProps) {
   });
   const syncStatusEntries = connectorSyncQueries.flatMap((query, index) =>
     query.data
-      ? [{ sourceId: GLOBAL_SYNC_SOURCE_IDS[index], status: query.data }]
+      ? [
+          {
+            sourceId: globalSyncConnectors[index]?.source_id ?? query.data.source_id,
+            sourceLabel: globalSyncConnectors[index]?.display_name ?? query.data.source_id,
+            status: query.data
+          }
+        ]
       : []
   );
   const activeNavItem = navItems.find((item) =>
@@ -930,10 +929,10 @@ export function AppShell({ user }: AppShellProps) {
           >
             <DesktopRedirectBanner onDismiss={dismissDesktopRedirectNotice} />
             {globalSyncStatus && !globalSyncDismissed ? (
-              <SyncStatusBanner
-                sourceId={globalSyncStatus.sourceId}
-                status={globalSyncStatus.status}
-                onDismiss={
+            <SyncStatusBanner
+              sourceLabel={globalSyncStatus.sourceLabel}
+              status={globalSyncStatus.status}
+              onDismiss={
                   globalSyncStatus.status.status === "running" || globalSyncRunId === null
                     ? undefined
                     : () => setDismissedSyncRun(globalSyncRunId)

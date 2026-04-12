@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from lidltool.auth.crypto import decrypt_payload, encrypt_payload
@@ -20,9 +21,28 @@ from lidltool.connectors.sdk.manifest import (
 from lidltool.db.engine import create_engine_for_url, session_factory, session_scope
 from lidltool.db.models import ConnectorConfigState, ConnectorLifecycleState
 
-_AUTO_INSTALLED_SOURCES = {"edeka_de"}
 _INSTALLABLE_ORIGINS = {"local_path", "marketplace", "catalog"}
 _REMOVABLE_ORIGINS = {"local_path", "marketplace"}
+
+
+def _missing_connector_config_table(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "connector_config_state" in message and (
+        "no such table" in message or "does not exist" in message
+    )
+
+
+def _safe_get_connector_config_row(
+    session: Session,
+    *,
+    source_id: str,
+) -> ConnectorConfigState | None:
+    try:
+        return session.get(ConnectorConfigState, source_id)
+    except (OperationalError, ProgrammingError) as exc:
+        if _missing_connector_config_table(exc):
+            return None
+        raise
 
 
 def reconcile_connector_lifecycle(
@@ -154,7 +174,7 @@ def connector_runtime_options(
     if not allow_reconcile_writes:
         manifest = resolved_registry.get_manifest(source_id)
         if session is not None:
-            row = session.get(ConnectorConfigState, source_id)
+            row = _safe_get_connector_config_row(session, source_id=source_id)
             return _runtime_options_for_manifest_row(
                 manifest=manifest,
                 row=row,
@@ -164,7 +184,7 @@ def connector_runtime_options(
         sessions = session_factory(engine)
         try:
             with session_scope(sessions) as db_session:
-                row = db_session.get(ConnectorConfigState, source_id)
+                row = _safe_get_connector_config_row(db_session, source_id=source_id)
                 return _runtime_options_for_manifest_row(
                     manifest=manifest,
                     row=row,
@@ -551,7 +571,7 @@ def _default_lifecycle_values(
         # behave as installed and enabled in the lifecycle layer.
         return True, True
     repo_managed = bool(manifest.metadata.get("repo_managed"))
-    if manifest.source_id in _AUTO_INSTALLED_SOURCES or repo_managed:
+    if repo_managed:
         return True, True
     return False, False
 

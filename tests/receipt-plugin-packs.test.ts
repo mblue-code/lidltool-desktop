@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash, generateKeyPairSync, sign as signBuffer } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import JSZip from "jszip";
 
 import type { ConnectorCatalogEntry } from "../src/shared/contracts.ts";
@@ -396,6 +398,38 @@ test("blocks tampered or revoked trusted receipt packs", async () => {
         }),
       /Fixture revocation/
     );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("reference receipt plugin template builds a desktop pack that installs cleanly", async () => {
+  const rootDir = createManagerRoot();
+  const manager = createManager(rootDir);
+  const templateDir = fileURLToPath(
+    new URL("../../../examples/reference_receipt_plugin_template/", import.meta.url)
+  );
+  const outputDir = join(rootDir, "built-pack");
+  const build = spawnSync(
+    "python3",
+    [join(templateDir, "build_desktop_pack.py"), "--output-dir", outputDir],
+    { encoding: "utf-8" }
+  );
+
+  try {
+    assert.equal(build.status, 0, build.stderr || build.stdout);
+    const packPath = build.stdout.trim().split(/\r?\n/).at(-1);
+    assert.ok(packPath);
+
+    const install = await manager.installFromFile(packPath);
+    assert.equal(install.action, "installed");
+    assert.equal(install.pack.sourceId, "reference_template_receipt_de");
+    assert.equal(install.pack.status, "disabled");
+    assert.equal(install.pack.integrityStatus, "verified");
+
+    const enabled = await manager.setEnabled(install.pack.pluginId, true);
+    assert.equal(enabled.status, "enabled");
+    assert.equal((await manager.getRuntimePolicy()).activePluginSearchPaths[0], enabled.runtimeRoot);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

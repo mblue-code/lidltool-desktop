@@ -110,8 +110,28 @@ describe("AppShell", () => {
       local_runtime_ready: false,
       local_runtime_status: "unavailable"
     });
-    vi.spyOn(connectorsApi, "fetchConnectorSyncStatus").mockResolvedValue({
-      source_id: "lidl_plus_de",
+    vi.spyOn(connectorsApi, "fetchConnectors").mockResolvedValue({
+      generated_at: "2026-04-12T12:00:00Z",
+      viewer: { is_admin: true },
+      operator_actions: { can_reload: true, can_rescan: true },
+      summary: { total_connectors: 2, by_status: { ready: 2 } },
+      connectors: [
+        {
+          source_id: "lidl_plus_de",
+          display_name: "Lidl",
+          supports_sync: true,
+          install_state: "installed"
+        } as unknown as connectorsApi.ConnectorDiscoveryRow,
+        {
+          source_id: "edeka_de",
+          display_name: "EDEKA",
+          supports_sync: true,
+          install_state: "installed"
+        } as unknown as connectorsApi.ConnectorDiscoveryRow
+      ]
+    });
+    vi.spyOn(connectorsApi, "fetchConnectorSyncStatus").mockImplementation(async (sourceId: string) => ({
+      source_id: sourceId,
       status: "idle",
       command: null,
       pid: null,
@@ -120,7 +140,7 @@ describe("AppShell", () => {
       return_code: null,
       output_tail: [],
       can_cancel: false
-    });
+    }));
   });
 
   afterEach(() => {

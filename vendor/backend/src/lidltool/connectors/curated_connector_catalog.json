@@ -71,28 +71,6 @@
       "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
     },
     {
-      "entry_id": "connector.builtin.dm_de",
-      "entry_type": "connector",
-      "plugin_id": "builtin.dm_de",
-      "source_id": "dm_de",
-      "display_name": "dm",
-      "summary": "Official dm receipt connector available in the core bundle.",
-      "description": "Built-in connector entry for dm.de auth bootstrap and sync.",
-      "trust_class": "official",
-      "maintainer": "lidltool maintainers",
-      "source": "lidltool curated catalog",
-      "supported_products": ["self_hosted", "desktop"],
-      "supported_markets": ["DE"],
-      "current_version": "1.0.0",
-      "compatibility": {
-        "min_core_version": "0.1.0",
-        "supported_host_kinds": ["self_hosted", "electron"]
-      },
-      "install_methods": ["built_in"],
-      "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
-      "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
-    },
-    {
       "entry_id": "connector.builtin.rossmann_de",
       "entry_type": "connector",
       "plugin_id": "builtin.rossmann_de",

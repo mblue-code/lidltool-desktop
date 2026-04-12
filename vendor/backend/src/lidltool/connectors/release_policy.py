@@ -102,9 +102,7 @@ def release_policy_payload(
 
 def _fallback_maturity(source_id: str) -> ConnectorMaturity:
     fallback: dict[str, ConnectorMaturity] = {
-        "edeka_de": "verified",
         "lidl_plus_de": "working",
-        "dm_de": "working",
         "amazon_de": "preview",
         "kaufland_de": "preview",
         "rossmann_de": "preview",
