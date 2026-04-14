@@ -239,18 +239,28 @@ describe("ConnectorsPage", () => {
         installedVia: "manual_file",
         catalogEntryId: null,
         onboarding: {
-          title: "Usually quick to get running",
-          summary: "EDEKA is one of the faster connector flows in the desktop app.",
-          expectedSpeed: "Usually quick. Most imports should start and finish without a long wait.",
-          caution: "If the retailer asks for extra verification, the app will pause and wait for you.",
+          title: "Sign in by email link",
+          summary: "EDEKA signs you in through a short email confirmation flow before the first import.",
+          expectedSpeed: "Usually quick once the email arrives and the confirmation link is opened.",
+          caution:
+            "Use the same browser window the app opened for you, so the confirmation code lands in the right place.",
           steps: [
             {
-              title: "Turn it on",
-              description: "Enable the connector so this desktop app can load it."
+              title: "Enter your email address",
+              description: "Type your email address into the EDEKA sign-in page in the browser window opened by the app."
             },
             {
-              title: "Sign in once",
-              description: "Finish the first sign-in flow if the connector asks for it."
+              title: "Open the email link",
+              description: "EDEKA will send you an email with a login link. Open that link to continue."
+            },
+            {
+              title: "Copy the code back",
+              description: "After opening the link, EDEKA shows a code. Enter that code back into the original browser window."
+            },
+            {
+              title: "Wait for the window to close",
+              description:
+                "After the link is accepted, the browser window should close automatically and the connector can continue."
             }
           ]
         }
@@ -297,14 +307,30 @@ describe("ConnectorsPage", () => {
         onboarding:
           pluginId === "community.edeka_de"
             ? {
-                title: "Usually quick to get running",
-                summary: "EDEKA is one of the faster connector flows in the desktop app.",
-                expectedSpeed: "Usually quick. Most imports should start and finish without a long wait.",
-                caution: "If the retailer asks for extra verification, the app will pause and wait for you.",
+                title: "Sign in by email link",
+                summary: "EDEKA signs you in through a short email confirmation flow before the first import.",
+                expectedSpeed: "Usually quick once the email arrives and the confirmation link is opened.",
+                caution:
+                  "Use the same browser window the app opened for you, so the confirmation code lands in the right place.",
                 steps: [
                   {
-                    title: "Turn it on",
-                    description: "Enable the connector so this desktop app can load it."
+                    title: "Enter your email address",
+                    description:
+                      "Type your email address into the EDEKA sign-in page in the browser window opened by the app."
+                  },
+                  {
+                    title: "Open the email link",
+                    description: "EDEKA will send you an email with a login link. Open that link to continue."
+                  },
+                  {
+                    title: "Copy the code back",
+                    description:
+                      "After opening the link, EDEKA shows a code. Enter that code back into the original browser window."
+                  },
+                  {
+                    title: "Wait for the window to close",
+                    description:
+                      "After the link is accepted, the browser window should close automatically and the connector can continue."
                   }
                 ]
               }
@@ -493,7 +519,11 @@ describe("ConnectorsPage", () => {
     });
 
     expect(await screen.findByText("Before you turn on EDEKA")).toBeInTheDocument();
-    expect(screen.getByText("Usually quick to get running")).toBeInTheDocument();
+    expect(screen.getByText("Sign in by email link")).toBeInTheDocument();
+    expect(screen.getByText("Enter your email address")).toBeInTheDocument();
+    expect(screen.getByText("Open the email link")).toBeInTheDocument();
+    expect(screen.getByText("Copy the code back")).toBeInTheDocument();
+    expect(screen.getByText("Wait for the window to close")).toBeInTheDocument();
 
     const enableButton = await screen.findByRole("button", { name: "Enable connector" });
     fireEvent.click(enableButton);
