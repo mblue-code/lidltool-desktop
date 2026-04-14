@@ -657,6 +657,8 @@ def _config_field_payload(
             "has_value": _value_for_field(field, public_values, secret_values) is not None,
         }
     value = _value_for_field(field, public_values, secret_values)
+    if value is None and field.default_value is not None:
+        value = field.default_value
     return {
         "key": field.key,
         "label": field.label,

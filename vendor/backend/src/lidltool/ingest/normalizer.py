@@ -70,7 +70,13 @@ def to_cents(value: Any, default: int = 0) -> int:
     if isinstance(value, Decimal):
         return int((value * Decimal("100")).quantize(Decimal("1")))
     if isinstance(value, str):
-        normalized = value.replace("€", "").replace("EUR", "").replace(" ", "")
+        normalized = (
+            value.replace("€", "")
+            .replace("EUR", "")
+            .replace("£", "")
+            .replace("GBP", "")
+            .replace(" ", "")
+        )
         normalized = normalized.replace(",", ".")
         if normalized == "":
             return default

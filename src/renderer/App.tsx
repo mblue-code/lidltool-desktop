@@ -46,6 +46,8 @@ const DEFAULT_SOURCE_OPTIONS: SyncSourceOption[] = [
   { id: "lidl_plus_gb", label: "Lidl Plus (GB)", syncFamily: "lidl_plus" },
   { id: "lidl_plus_fr", label: "Lidl Plus (FR)", syncFamily: "lidl_plus" },
   { id: "amazon_de", label: "Amazon (DE)", defaultDomain: "amazon.de", syncFamily: "amazon" },
+  { id: "amazon_fr", label: "Amazon (FR)", defaultDomain: "amazon.fr", syncFamily: "amazon" },
+  { id: "amazon_gb", label: "Amazon (UK)", defaultDomain: "amazon.co.uk", syncFamily: "amazon" },
   { id: "rewe_de", label: "REWE (DE)", defaultDomain: "shop.rewe.de", syncFamily: "browser" },
   { id: "kaufland_de", label: "Kaufland (DE)", defaultDomain: "www.kaufland.de", syncFamily: "browser" },
   { id: "dm_de", label: "dm (DE)", defaultDomain: "www.dm.de", syncFamily: "browser" },
@@ -53,7 +55,8 @@ const DEFAULT_SOURCE_OPTIONS: SyncSourceOption[] = [
 ];
 
 function sourceLabelFromId(sourceId: string, displayName?: string, supportedMarkets?: string[]): string {
-  const market = supportedMarkets?.[0] ?? sourceId.split("_").at(-1)?.toUpperCase();
+  const rawMarket = supportedMarkets?.[0] ?? sourceId.split("_").at(-1)?.toUpperCase();
+  const market = rawMarket === "GB" ? "UK" : rawMarket;
   if (displayName && market) {
     return `${displayName} (${market})`;
   }
@@ -67,6 +70,10 @@ function defaultDomainForSource(sourceId: string): string | undefined {
   switch (sourceId) {
     case "amazon_de":
       return "amazon.de";
+    case "amazon_fr":
+      return "amazon.fr";
+    case "amazon_gb":
+      return "amazon.co.uk";
     case "rewe_de":
       return "shop.rewe.de";
     case "kaufland_de":
@@ -84,7 +91,7 @@ function syncFamilyForSource(sourceId: string): SyncSourceOption["syncFamily"] {
   if (sourceId.startsWith("lidl_plus_")) {
     return "lidl_plus";
   }
-  if (sourceId === "amazon_de") {
+  if (sourceId.startsWith("amazon_")) {
     return "amazon";
   }
   if (["rewe_de", "kaufland_de", "dm_de", "rossmann_de"].includes(sourceId)) {
@@ -179,7 +186,7 @@ function sourceJourneySummary(source: SyncSourceId): string {
   if (source.startsWith("lidl_plus_")) {
     return "Use the built-in Lidl path when you just want a one-off local refresh of recent or full receipt history.";
   }
-  if (source === "amazon_de") {
+  if (source.startsWith("amazon_")) {
     return "Amazon sync uses the saved desktop session for the selected market and can scan multiple years when you need a broader local import.";
   }
   return "Use a receipt pack when you want an occasional local sync for another retailer, then review or export the results on this computer.";

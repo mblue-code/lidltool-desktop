@@ -1,55 +1,68 @@
 from __future__ import annotations
 
-import select
-import sys
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
-
+from lidltool.amazon.auth_state import classify_amazon_auth_state
+from lidltool.amazon.profiles import get_country_profile
 from lidltool.amazon.session import ensure_state_parent
+from lidltool.connectors.auth.browser_session_bootstrap import (
+    SessionValidationProbeResult,
+    run_headful_browser_session_bootstrap,
+)
 
 
 def run_amazon_headful_bootstrap(
     state_file: Path,
     *,
-    domain: str = "amazon.de",
+    source_id: str = "amazon_de",
+    domain: str | None = None,
+    debug_html_dir: Path | None = None,
 ) -> bool:
     """
     Open Amazon login in a headful browser and persist Playwright storage state.
 
     Returns True when login/session validation succeeds and state was saved.
     """
-    ensure_state_parent(state_file)
-    login_url = f"https://www.{domain}/ap/signin"
-    account_url = f"https://www.{domain}/gp/your-account/order-history"
+    profile = get_country_profile(source_id=source_id, domain=domain)
+    login_url = profile.sign_in_url()
+    account_url = profile.order_history_url()
+    return run_headful_browser_session_bootstrap(
+        state_file,
+        ensure_state_parent=ensure_state_parent,
+        login_url=login_url,
+        validation_url=account_url,
+        instructions="Browser open: sign in to Amazon and complete MFA or CAPTCHA if shown.",
+        blocked_url_patterns=profile.auth_rules.blocked_url_patterns(),
+        blocked_html_markers=profile.auth_rules.blocked_html_markers(),
+        probe_validator=lambda url, html: _amazon_bootstrap_probe_validator(
+            url=url,
+            html=html,
+            source_id=source_id,
+            domain=profile.domain,
+        ),
+        debug_html_dir=debug_html_dir,
+    )
 
-    with sync_playwright() as p:
-        from lidltool.connectors.auth.browser_runtime import launch_playwright_chromium
 
-        browser = launch_playwright_chromium(playwright=p, headless=False)
-        context = browser.new_context()
-        page = context.new_page()
-        page.goto(login_url, wait_until="domcontentloaded")
-
-        print("Browser open: sign in to Amazon and complete MFA/CAPTCHA if shown.")
-        print("When done, press Enter in this terminal.")
-
-        while True:
-            rlist, _, _ = select.select([sys.stdin], [], [], 0)
-            if rlist:
-                sys.stdin.readline()
-                break
-            try:
-                page.wait_for_timeout(500)
-            except Exception:
-                break
-
-        page.goto(account_url, wait_until="domcontentloaded")
-        page.wait_for_timeout(1500)
-        current_url = page.url
-        looks_logged_in = "/ap/signin" not in current_url
-        if looks_logged_in:
-            context.storage_state(path=str(state_file))
-        context.close()
-        browser.close()
-        return looks_logged_in
+def _amazon_bootstrap_probe_validator(
+    *,
+    url: str,
+    html: str,
+    source_id: str,
+    domain: str,
+) -> SessionValidationProbeResult:
+    profile = get_country_profile(source_id=source_id, domain=domain)
+    classification = classify_amazon_auth_state(
+        url=url,
+        html=html,
+        profile=profile,
+        expect_authenticated_session=False,
+    )
+    detail = None if classification.authenticated else (classification.detail or "Amazon authentication is incomplete.")
+    return SessionValidationProbeResult(
+        authenticated=classification.authenticated,
+        url=url,
+        html=html,
+        state=classification.state.value,
+        detail=detail,
+    )

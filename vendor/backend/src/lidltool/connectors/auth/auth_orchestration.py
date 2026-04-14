@@ -13,6 +13,7 @@ from typing import Any, Protocol
 
 from lidltool.amazon.bootstrap_playwright import run_amazon_headful_bootstrap
 from lidltool.amazon.client_playwright import AmazonClientError
+from lidltool.amazon.profiles import get_country_profile, is_amazon_source_id, list_country_profiles
 from lidltool.amazon.session import default_amazon_state_file
 from lidltool.auth.bootstrap_playwright import run_headful_bootstrap
 from lidltool.auth.token_store import TokenStore
@@ -168,7 +169,15 @@ class _BuiltinAuthBridge:
             self.state_file_resolver(config),
         )
         domain = _string_option(normalized, "domain", self.default_domain or "")
-        ok = bool(self.bootstrap_runner(target, domain=domain))
+        debug_html_dir = _resolve_optional_path(normalized.get("dump_html"))
+        ok = bool(
+            self.bootstrap_runner(
+                target,
+                source_id=manifest.source_id,
+                domain=domain or None,
+                debug_html_dir=debug_html_dir,
+            )
+        )
         return AuthActionResult(
             manifest=manifest,
             source_id=manifest.source_id,
@@ -176,7 +185,11 @@ class _BuiltinAuthBridge:
             status="confirmed" if ok else "no_op",
             ok=ok,
             detail=None if ok else f"{manifest.display_name} session capture failed",
-            metadata={"state_file": str(target), "domain": domain},
+            metadata={
+                "state_file": str(target),
+                "domain": domain or get_country_profile(source_id=manifest.source_id).domain,
+                "dump_html": str(debug_html_dir) if debug_html_dir is not None else None,
+            },
             handled_exceptions=self.handled_exceptions,
         )
 
@@ -196,14 +209,6 @@ _BUILTIN_AUTH_BRIDGES: dict[str, _BuiltinAuthBridge] = {
         source_id="lidl_plus_fr",
         auth_kind="oauth_pkce",
         handled_exceptions=(LidlClientError,),
-    ),
-    "amazon_de": _BuiltinAuthBridge(
-        source_id="amazon_de",
-        auth_kind="browser_session",
-        handled_exceptions=(AmazonClientError,),
-        state_file_resolver=default_amazon_state_file,
-        bootstrap_runner=run_amazon_headful_bootstrap,
-        default_domain="amazon.de",
     ),
     "rewe_de": _BuiltinAuthBridge(
         source_id="rewe_de",
@@ -230,6 +235,19 @@ _BUILTIN_AUTH_BRIDGES: dict[str, _BuiltinAuthBridge] = {
         default_domain="www.rossmann.de",
     ),
 }
+
+for _amazon_profile in list_country_profiles():
+    _BUILTIN_AUTH_BRIDGES[_amazon_profile.source_id] = _BuiltinAuthBridge(
+        source_id=_amazon_profile.source_id,
+        auth_kind="browser_session",
+        handled_exceptions=(AmazonClientError,),
+        state_file_resolver=lambda config, source_id=_amazon_profile.source_id: default_amazon_state_file(
+            config,
+            source_id=source_id,
+        ),
+        bootstrap_runner=run_amazon_headful_bootstrap,
+        default_domain=_amazon_profile.domain,
+    )
 
 
 def _resolve_optional_path(value: object) -> Path | None:

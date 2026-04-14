@@ -7,8 +7,8 @@ from typing import Any
 from lidltool.amazon.client_playwright import (
     AmazonClientError,
     AmazonPlaywrightClient,
-    _parse_amazon_de_date,
 )
+from lidltool.amazon.profiles import AmazonCountryProfile, get_country_profile
 from lidltool.connectors.base import BaseConnectorAdapter
 from lidltool.ingest.dedupe import compute_fingerprint
 from lidltool.ingest.normalizer import normalize_receipt, parse_datetime
@@ -26,7 +26,14 @@ def _to_int_cents(value: Any) -> int:
     if isinstance(value, float):
         return int(round(value * 100))
     if isinstance(value, str):
-        raw = value.replace("€", "").replace("EUR", "").replace(" ", "").replace(",", ".")
+        raw = (
+            value.replace("€", "")
+            .replace("EUR", "")
+            .replace("£", "")
+            .replace("GBP", "")
+            .replace(" ", "")
+            .replace(",", ".")
+        )
         if not raw:
             return 0
         try:
@@ -69,11 +76,11 @@ def _extract_host(url: str) -> str | None:
 
 def _discount_subkind(label: str) -> str | None:
     lowered = label.lower()
-    if "subscribe" in lowered or "spar-abo" in lowered:
+    if "subscribe" in lowered or "spar-abo" in lowered or "abonnez-vous" in lowered:
         return "subscribe_and_save"
-    if "coupon" in lowered or "gutschein" in lowered:
+    if "coupon" in lowered or "gutschein" in lowered or "bon de réduction" in lowered:
         return "coupon"
-    if "rabatt" in lowered or "discount" in lowered:
+    if "rabatt" in lowered or "discount" in lowered or "réduction" in lowered or "reduction" in lowered:
         return "promotion"
     return None
 
@@ -104,6 +111,11 @@ class AmazonConnectorAdapter(BaseConnectorAdapter):
         self._years = years
         self._max_pages_per_year = max_pages_per_year
         self._cache: _OrderCache | None = None
+        self._profile: AmazonCountryProfile = getattr(
+            client,
+            "profile",
+            get_country_profile(source_id=source),
+        )
 
     def authenticate(self) -> dict[str, Any]:
         # Playwright client validates session state file on fetch.
@@ -306,7 +318,7 @@ class AmazonConnectorAdapter(BaseConnectorAdapter):
             line_total_sum += shipping_cents
             mapped_items.append(
                 {
-                    "name": "Versandkosten",
+                    "name": self._profile.shipping_line_name,
                     "qty": 1,
                     "unit": "order",
                     "unitPrice": shipping_cents / 100.0,
@@ -322,7 +334,7 @@ class AmazonConnectorAdapter(BaseConnectorAdapter):
             line_total_sum += gift_wrap_cents
             mapped_items.append(
                 {
-                    "name": "Geschenkverpackung",
+                    "name": self._profile.gift_wrap_line_name,
                     "qty": 1,
                     "unit": "order",
                     "unitPrice": gift_wrap_cents / 100.0,
@@ -357,7 +369,7 @@ class AmazonConnectorAdapter(BaseConnectorAdapter):
         discount_total = total_savings_cents if total_savings_cents > 0 else None
 
         raw_date = order.get("orderDate")
-        purchased = _parse_amazon_de_date(str(raw_date)) if isinstance(raw_date, str) else None
+        purchased = self._profile.date_parser(str(raw_date)) if isinstance(raw_date, str) else None
         if purchased is None:
             purchased = parse_datetime(raw_date)
         fp = compute_fingerprint(
@@ -380,5 +392,9 @@ class AmazonConnectorAdapter(BaseConnectorAdapter):
             "rawOrderId": order_id or None,
             "detailsUrl": details_url or None,
             "orderStatus": order.get("orderStatus"),
+            "parseStatus": order.get("parseStatus"),
+            "parseWarnings": order.get("parseWarnings"),
+            "unsupportedReason": order.get("unsupportedReason"),
+            "subtotals": order.get("subtotals"),
             "originalOrder": order,
         }

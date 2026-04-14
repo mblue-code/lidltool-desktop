@@ -106,6 +106,8 @@ def _fallback_maturity(source_id: str) -> ConnectorMaturity:
         "lidl_plus_gb": "preview",
         "lidl_plus_fr": "preview",
         "amazon_de": "preview",
+        "amazon_fr": "preview",
+        "amazon_gb": "preview",
         "kaufland_de": "preview",
         "rossmann_de": "preview",
         "rewe_de": "stub",

@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session, sessionmaker
 
 from lidltool.analytics.categorization import load_compiled_rules
+from lidltool.amazon.profiles import get_country_profile, is_amazon_source_id
 from lidltool.db.engine import session_scope
 from lidltool.db.models import Receipt, ReceiptItem, Store
 from lidltool.ingest.dedupe import fingerprint_exists, receipt_exists
@@ -157,6 +158,7 @@ def _map_order_to_receipt_payload(
     source: str,
     default_store_name: str,
 ) -> dict[str, Any]:
+    profile = get_country_profile(source_id=source) if is_amazon_source_id(source) else None
     order_id = str(order.get("orderId") or "").strip()
     details_url = str(order.get("detailsUrl") or "").strip()
     currency = str(order.get("currency") or "EUR")
@@ -253,10 +255,16 @@ def _map_order_to_receipt_payload(
         basket_discounts=basket_discounts_total,
     )
 
+    purchased_at = order.get("orderDate")
+    if profile is not None and isinstance(purchased_at, str):
+        parsed = profile.date_parser(purchased_at)
+        if parsed is not None:
+            purchased_at = parsed.isoformat()
+
     rid = f"amazon-{order_id}" if order_id else ""
     return {
         "id": rid,
-        "purchasedAt": order.get("orderDate"),
+        "purchasedAt": purchased_at,
         "storeId": store_id,
         "storeName": default_store_name,
         "storeAddress": store_address,

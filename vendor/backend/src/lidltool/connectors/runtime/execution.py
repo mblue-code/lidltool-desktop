@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from lidltool.amazon.client_playwright import AmazonClientError, AmazonPlaywrightClient
+from lidltool.amazon.profiles import get_country_profile, is_amazon_source_id
 from lidltool.amazon.session import default_amazon_state_file
 from lidltool.auth.token_store import TokenStore
 from lidltool.config import AppConfig
@@ -371,12 +372,13 @@ class ConnectorExecutionService:
                 connector=lidl_connector,
                 handled_exceptions=(LidlClientError,),
             )
-        if manifest.source_id == "amazon_de":
+        if is_amazon_source_id(manifest.source_id):
+            amazon_profile = get_country_profile(source_id=manifest.source_id)
             state_file = self._resolve_state_file(
                 connector_options.get("state_file"),
-                default_amazon_state_file(source_config),
+                default_amazon_state_file(source_config, source_id=manifest.source_id),
             )
-            domain = _string_option(connector_options, "domain", "amazon.de")
+            domain = _string_option(connector_options, "domain", amazon_profile.domain)
             headless = _bool_option(connector_options, "headless", True)
             dump_html = _resolve_optional_path(connector_options.get("dump_html"))
             years = _int_option(connector_options, "years", 2)
@@ -384,6 +386,7 @@ class ConnectorExecutionService:
             store_name = _string_option(connector_options, "store_name", "Amazon")
             amazon_client = AmazonPlaywrightClient(
                 state_file=state_file,
+                source_id=manifest.source_id,
                 domain=domain,
                 headless=headless,
                 dump_html_dir=dump_html,

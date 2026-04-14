@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from lidltool.amazon.client_playwright import AmazonClientError, AmazonPlaywrightClient
+from lidltool.amazon.profiles import get_country_profile, is_amazon_source_id
 from lidltool.amazon.importer import AmazonImportService
 from lidltool.amazon.session import default_amazon_state_file
 from lidltool.analytics.queries import export_receipts, month_stats
@@ -120,8 +121,13 @@ def _create_session_factory(config: AppConfig) -> sessionmaker[Session]:
     return session_factory(engine)
 
 
-def _resolve_amazon_state_file(path: Path | None, config: AppConfig) -> Path:
-    target = path or default_amazon_state_file(config)
+def _resolve_amazon_state_file(
+    path: Path | None,
+    config: AppConfig,
+    *,
+    source_id: str = "amazon_de",
+) -> Path:
+    target = path or default_amazon_state_file(config, source_id=source_id)
     return target.expanduser().resolve()
 
 
@@ -210,7 +216,7 @@ def _sync_result_payload(
         "validation": result.validation,
         "runtime": runtime_identity,
     }
-    if source_id == "amazon_de":
+    if is_amazon_source_id(source_id):
         payload["records_seen"] = result.receipts_seen
         payload["orders_fetched"] = result.receipts_seen
     payload.update(metadata)
@@ -226,7 +232,7 @@ def _render_sync_result_table(
     table.add_column("Metric")
     table.add_column("Value")
     table.add_row("Pages", str(payload["pages"]))
-    if payload["source_id"] == "amazon_de":
+    if is_amazon_source_id(str(payload["source_id"])):
         table.add_row("Orders fetched", str(payload["receipts_seen"]))
         table.add_row("Records seen", str(payload["receipts_seen"]))
     else:
@@ -927,6 +933,10 @@ def amazon_import_command(
 @amazon_app.command("scrape")
 def amazon_scrape_command(
     ctx: typer.Context,
+    source_id: Annotated[
+        str,
+        typer.Option("--source-id", help="Amazon source id, e.g. amazon_de, amazon_fr, or amazon_gb"),
+    ] = "amazon_de",
     years: Annotated[
         int,
         typer.Option("--years", help="How many recent years to scan"),
@@ -941,8 +951,8 @@ def amazon_scrape_command(
     ] = None,
     domain: Annotated[
         str,
-        typer.Option("--domain", help="Amazon domain, e.g. amazon.de"),
-    ] = "amazon.de",
+        typer.Option("--domain", help="Amazon domain override, e.g. amazon.fr"),
+    ] = "",
     headless: Annotated[
         bool,
         typer.Option("--headless/--no-headless", help="Run browser headless while scraping"),
@@ -957,10 +967,12 @@ def amazon_scrape_command(
     ] = None,
 ) -> None:
     runtime = _ctx(ctx)
-    target_state = _resolve_amazon_state_file(state_file, runtime.config)
+    profile = get_country_profile(source_id=source_id, domain=domain or None)
+    target_state = _resolve_amazon_state_file(state_file, runtime.config, source_id=profile.source_id)
     client = AmazonPlaywrightClient(
         state_file=target_state,
-        domain=domain,
+        source_id=profile.source_id,
+        domain=domain or None,
         headless=headless,
         dump_html_dir=dump_html,
     )
@@ -1029,7 +1041,7 @@ def amazon_cron_example_command(
     ] = None,
 ) -> None:
     runtime = _ctx(ctx)
-    target = _resolve_amazon_state_file(state_file, runtime.config)
+    target = _resolve_amazon_state_file(state_file, runtime.config, source_id="amazon_de")
     command = (
         "0 7 * * * /usr/bin/env lidltool connectors sync "
         f"--source-id amazon_de --full --option state_file={target} --db {runtime.config.db_path}"

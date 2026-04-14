@@ -3,6 +3,8 @@ export type BuiltInSyncSourceId =
   | "lidl_plus_gb"
   | "lidl_plus_fr"
   | "amazon_de"
+  | "amazon_fr"
+  | "amazon_gb"
   | "rewe_de"
   | "kaufland_de"
   | "dm_de"

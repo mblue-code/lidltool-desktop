@@ -56,6 +56,50 @@
         "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
       },
       {
+        "entry_id": "connector.builtin.amazon_fr",
+        "entry_type": "connector",
+        "plugin_id": "builtin.amazon_fr",
+        "source_id": "amazon_fr",
+        "display_name": "Amazon",
+        "summary": "Official Amazon.fr receipt connector available in the core bundle.",
+        "description": "Built-in connector entry for Amazon.fr order and invoice history sync.",
+        "trust_class": "official",
+        "maintainer": "lidltool maintainers",
+        "source": "lidltool curated catalog",
+        "supported_products": ["self_hosted", "desktop"],
+        "supported_markets": ["FR"],
+        "current_version": "1.0.0",
+        "compatibility": {
+          "min_core_version": "0.1.0",
+          "supported_host_kinds": ["self_hosted", "electron"]
+        },
+        "install_methods": ["built_in"],
+        "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
+        "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
+      },
+      {
+        "entry_id": "connector.builtin.amazon_gb",
+        "entry_type": "connector",
+        "plugin_id": "builtin.amazon_gb",
+        "source_id": "amazon_gb",
+        "display_name": "Amazon",
+        "summary": "Official Amazon.co.uk receipt connector available in the core bundle.",
+        "description": "Built-in connector entry for Amazon UK order and invoice history sync.",
+        "trust_class": "official",
+        "maintainer": "lidltool maintainers",
+        "source": "lidltool curated catalog",
+        "supported_products": ["self_hosted", "desktop"],
+        "supported_markets": ["GB"],
+        "current_version": "1.0.0",
+        "compatibility": {
+          "min_core_version": "0.1.0",
+          "supported_host_kinds": ["self_hosted", "electron"]
+        },
+        "install_methods": ["built_in"],
+        "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
+        "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
+      },
+      {
         "entry_id": "connector.builtin.rewe_de",
         "entry_type": "connector",
         "plugin_id": "builtin.rewe_de",

@@ -580,7 +580,7 @@ export class DesktopRuntime {
       args.push("--option", `domain=${payload.domain.trim()}`);
     }
 
-    if (source === "amazon_de") {
+    if (source.startsWith("amazon_")) {
       if (payload.years && payload.years > 0) {
         args.push("--option", `years=${String(payload.years)}`);
       }

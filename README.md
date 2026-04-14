@@ -130,6 +130,7 @@ Scope:
 Management surface:
 - use the connectors page inside the desktop app for local pack import, trusted pack install, enable/disable, and removal
 - the Electron control center still reflects the same pack state, but it is no longer required for basic pack management
+- built-in browser-session connectors such as Amazon now finish setup by validating the saved session automatically; the desktop flow no longer depends on pressing Enter in a terminal window
 
 Activation model:
 - imported packs install disabled by default
@@ -150,7 +151,55 @@ Desktop workflow:
 2. Use `Import .zip connector` for a ZIP file, or choose `Install trusted pack` for a verified catalog entry.
 3. Review the status, trust, support, and market-profile messaging.
 4. Enable the pack explicitly if you want desktop to load it into the next backend run.
-5. Use the same connectors page to install a trusted update, disable a pack, or remove it from local storage.
+5. For built-in browser connectors such as Amazon, use `Connector settings` to tune saved defaults like scan depth, headless mode, and optional HTML debug dumps before running a real-account test.
+6. Use the same connectors page to install a trusted update, disable a pack, or remove it from local storage.
+
+### Amazon multicountry
+
+Desktop now exposes separate built-in Amazon marketplace connectors:
+- `amazon_de` for `amazon.de`
+- `amazon_fr` for `amazon.fr`
+- `amazon_gb` for `amazon.co.uk`
+
+Operator controls shared by both marketplaces:
+- `years`: how many recent order-history years to scan
+- `max_pages_per_year`: page limit per year
+- `headless`: run sync without showing the browser
+- `dump_html`: optional directory for list/detail/auth debug HTML
+
+Saved browser-session state remains the auth model:
+- `amazon_de` keeps the legacy state file name `amazon_storage_state.json`
+- `amazon_fr` uses `amazon_fr_storage_state.json`
+- `amazon_gb` uses `amazon_gb_storage_state.json`
+- each marketplace validates the saved session against its own order-history URL before sync
+
+Manual smoke-test steps from `apps/desktop`:
+1. Start the desktop app and choose either `Amazon (DE)` or `Amazon (FR)` in the sync source picker.
+2. Open connector bootstrap/auth for that marketplace and complete sign-in in the browser window, including MFA or CAPTCHA if Amazon requires it.
+3. Set `headless=false` if you want to watch the browser during sync, then optionally set `years=1`, `max_pages_per_year=1`, and `dump_html=/absolute/path/to/amazon-debug`.
+4. Run a sync and confirm that at least one order imports without a reauth error.
+5. Inspect the debug HTML folder if a sync returns `partial` or `unsupported` Amazon parse metadata.
+
+Manual CLI smoke-test commands from `apps/desktop`:
+
+```bash
+./.backend/venv/bin/python -m lidltool.cli --db "$PWD/.desktop-smoke.sqlite" connectors auth bootstrap --source-id amazon_de
+./.backend/venv/bin/python -m lidltool.cli --db "$PWD/.desktop-smoke.sqlite" connectors sync --source-id amazon_de --option headless=false --option years=1 --option max_pages_per_year=1 --option dump_html=$PWD/.amazon-debug/de
+
+./.backend/venv/bin/python -m lidltool.cli --db "$PWD/.desktop-smoke.sqlite" connectors auth bootstrap --source-id amazon_fr
+./.backend/venv/bin/python -m lidltool.cli --db "$PWD/.desktop-smoke.sqlite" connectors sync --source-id amazon_fr --option headless=false --option years=1 --option max_pages_per_year=1 --option dump_html=$PWD/.amazon-debug/fr
+
+./.backend/venv/bin/python -m lidltool.cli --db "$PWD/.desktop-smoke.sqlite" connectors auth bootstrap --source-id amazon_gb
+./.backend/venv/bin/python -m lidltool.cli --db "$PWD/.desktop-smoke.sqlite" connectors sync --source-id amazon_gb --option headless=false --option years=1 --option max_pages_per_year=1 --option dump_html=$PWD/.amazon-debug/gb
+```
+
+CLI debug scrape commands:
+
+```bash
+./.backend/venv/bin/python -m lidltool.cli amazon scrape --source-id amazon_de --headless --years 1 --max-pages-per-year 1 --dump-html $PWD/.amazon-debug/de
+./.backend/venv/bin/python -m lidltool.cli amazon scrape --source-id amazon_fr --domain amazon.fr --headless --years 1 --max-pages-per-year 1 --dump-html $PWD/.amazon-debug/fr
+./.backend/venv/bin/python -m lidltool.cli amazon scrape --source-id amazon_gb --domain amazon.co.uk --headless --years 1 --max-pages-per-year 1 --dump-html $PWD/.amazon-debug/gb
+```
 
 Third-party authoring reference:
 - the clean-break template lives in `examples/reference_receipt_plugin_template`
