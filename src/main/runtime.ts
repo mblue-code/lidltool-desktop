@@ -559,37 +559,39 @@ export class DesktopRuntime {
   }
 
   private mapSyncArgs(payload: SyncRequest, dbPath: string): string[] {
-    const globalOptions: string[] = ["--db", dbPath, "--json"];
-
-    if (payload.source === "lidl") {
-      const syncArgs = payload.full ? ["--full"] : [];
-      return [...globalOptions, "sync", ...syncArgs];
-    }
-
-    const connectorArgs = this.connectorArgs(payload.source, payload);
-    return [...globalOptions, payload.source, "sync", ...connectorArgs];
+    const globalOptions: string[] = ["--db", dbPath, "--json", "connectors", "sync", "--source-id", payload.source];
+    return [...globalOptions, ...this.connectorArgs(payload.source, payload)];
   }
 
   private connectorArgs(source: ConnectorSourceId, payload: SyncRequest): string[] {
-    const headless = payload.headless ?? true;
-    const args: string[] = [headless ? "--headless" : "--no-headless"];
+    const args: string[] = [];
 
-    if (payload.domain?.trim()) {
-      args.push("--domain", payload.domain.trim());
+    if (source.startsWith("lidl_plus_")) {
+      if (payload.full) {
+        args.push("--full");
+      }
+      return args;
     }
 
-    if (source === "amazon") {
+    const headless = payload.headless ?? true;
+    args.push("--option", `headless=${headless ? "true" : "false"}`);
+
+    if (payload.domain?.trim()) {
+      args.push("--option", `domain=${payload.domain.trim()}`);
+    }
+
+    if (source === "amazon_de") {
       if (payload.years && payload.years > 0) {
-        args.push("--years", String(payload.years));
+        args.push("--option", `years=${String(payload.years)}`);
       }
       if (payload.maxPages && payload.maxPages > 0) {
-        args.push("--max-pages-per-year", String(payload.maxPages));
+        args.push("--option", `max_pages_per_year=${String(payload.maxPages)}`);
       }
       return args;
     }
 
     if (payload.maxPages && payload.maxPages > 0) {
-      args.push("--max-pages", String(payload.maxPages));
+      args.push("--option", `max_pages=${String(payload.maxPages)}`);
     }
 
     return args;
@@ -1010,6 +1012,19 @@ print(json.dumps({
     "maxCoreVersion": manifest.compatibility.max_core_version,
     "compatibilityStatus": "compatible" if compatibility.compatible else "incompatible",
     "compatibilityReason": compatibility.reason,
+    "onboarding": {
+        "title": manifest.onboarding.title if manifest.onboarding else None,
+        "summary": manifest.onboarding.summary if manifest.onboarding else None,
+        "expectedSpeed": manifest.onboarding.expected_speed if manifest.onboarding else None,
+        "caution": manifest.onboarding.caution if manifest.onboarding else None,
+        "steps": [
+            {
+                "title": step.title,
+                "description": step.description,
+            }
+            for step in (manifest.onboarding.steps if manifest.onboarding else [])
+        ],
+    } if manifest.onboarding else None,
 }))
 `.trim();
     const result = await this.runCommandCapture(command, ["-c", script, manifestPath], {

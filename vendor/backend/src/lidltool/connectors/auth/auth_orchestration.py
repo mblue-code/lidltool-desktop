@@ -37,6 +37,7 @@ from lidltool.kaufland.bootstrap_playwright import run_kaufland_headful_bootstra
 from lidltool.kaufland.client_playwright import KauflandClientError
 from lidltool.kaufland.session import default_kaufland_state_file
 from lidltool.lidl.client import LidlClientError
+from lidltool.lidl.market import resolve_lidl_market
 from lidltool.rewe.bootstrap_playwright import run_rewe_headful_bootstrap
 from lidltool.rewe.client_playwright import ReweClientError
 from lidltool.rewe.session import default_rewe_state_file
@@ -139,11 +140,11 @@ class _BuiltinAuthBridge:
                     normalized.get("har_out"),
                     DEFAULT_LIDL_BOOTSTRAP_HAR_OUT,
                 )
-                source_suffix = manifest.source_id.rsplit("_", 1)[-1]
+                market = resolve_lidl_market(manifest.source_id)
                 token_value = run_headful_bootstrap(
                     har_out,
-                    country=source_suffix.upper(),
-                    language=source_suffix.lower(),
+                    country=market.country_code,
+                    language=market.language_code,
                 )
             if not isinstance(token_value, str) or not token_value.strip():
                 raise RuntimeError("auth token missing; run lidltool auth bootstrap")
@@ -183,6 +184,16 @@ class _BuiltinAuthBridge:
 _BUILTIN_AUTH_BRIDGES: dict[str, _BuiltinAuthBridge] = {
     "lidl_plus_de": _BuiltinAuthBridge(
         source_id="lidl_plus_de",
+        auth_kind="oauth_pkce",
+        handled_exceptions=(LidlClientError,),
+    ),
+    "lidl_plus_gb": _BuiltinAuthBridge(
+        source_id="lidl_plus_gb",
+        auth_kind="oauth_pkce",
+        handled_exceptions=(LidlClientError,),
+    ),
+    "lidl_plus_fr": _BuiltinAuthBridge(
+        source_id="lidl_plus_fr",
         auth_kind="oauth_pkce",
         handled_exceptions=(LidlClientError,),
     ),

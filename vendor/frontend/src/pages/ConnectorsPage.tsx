@@ -37,6 +37,7 @@ import {
 } from "@/lib/desktop-api";
 import { useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
+import { cn } from "@/lib/utils";
 import { formatDateTime } from "@/utils/format";
 
 type SetupState = {
@@ -44,7 +45,24 @@ type SetupState = {
   mode: "setup" | "reconnect" | "configure";
 };
 
+type PackGuideState = {
+  pack: DesktopReceiptPluginPackInfo;
+  catalogEntry: DesktopConnectorCatalogEntry | null;
+  showEnableAction: boolean;
+};
+
 type SetupValues = Record<string, string | boolean>;
+
+type ConnectorGuide = {
+  headline: string;
+  summary: string;
+  speedDescription: string;
+  caution: string;
+  steps: Array<{
+    title: string;
+    description: string;
+  }>;
+};
 
 function compareVersions(left: string, right: string): number {
   const leftParts = left.split(/[\.-]/);
@@ -210,6 +228,89 @@ function findCatalogEntry(
   return null;
 }
 
+function findCatalogEntryForPack(
+  catalogEntries: DesktopConnectorCatalogEntry[],
+  pack: DesktopReceiptPluginPackInfo
+): DesktopConnectorCatalogEntry | null {
+  return (
+    (pack.catalogEntryId
+      ? catalogEntries.find((entry) => entry.entry_id === pack.catalogEntryId)
+      : null) ??
+    catalogEntries.find((entry) => entry.plugin_id === pack.pluginId) ??
+    catalogEntries.find((entry) => entry.source_id === pack.sourceId) ??
+    null
+  );
+}
+
+function fallbackConnectorGuide(displayName: string): ConnectorGuide {
+  return {
+    headline: "Simple first-run setup",
+    summary: `${displayName} needs a quick sign-in before it can import receipts on this computer.`,
+    speedDescription: "Normal speed. Time can vary depending on the retailer and your account.",
+    caution: "If something changes on the retailer site, you may need to reconnect later.",
+    steps: [
+      {
+        title: "Turn it on",
+        description: "Enable the connector first so this desktop app can load it."
+      },
+      {
+        title: "Finish setup and import",
+        description: "Use the connector card to sign in if needed, then start your first import."
+      }
+    ]
+  };
+}
+
+function connectorGuideForPack(pack: DesktopReceiptPluginPackInfo | null, displayName: string): ConnectorGuide {
+  const fallback = fallbackConnectorGuide(displayName);
+  const onboarding = pack?.onboarding;
+  if (!onboarding) {
+    return fallback;
+  }
+  return {
+    headline: onboarding.title ?? fallback.headline,
+    summary: onboarding.summary ?? fallback.summary,
+    speedDescription: onboarding.expectedSpeed ?? fallback.speedDescription,
+    caution: onboarding.caution ?? fallback.caution,
+    steps: onboarding.steps.length > 0 ? onboarding.steps : fallback.steps
+  };
+}
+
+function connectorStatusSummary(
+  connector: ConnectorDiscoveryRow,
+  pack: DesktopReceiptPluginPackInfo | null
+): string {
+  if (pack?.status === "disabled") {
+    return "Imported on this computer, but still turned off.";
+  }
+  if (connector.ui.status === "syncing") {
+    return "Import is running right now.";
+  }
+  if (connector.ui.status === "setup_required") {
+    return "Needs a first sign-in before it can import receipts.";
+  }
+  if (connector.actions.primary.kind === "reconnect") {
+    return "Your sign-in needs attention before the next import.";
+  }
+  if (connector.ui.status === "error" || connector.ui.status === "needs_attention") {
+    return connector.status_detail ?? "This connector needs attention before it can be used normally.";
+  }
+  if (connector.last_synced_at) {
+    return "Ready for the next import.";
+  }
+  return connector.ui.description;
+}
+
+function primaryActionLabel(connector: ConnectorDiscoveryRow): string {
+  if (connector.actions.primary.kind === "reconnect") {
+    return "Fix sign-in";
+  }
+  if (connector.actions.primary.kind === "sync_now") {
+    return "Import receipts";
+  }
+  return "Set up";
+}
+
 export function ConnectorsPage() {
   const { t } = useI18n();
   const queryClient = useQueryClient();
@@ -217,6 +318,8 @@ export function ConnectorsPage() {
   const [setupValues, setSetupValues] = useState<SetupValues>({});
   const [clearSecretKeys, setClearSecretKeys] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [packGuideState, setPackGuideState] = useState<PackGuideState | null>(null);
+  const [highlightedPackId, setHighlightedPackId] = useState<string | null>(null);
 
   const connectorsQuery = useQuery({
     queryKey: ["connectors"],
@@ -317,7 +420,15 @@ export function ConnectorsPage() {
       if (!result) {
         return;
       }
-      setFeedback(`Imported ${result.pack.displayName}.`);
+      setHighlightedPackId(result.pack.pluginId);
+      setFeedback(`Imported ${result.pack.displayName}. One more step: turn it on to use it in this app.`);
+      if (result.pack.status === "disabled") {
+        setPackGuideState({
+          pack: result.pack,
+          catalogEntry: findCatalogEntryForPack(catalogEntries, result.pack),
+          showEnableAction: true
+        });
+      }
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
@@ -335,7 +446,19 @@ export function ConnectorsPage() {
       return await bridge.installReceiptPluginFromCatalogEntry({ entryId });
     },
     onSuccess: async (result) => {
-      setFeedback(`Installed ${result.pack.displayName} from the trusted catalog.`);
+      setHighlightedPackId(result.pack.pluginId);
+      setFeedback(
+        result.pack.status === "disabled"
+          ? `Installed ${result.pack.displayName}. Turn it on to finish adding it to this desktop app.`
+          : `Installed ${result.pack.displayName} from the trusted catalog.`
+      );
+      if (result.pack.status === "disabled") {
+        setPackGuideState({
+          pack: result.pack,
+          catalogEntry: findCatalogEntryForPack(catalogEntries, result.pack),
+          showEnableAction: true
+        });
+      }
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
@@ -354,8 +477,14 @@ export function ConnectorsPage() {
     },
     onSuccess: async (result, variables) => {
       setFeedback(
-        `${result.pack.displayName} ${variables.enabled ? "enabled" : "disabled"} for this desktop runtime.`
+        variables.enabled
+          ? `${result.pack.displayName} is turned on. Next, use Set up to sign in if the connector asks for it.`
+          : `${result.pack.displayName} is turned off on this computer.`
       );
+      if (variables.enabled) {
+        setHighlightedPackId(result.pack.pluginId);
+      }
+      setPackGuideState((current) => (current?.pack.pluginId === result.pack.pluginId ? null : current));
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
@@ -374,6 +503,8 @@ export function ConnectorsPage() {
     },
     onSuccess: async (_result, pluginId) => {
       setFeedback(`Removed ${pluginId} from desktop storage.`);
+      setHighlightedPackId((current) => (current === pluginId ? null : current));
+      setPackGuideState((current) => (current?.pack.pluginId === pluginId ? null : current));
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
@@ -410,7 +541,6 @@ export function ConnectorsPage() {
   );
   const catalogEntries = desktopContextQuery.data?.releaseMetadata?.discovery_catalog.entries ?? [];
   const receiptPlugins = desktopContextQuery.data?.receiptPlugins?.packs ?? [];
-  const activePluginSearchPaths = desktopContextQuery.data?.receiptPlugins?.activePluginSearchPaths ?? [];
   const desktopBridgeAvailable = desktopContextQuery.data?.available ?? false;
   const curatedDesktopPackEntries = useMemo(
     () => catalogEntries.filter((entry) => entry.entry_type === "desktop_pack"),
@@ -431,10 +561,31 @@ export function ConnectorsPage() {
     [catalogEntries, packBySourceId, visibleConnectors]
   );
 
-  const inactivePacks = useMemo(
+  const pendingActivationPacks = useMemo(
+    () => receiptPlugins.filter((pack) => pack.status === "disabled"),
+    [receiptPlugins]
+  );
+
+  const pendingActivationPluginIds = useMemo(
+    () => new Set(pendingActivationPacks.map((pack) => pack.pluginId)),
+    [pendingActivationPacks]
+  );
+
+  const visibleConnectorCards = useMemo(
+    () =>
+      connectorCards.filter(
+        ({ pack }) => !(pack && pendingActivationPluginIds.has(pack.pluginId))
+      ),
+    [connectorCards, pendingActivationPluginIds]
+  );
+
+  const attentionPacks = useMemo(
     () =>
       receiptPlugins.filter(
-        (pack) => connectorCards.some((item) => item.pack?.pluginId === pack.pluginId) === false
+        (pack) =>
+          pack.status !== "enabled" &&
+          pack.status !== "disabled" &&
+          connectorCards.some((item) => item.pack?.pluginId === pack.pluginId) === false
       ),
     [connectorCards, receiptPlugins]
   );
@@ -463,6 +614,14 @@ export function ConnectorsPage() {
     setSetupState(null);
     setSetupValues({});
     setClearSecretKeys([]);
+  }
+
+  function openPackGuide(pack: DesktopReceiptPluginPackInfo, showEnableAction: boolean): void {
+    setPackGuideState({
+      pack,
+      catalogEntry: findCatalogEntryForPack(catalogEntries, pack),
+      showEnableAction
+    });
   }
 
   async function handlePrimaryAction(connector: ConnectorDiscoveryRow): Promise<void> {
@@ -505,11 +664,19 @@ export function ConnectorsPage() {
     closeSetup();
   }
 
+  async function handleGuidePrimaryAction(): Promise<void> {
+    if (!packGuideState?.showEnableAction) {
+      setPackGuideState(null);
+      return;
+    }
+    await togglePackMutation.mutateAsync({ pluginId: packGuideState.pack.pluginId, enabled: true });
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Connectors"
-        description="Use the shared lifecycle model for one-off setup and sync, and manage desktop receipt packs here when you need to add a local or trusted pack."
+        description="Add store connectors, turn them on, and import receipts from one place."
       >
         <div className="flex flex-wrap gap-2">
           <Button
@@ -518,7 +685,7 @@ export function ConnectorsPage() {
             disabled={installLocalPackMutation.isPending || !desktopBridgeAvailable}
           >
             {installLocalPackMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Import local pack
+            Import .zip connector
           </Button>
           <Button
             variant="outline"
@@ -531,13 +698,35 @@ export function ConnectorsPage() {
         </div>
       </PageHeader>
 
-      <Alert>
-        <AlertTitle>Desktop receipt packs can be managed here</AlertTitle>
-        <AlertDescription>
-          Import local packs directly from this page, install trusted catalog packs when available, and enable or remove
-          stored packs without leaving connectors.
-        </AlertDescription>
-      </Alert>
+      <Card className="border-border/60 bg-card/85 shadow-sm">
+        <CardHeader className="space-y-2">
+          <CardTitle>Start here</CardTitle>
+          <CardDescription>
+            Most connector imports only need three simple steps. If you already downloaded a plugin file, start with
+            the import button above.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-xl border border-border/60 bg-background/60 p-4">
+            <p className="text-sm font-medium text-foreground">1. Import your connector</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Choose the plugin `.zip` file you downloaded, or install a trusted connector below.
+            </p>
+          </div>
+          <div className="rounded-xl border border-border/60 bg-background/60 p-4">
+            <p className="text-sm font-medium text-foreground">2. Turn it on</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Newly imported connectors stay off until you confirm that you want to use them on this computer.
+            </p>
+          </div>
+          <div className="rounded-xl border border-border/60 bg-background/60 p-4">
+            <p className="text-sm font-medium text-foreground">3. Sign in and import</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Use the connector card to finish setup, then start your first receipt import.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       {desktopContextQuery.data?.releaseMetadata ? (
         <div className="app-section-divider grid gap-4 md:grid-cols-3">
@@ -554,8 +743,8 @@ export function ConnectorsPage() {
             </p>
           </div>
           <div>
-            <p className="text-xs uppercase text-muted-foreground">Active pack paths</p>
-            <p className="font-medium">{activePluginSearchPaths.length}</p>
+            <p className="text-xs uppercase text-muted-foreground">Installed connector plugins</p>
+            <p className="font-medium">{receiptPlugins.length}</p>
           </div>
         </div>
       ) : null}
@@ -574,12 +763,93 @@ export function ConnectorsPage() {
         </Alert>
       ) : null}
 
+      {pendingActivationPacks.length > 0 ? (
+        <div className="app-section-divider space-y-4">
+          <div className="space-y-1.5">
+            <h2 className="font-semibold leading-none tracking-tight">Turn on imported connectors</h2>
+            <p className="text-sm text-muted-foreground">
+              These connectors are already on your computer. They need one more confirmation before they show up as
+              active connectors.
+            </p>
+          </div>
+          <div className="grid gap-4 xl:grid-cols-2">
+            {pendingActivationPacks.map((pack) => {
+              const catalogEntry = findCatalogEntryForPack(catalogEntries, pack);
+              const guide = connectorGuideForPack(pack, pack.displayName);
+              return (
+                <Card
+                  key={pack.pluginId}
+                  className={cn(
+                    "border-border/60 bg-card/85 shadow-sm",
+                    highlightedPackId === pack.pluginId ? "ring-2 ring-primary/20" : ""
+                  )}
+                >
+                  <CardHeader className="space-y-3 border-b border-border/50 bg-background/40">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <CardTitle className="text-lg">{pack.displayName}</CardTitle>
+                        <CardDescription>Imported and ready to be turned on.</CardDescription>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge>Needs one more step</Badge>
+                        <Badge variant="secondary">{trustLabel(pack.trustClass)}</Badge>
+                        <Badge variant="outline">{pack.version}</Badge>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4 bg-card/70 pt-6">
+                    <p className="text-sm text-muted-foreground">
+                      {guide.summary} {guide.speedDescription}
+                    </p>
+                    <Alert>
+                      <AlertTitle>{guide.headline}</AlertTitle>
+                      <AlertDescription>{guide.caution}</AlertDescription>
+                    </Alert>
+                    {catalogEntry?.support_policy ? (
+                      <p className="text-sm text-muted-foreground">
+                        {catalogEntry.support_policy.maintainer_support} {catalogEntry.support_policy.update_expectations}
+                      </p>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        onClick={() => openPackGuide(pack, true)}
+                        disabled={togglePackMutation.isPending}
+                      >
+                        Review and enable
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => void uninstallPackMutation.mutateAsync(pack.pluginId)}
+                        disabled={uninstallPackMutation.isPending}
+                      >
+                        {uninstallPackMutation.isPending && uninstallPackMutation.variables === pack.pluginId ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : null}
+                        Remove connector
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="space-y-1.5">
+        <h2 className="font-semibold leading-none tracking-tight">Your connectors</h2>
+        <p className="text-sm text-muted-foreground">
+          Active and built-in connectors live here. Use them to sign in, reconnect, and run imports.
+        </p>
+      </div>
+
       <div className="grid gap-4 xl:grid-cols-2">
-        {connectorCards.map(({ connector, pack, catalogEntry }) => {
+        {visibleConnectorCards.map(({ connector, pack, catalogEntry }) => {
           const updateAvailable =
             pack !== null &&
             catalogEntry?.current_version &&
             compareVersions(pack.version, catalogEntry.current_version) < 0;
+          const guide = connectorGuideForPack(pack, connector.display_name);
 
           return (
           <Card key={connector.source_id} className="border-border/60 bg-card/85 shadow-sm">
@@ -587,13 +857,11 @@ export function ConnectorsPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1">
                     <CardTitle className="text-lg">{connector.display_name}</CardTitle>
-                    <CardDescription>{connector.ui.description}</CardDescription>
+                    <CardDescription>{connectorStatusSummary(connector, pack)}</CardDescription>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Badge>{connectorStatusLabel(connector)}</Badge>
                     <Badge variant="secondary">{trustLabel(pack?.trustClass ?? connector.trust_class)}</Badge>
-                    <Badge variant="outline">{connector.maturity_label}</Badge>
-                    <Badge variant="outline">{connector.origin_label}</Badge>
                   </div>
                 </div>
                 {connector.status_detail ? <p className="text-sm text-muted-foreground">{connector.status_detail}</p> : null}
@@ -610,17 +878,11 @@ export function ConnectorsPage() {
               <CardContent className="space-y-4 bg-card/70">
                 <div className="grid gap-2 text-sm text-muted-foreground">
                   <p>
-                    <strong className="text-foreground">Install state:</strong> {connector.install_state}
-                  </p>
-                  <p>
-                    <strong className="text-foreground">Enabled:</strong> {connector.enable_state}
-                  </p>
-                  <p>
-                    <strong className="text-foreground">Config:</strong> {connector.config_state}
+                    <strong className="text-foreground">What to expect:</strong> {guide.speedDescription}
                   </p>
                   {connector.last_synced_at ? (
                     <p>
-                      <strong className="text-foreground">Last sync:</strong> {formatDateTime(connector.last_synced_at)}
+                      <strong className="text-foreground">Last import:</strong> {formatDateTime(connector.last_synced_at)}
                     </p>
                   ) : null}
                   {connector.last_sync_summary ? (
@@ -630,21 +892,17 @@ export function ConnectorsPage() {
                   ) : null}
                   {pack ? (
                     <p>
-                      <strong className="text-foreground">Desktop pack:</strong> {packStateLabel(pack)} via{" "}
-                      {pack.installedVia === "catalog_url" ? "trusted catalog download" : "manual file import"}.
+                      <strong className="text-foreground">Installed on this computer:</strong> {packStateLabel(pack)} via{" "}
+                      {pack.installedVia === "catalog_url" ? "trusted catalog download" : ".zip import"}.
                     </p>
-                  ) : null}
-                  {catalogEntry?.support_policy ? (
-                    <p>{catalogEntry.support_policy.maintainer_support} {catalogEntry.support_policy.update_expectations}</p>
                   ) : null}
                 </div>
 
-                {pack && connector.origin !== "builtin" ? (
+                {pack ? (
                   <Alert>
-                    <AlertTitle>Electron-managed connector</AlertTitle>
+                    <AlertTitle>Before your first import</AlertTitle>
                     <AlertDescription>
-                      This connector is backed by a local receipt pack. Setup, sync, config, and pack management are all
-                      available from this desktop page.
+                      {guide.summary} {guide.caution}
                     </AlertDescription>
                   </Alert>
                 ) : null}
@@ -664,11 +922,7 @@ export function ConnectorsPage() {
                       syncMutation.variables?.sourceId === connector.source_id) ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : null}
-                    {connector.actions.primary.kind === "reconnect"
-                      ? "Reconnect"
-                      : connector.actions.primary.kind === "sync_now"
-                        ? "Sync now"
-                        : "Set up"}
+                    {primaryActionLabel(connector)}
                   </Button>
 
                   {connector.supports_sync ? (
@@ -677,7 +931,7 @@ export function ConnectorsPage() {
                       onClick={() => void syncMutation.mutateAsync({ sourceId: connector.source_id, full: true })}
                       disabled={syncMutation.isPending || connector.enable_state !== "enabled"}
                     >
-                      Full sync
+                      Full import
                     </Button>
                   ) : null}
 
@@ -687,7 +941,16 @@ export function ConnectorsPage() {
                       variant="outline"
                       onClick={() => void openSetup(connector, "configure")}
                     >
-                      Settings
+                      Connector settings
+                    </Button>
+                  ) : null}
+
+                  {pack ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => openPackGuide(pack, false)}
+                    >
+                      What to expect
                     </Button>
                   ) : null}
 
@@ -725,29 +988,25 @@ export function ConnectorsPage() {
         })}
       </div>
 
-      {inactivePacks.length > 0 ? (
+      {attentionPacks.length > 0 ? (
         <div className="app-section-divider space-y-4">
           <div className="space-y-1.5">
-            <h2 className="font-semibold leading-none tracking-tight">Stored receipt packs</h2>
+            <h2 className="font-semibold leading-none tracking-tight">Stored connectors needing attention</h2>
             <p className="text-sm text-muted-foreground">
-              These packs are installed in desktop storage but are not active in the current full-app runtime.
+              These connectors are stored locally, but they cannot be turned on until the reported issue is resolved.
             </p>
           </div>
           <div className="divide-y divide-border/60">
-            {inactivePacks.map((pack) => {
-              const catalogEntry =
-                (pack.catalogEntryId
-                  ? catalogEntries.find((entry) => entry.entry_id === pack.catalogEntryId)
-                  : null) ??
-                catalogEntries.find((entry) => entry.plugin_id === pack.pluginId) ??
-                null;
+            {attentionPacks.map((pack) => {
+              const catalogEntry = findCatalogEntryForPack(catalogEntries, pack);
               return (
                 <div key={pack.pluginId} className="space-y-3 py-4 first:pt-0">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
                       <p className="font-medium">{pack.displayName}</p>
                       <p className="text-sm text-muted-foreground">
-                        {packStateLabel(pack)}. {pack.trustReason ?? pack.compatibilityReason ?? "Manage this pack in the control center."}
+                        {packStateLabel(pack)}.{" "}
+                        {pack.trustReason ?? pack.compatibilityReason ?? "Review the connector details before trying again."}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -763,8 +1022,19 @@ export function ConnectorsPage() {
                   <div className="flex flex-wrap gap-2">
                     <Button
                       variant="outline"
+                      onClick={() => openPackGuide(pack, false)}
+                    >
+                      Review connector
+                    </Button>
+                    <Button
+                      variant="outline"
                       onClick={() => void togglePackMutation.mutateAsync({ pluginId: pack.pluginId, enabled: true })}
-                      disabled={togglePackMutation.isPending || pack.status === "revoked" || pack.status === "invalid" || pack.status === "incompatible"}
+                      disabled={
+                        togglePackMutation.isPending ||
+                        pack.status === "revoked" ||
+                        pack.status === "invalid" ||
+                        pack.status === "incompatible"
+                      }
                     >
                       {togglePackMutation.isPending &&
                       togglePackMutation.variables?.pluginId === pack.pluginId &&
@@ -794,9 +1064,9 @@ export function ConnectorsPage() {
       {curatedDesktopPackEntries.length > 0 ? (
         <div className="app-section-divider space-y-4">
           <div className="space-y-1.5">
-            <h2 className="font-semibold leading-none tracking-tight">Trusted desktop packs</h2>
+            <h2 className="font-semibold leading-none tracking-tight">Trusted connectors you can add</h2>
             <p className="text-sm text-muted-foreground">
-              Signed optional packs for this desktop build can be installed directly from the connectors page.
+              Signed optional connectors for this desktop build can be installed directly from this page.
             </p>
           </div>
           <div className="divide-y divide-border/60">
@@ -843,6 +1113,85 @@ export function ConnectorsPage() {
           </div>
         </div>
       ) : null}
+
+      <Dialog open={packGuideState !== null} onOpenChange={(open) => (!open ? setPackGuideState(null) : undefined)}>
+        <DialogContent className="max-w-xl">
+          {packGuideState ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {packGuideState.showEnableAction
+                    ? `Before you turn on ${packGuideState.pack.displayName}`
+                    : `${packGuideState.pack.displayName}: what to expect`}
+                </DialogTitle>
+                <DialogDescription>
+                  {packGuideState.showEnableAction
+                    ? "This quick note explains how the connector behaves before you enable it."
+                    : "Use this as a quick reminder for the first import and future reconnects."}
+                </DialogDescription>
+              </DialogHeader>
+
+              {(() => {
+                const guide = connectorGuideForPack(packGuideState.pack, packGuideState.pack.displayName);
+                return (
+                  <div className="space-y-4">
+                    <Alert>
+                      <AlertTitle>{guide.headline}</AlertTitle>
+                      <AlertDescription>{guide.summary}</AlertDescription>
+                    </Alert>
+
+                    <div className="grid gap-3">
+                      <div className="rounded-lg border border-border/60 bg-background/60 p-4">
+                        <p className="text-sm font-medium text-foreground">Expected speed</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{guide.speedDescription}</p>
+                      </div>
+                      {guide.steps.map((step, index) => (
+                        <div
+                          key={`${step.title}-${index}`}
+                          className="rounded-lg border border-border/60 bg-background/60 p-4"
+                        >
+                          <p className="text-sm font-medium text-foreground">{step.title}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">{step.description}</p>
+                        </div>
+                      ))}
+                      <div className="rounded-lg border border-border/60 bg-background/60 p-4">
+                        <p className="text-sm font-medium text-foreground">Good to know</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{guide.caution}</p>
+                      </div>
+                    </div>
+
+                    {packGuideState.catalogEntry?.support_policy ? (
+                      <p className="text-sm text-muted-foreground">
+                        {packGuideState.catalogEntry.support_policy.maintainer_support}{" "}
+                        {packGuideState.catalogEntry.support_policy.update_expectations}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })()}
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setPackGuideState(null)}>
+                  {packGuideState.showEnableAction ? "Not now" : "Close"}
+                </Button>
+                {packGuideState.showEnableAction ? (
+                  <Button
+                    onClick={() => void handleGuidePrimaryAction()}
+                    disabled={togglePackMutation.isPending}
+                  >
+                    {togglePackMutation.isPending &&
+                    togglePackMutation.variables?.pluginId === packGuideState.pack.pluginId &&
+                    togglePackMutation.variables.enabled ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    Enable connector
+                  </Button>
+                ) : null}
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={setupState !== null} onOpenChange={(open) => (!open ? closeSetup() : undefined)}>
         <DialogContent className="max-w-2xl">

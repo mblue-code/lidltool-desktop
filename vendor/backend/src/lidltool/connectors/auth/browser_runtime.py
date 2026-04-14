@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import html
 import os
 import secrets
 import shutil
 import sys
+import urllib.parse
 from tempfile import TemporaryDirectory
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -124,6 +126,7 @@ class AuthBrowserRuntimeService:
                         candidate=matched,
                         start_url=normalized_start_url,
                         require_navigation_away_before_completion=request.plan.require_navigation_away_before_completion,
+                        expected_callback_state=request.plan.expected_callback_state,
                         saw_navigation_away=saw_navigation_away,
                     ):
                         captured_url = matched
@@ -165,6 +168,7 @@ class AuthBrowserRuntimeService:
                         start_url=normalized_start_url,
                         callback_prefixes=callback_prefixes,
                         require_navigation_away_before_completion=request.plan.require_navigation_away_before_completion,
+                        expected_callback_state=request.plan.expected_callback_state,
                         saw_navigation_away=saw_navigation_away,
                     )
                     if captured_url is not None:
@@ -179,6 +183,7 @@ class AuthBrowserRuntimeService:
                             start_url=normalized_start_url,
                             callback_prefixes=callback_prefixes,
                             require_navigation_away_before_completion=request.plan.require_navigation_away_before_completion,
+                            expected_callback_state=request.plan.expected_callback_state,
                             saw_navigation_away=saw_navigation_away,
                         )
                         if captured_url is not None:
@@ -229,6 +234,7 @@ def _discover_callback_candidate(
     start_url: str,
     callback_prefixes: tuple[str, ...],
     require_navigation_away_before_completion: bool,
+    expected_callback_state: str | None,
     saw_navigation_away: bool,
 ) -> str | None:
     for page in list(getattr(context, "pages", ())):
@@ -240,6 +246,7 @@ def _discover_callback_candidate(
             candidate=candidate,
             start_url=start_url,
             require_navigation_away_before_completion=require_navigation_away_before_completion,
+            expected_callback_state=expected_callback_state,
             saw_navigation_away=saw_navigation_away,
         ):
             return candidate
@@ -291,6 +298,7 @@ def _discover_callback_candidate_from_page(
 
                 return {
                     matches,
+                    html: document.documentElement?.outerHTML ?? "",
                     text: document.body?.innerText ?? "",
                 };
             }""",
@@ -308,7 +316,11 @@ def _discover_callback_candidate_from_page(
             return matched
 
     body_text = str(snapshot.get("text") or "")
-    return _match_callback_candidate(body_text, callback_prefixes)
+    matched = _match_callback_candidate(body_text, callback_prefixes)
+    if matched is not None:
+        return matched
+    document_html = str(snapshot.get("html") or "")
+    return _match_callback_candidate(document_html, callback_prefixes)
 
 
 def _match_callback_candidate(candidate: str, callback_prefixes: tuple[str, ...]) -> str | None:
@@ -316,17 +328,50 @@ def _match_callback_candidate(candidate: str, callback_prefixes: tuple[str, ...]
     if not raw:
         return None
 
-    for prefix in callback_prefixes:
-        index = raw.find(prefix)
-        if index < 0:
-            continue
-        matched = raw[index:]
-        for delimiter in ('"', "'", " ", "\n", "\r", "\t", "<", ">", ")", "]"):
-            delimiter_index = matched.find(delimiter)
-            if delimiter_index > 0:
-                matched = matched[:delimiter_index]
-        return matched.rstrip(".,;")
+    for variant in _callback_candidate_variants(raw):
+        for prefix in callback_prefixes:
+            index = variant.find(prefix)
+            if index < 0:
+                continue
+            matched = variant[index:]
+            for delimiter in ('"', "'", " ", "\n", "\r", "\t", "<", ">", ")", "]", "}", "\\"):
+                delimiter_index = matched.find(delimiter)
+                if delimiter_index > 0:
+                    matched = matched[:delimiter_index]
+            return matched.rstrip(".,;")
     return None
+
+
+def _callback_candidate_variants(candidate: str) -> tuple[str, ...]:
+    variants: list[str] = []
+    queue = [candidate]
+    seen: set[str] = set()
+    while queue:
+        current = queue.pop(0).strip()
+        if not current or current in seen:
+            continue
+        seen.add(current)
+        variants.append(current)
+
+        decoded = urllib.parse.unquote(current)
+        if decoded != current:
+            queue.append(decoded)
+
+        html_decoded = html.unescape(current)
+        if html_decoded != current:
+            queue.append(html_decoded)
+
+        js_unescaped = (
+            current.replace("\\/", "/")
+            .replace("\\u0026", "&")
+            .replace("\\u003d", "=")
+            .replace("\\u003f", "?")
+            .replace("\\u003a", ":")
+        )
+        if js_unescaped != current:
+            queue.append(js_unescaped)
+
+    return tuple(variants)
 
 
 def _normalize_browser_url(url: str | None) -> str:
@@ -338,16 +383,26 @@ def _should_accept_callback_candidate(
     candidate: str | None,
     start_url: str,
     require_navigation_away_before_completion: bool,
+    expected_callback_state: str | None,
     saw_navigation_away: bool,
 ) -> bool:
     if candidate is None:
         return False
     if not require_navigation_away_before_completion:
+        navigation_ok = True
+    else:
+        normalized_candidate = _normalize_browser_url(candidate)
+        if normalized_candidate != start_url:
+            navigation_ok = True
+        else:
+            navigation_ok = saw_navigation_away
+    if not navigation_ok:
+        return False
+    if expected_callback_state is None:
         return True
-    normalized_candidate = _normalize_browser_url(candidate)
-    if normalized_candidate != start_url:
-        return True
-    return saw_navigation_away
+    parsed = urllib.parse.urlparse(candidate)
+    actual_state = urllib.parse.parse_qs(parsed.query).get("state", [None])[0]
+    return actual_state == expected_callback_state
 
 
 def _launch_auth_browser(

@@ -53,6 +53,18 @@ function baseManifest(pluginVersion: FixtureVersion): Record<string, unknown> {
     trust_class: "community_verified",
     install_status: "installed",
     entrypoint: "payload/connector.py:FixtureConnector",
+    onboarding: {
+      title: "Fixture onboarding",
+      summary: "Fixture Receipt is ready after a quick sign-in.",
+      expected_speed: "Usually quick for the fixture connector.",
+      caution: "Leave the app open until the first import finishes.",
+      steps: [
+        {
+          title: "Enable the connector",
+          description: "Turn it on after import so the desktop runtime can load it."
+        }
+      ]
+    },
     compatibility: {
       supported_host_kinds: ["electron"],
       min_core_version: "0.1.0",

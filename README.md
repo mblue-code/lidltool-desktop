@@ -82,7 +82,7 @@ Typical desktop flow:
 2. Confirm whether the main app is available or whether the local control center is active.
 3. Review the installed edition and market profile.
 4. Install, update, enable, disable, or remove receipt packs if needed.
-5. Run a one-off sync.
+5. Run a one-off sync from the main app or from the control center using the connector `source_id` entries that the current desktop build exposes.
 6. Review results locally, then export or back up if you want a portable copy.
 
 ## Runtime model
@@ -147,7 +147,7 @@ Support and trust labels shown in the desktop pack UI:
 
 Desktop workflow:
 1. Open the connectors page in the desktop app.
-2. Use `Import local pack` for a ZIP file, or choose `Install trusted pack` for a verified catalog entry.
+2. Use `Import .zip connector` for a ZIP file, or choose `Install trusted pack` for a verified catalog entry.
 3. Review the status, trust, support, and market-profile messaging.
 4. Enable the pack explicitly if you want desktop to load it into the next backend run.
 5. Use the same connectors page to install a trusted update, disable a pack, or remove it from local storage.
@@ -177,6 +177,16 @@ Desktop validates:
 - imported trust-class policy
 - detached Ed25519 signatures against the pack envelope + payload hash manifest for trusted installs
 - trusted distribution revocations by key id, plugin id/version, or archive hash
+
+Desktop also reads optional connector onboarding content from the plugin `manifest.json`.
+Plugin authors can provide an `onboarding` block there with:
+- `title`
+- `summary`
+- `expected_speed`
+- `caution`
+- `steps`: array of `{ "title", "description" }`
+
+The desktop connectors page uses that manifest-owned onboarding to explain connector-specific behavior such as slower scraping or first-run expectations.
 
 ### Storage layout
 
@@ -234,6 +244,7 @@ Current desktop release variants:
   - stable default
   - neutral/global shell
   - still supports optional imported receipt plugin packs
+  - bundled Lidl Plus source entries currently include DE plus preview GB/FR
 - `desktop_dach_edition`
   - stable regional preset
   - preselects the `dach_starter` profile

@@ -1,4 +1,13 @@
-export type SyncSourceId = "lidl" | "amazon" | "rewe" | "kaufland" | "dm" | "rossmann";
+export type BuiltInSyncSourceId =
+  | "lidl_plus_de"
+  | "lidl_plus_gb"
+  | "lidl_plus_fr"
+  | "amazon_de"
+  | "rewe_de"
+  | "kaufland_de"
+  | "dm_de"
+  | "rossmann_de";
+export type SyncSourceId = BuiltInSyncSourceId | string;
 export type DesktopLocale = "en" | "de";
 export type ConnectorTrustClass = "official" | "community_verified" | "community_unsigned" | "local_custom";
 export type ConnectorProduct = "self_hosted" | "desktop";
@@ -10,7 +19,7 @@ export type ConnectorCatalogInstallMethod = "built_in" | "manual_import" | "manu
 export type ConnectorCatalogSourceKind = "bundled_signed" | "remote_signed" | "repo_static";
 export type ConnectorVerificationStatus = "trusted" | "unsigned" | "signature_invalid" | "revoked" | "incompatible";
 
-export type ConnectorSourceId = Exclude<SyncSourceId, "lidl">;
+export type ConnectorSourceId = SyncSourceId;
 
 export interface BackendConfig {
   apiBaseUrl: string;
@@ -112,6 +121,19 @@ export type ReceiptPluginSignatureStatus = "unsigned" | "verified" | "signature_
 export type ReceiptPluginCompatibilityStatus = "compatible" | "incompatible" | "invalid";
 export type ReceiptPluginInstallSource = "manual_file" | "catalog_url";
 
+export interface ReceiptPluginOnboardingStep {
+  title: string;
+  description: string;
+}
+
+export interface ReceiptPluginOnboarding {
+  title: string | null;
+  summary: string | null;
+  expectedSpeed: string | null;
+  caution: string | null;
+  steps: ReceiptPluginOnboardingStep[];
+}
+
 export interface ReceiptPluginPackInfo {
   pluginId: string;
   sourceId: string;
@@ -141,6 +163,7 @@ export interface ReceiptPluginPackInfo {
   installedVia: ReceiptPluginInstallSource;
   catalogEntryId: string | null;
   catalogDownloadUrl: string | null;
+  onboarding: ReceiptPluginOnboarding | null;
   diagnostics: string[];
 }
 

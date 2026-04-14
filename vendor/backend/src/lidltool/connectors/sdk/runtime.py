@@ -58,6 +58,7 @@ class AuthBrowserPlan(BaseModel):
     start_url: str
     callback_url_prefixes: tuple[str, ...]
     require_navigation_away_before_completion: bool = False
+    expected_callback_state: str | None = None
     timeout_seconds: int = Field(default=900, ge=1, le=7200)
     wait_until: Literal["domcontentloaded", "load", "networkidle"] = "domcontentloaded"
     interactive: bool = True

@@ -44,7 +44,7 @@ from lidltool.db.models import Category, Product, Source, TransactionItem
 
 LOGGER = logging.getLogger(__name__)
 
-ITEM_CATEGORIZATION_VERSION = "canonical-item-categorizer-v1"
+ITEM_CATEGORIZATION_VERSION = "canonical-item-categorizer-v2"
 _DEPOSIT_RE = re.compile(
     r"\b(pfand|pfandr[ue]ckgabe|deposit|bottle\s+deposit|einwegpfand|mehrwegpfand)\b",
     re.IGNORECASE,
@@ -110,9 +110,135 @@ _HOUSEHOLD_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+_CLEANING_RE = re.compile(
+    r"\b("
+    r"spuel|spül|reiniger|putz|waschmittel|weichspuel|weichspül|bleiche|entkalker|glasreiniger|allzweckreiniger"
+    r")\b",
+    re.IGNORECASE,
+)
+_PAPER_GOODS_RE = re.compile(
+    r"\b("
+    r"toilettenpapier|wc\s*papier|küchenrolle|kuechenrolle|taschent(?:uch|uecher|ücher)|servietten|paper\s*towels?|tissues?"
+    r")\b",
+    re.IGNORECASE,
+)
 _PERSONAL_CARE_RE = re.compile(
     r"\b("
     r"shampoo|sp[üu]lung|seife|zahnpasta|deo|duschgel|rasierer|lotion|creme"
+    r")\b",
+    re.IGNORECASE,
+)
+_COSMETICS_RE = re.compile(
+    r"\b("
+    r"kosmetik|make\s*up|makeup|mascara|concealer|lippenstift|lipgloss|foundation|puder|serum|gesichtscreme|hautpflege|skin\s*care"
+    r")\b",
+    re.IGNORECASE,
+)
+_BABY_RE = re.compile(
+    r"\b("
+    r"baby|windel|windeln|diaper|diapers|feuchtt(?:uch|uecher|ücher)|wipes|schnuller|nuckel|babynahrung|babybrei|folgemilch"
+    r")\b",
+    re.IGNORECASE,
+)
+_RESTAURANT_RE = re.compile(
+    r"\b("
+    r"restaurant|pizzeria|pizza|burger|sushi|d[oö]ner|doener|imbiss|bistro|gastst[aä]tte|gasthaus|menu|men[üu]"
+    r")\b",
+    re.IGNORECASE,
+)
+_DELIVERY_FOOD_RE = re.compile(
+    r"\b("
+    r"lieferando|uber\s*eats|ubereats|doordash|wolt|takeaway|take\s*away|lieferservice"
+    r")\b",
+    re.IGNORECASE,
+)
+_COFFEE_SNACKS_RE = re.compile(
+    r"\b("
+    r"caf[eé]|coffee\s*shop|kaffee|espresso|cappuccino|latte|muffin|cookie|croissant"
+    r")\b",
+    re.IGNORECASE,
+)
+_PHARMACY_RE = re.compile(
+    r"\b("
+    r"apotheke|pharmacy|ibuprofen|paracetamol|vitamin|supplement|nasenspray|magnesium"
+    r")\b",
+    re.IGNORECASE,
+)
+_MEDICAL_RE = re.compile(
+    r"\b("
+    r"arzt|doctor|clinic|klinik|hospital|krankenhaus|physio|physiotherapie|medical"
+    r")\b",
+    re.IGNORECASE,
+)
+_FUEL_RE = re.compile(
+    r"\b("
+    r"benzin|diesel|super\s*e10|fuel|tankstelle|gasoline|petrol"
+    r")\b",
+    re.IGNORECASE,
+)
+_PUBLIC_TRANSIT_RE = re.compile(
+    r"\b("
+    r"deutschlandticket|bahn|train|bus|tram|u-?bahn|s-?bahn|oepnv|öpnv|verkehrsbetriebe"
+    r")\b",
+    re.IGNORECASE,
+)
+_RIDESHARE_RE = re.compile(
+    r"\b("
+    r"taxi|uber|bolt|rideshare|fahrdienst"
+    r")\b",
+    re.IGNORECASE,
+)
+_PARKING_TOLLS_RE = re.compile(
+    r"\b("
+    r"parking|parkhaus|parken|maut|toll"
+    r")\b",
+    re.IGNORECASE,
+)
+_CLOTHING_RE = re.compile(
+    r"\b("
+    r"kleidung|shirt|jeans|socken|jacke|jacket|hose|dress|schuh|schuhe|fashion"
+    r")\b",
+    re.IGNORECASE,
+)
+_ELECTRONICS_RE = re.compile(
+    r"\b("
+    r"elektronik|electronics|charger|kabel|cable|headphones|kopfh[öo]rer|usb|adapter|keyboard|maus"
+    r")\b",
+    re.IGNORECASE,
+)
+_STREAMING_RE = re.compile(
+    r"\b("
+    r"netflix|spotify|disney|prime\s*video|youtube\s*premium|streaming"
+    r")\b",
+    re.IGNORECASE,
+)
+_GAMES_HOBBIES_RE = re.compile(
+    r"\b("
+    r"steam|nintendo|playstation|xbox|book|buch|lego|hobby|game|gaming"
+    r")\b",
+    re.IGNORECASE,
+)
+_EVENTS_LEISURE_RE = re.compile(
+    r"\b("
+    r"cinema|kino|concert|konzert|museum|theater|event|festival|freizeitpark"
+    r")\b",
+    re.IGNORECASE,
+)
+_TRAVEL_TRANSPORT_RE = re.compile(
+    r"\b("
+    r"flight|airline|flug|boarding|rail\s*pass|fernverkehr"
+    r")\b",
+    re.IGNORECASE,
+)
+_LODGING_RE = re.compile(
+    r"\b("
+    r"hotel|hostel|airbnb|booking\.com|unterkunft|lodging"
+    r")\b",
+    re.IGNORECASE,
+)
+_SERVICE_FEE_RE = re.compile(
+    r"\b("
+    r"service fee|service charge|geb[uü]hr|fee|fees"
     r")\b",
     re.IGNORECASE,
 )
@@ -249,6 +375,10 @@ _FROZEN_HINTS = (
     "frozen",
 )
 _HOUSEHOLD_HINTS = (
+    "allzweckreiniger",
+    "bleiche",
+    "entkalker",
+    "glasreiniger",
     "waschmittel",
     "waschmit",
     "spezialwaschm",
@@ -260,6 +390,25 @@ _HOUSEHOLD_HINTS = (
     "putz",
     "spuel",
 )
+_CLEANING_HINTS = (
+    "allzweckreiniger",
+    "bleiche",
+    "entkalker",
+    "feinwaschmit",
+    "glasreiniger",
+    "putz",
+    "reiniger",
+    "spuel",
+    "waschmittel",
+)
+_PAPER_GOODS_HINTS = (
+    "kuechenrolle",
+    "servietten",
+    "taschentuch",
+    "taschentuecher",
+    "toilettenpapier",
+    "tissues",
+)
 _PERSONAL_CARE_HINTS = (
     "shampoo",
     "spuelung",
@@ -270,6 +419,186 @@ _PERSONAL_CARE_HINTS = (
     "rasierer",
     "lotion",
     "creme",
+)
+_COSMETICS_HINTS = (
+    "concealer",
+    "foundation",
+    "gesichtscreme",
+    "hautpflege",
+    "kosmetik",
+    "lipgloss",
+    "lippenstift",
+    "mascara",
+    "nachtcreme",
+    "puder",
+    "serum",
+    "tagescreme",
+)
+_BABY_HINTS = (
+    "baby",
+    "babynahrung",
+    "babybrei",
+    "feuchttuch",
+    "feuchttuecher",
+    "folgemilch",
+    "nuckel",
+    "schnuller",
+    "windel",
+    "windeln",
+)
+_RESTAURANT_HINTS = (
+    "burger",
+    "doener",
+    "döner",
+    "gasthaus",
+    "imbiss",
+    "menu",
+    "pizza",
+    "restaurant",
+    "sushi",
+)
+_DELIVERY_FOOD_HINTS = (
+    "doordash",
+    "lieferando",
+    "lieferservice",
+    "takeaway",
+    "ubereats",
+    "uber_eats",
+    "wolt",
+)
+_COFFEE_SNACKS_HINTS = (
+    "cafe",
+    "cappuccino",
+    "coffee",
+    "croissant",
+    "espresso",
+    "kaffee",
+    "latte",
+    "muffin",
+)
+_PHARMACY_HINTS = (
+    "apotheke",
+    "ibuprofen",
+    "magnesium",
+    "nasenspray",
+    "paracetamol",
+    "supplement",
+    "vitamin",
+)
+_MEDICAL_HINTS = (
+    "arzt",
+    "clinic",
+    "doctor",
+    "hospital",
+    "klinik",
+    "medical",
+    "physio",
+)
+_FUEL_HINTS = (
+    "benzin",
+    "diesel",
+    "fuel",
+    "gasoline",
+    "petrol",
+    "super_e10",
+    "tankstelle",
+)
+_PUBLIC_TRANSIT_HINTS = (
+    "bahn",
+    "bus",
+    "deutschlandticket",
+    "oepnv",
+    "s_bahn",
+    "train",
+    "tram",
+    "u_bahn",
+)
+_RIDESHARE_HINTS = (
+    "bolt",
+    "fahrdienst",
+    "rideshare",
+    "taxi",
+    "uber",
+)
+_PARKING_TOLLS_HINTS = (
+    "maut",
+    "parken",
+    "parkhaus",
+    "parking",
+    "toll",
+)
+_CLOTHING_HINTS = (
+    "dress",
+    "fashion",
+    "jacke",
+    "jeans",
+    "kleidung",
+    "schuhe",
+    "shirt",
+    "socken",
+)
+_ELECTRONICS_HINTS = (
+    "adapter",
+    "cable",
+    "charger",
+    "electronics",
+    "elektronik",
+    "headphones",
+    "keyboard",
+    "kopfhoerer",
+    "usb",
+)
+_STREAMING_HINTS = (
+    "disney",
+    "netflix",
+    "prime_video",
+    "spotify",
+    "streaming",
+    "youtube_premium",
+)
+_GAMES_HOBBIES_HINTS = (
+    "book",
+    "buch",
+    "game",
+    "gaming",
+    "hobby",
+    "lego",
+    "nintendo",
+    "playstation",
+    "steam",
+    "xbox",
+)
+_EVENTS_LEISURE_HINTS = (
+    "concert",
+    "event",
+    "festival",
+    "kino",
+    "konzert",
+    "museum",
+    "theater",
+)
+_TRAVEL_TRANSPORT_HINTS = (
+    "airline",
+    "boarding",
+    "fernverkehr",
+    "flight",
+    "flug",
+    "rail_pass",
+)
+_LODGING_HINTS = (
+    "airbnb",
+    "booking_com",
+    "hostel",
+    "hotel",
+    "lodging",
+    "unterkunft",
+)
+_SERVICE_FEE_HINTS = (
+    "fee",
+    "fees",
+    "gebuehr",
+    "service_charge",
+    "service_fee",
 )
 _MEAT_HINTS = (
     "schinken",
@@ -362,21 +691,137 @@ TAXONOMY_CATEGORIES: tuple[TaxonomyCategory, ...] = (
         "groceries",
         ("pantry", "staples", "dry_goods", "trockenwaren"),
     ),
-    TaxonomyCategory("household", None, ("home", "haushalt", "cleaning")),
+    TaxonomyCategory("dining", None, ("dining", "auswaertsessen", "auswärtsessen")),
+    TaxonomyCategory(
+        "dining:restaurant",
+        "dining",
+        ("restaurant", "restaurants", "gastronomy", "gastronomie", "essen_gehen"),
+    ),
+    TaxonomyCategory(
+        "dining:takeaway_delivery",
+        "dining",
+        ("takeaway_delivery", "delivery_and_takeaway", "lieferservice", "takeaway", "take_away"),
+    ),
+    TaxonomyCategory(
+        "dining:coffee_snacks",
+        "dining",
+        ("coffee_snacks", "coffee_and_snacks", "kaffee_und_snacks"),
+    ),
+    TaxonomyCategory("household", None, ("home", "haushalt")),
+    TaxonomyCategory(
+        "household:cleaning",
+        "household",
+        ("cleaning", "cleaning supplies", "reinigung", "putzmittel", "reiniger", "detergent"),
+    ),
+    TaxonomyCategory(
+        "household:paper_goods",
+        "household",
+        ("paper goods", "paper_goods", "papierwaren", "toilettenpapier", "kuechenrolle", "tissues"),
+    ),
+    TaxonomyCategory(
+        "household:home_misc",
+        "household",
+        ("home_misc", "home misc", "haushaltswaren"),
+    ),
     TaxonomyCategory(
         "personal_care",
         None,
-        ("personal care", "beauty", "pflege", "drogerie", "hygiene"),
-    ),
-    TaxonomyCategory("electronics", None, ("electronic", "tech", "technology")),
-    TaxonomyCategory(
-        "gaming_media",
-        None,
-        ("gaming", "games", "game", "media", "books", "video_games"),
+        ("personal care", "pflege", "drogerie"),
     ),
     TaxonomyCategory(
-        "shipping_fees",
-        None,
+        "personal_care:cosmetics",
+        "personal_care",
+        ("cosmetics", "cosmetic", "beauty", "makeup", "make_up", "kosmetik", "skincare", "hautpflege"),
+    ),
+    TaxonomyCategory(
+        "personal_care:hygiene",
+        "personal_care",
+        ("hygiene_products", "koerperpflege", "körperpflege", "toiletries"),
+    ),
+    TaxonomyCategory(
+        "personal_care:baby",
+        "personal_care",
+        ("baby", "baby care", "babycare", "babystuff", "windeln", "diapers"),
+    ),
+    TaxonomyCategory("health", None, ("health", "gesundheit")),
+    TaxonomyCategory(
+        "health:pharmacy",
+        "health",
+        ("pharmacy", "apotheke", "drugstore"),
+    ),
+    TaxonomyCategory(
+        "health:medical",
+        "health",
+        ("medical", "arzt", "doctor", "medizin"),
+    ),
+    TaxonomyCategory("transport", None, ("transport", "mobilitaet", "mobilität")),
+    TaxonomyCategory(
+        "transport:fuel",
+        "transport",
+        ("fuel", "gas", "gasoline", "petrol", "benzin", "diesel", "tanken"),
+    ),
+    TaxonomyCategory(
+        "transport:public_transit",
+        "transport",
+        ("public_transit", "public transit", "oepnv", "öpnv", "bahn"),
+    ),
+    TaxonomyCategory(
+        "transport:taxi_rideshare",
+        "transport",
+        ("taxi_rideshare", "taxi", "rideshare", "fahrdienst"),
+    ),
+    TaxonomyCategory(
+        "transport:parking_tolls",
+        "transport",
+        ("parking_tolls", "parking", "parken", "tolls", "maut"),
+    ),
+    TaxonomyCategory("shopping", None, ("shopping", "einkaufen")),
+    TaxonomyCategory(
+        "shopping:clothing",
+        "shopping",
+        ("clothing", "fashion", "kleidung"),
+    ),
+    TaxonomyCategory(
+        "shopping:electronics",
+        "shopping",
+        ("electronics", "electronic", "tech", "technology", "elektronik"),
+    ),
+    TaxonomyCategory(
+        "shopping:general",
+        "shopping",
+        ("general shopping", "allgemeiner einkauf", "shopping general"),
+    ),
+    TaxonomyCategory("entertainment", None, ("entertainment", "freizeit")),
+    TaxonomyCategory(
+        "entertainment:streaming",
+        "entertainment",
+        ("streaming",),
+    ),
+    TaxonomyCategory(
+        "entertainment:games_hobbies",
+        "entertainment",
+        ("gaming", "games", "game", "media", "books", "video_games", "hobbies"),
+    ),
+    TaxonomyCategory(
+        "entertainment:events_leisure",
+        "entertainment",
+        ("events_leisure", "events", "leisure", "freizeit"),
+    ),
+    TaxonomyCategory("travel", None, ("travel", "reisen")),
+    TaxonomyCategory(
+        "travel:transport",
+        "travel",
+        ("travel transport", "reise transport"),
+    ),
+    TaxonomyCategory(
+        "travel:lodging",
+        "travel",
+        ("lodging", "unterkunft"),
+    ),
+    TaxonomyCategory("fees", None, ("fees", "gebuehren", "gebühren")),
+    TaxonomyCategory(
+        "fees:shipping",
+        "fees",
         (
             "shipping",
             "shipping fee",
@@ -391,6 +836,11 @@ TAXONOMY_CATEGORIES: tuple[TaxonomyCategory, ...] = (
         ),
     ),
     TaxonomyCategory(
+        "fees:service",
+        "fees",
+        ("service fee", "service fees", "service charge", "gebuehr", "gebühr", "fee"),
+    ),
+    TaxonomyCategory(
         "deposit",
         None,
         ("pfand", "deposit", "bottle deposit", "bottle_deposit", "pfandrueckgabe"),
@@ -398,7 +848,7 @@ TAXONOMY_CATEGORIES: tuple[TaxonomyCategory, ...] = (
     TaxonomyCategory(
         "other",
         None,
-        ("other", "misc", "miscellaneous", "uncategorized", "unknown", "fee", "fees"),
+        ("other", "misc", "miscellaneous", "uncategorized", "unknown"),
     ),
 )
 
@@ -784,7 +1234,7 @@ def categorize_transaction_item(
     if source_value is None and _looks_like_shipping_fee(item_name=item_name, source_value=source_value):
         return _taxonomy_result(
             category_rows=category_rows,
-            category_name="shipping_fees",
+            category_name="fees:shipping",
             method="shipping_rule",
             confidence=0.99,
             source_value=source_value,
@@ -939,7 +1389,7 @@ def categorize_transaction_items(
         if source_value is None and _looks_like_shipping_fee(item_name=request.item_name, source_value=source_value):
             results[index] = _taxonomy_result(
                 category_rows=category_rows,
-                category_name="shipping_fees",
+                category_name="fees:shipping",
                 method="shipping_rule",
                 confidence=0.99,
                 source_value=source_value,
@@ -1146,7 +1596,7 @@ def apply_item_categorization(
         if source_value is None and _looks_like_shipping_fee(item_name=item.name, source_value=source_value):
             shipping = _taxonomy_result(
                 category_rows=category_rows,
-                category_name="shipping_fees",
+                category_name="fees:shipping",
                 method="shipping_rule",
                 confidence=0.99,
                 source_value=source_value,
@@ -1390,7 +1840,7 @@ def _product_override_or_result(
         product_id=product_id,
         source_value=result.source_value,
     )
-    if product_result is None or result.category_name in {"deposit", "shipping_fees"}:
+    if product_result is None or result.category_name in {"deposit", "fees:shipping"}:
         return result
     if result.category_name not in {"other"} and result.method == "source_native":
         return result
@@ -1690,8 +2140,29 @@ def _heuristic_category_result(
         if value
     ]
     heuristic_rules: tuple[tuple[re.Pattern[str], str, str, float], ...] = (
-        (_HOUSEHOLD_RE, "household", "household_rule", 0.9),
-        (_PERSONAL_CARE_RE, "personal_care", "personal_care_rule", 0.88),
+        (_SERVICE_FEE_RE, "fees:service", "service_fee_rule", 0.96),
+        (_DELIVERY_FOOD_RE, "dining:takeaway_delivery", "takeaway_delivery_rule", 0.95),
+        (_COFFEE_SNACKS_RE, "dining:coffee_snacks", "coffee_snacks_rule", 0.9),
+        (_RESTAURANT_RE, "dining:restaurant", "restaurant_rule", 0.9),
+        (_PAPER_GOODS_RE, "household:paper_goods", "paper_goods_rule", 0.91),
+        (_CLEANING_RE, "household:cleaning", "cleaning_rule", 0.9),
+        (_BABY_RE, "personal_care:baby", "baby_rule", 0.9),
+        (_COSMETICS_RE, "personal_care:cosmetics", "cosmetics_rule", 0.89),
+        (_PERSONAL_CARE_RE, "personal_care:hygiene", "hygiene_rule", 0.85),
+        (_PHARMACY_RE, "health:pharmacy", "pharmacy_rule", 0.94),
+        (_MEDICAL_RE, "health:medical", "medical_rule", 0.9),
+        (_FUEL_RE, "transport:fuel", "fuel_rule", 0.94),
+        (_PUBLIC_TRANSIT_RE, "transport:public_transit", "public_transit_rule", 0.9),
+        (_RIDESHARE_RE, "transport:taxi_rideshare", "rideshare_rule", 0.89),
+        (_PARKING_TOLLS_RE, "transport:parking_tolls", "parking_tolls_rule", 0.9),
+        (_CLOTHING_RE, "shopping:clothing", "clothing_rule", 0.88),
+        (_ELECTRONICS_RE, "shopping:electronics", "electronics_rule", 0.88),
+        (_STREAMING_RE, "entertainment:streaming", "streaming_rule", 0.95),
+        (_GAMES_HOBBIES_RE, "entertainment:games_hobbies", "games_hobbies_rule", 0.9),
+        (_EVENTS_LEISURE_RE, "entertainment:events_leisure", "events_leisure_rule", 0.88),
+        (_TRAVEL_TRANSPORT_RE, "travel:transport", "travel_transport_rule", 0.9),
+        (_LODGING_RE, "travel:lodging", "lodging_rule", 0.92),
+        (_HOUSEHOLD_RE, "household:home_misc", "household_rule", 0.84),
         (_BEVERAGES_RE, "groceries:beverages", "beverage_rule", 0.9),
         (_DAIRY_RE, "groceries:dairy", "dairy_rule", 0.9),
         (_BAKERY_RE, "groceries:bakery", "bakery_rule", 0.88),
@@ -1702,8 +2173,29 @@ def _heuristic_category_result(
         (_PANTRY_RE, "groceries:pantry", "pantry_rule", 0.86),
     )
     hint_rules: tuple[tuple[tuple[str, ...], str, str, float], ...] = (
-        (_HOUSEHOLD_HINTS, "household", "household_rule", 0.9),
-        (_PERSONAL_CARE_HINTS, "personal_care", "personal_care_rule", 0.88),
+        (_SERVICE_FEE_HINTS, "fees:service", "service_fee_rule", 0.96),
+        (_DELIVERY_FOOD_HINTS, "dining:takeaway_delivery", "takeaway_delivery_rule", 0.95),
+        (_COFFEE_SNACKS_HINTS, "dining:coffee_snacks", "coffee_snacks_rule", 0.9),
+        (_RESTAURANT_HINTS, "dining:restaurant", "restaurant_rule", 0.9),
+        (_PAPER_GOODS_HINTS, "household:paper_goods", "paper_goods_rule", 0.92),
+        (_CLEANING_HINTS, "household:cleaning", "cleaning_rule", 0.9),
+        (_BABY_HINTS, "personal_care:baby", "baby_rule", 0.9),
+        (_COSMETICS_HINTS, "personal_care:cosmetics", "cosmetics_rule", 0.89),
+        (_PERSONAL_CARE_HINTS, "personal_care:hygiene", "hygiene_rule", 0.85),
+        (_PHARMACY_HINTS, "health:pharmacy", "pharmacy_rule", 0.94),
+        (_MEDICAL_HINTS, "health:medical", "medical_rule", 0.9),
+        (_FUEL_HINTS, "transport:fuel", "fuel_rule", 0.94),
+        (_PUBLIC_TRANSIT_HINTS, "transport:public_transit", "public_transit_rule", 0.9),
+        (_RIDESHARE_HINTS, "transport:taxi_rideshare", "rideshare_rule", 0.89),
+        (_PARKING_TOLLS_HINTS, "transport:parking_tolls", "parking_tolls_rule", 0.9),
+        (_CLOTHING_HINTS, "shopping:clothing", "clothing_rule", 0.88),
+        (_ELECTRONICS_HINTS, "shopping:electronics", "electronics_rule", 0.88),
+        (_STREAMING_HINTS, "entertainment:streaming", "streaming_rule", 0.95),
+        (_GAMES_HOBBIES_HINTS, "entertainment:games_hobbies", "games_hobbies_rule", 0.9),
+        (_EVENTS_LEISURE_HINTS, "entertainment:events_leisure", "events_leisure_rule", 0.88),
+        (_TRAVEL_TRANSPORT_HINTS, "travel:transport", "travel_transport_rule", 0.9),
+        (_LODGING_HINTS, "travel:lodging", "lodging_rule", 0.92),
+        (_HOUSEHOLD_HINTS, "household:home_misc", "household_rule", 0.84),
         (_PRODUCE_HINTS, "groceries:produce", "produce_rule", 0.97),
         (_FISH_HINTS, "groceries:fish", "fish_rule", 0.92),
         (_MEAT_HINTS, "groceries:meat", "meat_rule", 0.9),
@@ -1971,8 +2463,11 @@ def _model_system_prompt() -> str:
         "Do not add commentary. Use the closest category from the allowed list. "
         "Use `other` only when the item is genuinely too ambiguous. "
         "Examples: Bauernbrötchen -> groceries:bakery, Gouda Scheiben 48% -> groceries:dairy, "
-        "Feinwaschmit. Color -> household, Lachsfilet -> groceries:fish, Hähn.Schw.Steak Kräu -> groceries:meat, "
-        "Champignon weiß -> groceries:produce."
+        "Feinwaschmit. Color -> household:cleaning, Baby Wipes Sensitive -> personal_care:baby, "
+        "Mascara Waterproof -> personal_care:cosmetics, Lieferando Bestellung -> dining:takeaway_delivery, "
+        "Apotheke Ibuprofen -> health:pharmacy, DB Deutschlandticket -> transport:public_transit, "
+        "Hotel Check-out -> travel:lodging, Lachsfilet -> groceries:fish, "
+        "Hähn.Schw.Steak Kräu -> groceries:meat, Champignon weiß -> groceries:produce."
     )
 
 

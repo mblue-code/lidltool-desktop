@@ -41,6 +41,22 @@ function baseManifest(overrides: Record<string, unknown> = {}): Record<string, u
       min_core_version: "0.1.0",
       max_core_version: null
     },
+    onboarding: {
+      title: "Fixture onboarding",
+      summary: "Fixture Receipt needs a quick sign-in before the first import.",
+      expected_speed: "Usually quick for small test data sets.",
+      caution: "Keep the window open until the first import finishes.",
+      steps: [
+        {
+          title: "Turn it on",
+          description: "Enable the connector after import so the desktop runtime can load it."
+        },
+        {
+          title: "Run the first import",
+          description: "Start a sync after setup to confirm the pack works."
+        }
+      ]
+    },
     ...overrides
   };
 }
@@ -171,7 +187,31 @@ async function validateManifestFixture(manifestPath: string): Promise<ValidatedM
     maxCoreVersion:
       typeof manifest.compatibility?.max_core_version === "string" ? manifest.compatibility.max_core_version : null,
     compatibilityStatus: supportedHostKinds.includes("electron") ? "compatible" : "incompatible",
-    compatibilityReason: supportedHostKinds.includes("electron") ? null : "host_kind_not_supported"
+    compatibilityReason: supportedHostKinds.includes("electron") ? null : "host_kind_not_supported",
+    onboarding:
+      manifest.onboarding && typeof manifest.onboarding === "object"
+        ? {
+            title: typeof manifest.onboarding.title === "string" ? manifest.onboarding.title : null,
+            summary: typeof manifest.onboarding.summary === "string" ? manifest.onboarding.summary : null,
+            expectedSpeed:
+              typeof manifest.onboarding.expected_speed === "string"
+                ? manifest.onboarding.expected_speed
+                : null,
+            caution: typeof manifest.onboarding.caution === "string" ? manifest.onboarding.caution : null,
+            steps: Array.isArray(manifest.onboarding.steps)
+              ? manifest.onboarding.steps.flatMap((step: unknown) => {
+                  if (!step || typeof step !== "object") {
+                    return [];
+                  }
+                  const candidate = step as Record<string, unknown>;
+                  if (typeof candidate.title !== "string" || typeof candidate.description !== "string") {
+                    return [];
+                  }
+                  return [{ title: candidate.title, description: candidate.description }];
+                })
+              : []
+          }
+        : null
   };
 }
 
@@ -243,6 +283,8 @@ test("installs, enables, lists, and uninstalls manual unsigned receipt plugin pa
     assert.equal(install.pack.enabled, false);
     assert.equal(install.pack.status, "disabled");
     assert.equal(install.pack.trustStatus, "unsigned");
+    assert.equal(install.pack.onboarding?.title, "Fixture onboarding");
+    assert.equal(install.pack.onboarding?.steps.length, 2);
 
     let list = await manager.listPacks();
     assert.equal(list.packs.length, 1);

@@ -58,6 +58,7 @@ export interface ValidatedManifestSnapshot {
   maxCoreVersion: string | null;
   compatibilityStatus: "compatible" | "incompatible" | "invalid";
   compatibilityReason: string | null;
+  onboarding: ReceiptPluginPackInfo["onboarding"];
 }
 
 interface StoredReceiptPluginPackRecord {
@@ -654,6 +655,7 @@ export class ReceiptPluginPackManager {
       installedVia: record.installedVia,
       catalogEntryId: record.catalogEntryId,
       catalogDownloadUrl: record.catalogDownloadUrl,
+      onboarding: compatibility?.onboarding ?? null,
       diagnostics
     };
   }
@@ -678,7 +680,8 @@ export class ReceiptPluginPackManager {
         minCoreVersion: null,
         maxCoreVersion: null,
         compatibilityStatus: "invalid",
-        compatibilityReason: String(error)
+        compatibilityReason: String(error),
+        onboarding: null
       };
     }
   }

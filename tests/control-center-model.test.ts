@@ -60,6 +60,7 @@ function basePack(overrides: Partial<ReceiptPluginPackInfo> = {}): ReceiptPlugin
     installedVia: "catalog_url",
     catalogEntryId: "desktop-pack.fixture",
     catalogDownloadUrl: "https://example.test/fixture.zip",
+    onboarding: null,
     diagnostics: [],
     ...overrides
   };

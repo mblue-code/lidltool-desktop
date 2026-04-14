@@ -354,7 +354,7 @@ class ConnectorExecutionService:
         connector_options: Mapping[str, Any],
     ) -> ResolvedReceiptConnector:
         tracking_source_id = source_config.source
-        if manifest.source_id == "lidl_plus_de":
+        if manifest.source_id.startswith("lidl_plus_"):
             token_store = TokenStore.from_config(source_config)
             refresh_token = token_store.get_refresh_token()
             if not refresh_token:

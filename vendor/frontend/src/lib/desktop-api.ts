@@ -81,6 +81,16 @@ export type DesktopReceiptPluginPackInfo = {
   compatibilityReason: string | null;
   installedVia: "manual_file" | "catalog_url";
   catalogEntryId: string | null;
+  onboarding: {
+    title: string | null;
+    summary: string | null;
+    expectedSpeed: string | null;
+    caution: string | null;
+    steps: Array<{
+      title: string;
+      description: string;
+    }>;
+  } | null;
 };
 
 export type DesktopReceiptPluginPackListResult = {

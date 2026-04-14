@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 import httpx
 
 from lidltool.config import AppConfig
+from lidltool.lidl.market import resolve_lidl_market
 from lidltool.lidl.models_raw import ReceiptPage
 
 if TYPE_CHECKING:
@@ -305,7 +306,7 @@ def _parse_mre_html_items(html: str) -> list[dict[str, Any]]:
 
 class MreApiClient:
     """
-    Client for www.lidl.de/mre/api/v1 (the web receipt viewer API).
+    Client for Lidl's web receipt viewer API.
 
     Auth: LidlPlusNativeClient Bearer token, auto-refreshed from stored refresh_token.
     List: paginated at server page size (~10/page), page_token = page number string.
@@ -314,7 +315,6 @@ class MreApiClient:
     so that normalize_receipt() can pick it up from the list summary instead.
     """
 
-    _MRE_BASE = "https://www.lidl.de/mre/api/v1"
     _AUTH_URL = "https://accounts.lidl.com/connect/token"
     _CLIENT_ID = "LidlPlusNativeClient"
 
@@ -330,13 +330,14 @@ class MreApiClient:
         self._refresh_token = refresh_token
         self._config = config
         self._token_store = token_store
-        source_suffix = config.source.rsplit("_", 1)[-1]  # "lidl_plus_de" -> "de"
-        self._country = source_suffix.upper()
-        self._language = source_suffix.lower()
+        self._market = resolve_lidl_market(config.source)
+        self._country = self._market.country_code
+        self._language = self._market.language_code
+        self._mre_base = f"https://{self._market.web_host}/mre/api/v1"
         self._rate_limiter = RateLimiter(config.max_requests_per_second)
         self._access_token: str | None = None
         self._token_expires_at: datetime | None = None
-        _validate_endpoint_security(config, self._MRE_BASE, endpoint_name="Lidl MRE API base URL")
+        _validate_endpoint_security(config, self._mre_base, endpoint_name="Lidl MRE API base URL")
         _validate_endpoint_security(config, self._AUTH_URL, endpoint_name="Lidl auth endpoint URL")
         self._http = httpx.Client(
             timeout=config.request_timeout_s,
@@ -449,7 +450,7 @@ class MreApiClient:
         page_num = int(page_token) if page_token else 1
         data = self._request(
             "GET",
-            f"{self._MRE_BASE}/tickets",
+            f"{self._mre_base}/tickets",
             params={"country": self._country, "page": page_num},
         )
         total = int(data.get("totalCount", 0))
@@ -470,10 +471,10 @@ class MreApiClient:
     def get_receipt(self, receipt_id: str) -> dict[str, Any]:
         data = self._request(
             "GET",
-            f"{self._MRE_BASE}/tickets/{receipt_id}",
+            f"{self._mre_base}/tickets/{receipt_id}",
             params={
                 "country": self._country,
-                "languageCode": f"{self._language}-{self._country}",
+                "languageCode": self._market.ui_locale,
             },
         )
         ticket = data.get("ticket") or {}
@@ -528,9 +529,9 @@ class LidlPlusLibraryClient:
             param_names = []
 
         if "language" in param_names and "country" in param_names:
-            source_suffix = self._config.source.rsplit("_", 1)[-1]
-            language = source_suffix.lower()
-            country = source_suffix.upper()
+            market = resolve_lidl_market(self._config.source)
+            language = market.language_code
+            country = market.country_code
             return api_cls(language, country, refresh_token)
 
         candidate_kwargs = [

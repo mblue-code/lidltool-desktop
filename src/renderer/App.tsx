@@ -34,14 +34,100 @@ import {
   packSupportSummary
 } from "./control-center-model";
 
-const SOURCE_OPTIONS: Array<{ id: SyncSourceId; label: string; defaultDomain?: string }> = [
-  { id: "lidl", label: "Lidl" },
-  { id: "amazon", label: "Amazon", defaultDomain: "amazon.de" },
-  { id: "rewe", label: "REWE", defaultDomain: "shop.rewe.de" },
-  { id: "kaufland", label: "Kaufland", defaultDomain: "www.kaufland.de" },
-  { id: "dm", label: "dm", defaultDomain: "www.dm.de" },
-  { id: "rossmann", label: "Rossmann", defaultDomain: "www.rossmann.de" }
+type SyncSourceOption = {
+  id: SyncSourceId;
+  label: string;
+  defaultDomain?: string;
+  syncFamily: "lidl_plus" | "amazon" | "browser" | "generic";
+};
+
+const DEFAULT_SOURCE_OPTIONS: SyncSourceOption[] = [
+  { id: "lidl_plus_de", label: "Lidl Plus (DE)", syncFamily: "lidl_plus" },
+  { id: "lidl_plus_gb", label: "Lidl Plus (GB)", syncFamily: "lidl_plus" },
+  { id: "lidl_plus_fr", label: "Lidl Plus (FR)", syncFamily: "lidl_plus" },
+  { id: "amazon_de", label: "Amazon (DE)", defaultDomain: "amazon.de", syncFamily: "amazon" },
+  { id: "rewe_de", label: "REWE (DE)", defaultDomain: "shop.rewe.de", syncFamily: "browser" },
+  { id: "kaufland_de", label: "Kaufland (DE)", defaultDomain: "www.kaufland.de", syncFamily: "browser" },
+  { id: "dm_de", label: "dm (DE)", defaultDomain: "www.dm.de", syncFamily: "browser" },
+  { id: "rossmann_de", label: "Rossmann (DE)", defaultDomain: "www.rossmann.de", syncFamily: "browser" }
 ];
+
+function sourceLabelFromId(sourceId: string, displayName?: string, supportedMarkets?: string[]): string {
+  const market = supportedMarkets?.[0] ?? sourceId.split("_").at(-1)?.toUpperCase();
+  if (displayName && market) {
+    return `${displayName} (${market})`;
+  }
+  if (displayName) {
+    return displayName;
+  }
+  return sourceId;
+}
+
+function defaultDomainForSource(sourceId: string): string | undefined {
+  switch (sourceId) {
+    case "amazon_de":
+      return "amazon.de";
+    case "rewe_de":
+      return "shop.rewe.de";
+    case "kaufland_de":
+      return "www.kaufland.de";
+    case "dm_de":
+      return "www.dm.de";
+    case "rossmann_de":
+      return "www.rossmann.de";
+    default:
+      return undefined;
+  }
+}
+
+function syncFamilyForSource(sourceId: string): SyncSourceOption["syncFamily"] {
+  if (sourceId.startsWith("lidl_plus_")) {
+    return "lidl_plus";
+  }
+  if (sourceId === "amazon_de") {
+    return "amazon";
+  }
+  if (["rewe_de", "kaufland_de", "dm_de", "rossmann_de"].includes(sourceId)) {
+    return "browser";
+  }
+  return "generic";
+}
+
+function buildSyncSourceOptions(
+  releaseMetadata: Awaited<ReturnType<typeof window.desktopApi.getReleaseMetadata>> | null,
+  pluginPacks: ReceiptPluginPackInfo[]
+): SyncSourceOption[] {
+  const byId = new Map<string, SyncSourceOption>();
+  for (const option of DEFAULT_SOURCE_OPTIONS) {
+    byId.set(option.id, option);
+  }
+
+  for (const entry of releaseMetadata?.discovery_catalog.entries ?? []) {
+    if (entry.entry_type !== "connector" || !entry.supported_products.includes("desktop") || !entry.source_id) {
+      continue;
+    }
+    byId.set(entry.source_id, {
+      id: entry.source_id,
+      label: sourceLabelFromId(entry.source_id, entry.display_name, entry.supported_markets),
+      defaultDomain: defaultDomainForSource(entry.source_id),
+      syncFamily: syncFamilyForSource(entry.source_id)
+    });
+  }
+
+  for (const pack of pluginPacks) {
+    if (!pack.enabled || pack.status !== "enabled") {
+      continue;
+    }
+    byId.set(pack.sourceId, {
+      id: pack.sourceId,
+      label: sourceLabelFromId(pack.sourceId, pack.displayName),
+      defaultDomain: defaultDomainForSource(pack.sourceId),
+      syncFamily: syncFamilyForSource(pack.sourceId)
+    });
+  }
+
+  return Array.from(byId.values()).sort((left, right) => left.label.localeCompare(right.label));
+}
 
 function defaultYearMonth(): { year: number; month: number } {
   const now = new Date();
@@ -90,14 +176,17 @@ function bundleLabelsForIds(
 }
 
 function sourceJourneySummary(source: SyncSourceId): string {
-  if (source === "lidl") {
+  if (source.startsWith("lidl_plus_")) {
     return "Use the built-in Lidl path when you just want a one-off local refresh of recent or full receipt history.";
+  }
+  if (source === "amazon_de") {
+    return "Amazon sync uses the saved desktop session for the selected market and can scan multiple years when you need a broader local import.";
   }
   return "Use a receipt pack when you want an occasional local sync for another retailer, then review or export the results on this computer.";
 }
 
 function sourceSyncNotice(source: SyncSourceId, locale: string): string | null {
-  if (source !== "dm") {
+  if (source !== "dm_de") {
     return null;
   }
   if (locale === "de") {
@@ -115,10 +204,10 @@ export default function App() {
   const [releaseMetadata, setReleaseMetadata] = useState<Awaited<ReturnType<typeof window.desktopApi.getReleaseMetadata>> | null>(null);
   const [releaseMetadataError, setReleaseMetadataError] = useState<string | null>(null);
   const [pluginLoadError, setPluginLoadError] = useState<string | null>(null);
-  const [source, setSource] = useState<SyncSourceId>("lidl");
+  const [source, setSource] = useState<SyncSourceId>("lidl_plus_de");
   const [fullSync, setFullSync] = useState(false);
   const [headless, setHeadless] = useState(true);
-  const [domain, setDomain] = useState("amazon.de");
+  const [domain, setDomain] = useState("");
   const [years, setYears] = useState(2);
   const [maxPages, setMaxPages] = useState(8);
   const [busy, setBusy] = useState(false);
@@ -143,10 +232,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
 
-  const selectedSourceMeta = useMemo(
-    () => SOURCE_OPTIONS.find((option) => option.id === source),
-    [source]
+  const sourceOptions = useMemo(
+    () => buildSyncSourceOptions(releaseMetadata, pluginPacks),
+    [pluginPacks, releaseMetadata]
   );
+  const selectedSourceMeta = useMemo(() => sourceOptions.find((option) => option.id === source), [source, sourceOptions]);
 
   const backendStatusText = useMemo(() => {
     if (!backend) {
@@ -255,6 +345,15 @@ export default function App() {
   }, [source, selectedSourceMeta]);
 
   useEffect(() => {
+    if (sourceOptions.length === 0) {
+      return;
+    }
+    if (!sourceOptions.some((option) => option.id === source)) {
+      setSource(sourceOptions[0]!.id);
+    }
+  }, [source, sourceOptions]);
+
+  useEffect(() => {
     if (config && !exportOutPath) {
       setExportOutPath(defaultExportPath(config.userDataDir));
     }
@@ -326,11 +425,20 @@ export default function App() {
 
     const payload: SyncRequest = {
       source,
-      full: source === "lidl" ? fullSync : undefined,
-      headless: source === "lidl" ? undefined : headless,
-      domain: source === "lidl" ? undefined : domain || undefined,
-      years: source === "amazon" ? years : undefined,
-      maxPages: source === "lidl" ? undefined : maxPages
+      full: selectedSourceMeta?.syncFamily === "lidl_plus" ? fullSync : undefined,
+      headless:
+        selectedSourceMeta?.syncFamily === "amazon" || selectedSourceMeta?.syncFamily === "browser"
+          ? headless
+          : undefined,
+      domain:
+        selectedSourceMeta?.syncFamily === "amazon" || selectedSourceMeta?.syncFamily === "browser"
+          ? domain || undefined
+          : undefined,
+      years: selectedSourceMeta?.syncFamily === "amazon" ? years : undefined,
+      maxPages:
+        selectedSourceMeta?.syncFamily === "amazon" || selectedSourceMeta?.syncFamily === "browser"
+          ? maxPages
+          : undefined
     };
 
     try {
@@ -1056,7 +1164,7 @@ export default function App() {
               <p className="section-kicker">Sync</p>
               <h2>{t("shell.sync.title")}</h2>
             </div>
-            <span className="status-chip status-disabled">{SOURCE_OPTIONS.find((option) => option.id === source)?.label}</span>
+            <span className="status-chip status-disabled">{selectedSourceMeta?.label ?? source}</span>
           </div>
           <p>{sourceJourneySummary(source)}</p>
           {sourceSyncNotice(source, locale) ? (
@@ -1068,7 +1176,7 @@ export default function App() {
           <label>
             {t("common.source")}
             <select value={source} onChange={(event) => setSource(event.target.value as SyncSourceId)}>
-              {SOURCE_OPTIONS.map((option) => (
+              {sourceOptions.map((option) => (
                 <option key={option.id} value={option.id}>
                   {option.label}
                 </option>
@@ -1076,12 +1184,12 @@ export default function App() {
             </select>
           </label>
 
-          {source === "lidl" ? (
+          {selectedSourceMeta?.syncFamily === "lidl_plus" ? (
             <label className="inline-checkbox">
               <input type="checkbox" checked={fullSync} onChange={(event) => setFullSync(event.target.checked)} />
               {t("shell.sync.fullHistory")}
             </label>
-          ) : (
+          ) : selectedSourceMeta?.syncFamily === "amazon" || selectedSourceMeta?.syncFamily === "browser" ? (
             <>
               <label className="inline-checkbox">
                 <input type="checkbox" checked={headless} onChange={(event) => setHeadless(event.target.checked)} />
@@ -1091,7 +1199,7 @@ export default function App() {
                 {t("shell.sync.domain")}
                 <input value={domain} onChange={(event) => setDomain(event.target.value)} />
               </label>
-              {source === "amazon" ? (
+              {selectedSourceMeta?.syncFamily === "amazon" ? (
                 <label>
                   {t("shell.sync.years")}
                   <input type="number" min={1} max={10} value={years} onChange={(event) => setYears(Number(event.target.value) || 1)} />
@@ -1102,6 +1210,11 @@ export default function App() {
                 <input type="number" min={1} max={100} value={maxPages} onChange={(event) => setMaxPages(Number(event.target.value) || 1)} />
               </label>
             </>
+          ) : (
+            <p className="muted">
+              This source does not expose extra desktop shell controls yet. The control center will run the connector
+              with its default runtime options.
+            </p>
           )}
 
           <div className="actions">

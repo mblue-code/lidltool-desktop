@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -163,6 +163,7 @@ describe("ConnectorsPage", () => {
         }
       ]
     });
+
     mocks.fetchConnectorConfigMock.mockResolvedValue({
       source_id: "amazon_de",
       plugin_id: "community.amazon_de",
@@ -181,6 +182,7 @@ describe("ConnectorsPage", () => {
         }
       ]
     });
+
     mocks.reloadConnectorsMock.mockResolvedValue({});
     mocks.startConnectorBootstrapMock.mockResolvedValue({
       source_id: "amazon_de",
@@ -235,11 +237,28 @@ describe("ConnectorsPage", () => {
         trustReason: null,
         compatibilityReason: null,
         installedVia: "manual_file",
-        catalogEntryId: null
+        catalogEntryId: null,
+        onboarding: {
+          title: "Usually quick to get running",
+          summary: "EDEKA is one of the faster connector flows in the desktop app.",
+          expectedSpeed: "Usually quick. Most imports should start and finish without a long wait.",
+          caution: "If the retailer asks for extra verification, the app will pause and wait for you.",
+          steps: [
+            {
+              title: "Turn it on",
+              description: "Enable the connector so this desktop app can load it."
+            },
+            {
+              title: "Sign in once",
+              description: "Finish the first sign-in flow if the connector asks for it."
+            }
+          ]
+        }
       },
       restartedBackend: false,
       backendStatus: null
     });
+
     const installReceiptPluginFromCatalogEntryMock = vi.fn().mockResolvedValue({
       action: "updated",
       pack: {
@@ -254,17 +273,19 @@ describe("ConnectorsPage", () => {
         trustReason: null,
         compatibilityReason: null,
         installedVia: "catalog_url",
-        catalogEntryId: "connector.amazon"
+        catalogEntryId: "connector.amazon",
+        onboarding: null
       },
       restartedBackend: true,
       backendStatus: { running: true }
     });
-    const enableReceiptPluginMock = vi.fn().mockResolvedValue({
+
+    const enableReceiptPluginMock = vi.fn().mockImplementation(async (pluginId: string) => ({
       pack: {
-        pluginId: "community.rewe_de",
-        sourceId: "rewe_de",
-        displayName: "REWE",
-        version: "0.9.0",
+        pluginId,
+        sourceId: pluginId === "community.edeka_de" ? "edeka_de" : "dm_de",
+        displayName: pluginId === "community.edeka_de" ? "EDEKA" : "DM",
+        version: pluginId === "community.edeka_de" ? "0.3.0" : "0.1.0",
         trustClass: "community_unsigned",
         enabled: true,
         status: "enabled",
@@ -272,18 +293,38 @@ describe("ConnectorsPage", () => {
         trustReason: null,
         compatibilityReason: null,
         installedVia: "manual_file",
-        catalogEntryId: null
+        catalogEntryId: null,
+        onboarding:
+          pluginId === "community.edeka_de"
+            ? {
+                title: "Usually quick to get running",
+                summary: "EDEKA is one of the faster connector flows in the desktop app.",
+                expectedSpeed: "Usually quick. Most imports should start and finish without a long wait.",
+                caution: "If the retailer asks for extra verification, the app will pause and wait for you.",
+                steps: [
+                  {
+                    title: "Turn it on",
+                    description: "Enable the connector so this desktop app can load it."
+                  }
+                ]
+              }
+            : {
+                title: "Slow and careful by design",
+                summary:
+                  "DM intentionally moves slower during scraping so the retailer site sees more normal browsing behavior.",
+                expectedSpeed: "Noticeably slower than most other connectors. The first run can take a while.",
+                caution: "This slower pace helps reduce the chance that the retailer blocks the session.",
+                steps: [
+                  {
+                    title: "Keep the app open",
+                    description: "Let the first import finish without rushing it."
+                  }
+                ]
+              }
       },
       restartedBackend: true,
       backendStatus: { running: true }
-    });
-    const disableReceiptPluginMock = vi.fn();
-    const uninstallReceiptPluginMock = vi.fn().mockResolvedValue({
-      pluginId: "community.rewe_de",
-      removedPath: "/tmp/plugins/rewe",
-      restartedBackend: true,
-      backendStatus: { running: true }
-    });
+    }));
 
     Object.defineProperty(window, "desktopApi", {
       configurable: true,
@@ -291,8 +332,13 @@ describe("ConnectorsPage", () => {
         installReceiptPluginFromDialog: installReceiptPluginFromDialogMock,
         installReceiptPluginFromCatalogEntry: installReceiptPluginFromCatalogEntryMock,
         enableReceiptPlugin: enableReceiptPluginMock,
-        disableReceiptPlugin: disableReceiptPluginMock,
-        uninstallReceiptPlugin: uninstallReceiptPluginMock,
+        disableReceiptPlugin: vi.fn(),
+        uninstallReceiptPlugin: vi.fn().mockResolvedValue({
+          pluginId: "community.dm_de",
+          removedPath: "/tmp/plugins/dm",
+          restartedBackend: true,
+          backendStatus: { running: true }
+        }),
         getReleaseMetadata: vi.fn().mockResolvedValue({
           active_release_variant: { display_name: "Desktop Universal Shell" },
           selected_market_profile: { display_name: "Germany" },
@@ -319,6 +365,28 @@ describe("ConnectorsPage", () => {
                 install_methods: ["manual_import"],
                 plugin_id: "community.amazon_de",
                 source_id: "amazon_de"
+              },
+              {
+                entry_id: "connector.dm",
+                entry_type: "desktop_pack",
+                display_name: "DM",
+                summary: "DM desktop connector",
+                description: null,
+                trust_class: "community_unsigned",
+                current_version: "0.1.0",
+                support_policy: {
+                  display_name: "Community unsigned",
+                  ui_label: "Community unsigned",
+                  diagnostics_expectation: "Desktop checks still apply.",
+                  update_expectations: "Updates depend on manual imports.",
+                  maintainer_support: "Community maintained."
+                },
+                official_bundle_ids: [],
+                market_profile_ids: ["dach_starter"],
+                release_variant_ids: ["desktop_universal_shell"],
+                install_methods: ["manual_import"],
+                plugin_id: "community.dm_de",
+                source_id: "dm_de"
               }
             ]
           }
@@ -338,13 +406,14 @@ describe("ConnectorsPage", () => {
               trustReason: null,
               compatibilityReason: null,
               installedVia: "manual_file",
-              catalogEntryId: "connector.amazon"
+              catalogEntryId: "connector.amazon",
+              onboarding: null
             },
             {
-              pluginId: "community.rewe_de",
-              sourceId: "rewe_de",
-              displayName: "REWE",
-              version: "0.9.0",
+              pluginId: "community.dm_de",
+              sourceId: "dm_de",
+              displayName: "DM",
+              version: "0.1.0",
               trustClass: "community_unsigned",
               enabled: false,
               status: "disabled",
@@ -352,7 +421,20 @@ describe("ConnectorsPage", () => {
               trustReason: null,
               compatibilityReason: null,
               installedVia: "manual_file",
-              catalogEntryId: null
+              catalogEntryId: "connector.dm",
+              onboarding: {
+                title: "Slow and careful by design",
+                summary:
+                  "DM intentionally moves slower during scraping so the retailer site sees more normal browsing behavior.",
+                expectedSpeed: "Noticeably slower than most other connectors. The first run can take a while.",
+                caution: "This slower pace helps reduce the chance that the retailer blocks the session.",
+                steps: [
+                  {
+                    title: "Keep the app open",
+                    description: "Let the first import finish without rushing it."
+                  }
+                ]
+              }
             }
           ]
         })
@@ -364,23 +446,24 @@ describe("ConnectorsPage", () => {
     cleanup();
   });
 
-  it("renders desktop-native trust and stored-pack sections", async () => {
+  it("renders the simpler activation-first connector layout", async () => {
     renderPage();
 
     expect(await screen.findByText("Connectors")).toBeInTheDocument();
-    expect(screen.getByText("Desktop receipt packs can be managed here")).toBeInTheDocument();
+    expect(screen.getByText("Start here")).toBeInTheDocument();
+    expect(await screen.findByText("Turn on imported connectors")).toBeInTheDocument();
+    expect(screen.getByText("Your connectors")).toBeInTheDocument();
     expect(await screen.findByText("Amazon")).toBeInTheDocument();
-    expect(await screen.findByText("Electron-managed connector")).toBeInTheDocument();
-    expect(await screen.findByText("Stored receipt packs")).toBeInTheDocument();
-    expect(await screen.findByText("REWE")).toBeInTheDocument();
+    expect((await screen.findAllByText("DM")).length).toBeGreaterThan(0);
     expect(await screen.findByText("Trusted pack update available")).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "Import local pack" })).toBeInTheDocument();
+    expect(await screen.findByText("Trusted connectors you can add")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Import .zip connector" })).toBeInTheDocument();
   });
 
   it("saves connector settings before continuing setup", async () => {
     renderPage();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connector settings" }));
     fireEvent.change(await screen.findByLabelText("Domain"), {
       target: { value: "amazon.com" }
     });
@@ -396,10 +479,10 @@ describe("ConnectorsPage", () => {
     });
   });
 
-  it("imports a local pack and enables a stored pack from the connectors page", async () => {
+  it("opens fast onboarding after import and lets the user enable the connector immediately", async () => {
     renderPage();
 
-    const importButton = await screen.findByRole("button", { name: "Import local pack" });
+    const importButton = await screen.findByRole("button", { name: "Import .zip connector" });
     await waitFor(() => {
       expect(importButton).not.toBeDisabled();
     });
@@ -409,14 +492,33 @@ describe("ConnectorsPage", () => {
       expect(window.desktopApi?.installReceiptPluginFromDialog).toHaveBeenCalled();
     });
 
-    const enableButton = await screen.findByRole("button", { name: "Enable pack" });
-    await waitFor(() => {
-      expect(enableButton).not.toBeDisabled();
-    });
+    expect(await screen.findByText("Before you turn on EDEKA")).toBeInTheDocument();
+    expect(screen.getByText("Usually quick to get running")).toBeInTheDocument();
+
+    const enableButton = await screen.findByRole("button", { name: "Enable connector" });
     fireEvent.click(enableButton);
 
     await waitFor(() => {
-      expect(window.desktopApi?.enableReceiptPlugin).toHaveBeenCalledWith("community.rewe_de");
+      expect(window.desktopApi?.enableReceiptPlugin).toHaveBeenCalledWith("community.edeka_de");
+    });
+  });
+
+  it("shows slow DM guidance before enabling a slower scraper", async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review and enable" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Before you turn on DM")).toBeInTheDocument();
+    expect(within(dialog).getByText("Slow and careful by design")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("This slower pace helps reduce the chance that the retailer blocks the session.")
+    ).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Enable connector" }));
+
+    await waitFor(() => {
+      expect(window.desktopApi?.enableReceiptPlugin).toHaveBeenCalledWith("community.dm_de");
     });
   });
 });

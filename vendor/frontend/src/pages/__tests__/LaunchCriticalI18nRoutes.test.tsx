@@ -458,7 +458,8 @@ describe("launch-critical route i18n smoke", () => {
             trustReason: null,
             compatibilityReason: null,
             installedVia: "catalog_url",
-            catalogEntryId: "desktop-pack.fixture"
+            catalogEntryId: "desktop-pack.fixture",
+            onboarding: null
           },
           restartedBackend: false,
           backendStatus: null
@@ -476,7 +477,8 @@ describe("launch-critical route i18n smoke", () => {
             trustReason: null,
             compatibilityReason: null,
             installedVia: "catalog_url",
-            catalogEntryId: "desktop-pack.fixture"
+            catalogEntryId: "desktop-pack.fixture",
+            onboarding: null
           },
           restartedBackend: false,
           backendStatus: null
@@ -494,7 +496,8 @@ describe("launch-critical route i18n smoke", () => {
             trustReason: null,
             compatibilityReason: null,
             installedVia: "catalog_url",
-            catalogEntryId: "desktop-pack.fixture"
+            catalogEntryId: "desktop-pack.fixture",
+            onboarding: null
           },
           restartedBackend: false,
           backendStatus: null

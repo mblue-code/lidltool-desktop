@@ -262,6 +262,58 @@ class ConnectorConfigSchema(BaseModel):
         return tuple(normalized)
 
 
+class ConnectorOnboardingStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    description: str
+
+    @field_validator("title", "description", mode="before")
+    @classmethod
+    def _normalize_strings(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("onboarding step fields must be strings")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("onboarding step fields must be non-empty strings")
+        return normalized
+
+
+class ConnectorOnboarding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = None
+    summary: str | None = None
+    expected_speed: str | None = None
+    caution: str | None = None
+    steps: tuple[ConnectorOnboardingStep, ...] = ()
+
+    @field_validator("title", "summary", "expected_speed", "caution", mode="before")
+    @classmethod
+    def _normalize_optional_strings(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("onboarding fields must be strings")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("onboarding fields must be non-empty strings")
+        return normalized
+
+    @field_validator("steps", mode="before")
+    @classmethod
+    def _normalize_steps(cls, value: Any) -> tuple[ConnectorOnboardingStep, ...]:
+        if value is None:
+            return ()
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("onboarding steps must be a list or tuple")
+        normalized: list[ConnectorOnboardingStep] = []
+        for item in value:
+            step = item if isinstance(item, ConnectorOnboardingStep) else ConnectorOnboardingStep.model_validate(item)
+            normalized.append(step)
+        return tuple(normalized)
+
+
 class ReceiptActionDeclarations(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -390,6 +442,7 @@ class ConnectorManifest(BaseModel):
     compatibility: ConnectorCompatibility = Field(default_factory=ConnectorCompatibility)
     policy: ConnectorPolicy = Field(default_factory=ConnectorPolicy)
     config_schema: ConnectorConfigSchema | None = None
+    onboarding: ConnectorOnboarding | None = None
     builtin_cli: BuiltinConnectorCli | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -507,6 +560,15 @@ class ConnectorManifest(BaseModel):
         if isinstance(value, ConnectorConfigSchema):
             return value
         return ConnectorConfigSchema.model_validate(value)
+
+    @field_validator("onboarding", mode="before")
+    @classmethod
+    def _normalize_onboarding(cls, value: Any) -> ConnectorOnboarding | None:
+        if value is None:
+            return None
+        if isinstance(value, ConnectorOnboarding):
+            return value
+        return ConnectorOnboarding.model_validate(value)
 
     @model_validator(mode="after")
     def _validate_manifest(self) -> ConnectorManifest:
