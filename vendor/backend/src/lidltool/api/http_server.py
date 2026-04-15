@@ -76,6 +76,7 @@ from lidltool.analytics.advanced import (
 )
 from lidltool.analytics.item_categorizer import resolve_item_categorizer_runtime_client
 from lidltool.analytics.recategorization import recategorize_transactions
+from lidltool.amazon.profiles import is_amazon_source_id
 from lidltool.analytics.queries import (
     dashboard_retailer_composition,
     dashboard_savings_breakdown,
@@ -230,6 +231,7 @@ from lidltool.connectors.discovery import connector_discovery_payload
 from lidltool.connectors.lifecycle import (
     assert_connector_operation_allowed,
     connector_lifecycle_record_payload,
+    connector_runtime_options,
     install_connector,
     set_connector_enabled,
     uninstall_connector,
@@ -245,6 +247,7 @@ from lidltool.db.models import (
     ChatMessage,
     ChatRun,
     ChatThread,
+    ConnectorConfigState,
     Document,
     Source,
     Transaction,
@@ -1787,13 +1790,27 @@ def _connector_command(
     source_id: str,
     operation: Literal["bootstrap", "sync"],
     full: bool = False,
+    connector_options: Mapping[str, Any] | None = None,
     extra_args: tuple[str, ...] = (),
 ) -> list[str] | None:
+    effective_options = dict(connector_options or {})
+    if operation == "sync" and full and is_amazon_source_id(source_id):
+        effective_options["headless"] = False
+    option_args: list[str] = []
+    for key, value in effective_options.items():
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            rendered = "true" if value else "false"
+        else:
+            rendered = str(value)
+        option_args.extend(("--option", f"{key}={rendered}"))
     resolved = ConnectorExecutionService(config=config).build_command(
         source_id=source_id,
         operation=operation,
         extra_args=(
             *(("--full",) if operation == "sync" and full else ()),
+            *option_args,
             *extra_args,
         ),
     )
@@ -2138,6 +2155,11 @@ def _run_connector_cascade(
                 config,
                 source_id=source_id,
                 operation="bootstrap",
+                connector_options=connector_runtime_options(
+                    source_id=source_id,
+                    config=config,
+                    allow_reconcile_writes=False,
+                ),
             )
             if bootstrap_command is None:
                 any_failure = True
@@ -2191,6 +2213,11 @@ def _run_connector_cascade(
                 source_id=source_id,
                 operation="sync",
                 full=cascade.full,
+                connector_options=connector_runtime_options(
+                    source_id=source_id,
+                    config=config,
+                    allow_reconcile_writes=False,
+                ),
             )
             if sync_command is None:
                 any_failure = True
@@ -7575,8 +7602,9 @@ def create_app(
                         f"connector bootstrap already running for source: {existing_source}"
                     )
 
+            prefer_local_browser = is_loopback_request(request)
             prev = bootstrap_sessions.get(source_id)
-            existing_remote_url = _novnc_login_url(request)
+            existing_remote_url = None if prefer_local_browser else _novnc_login_url(request)
             if prev is not None and _connector_bootstrap_is_running(prev):
                 result = {
                     "source_id": source_id,
@@ -7595,26 +7623,32 @@ def create_app(
 
             remote_login_url: str | None = None
             env: dict[str, str] | None = None
-            try:
-                _ensure_vnc_runtime(app)
-                remote_login_url = _novnc_login_url(request)
-                runtime = get_vnc_runtime(app)
-                if runtime is not None:
-                    env = {
-                        "DISPLAY": runtime.display,
-                        "LIDLTOOL_AUTH_BROWSER_MODE": "remote_vnc",
-                    }
-            except Exception as exc:  # noqa: BLE001
-                warnings.append(
-                    _warning(
-                        f"remote browser session unavailable; falling back to local display ({exc})",
-                        code="connector_remote_browser_session_unavailable",
+            if not prefer_local_browser:
+                try:
+                    _ensure_vnc_runtime(app)
+                    remote_login_url = _novnc_login_url(request)
+                    runtime = get_vnc_runtime(app)
+                    if runtime is not None:
+                        env = {
+                            "DISPLAY": runtime.display,
+                            "LIDLTOOL_AUTH_BROWSER_MODE": "remote_vnc",
+                        }
+                except Exception as exc:  # noqa: BLE001
+                    warnings.append(
+                        _warning(
+                            f"remote browser session unavailable; falling back to local display ({exc})",
+                            code="connector_remote_browser_session_unavailable",
+                        )
                     )
-                )
 
             started = service.start_bootstrap(
                 source_id=source_id,
                 env=env,
+                connector_options=connector_runtime_options(
+                    source_id=source_id,
+                    config=app_config,
+                    allow_reconcile_writes=False,
+                ),
             )
             if started.bootstrap is None:
                 raise RuntimeError(f"failed to start connector bootstrap for source: {source_id}")
@@ -7638,6 +7672,41 @@ def create_app(
                         "preview connector bootstrap started; this connector is not live-validated yet",
                         code="connector_preview_bootstrap_started",
                     )
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/connectors/{source_id}/auth/status")
+    def get_connector_auth_status(
+        request: Request,
+        source_id: str,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
+                assert_connector_operation_allowed(
+                    session,
+                    source_id=source_id,
+                    operation="bootstrap",
+                    config=app_config,
+                )
+
+            service = _connector_auth_service(app, config=app_config)
+            snapshot = service.get_auth_status(source_id=source_id, validate_session=True)
+            result = {
+                "source_id": source_id,
+                "state": snapshot.state,
+                "detail": snapshot.detail,
+                "available_actions": list(snapshot.available_actions),
+            }
+            if _connector_is_preview_source(source_id, config=app_config):
+                warnings.append(
+                    "preview connector auth status only; this connector is not live-validated yet"
                 )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -7731,6 +7800,7 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
+            explicit_connector_public_config: dict[str, Any] = {}
             with session_scope(sessions) as session:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
@@ -7741,6 +7811,10 @@ def create_app(
                     operation="sync",
                     config=app_config,
                 )
+                config_row = session.get(ConnectorConfigState, source_id)
+                raw_public_config = None if config_row is None else config_row.public_config_json
+                if isinstance(raw_public_config, dict):
+                    explicit_connector_public_config = dict(raw_public_config)
                 current_user_id = current_user.user_id
                 current_username = current_user.username
 
@@ -7757,11 +7831,31 @@ def create_app(
                     f"owner_user_id={current_user_id}",
                 )
 
+            runtime_options = connector_runtime_options(
+                source_id=source_id,
+                config=app_config,
+                allow_reconcile_writes=False,
+            )
+            explicit_years: int | None = None
+            explicit_years_value = explicit_connector_public_config.get("years")
+            if explicit_years_value not in {None, ""}:
+                try:
+                    explicit_years = int(explicit_years_value)
+                except (TypeError, ValueError):
+                    explicit_years = None
+            if (
+                full
+                and is_amazon_source_id(source_id)
+                and (explicit_years is None or explicit_years <= 1)
+            ):
+                runtime_options["years"] = 10
+
             command = _connector_command(
                 app_config,
                 source_id=source_id,
                 operation="sync",
                 full=full,
+                connector_options=runtime_options,
                 extra_args=sync_extra_args,
             )
             if command is None:

@@ -40,6 +40,11 @@ def classify_amazon_auth_state(
     normalized_html = html.lower()
     text = _html_to_text(html)
     rules = profile.auth_rules
+    authenticated_signal = _has_authenticated_signal(
+        normalized_url=normalized_url,
+        text=text,
+        profile=profile,
+    )
 
     if _matches_any(normalized_url, rules.bot_challenge_url_patterns) or _matches_any(
         normalized_html,
@@ -59,6 +64,30 @@ def classify_amazon_auth_state(
             state=AmazonAuthState.CAPTCHA_REQUIRED,
             matched_on="captcha",
             detail="Amazon is requesting a CAPTCHA before the session can continue.",
+        )
+
+    if _matches_any(normalized_url, rules.sign_in_url_patterns) or _matches_any(
+        normalized_html, rules.sign_in_html_markers
+    ):
+        return AmazonAuthClassification(
+            state=(
+                AmazonAuthState.EXPIRED_SESSION
+                if expect_authenticated_session
+                else AmazonAuthState.LOGIN_REQUIRED
+            ),
+            matched_on="sign_in",
+            detail=(
+                "Amazon redirected the saved browser session back to sign-in."
+                if expect_authenticated_session
+                else "Amazon still requires sign-in before orders are accessible."
+            ),
+        )
+
+    if authenticated_signal:
+        return AmazonAuthClassification(
+            state=AmazonAuthState.AUTHENTICATED,
+            matched_on="authenticated_marker",
+            detail=None,
         )
 
     if _matches_any(normalized_url, rules.mfa_url_patterns) or _matches_any(
@@ -91,11 +120,7 @@ def classify_amazon_auth_state(
             detail="Amazon is waiting for an account-intent confirmation before showing orders.",
         )
 
-    if (
-        _matches_any(normalized_url, rules.sign_in_url_patterns)
-        or _matches_any(normalized_html, rules.sign_in_html_markers)
-        or _matches_any(text, rules.sign_in_text_markers)
-    ):
+    if _matches_any(text, rules.sign_in_text_markers):
         return AmazonAuthClassification(
             state=(
                 AmazonAuthState.EXPIRED_SESSION
@@ -110,13 +135,6 @@ def classify_amazon_auth_state(
             ),
         )
 
-    if any(marker in text for marker in rules.authenticated_text_markers):
-        return AmazonAuthClassification(
-            state=AmazonAuthState.AUTHENTICATED,
-            matched_on="authenticated_marker",
-            detail=None,
-        )
-
     if "ap/" in normalized_url or "auth" in normalized_url:
         return AmazonAuthClassification(
             state=AmazonAuthState.UNKNOWN_AUTH_BLOCK,
@@ -125,9 +143,9 @@ def classify_amazon_auth_state(
         )
 
     return AmazonAuthClassification(
-        state=AmazonAuthState.AUTHENTICATED,
-        matched_on="no_auth_markers",
-        detail=None,
+        state=AmazonAuthState.UNKNOWN_AUTH_BLOCK,
+        matched_on="unknown_page",
+        detail="Amazon is showing a page that does not yet prove the account is authenticated.",
     )
 
 
@@ -166,3 +184,19 @@ def _html_to_text(html: str) -> str:
     for marker in ("<", ">", "\n", "\r", "\t"):
         text = text.replace(marker, " ")
     return " ".join(text.split())
+
+
+def _has_authenticated_signal(
+    *,
+    normalized_url: str,
+    text: str,
+    profile: AmazonCountryProfile,
+) -> bool:
+    markers = tuple(marker for marker in profile.auth_rules.authenticated_text_markers if marker)
+    has_marker = any(marker in text for marker in markers)
+    if not has_marker:
+        return False
+    order_history_path = profile.default_order_history_path.strip().lower()
+    if order_history_path and order_history_path in normalized_url:
+        return True
+    return has_marker

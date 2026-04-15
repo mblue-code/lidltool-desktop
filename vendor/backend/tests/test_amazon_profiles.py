@@ -39,7 +39,6 @@ def test_amazon_manifests_exist_for_each_profile() -> None:
         assert manifest.config_schema is not None
         assert [field.key for field in manifest.config_schema.fields] == [
             "years",
-            "max_pages_per_year",
             "headless",
             "dump_html",
         ]

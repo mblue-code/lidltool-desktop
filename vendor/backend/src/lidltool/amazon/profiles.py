@@ -314,6 +314,7 @@ class AmazonCountryProfile:
     date_parser: Callable[[str], datetime | None]
     amount_parser: Callable[[str], float]
     list_date_patterns: tuple[re.Pattern[str], ...]
+    detail_date_patterns: tuple[re.Pattern[str], ...]
     list_status_patterns: tuple[re.Pattern[str], ...]
     order_total_label_patterns: tuple[re.Pattern[str], ...]
     subtotal_label_map: tuple[tuple[str, str], ...]
@@ -377,8 +378,13 @@ GERMANY_PROFILE = AmazonCountryProfile(
     date_parser=_parse_german_date,
     amount_parser=_parse_euro_amount,
     list_date_patterns=(
-        re.compile(r"(?:Bestellt am|Bestellung aufgegeben am)\s+(\d{1,2}\.\s*[A-Za-zäöüÄÖÜß]+\.?\s+\d{4})", re.IGNORECASE),
-        re.compile(r"(?:Bestellt am|Bestellung aufgegeben am)\s+(\d{1,2}\.\d{1,2}\.\d{4})", re.IGNORECASE),
+        re.compile(r"(?:Bestellt am|Bestellung aufgegeben(?: am)?)\s+(\d{1,2}\.\s*[A-Za-zäöüÄÖÜß]+\.?\s+\d{4})", re.IGNORECASE),
+        re.compile(r"(?:Bestellt am|Bestellung aufgegeben(?: am)?)\s+(\d{1,2}\.\d{1,2}\.\d{4})", re.IGNORECASE),
+        re.compile(r"(?:Order placed|Ordered on)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})", re.IGNORECASE),
+    ),
+    detail_date_patterns=(
+        re.compile(r"(?:Bestellung aufgegeben|Bestellt am)\s+(\d{1,2}\.\s*[A-Za-zäöüÄÖÜß]+\.?\s+\d{4})", re.IGNORECASE),
+        re.compile(r"(?:Bestellung aufgegeben|Bestellt am)\s+(\d{1,2}\.\d{1,2}\.\d{4})", re.IGNORECASE),
         re.compile(r"(?:Order placed|Ordered on)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})", re.IGNORECASE),
     ),
     list_status_patterns=(
@@ -444,8 +450,13 @@ FRANCE_PROFILE = AmazonCountryProfile(
     date_parser=_parse_french_date,
     amount_parser=_parse_euro_amount,
     list_date_patterns=(
-        re.compile(r"(?:Commandé le|Commande effectuée le)\s+(\d{1,2}\s+[A-Za-zéèêëàâîïôöùûüç]+\.?\s+\d{4})", re.IGNORECASE),
-        re.compile(r"(?:Commandé le|Commande effectuée le)\s+(\d{1,2}[./]\d{1,2}[./]\d{4})", re.IGNORECASE),
+        re.compile(r"(?:Commandé le|Commande effectuée(?: le)?)\s+(\d{1,2}\s+[A-Za-zéèêëàâîïôöùûüç]+\.?\s+\d{4})", re.IGNORECASE),
+        re.compile(r"(?:Commandé le|Commande effectuée(?: le)?)\s+(\d{1,2}[./]\d{1,2}[./]\d{4})", re.IGNORECASE),
+        re.compile(r"(?:Order placed|Ordered on)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})", re.IGNORECASE),
+    ),
+    detail_date_patterns=(
+        re.compile(r"(?:Commandé le|Commande effectuée(?: le)?)\s+(\d{1,2}\s+[A-Za-zéèêëàâîïôöùûüç]+\.?\s+\d{4})", re.IGNORECASE),
+        re.compile(r"(?:Commandé le|Commande effectuée(?: le)?)\s+(\d{1,2}[./]\d{1,2}[./]\d{4})", re.IGNORECASE),
         re.compile(r"(?:Order placed|Ordered on)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})", re.IGNORECASE),
     ),
     list_status_patterns=(
@@ -510,6 +521,11 @@ UNITED_KINGDOM_PROFILE = AmazonCountryProfile(
     date_parser=_parse_english_date,
     amount_parser=_parse_pound_amount,
     list_date_patterns=(
+        re.compile(r"(?:Order placed|Ordered on)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})", re.IGNORECASE),
+        re.compile(r"(?:Order placed|Ordered on)\s+(\d{1,2}\s+[A-Za-z]+\s+\d{4})", re.IGNORECASE),
+        re.compile(r"(?:Order placed|Ordered on)\s+(\d{1,2}[./]\d{1,2}[./]\d{4})", re.IGNORECASE),
+    ),
+    detail_date_patterns=(
         re.compile(r"(?:Order placed|Ordered on)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})", re.IGNORECASE),
         re.compile(r"(?:Order placed|Ordered on)\s+(\d{1,2}\s+[A-Za-z]+\s+\d{4})", re.IGNORECASE),
         re.compile(r"(?:Order placed|Ordered on)\s+(\d{1,2}[./]\d{1,2}[./]\d{4})", re.IGNORECASE),

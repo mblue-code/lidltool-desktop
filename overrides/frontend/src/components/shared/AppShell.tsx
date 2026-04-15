@@ -202,11 +202,14 @@ function syncBannerStageLabel(
   if (stage === "healthcheck") {
     return locale === "de" ? "Zugriff auf den Händler wird geprüft..." : "Validating retailer access...";
   }
-  if (stage === "discovering" && detail === "looking_for_receipts") {
-    return locale === "de" ? "Es wird nach Belegen gesucht..." : "Looking for receipts...";
+  if (stage === "discovering") {
+    return locale === "de" ? "Bestellverlauf wird durchsucht..." : "Scanning order history...";
   }
   if (stage === "processing" && detail === "preparing_import") {
     return locale === "de" ? "Import wird vorbereitet..." : "Preparing import...";
+  }
+  if (stage === "processing") {
+    return locale === "de" ? "Belege werden importiert..." : "Importing receipts...";
   }
   if (stage === "finalizing") {
     return locale === "de" ? "Belege werden gespeichert..." : "Saving receipts...";
@@ -274,8 +277,17 @@ function formatSyncLine(locale: "en" | "de", line: string | null): string | null
   const stageLabel = syncBannerStageLabel(locale, fields.stage, fields.detail ?? null);
   if (stageLabel) {
     const extras: string[] = [];
+    if (fields.year) {
+      extras.push(locale === "de" ? `Jahr ${fields.year}` : `Year ${fields.year}`);
+    }
+    if (fields.page) {
+      extras.push(locale === "de" ? `Seite ${fields.page}` : `Page ${fields.page}`);
+    }
     if (fields.total && Number(fields.total) > 0) {
       extras.push(locale === "de" ? `${fields.total} Belege erkannt` : `${fields.total} receipts found`);
+    }
+    if (fields.queued && Number(fields.queued) > 0) {
+      extras.push(locale === "de" ? `${fields.queued} entdeckt` : `${fields.queued} discovered`);
     }
     if (fields.seen && Number(fields.seen) > 0) {
       extras.push(locale === "de" ? `${fields.seen} verarbeitet` : `${fields.seen} processed`);
@@ -679,7 +691,7 @@ export function AppShell({ user }: AppShellProps) {
     }))
   });
   const syncStatusEntries = connectorSyncQueries.flatMap((query, index) =>
-    query.data
+    query.status === "success" && query.data
       ? [
           {
             sourceId: globalSyncConnectors[index]?.source_id ?? query.data.source_id,

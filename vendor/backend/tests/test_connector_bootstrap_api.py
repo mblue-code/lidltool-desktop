@@ -1,0 +1,432 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+from fastapi.testclient import TestClient
+
+from lidltool.api import http_server
+from lidltool.api.auth import issue_session_token
+from lidltool.api.http_server import create_app
+from lidltool.api.http_state import get_connector_command_sessions
+from lidltool.auth.sessions import SESSION_MODE_COOKIE, SessionClientMetadata, create_user_session
+from lidltool.auth.users import create_local_user
+from lidltool.config import AppConfig
+from lidltool.db.engine import session_scope
+
+
+def _issue_admin_session(app) -> str:
+    context = app.state.request_context
+    with session_scope(context.sessions) as session:
+        user = create_local_user(
+            session,
+            username="admin",
+            password="test-password",
+            display_name="Admin",
+            is_admin=True,
+        )
+        session_record = create_user_session(
+            session,
+            user=user,
+            metadata=SessionClientMetadata(
+                auth_transport=SESSION_MODE_COOKIE,
+                client_name="pytest",
+                client_platform="tests",
+            ),
+        )
+        return issue_session_token(
+            user=user,
+            session_id=session_record.session_id,
+            config=context.config,
+        )
+
+
+def test_start_connector_bootstrap_resolves_runtime_options(tmp_path, monkeypatch) -> None:
+    config = AppConfig(
+        db_path=tmp_path / "lidltool.sqlite",
+        config_dir=tmp_path / "config",
+        credential_encryption_key="test-secret-key-with-sufficient-entropy-123456",
+        connector_live_sync_enabled=False,
+    )
+    config.config_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(config=config)
+
+    with TestClient(app) as client:
+        token = _issue_admin_session(app)
+
+        bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
+        captured: dict[str, object] = {}
+
+        class FakeService:
+            def get_auth_status(self, *, source_id: str, validate_session: bool = True):
+                return SimpleNamespace(manifest=SimpleNamespace(source_id=source_id))
+
+            def start_bootstrap(
+                self,
+                *,
+                source_id: str,
+                env=None,
+                connector_options=None,
+                extra_args=(),
+            ):
+                captured["connector_options"] = dict(connector_options or {})
+                bootstrap_sessions[source_id] = object()
+                return SimpleNamespace(status="started", bootstrap=object())
+
+        monkeypatch.setattr(
+            http_server,
+            "_connector_auth_service",
+            lambda app, config: FakeService(),
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_serialize_connector_bootstrap",
+            lambda _session: {
+                "source_id": "amazon_de",
+                "status": "running",
+                "command": "python -m lidltool.cli connectors auth bootstrap --source-id amazon_de",
+                "pid": 1234,
+                "started_at": None,
+                "finished_at": None,
+                "return_code": None,
+                "output_tail": [],
+                "can_cancel": True,
+            },
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_connector_is_preview_source",
+            lambda *args, **kwargs: False,
+        )
+
+        client.cookies.set("lidltool_session", token)
+        response = client.post("/api/v1/connectors/amazon_de/bootstrap/start")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["result"]["source_id"] == "amazon_de"
+    assert payload["result"]["reused"] is False
+    assert payload["result"]["bootstrap"]["status"] == "running"
+    assert captured["connector_options"] == {
+        "years": 1,
+        "headless": True,
+    }
+
+
+def test_start_connector_bootstrap_prefers_local_browser_for_loopback_requests(tmp_path, monkeypatch) -> None:
+    config = AppConfig(
+        db_path=tmp_path / "lidltool.sqlite",
+        config_dir=tmp_path / "config",
+        credential_encryption_key="test-secret-key-with-sufficient-entropy-123456",
+        connector_live_sync_enabled=False,
+    )
+    config.config_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(config=config)
+
+    with TestClient(app) as client:
+        token = _issue_admin_session(app)
+
+        bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
+        captured: dict[str, object] = {}
+
+        class FakeService:
+            def get_auth_status(self, *, source_id: str, validate_session: bool = True):
+                return SimpleNamespace(manifest=SimpleNamespace(source_id=source_id))
+
+            def start_bootstrap(
+                self,
+                *,
+                source_id: str,
+                env=None,
+                connector_options=None,
+                extra_args=(),
+            ):
+                captured["env"] = env
+                captured["connector_options"] = dict(connector_options or {})
+                bootstrap_sessions[source_id] = object()
+                return SimpleNamespace(status="started", bootstrap=object())
+
+        monkeypatch.setattr(
+            http_server,
+            "_connector_auth_service",
+            lambda app, config: FakeService(),
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_serialize_connector_bootstrap",
+            lambda _session: {
+                "source_id": "amazon_de",
+                "status": "running",
+                "command": "python -m lidltool.cli connectors auth bootstrap --source-id amazon_de",
+                "pid": 1234,
+                "started_at": None,
+                "finished_at": None,
+                "return_code": None,
+                "output_tail": [],
+                "can_cancel": True,
+            },
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_connector_is_preview_source",
+            lambda *args, **kwargs: False,
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_ensure_vnc_runtime",
+            lambda app: (_ for _ in ()).throw(AssertionError("loopback requests should not start VNC")),
+        )
+
+        client.cookies.set("lidltool_session", token)
+        response = client.post("/api/v1/connectors/amazon_de/bootstrap/start")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["result"]["source_id"] == "amazon_de"
+    assert payload["result"]["remote_login_url"] is None
+    assert captured["env"] is None
+
+
+def test_start_connector_sync_includes_saved_connector_options(tmp_path, monkeypatch) -> None:
+    config = AppConfig(
+        db_path=tmp_path / "lidltool.sqlite",
+        config_dir=tmp_path / "config",
+        credential_encryption_key="test-secret-key-with-sufficient-entropy-123456",
+        connector_live_sync_enabled=False,
+    )
+    config.config_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(config=config)
+
+    with TestClient(app) as client:
+        token = _issue_admin_session(app)
+        client.cookies.set("lidltool_session", token)
+
+        config_response = client.post(
+            "/api/v1/connectors/amazon_de/config",
+            json={
+                "values": {
+                    "years": 1,
+                    "headless": False,
+                    "dump_html": str(tmp_path / "amazon-debug"),
+                }
+            },
+        )
+        assert config_response.status_code == 200
+
+        captured: dict[str, object] = {}
+
+        def fake_start_connector_command_session(*args, **kwargs):
+            captured["command"] = list(kwargs["command"])
+            return object()
+
+        monkeypatch.setattr(
+            http_server,
+            "_start_connector_command_session",
+            fake_start_connector_command_session,
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_serialize_connector_bootstrap",
+            lambda _session: {
+                "source_id": "amazon_de",
+                "status": "running",
+                "command": " ".join(captured["command"]),
+                "pid": 4321,
+                "started_at": None,
+                "finished_at": None,
+                "return_code": None,
+                "output_tail": [],
+                "can_cancel": True,
+            },
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_connector_is_preview_source",
+            lambda *args, **kwargs: False,
+        )
+
+        response = client.post("/api/v1/connectors/amazon_de/sync")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    command = captured["command"]
+    assert "--option" in command
+    joined = " ".join(command)
+    assert "years=1" in joined
+    assert "headless=false" in joined
+    assert f"dump_html={tmp_path / 'amazon-debug'}" in joined
+    assert "owner_user_id=" in joined
+
+
+def test_start_connector_full_sync_uses_wide_amazon_default_when_no_saved_years(tmp_path, monkeypatch) -> None:
+    config = AppConfig(
+        db_path=tmp_path / "lidltool.sqlite",
+        config_dir=tmp_path / "config",
+        credential_encryption_key="test-secret-key-with-sufficient-entropy-123456",
+        connector_live_sync_enabled=False,
+    )
+    config.config_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(config=config)
+
+    with TestClient(app) as client:
+        token = _issue_admin_session(app)
+        client.cookies.set("lidltool_session", token)
+
+        captured: dict[str, object] = {}
+
+        def fake_start_connector_command_session(*args, **kwargs):
+            captured["command"] = list(kwargs["command"])
+            return object()
+
+        monkeypatch.setattr(
+            http_server,
+            "_start_connector_command_session",
+            fake_start_connector_command_session,
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_serialize_connector_bootstrap",
+            lambda _session: {
+                "source_id": "amazon_de",
+                "status": "running",
+                "command": " ".join(captured["command"]),
+                "pid": 4321,
+                "started_at": None,
+                "finished_at": None,
+                "return_code": None,
+                "output_tail": [],
+                "can_cancel": True,
+            },
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_connector_is_preview_source",
+            lambda *args, **kwargs: False,
+        )
+
+        response = client.post("/api/v1/connectors/amazon_de/sync?full=true")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    joined = " ".join(captured["command"])
+    assert "years=10" in joined
+    assert "headless=false" in joined
+
+
+def test_start_connector_full_sync_overrides_stale_single_year_setting(tmp_path, monkeypatch) -> None:
+    config = AppConfig(
+        db_path=tmp_path / "lidltool.sqlite",
+        config_dir=tmp_path / "config",
+        credential_encryption_key="test-secret-key-with-sufficient-entropy-123456",
+        connector_live_sync_enabled=False,
+    )
+    config.config_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(config=config)
+
+    with TestClient(app) as client:
+        token = _issue_admin_session(app)
+        client.cookies.set("lidltool_session", token)
+
+        config_response = client.post(
+            "/api/v1/connectors/amazon_de/config",
+            json={
+                "values": {
+                    "years": 1,
+                    "headless": False,
+                }
+            },
+        )
+        assert config_response.status_code == 200
+
+        captured: dict[str, object] = {}
+
+        def fake_start_connector_command_session(*args, **kwargs):
+            captured["command"] = list(kwargs["command"])
+            return object()
+
+        monkeypatch.setattr(
+            http_server,
+            "_start_connector_command_session",
+            fake_start_connector_command_session,
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_serialize_connector_bootstrap",
+            lambda _session: {
+                "source_id": "amazon_de",
+                "status": "running",
+                "command": " ".join(captured["command"]),
+                "pid": 4321,
+                "started_at": None,
+                "finished_at": None,
+                "return_code": None,
+                "output_tail": [],
+                "can_cancel": True,
+            },
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_connector_is_preview_source",
+            lambda *args, **kwargs: False,
+        )
+
+        response = client.post("/api/v1/connectors/amazon_de/sync?full=true")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    joined = " ".join(captured["command"])
+    assert "years=10" in joined
+    assert "headless=false" in joined
+
+
+def test_get_connector_auth_status_validates_session(tmp_path, monkeypatch) -> None:
+    config = AppConfig(
+        db_path=tmp_path / "lidltool.sqlite",
+        config_dir=tmp_path / "config",
+        credential_encryption_key="test-secret-key-with-sufficient-entropy-123456",
+        connector_live_sync_enabled=False,
+    )
+    config.config_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(config=config)
+
+    with TestClient(app) as client:
+        token = _issue_admin_session(app)
+        client.cookies.set("lidltool_session", token)
+
+        captured: dict[str, object] = {}
+
+        class FakeService:
+            def get_auth_status(self, *, source_id: str, validate_session: bool = True):
+                captured["validate_session"] = validate_session
+                return SimpleNamespace(
+                    source_id=source_id,
+                    state="reauth_required",
+                    detail="saved browser session expired",
+                    available_actions=("start_auth", "cancel_auth"),
+                )
+
+        monkeypatch.setattr(
+            http_server,
+            "_connector_auth_service",
+            lambda app, config: FakeService(),
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_connector_is_preview_source",
+            lambda *args, **kwargs: False,
+        )
+
+        response = client.get("/api/v1/connectors/amazon_de/auth/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["result"]["source_id"] == "amazon_de"
+    assert payload["result"]["state"] == "reauth_required"
+    assert payload["result"]["detail"] == "saved browser session expired"
+    assert payload["result"]["available_actions"] == ["start_auth", "cancel_auth"]
+    assert captured["validate_session"] is True

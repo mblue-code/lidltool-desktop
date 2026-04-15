@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -34,12 +34,19 @@ function RouteLocationState() {
   );
 }
 
-function renderShell(initialEntry = "/receipts"): void {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false }
-    }
-  });
+function renderShell(
+  initialEntry = "/receipts",
+  options?: {
+    queryClient?: QueryClient;
+  }
+): void {
+  const queryClient =
+    options?.queryClient ??
+    new QueryClient({
+      defaultOptions: {
+        queries: { retry: false }
+      }
+    });
 
   render(
     <QueryClientProvider client={queryClient}>
@@ -157,6 +164,33 @@ describe("AppShell", () => {
     expect(screen.getByText("Receipts content")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preferences" })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Add Receipt" })[0]).toBeInTheDocument();
+  });
+
+  it("hides the global sync banner when sync status refetch fails after cached running data", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false }
+      }
+    });
+    queryClient.setQueryData(["global-connector-sync-status", "lidl_plus_de"], {
+      source_id: "lidl_plus_de",
+      status: "running",
+      command: "python -m lidltool.cli connectors sync --source-id lidl_plus_de",
+      pid: 1234,
+      started_at: "2026-04-15T10:00:00Z",
+      finished_at: null,
+      return_code: null,
+      output_tail: ["stage=discovering seen=1/? queued=4"],
+      can_cancel: true
+    } satisfies connectorsApi.ConnectorSyncStatus);
+    vi.spyOn(connectorsApi, "fetchConnectorSyncStatus").mockRejectedValue(new Error("sync status unavailable"));
+
+    renderShell("/receipts", { queryClient });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Lidl sync")).not.toBeInTheDocument();
+      expect(screen.queryByText("Lidl-Synchronisierung")).not.toBeInTheDocument();
+    });
   });
 
   it("keeps unsupported desktop routes out of the visible nav", () => {

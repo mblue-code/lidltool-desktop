@@ -10,7 +10,13 @@ def test_amazon_manifest_exposes_desktop_tuning_fields() -> None:
 
     assert manifest.config_schema is not None
     field_keys = [field.key for field in manifest.config_schema.fields]
-    assert field_keys == ["years", "max_pages_per_year", "headless", "dump_html"]
+    assert field_keys == ["years", "headless", "dump_html"]
+    field_defaults = {field.key: field.default_value for field in manifest.config_schema.fields}
+    assert field_defaults == {
+        "years": 1,
+        "headless": True,
+        "dump_html": None,
+    }
 
 
 def test_amazon_fr_manifest_exposes_desktop_tuning_fields() -> None:
@@ -18,7 +24,13 @@ def test_amazon_fr_manifest_exposes_desktop_tuning_fields() -> None:
 
     assert manifest.config_schema is not None
     field_keys = [field.key for field in manifest.config_schema.fields]
-    assert field_keys == ["years", "max_pages_per_year", "headless", "dump_html"]
+    assert field_keys == ["years", "headless", "dump_html"]
+    field_defaults = {field.key: field.default_value for field in manifest.config_schema.fields}
+    assert field_defaults == {
+        "years": 1,
+        "headless": True,
+        "dump_html": None,
+    }
 
 
 def test_amazon_gb_manifest_exposes_desktop_tuning_fields() -> None:
@@ -26,7 +38,13 @@ def test_amazon_gb_manifest_exposes_desktop_tuning_fields() -> None:
 
     assert manifest.config_schema is not None
     field_keys = [field.key for field in manifest.config_schema.fields]
-    assert field_keys == ["years", "max_pages_per_year", "headless", "dump_html"]
+    assert field_keys == ["years", "headless", "dump_html"]
+    field_defaults = {field.key: field.default_value for field in manifest.config_schema.fields}
+    assert field_defaults == {
+        "years": 1,
+        "headless": True,
+        "dump_html": None,
+    }
 
 
 def test_config_field_payload_uses_default_value_when_unsaved() -> None:

@@ -14,7 +14,7 @@ from typing import Any, Protocol
 from lidltool.amazon.bootstrap_playwright import run_amazon_headful_bootstrap
 from lidltool.amazon.client_playwright import AmazonClientError
 from lidltool.amazon.profiles import get_country_profile, is_amazon_source_id, list_country_profiles
-from lidltool.amazon.session import default_amazon_state_file
+from lidltool.amazon.session import default_amazon_profile_dir, default_amazon_state_file
 from lidltool.auth.bootstrap_playwright import run_headful_bootstrap
 from lidltool.auth.token_store import TokenStore
 from lidltool.config import AppConfig
@@ -168,16 +168,21 @@ class _BuiltinAuthBridge:
             normalized.get("state_file"),
             self.state_file_resolver(config),
         )
+        profile_dir = None
+        if is_amazon_source_id(manifest.source_id):
+            profile_dir = _resolve_optional_path(
+                normalized.get("profile_dir"),
+            ) or default_amazon_profile_dir(config, source_id=manifest.source_id)
         domain = _string_option(normalized, "domain", self.default_domain or "")
         debug_html_dir = _resolve_optional_path(normalized.get("dump_html"))
-        ok = bool(
-            self.bootstrap_runner(
-                target,
-                source_id=manifest.source_id,
-                domain=domain or None,
-                debug_html_dir=debug_html_dir,
-            )
-        )
+        bootstrap_kwargs: dict[str, Any] = {
+            "source_id": manifest.source_id,
+            "domain": domain or None,
+            "debug_html_dir": debug_html_dir,
+        }
+        if profile_dir is not None:
+            bootstrap_kwargs["profile_dir"] = profile_dir
+        ok = bool(self.bootstrap_runner(target, **bootstrap_kwargs))
         return AuthActionResult(
             manifest=manifest,
             source_id=manifest.source_id,
@@ -187,6 +192,7 @@ class _BuiltinAuthBridge:
             detail=None if ok else f"{manifest.display_name} session capture failed",
             metadata={
                 "state_file": str(target),
+                "profile_dir": str(profile_dir) if profile_dir is not None else None,
                 "domain": domain or get_country_profile(source_id=manifest.source_id).domain,
                 "dump_html": str(debug_html_dir) if debug_html_dir is not None else None,
             },
@@ -599,11 +605,23 @@ class ConnectorAuthOrchestrationService:
         *,
         source_id: str,
         env: Mapping[str, str] | None = None,
+        connector_options: Mapping[str, Any] | None = None,
         extra_args: tuple[str, ...] = (),
     ) -> AuthActionResult:
         manifest = self._registry.require_manifest(source_id)
         capabilities = self.capabilities_for_source(source_id)
-        command = self._build_bootstrap_command(source_id, extra_args=extra_args)
+        resolved_options = self._resolve_connector_options(
+            source_id=source_id,
+            connector_options=connector_options,
+        )
+        option_args = self._bootstrap_option_args(
+            manifest=manifest,
+            options=resolved_options,
+        )
+        command = self._build_bootstrap_command(
+            source_id,
+            extra_args=(*option_args, *extra_args),
+        )
         if command is None:
             raise RuntimeError(f"connector bootstrap not supported for source: {source_id}")
         existing = self._session_registry.sessions.get(source_id)
@@ -762,6 +780,34 @@ class ConnectorAuthOrchestrationService:
                 source_id,
                 *extra_args,
             ]
+        return None
+
+    def _bootstrap_option_args(
+        self,
+        *,
+        manifest: ConnectorManifest,
+        options: Mapping[str, Any],
+    ) -> tuple[str, ...]:
+        allowed_keys = self._bootstrap_option_allowlist(manifest)
+        args: list[str] = []
+        for key, value in options.items():
+            if allowed_keys is not None and key not in allowed_keys:
+                continue
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                rendered = "true" if value else "false"
+            else:
+                rendered = str(value)
+            args.extend(("--option", f"{key}={rendered}"))
+        return tuple(args)
+
+    def _bootstrap_option_allowlist(self, manifest: ConnectorManifest) -> set[str] | None:
+        auth_kind = manifest.auth.auth_kind if manifest.auth is not None else None
+        if auth_kind == "oauth_pkce":
+            return {"refresh_token", "headful", "har_out"}
+        if auth_kind == "browser_session":
+            return {"state_file", "profile_dir", "domain", "dump_html"}
         return None
 
     def _plugin_runtime_auth_status(

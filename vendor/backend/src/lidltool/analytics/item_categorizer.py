@@ -43,6 +43,7 @@ from lidltool.config import AppConfig
 from lidltool.db.models import Category, Product, Source, TransactionItem
 
 LOGGER = logging.getLogger(__name__)
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 ITEM_CATEGORIZATION_VERSION = "canonical-item-categorizer-v2"
 _DEPOSIT_RE = re.compile(
@@ -1262,6 +1263,7 @@ def categorize_transaction_item(
 
     heuristic_result = _heuristic_category_result(
         category_rows=category_rows,
+        source_id=source.id,
         item_name=item_name,
         source_value=source_value,
     )
@@ -1420,6 +1422,7 @@ def categorize_transaction_items(
 
         heuristic = _heuristic_category_result(
             category_rows=category_rows,
+            source_id=source.id,
             item_name=request.item_name,
             source_value=source_value,
         )
@@ -1630,6 +1633,7 @@ def apply_item_categorization(
             continue
         heuristic = _heuristic_category_result(
             category_rows=category_rows,
+            source_id=source.id,
             item_name=item.name,
             source_value=source_value,
         )
@@ -2130,9 +2134,12 @@ def _looks_like_produce(*, item_name: str, source_value: str | None) -> bool:
 def _heuristic_category_result(
     *,
     category_rows: dict[str, Category],
+    source_id: str,
     item_name: str,
     source_value: str | None,
 ) -> CategorizationResult | None:
+    if source_id.startswith("amazon_"):
+        return None
     haystacks = [item_name, source_value or ""]
     normalized_haystacks = [
         _normalize_category_key(value)
@@ -2291,10 +2298,31 @@ def _looks_like_noisy_text(value: str) -> bool:
 
 
 def _contains_any_hint(values: Sequence[str], hints: Sequence[str]) -> bool:
+    normalized_hints = [
+        [part for part in _TOKEN_RE.findall(_normalize_category_key(hint))]
+        for hint in hints
+        if hint
+    ]
     for value in values:
         if not value:
             continue
-        if any(hint in value for hint in hints):
+        tokens = _TOKEN_RE.findall(value)
+        if not tokens:
+            continue
+        if any(_tokens_match_hint(tokens, hint_tokens) for hint_tokens in normalized_hints):
+            return True
+    return False
+
+
+def _tokens_match_hint(tokens: Sequence[str], hint_tokens: Sequence[str]) -> bool:
+    if not hint_tokens or len(hint_tokens) > len(tokens):
+        return False
+    max_start = len(tokens) - len(hint_tokens) + 1
+    for start in range(max_start):
+        if all(
+            tokens[start + offset] == hint or tokens[start + offset].startswith(hint)
+            for offset, hint in enumerate(hint_tokens)
+        ):
             return True
     return False
 

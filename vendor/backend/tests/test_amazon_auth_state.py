@@ -44,3 +44,35 @@ def test_classify_amazon_auth_state_from_fixtures(
         expect_authenticated_session=expect_authenticated_session,
     )
     assert classification.state == expected_state
+
+
+def test_classify_amazon_auth_state_prefers_authenticated_orders_page_over_generic_auth_words() -> None:
+    html = (FIXTURE_DIR / "authenticated_de.html").read_text(encoding="utf-8")
+    noisy_html = html + " bestaetigungscode mfa weiter einkaufen anmelden "
+    classification = classify_amazon_auth_state(
+        url="https://www.amazon.de/gp/your-account/order-history",
+        html=noisy_html,
+        profile=get_country_profile(source_id="amazon_de"),
+        expect_authenticated_session=True,
+    )
+    assert classification.state == AmazonAuthState.AUTHENTICATED
+
+
+def test_classify_amazon_auth_state_does_not_trust_order_history_url_without_authenticated_content() -> None:
+    classification = classify_amazon_auth_state(
+        url="https://www.amazon.de/gp/your-account/order-history",
+        html="<html><head><title>Amazon</title></head><body>Loading...</body></html>",
+        profile=get_country_profile(source_id="amazon_de"),
+        expect_authenticated_session=False,
+    )
+    assert classification.state == AmazonAuthState.UNKNOWN_AUTH_BLOCK
+
+
+def test_classify_amazon_auth_state_does_not_default_blank_pages_to_authenticated() -> None:
+    classification = classify_amazon_auth_state(
+        url="https://www.amazon.de/gp/your-account/order-history",
+        html="",
+        profile=get_country_profile(source_id="amazon_de"),
+        expect_authenticated_session=True,
+    )
+    assert classification.state == AmazonAuthState.UNKNOWN_AUTH_BLOCK

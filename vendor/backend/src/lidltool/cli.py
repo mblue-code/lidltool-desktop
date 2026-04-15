@@ -254,6 +254,8 @@ def _render_sync_result_table(
 
 
 def _sync_progress_description(state: SyncProgress) -> str:
+    year = f" year={state.current_year}" if state.current_year is not None else ""
+    page = f" page={state.current_page}" if state.current_page is not None else ""
     if state.stage == "authenticating":
         return "stage=authenticating detail=checking_saved_session"
     if state.stage == "refreshing_auth":
@@ -266,14 +268,16 @@ def _sync_progress_description(state: SyncProgress) -> str:
         pages = str(state.pages)
         if state.pages_total:
             pages = f"{pages}/{state.pages_total}"
-        return f"stage=discovering pages={pages} queued={state.discovered_receipts}"
+        return f"stage=discovering{year}{page} pages={pages} queued={state.discovered_receipts}"
     if state.stage == "processing":
         if state.receipts_seen == 0 and state.discovered_receipts > 0:
             return f"stage=processing detail=preparing_import total={state.discovered_receipts}"
         current = f" current={state.current_record_ref}" if state.current_record_ref else ""
+        total = "?" if state.detail == "streaming_import" else str(state.discovered_receipts or "?")
         return (
-            f"stage=processing seen={state.receipts_seen}/{state.discovered_receipts or '?'} "
-            f"new={state.new_receipts} items={state.new_items} skipped={state.skipped_existing}{current}"
+            f"stage=processing{year}{page} seen={state.receipts_seen}/{total} "
+            f"queued={state.discovered_receipts} new={state.new_receipts} "
+            f"items={state.new_items} skipped={state.skipped_existing}{current}"
         )
     if state.stage == "finalizing":
         return (
@@ -281,7 +285,7 @@ def _sync_progress_description(state: SyncProgress) -> str:
             f"skipped={state.skipped_existing}"
         )
     return (
-        f"stage={state.stage} pages={state.pages} queued={state.discovered_receipts} "
+        f"stage={state.stage}{year}{page} pages={state.pages} queued={state.discovered_receipts} "
         f"seen={state.receipts_seen} new={state.new_receipts}"
     )
 
@@ -408,10 +412,9 @@ def _run_connector_bootstrap_command(
         _emit(payload, json_output=True)
         raise typer.Exit(code=0 if resolved.ok else 1)
     if not resolved.ok:
-        raise typer.BadParameter(
-            f"{resolved.manifest.display_name} login/session capture failed. "
-            "Re-run and complete login before pressing Enter."
-        )
+        detail = resolved.detail or f"{resolved.manifest.display_name} login/session capture failed."
+        console.print(detail)
+        raise typer.Exit(code=1)
     state_file = resolved.metadata.get("state_file")
     if state_file:
         console.print(f"{resolved.manifest.display_name} session stored at {state_file}")

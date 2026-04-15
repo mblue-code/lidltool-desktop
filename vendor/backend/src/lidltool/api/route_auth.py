@@ -131,6 +131,7 @@ HTTP_ROUTE_AUTH_MATRIX: tuple[RouteAuthPolicy, ...] = (
     RouteAuthPolicy("GET", "/api/v1/connectors/cascade/status", "authenticated_principal"),
     RouteAuthPolicy("POST", "/api/v1/connectors/cascade/cancel", "authenticated_principal"),
     RouteAuthPolicy("POST", "/api/v1/connectors/{source_id}/bootstrap/start", "authenticated_principal"),
+    RouteAuthPolicy("GET", "/api/v1/connectors/{source_id}/auth/status", "authenticated_principal"),
     RouteAuthPolicy("GET", "/api/v1/connectors/{source_id}/bootstrap/status", "authenticated_principal"),
     RouteAuthPolicy("POST", "/api/v1/connectors/{source_id}/bootstrap/cancel", "authenticated_principal"),
     RouteAuthPolicy("POST", "/api/v1/connectors/{source_id}/sync", "authenticated_principal"),

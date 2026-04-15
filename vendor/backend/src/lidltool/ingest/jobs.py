@@ -922,23 +922,29 @@ def derive_idempotency_key(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _empty_progress_summary() -> dict[str, int]:
+def _empty_progress_summary() -> dict[str, int | str | None]:
     return {
         "pages": 0,
         "receipts_seen": 0,
         "new_receipts": 0,
         "new_items": 0,
         "skipped_existing": 0,
+        "detail": None,
+        "current_year": None,
+        "current_page": None,
     }
 
 
-def _progress_to_dict(progress: SyncProgress) -> dict[str, int]:
+def _progress_to_dict(progress: SyncProgress) -> dict[str, int | str | None]:
     return {
         "pages": progress.pages,
         "receipts_seen": progress.receipts_seen,
         "new_receipts": progress.new_receipts,
         "new_items": progress.new_items,
         "skipped_existing": progress.skipped_existing,
+        "detail": progress.detail,
+        "current_year": progress.current_year,
+        "current_page": progress.current_page,
     }
 
 

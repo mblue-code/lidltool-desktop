@@ -84,6 +84,8 @@ class NormalizedReceiptRecord(BaseModel):
 
     id: str
     purchased_at: datetime
+    date_source: str | None = None
+    page_year: int | None = None
     store_id: str
     store_name: str
     store_address: str | None = None

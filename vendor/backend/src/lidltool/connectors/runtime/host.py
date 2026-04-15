@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -318,6 +319,40 @@ class RuntimeHostedReceiptConnector(Connector):
             raise RuntimeError("connector discover_records returned no payload")
         return [record.record_ref for record in output.records]
 
+    def discover_new_records_with_progress(
+        self,
+        *,
+        progress_cb: Callable[[int, int], None] | None = None,
+    ) -> list[str]:
+        delegate = self._streaming_delegate()
+        discover_with_progress = getattr(delegate, "discover_new_records_with_progress", None)
+        if callable(discover_with_progress):
+            return cast(
+                list[str],
+                discover_with_progress(progress_cb=progress_cb),
+            )
+        records = self.discover_new_records()
+        if progress_cb is not None:
+            progress_cb(1 if records else 0, len(records))
+        return records
+
+    def stream_record_details_with_progress(
+        self,
+        *,
+        max_pages: int | None = None,
+        progress_cb: Callable[[dict[str, Any]], None] | None = None,
+    ) -> Iterator[tuple[str, dict[str, Any]]]:
+        delegate = self._streaming_delegate()
+        stream_record_details = getattr(delegate, "stream_record_details_with_progress", None)
+        if callable(stream_record_details):
+            yield from cast(
+                Iterator[tuple[str, dict[str, Any]]],
+                stream_record_details(max_pages=max_pages, progress_cb=progress_cb),
+            )
+            return
+        for record_ref in self.discover_new_records():
+            yield record_ref, self.fetch_record_detail(record_ref)
+
     def fetch_record_detail(self, record_ref: str) -> dict[str, Any]:
         response = cast(
             FetchRecordResponse,
@@ -361,6 +396,13 @@ class RuntimeHostedReceiptConnector(Connector):
             "runtime_kind": manifest.runtime_kind,
             "entrypoint": manifest.entrypoint,
         }
+
+    def _streaming_delegate(self) -> object:
+        if self._target.connector is not None:
+            return self._target.connector
+        if self._target.legacy_auth_delegate is not None:
+            return self._target.legacy_auth_delegate
+        return self
 
     def _invoke(self, request: ReceiptActionRequest) -> ReceiptActionResponse:
         validated_request = validate_receipt_action_request(request)

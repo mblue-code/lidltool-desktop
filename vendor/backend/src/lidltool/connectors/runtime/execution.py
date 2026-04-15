@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from lidltool.amazon.client_playwright import AmazonClientError, AmazonPlaywrightClient
 from lidltool.amazon.profiles import get_country_profile, is_amazon_source_id
-from lidltool.amazon.session import default_amazon_state_file
+from lidltool.amazon.session import default_amazon_profile_dir, default_amazon_state_file
 from lidltool.auth.token_store import TokenStore
 from lidltool.config import AppConfig
 from lidltool.connectors.amazon_adapter import AmazonConnectorAdapter
@@ -83,6 +83,17 @@ def _string_option(options: Mapping[str, Any], key: str, default: str) -> str:
 
 def _int_option(options: Mapping[str, Any], key: str, default: int) -> int:
     value = options.get(key, default)
+    return int(value)
+
+
+def _optional_int_option(options: Mapping[str, Any], key: str) -> int | None:
+    if key not in options:
+        return None
+    value = options.get(key)
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
     return int(value)
 
 
@@ -378,14 +389,19 @@ class ConnectorExecutionService:
                 connector_options.get("state_file"),
                 default_amazon_state_file(source_config, source_id=manifest.source_id),
             )
+            profile_dir = self._resolve_state_file(
+                connector_options.get("profile_dir"),
+                default_amazon_profile_dir(source_config, source_id=manifest.source_id),
+            )
             domain = _string_option(connector_options, "domain", amazon_profile.domain)
             headless = _bool_option(connector_options, "headless", True)
             dump_html = _resolve_optional_path(connector_options.get("dump_html"))
             years = _int_option(connector_options, "years", 2)
-            max_pages_per_year = _int_option(connector_options, "max_pages_per_year", 8)
+            max_pages_per_year = _optional_int_option(connector_options, "max_pages_per_year")
             store_name = _string_option(connector_options, "store_name", "Amazon")
             amazon_client = AmazonPlaywrightClient(
                 state_file=state_file,
+                profile_dir=profile_dir,
                 source_id=manifest.source_id,
                 domain=domain,
                 headless=headless,
@@ -403,7 +419,7 @@ class ConnectorExecutionService:
                 source_config=source_config,
                 client=None,
                 connector=amazon_connector,
-                metadata={"state_file": str(state_file), "domain": domain},
+                metadata={"state_file": str(state_file), "profile_dir": str(profile_dir), "domain": domain},
                 handled_exceptions=(AmazonClientError,),
             )
         if manifest.source_id == "kaufland_de":
