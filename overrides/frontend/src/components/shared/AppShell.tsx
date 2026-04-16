@@ -78,6 +78,13 @@ type NavGroup = {
   items: NavItem[];
 };
 
+function isDocumentVisible(): boolean {
+  if (typeof document === "undefined") {
+    return true;
+  }
+  return document.visibilityState === "visible";
+}
+
 const PRIMARY_NAV_GROUPS: NavGroup[] = [
   {
     labelKey: "nav.group.analytics",
@@ -686,7 +693,7 @@ export function AppShell({ user }: AppShellProps) {
       queryKey: ["global-connector-sync-status", connector.source_id],
       queryFn: () => fetchConnectorSyncStatus(connector.source_id),
       refetchInterval: (query: { state: { data?: ConnectorSyncStatus } }) =>
-        query.state.data?.status === "running" ? 1500 : 5000,
+        !isDocumentVisible() ? false : query.state.data?.status === "running" ? 1500 : 30_000,
       retry: false
     }))
   });

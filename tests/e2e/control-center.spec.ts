@@ -11,6 +11,7 @@ test("falls back to the control center when the main frontend bundle is unavaila
   try {
     await expect(page.getByRole("heading", { name: "Local receipt sync, review, export, and backup." })).toBeVisible();
     await expect(page.getByText("Control center only")).toBeVisible();
+    await expect(controlCenterCard.locator(".status-chip").first()).toContainText(/Stopped|gestoppt/);
     await expect(page.getByRole("button", { name: "Open main app" }).first()).toBeDisabled();
 
     await page.getByRole("button", { name: "Start local service" }).first().click();

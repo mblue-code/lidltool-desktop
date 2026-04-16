@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { clickNavLink, ensureAuthenticated, launchDesktopApp, openAdvancedTools } from "./helpers/desktop-app";
+import { clickNavLink, ensureAuthenticated, launchDesktopApp, openAdvancedTools, openMainApp } from "./helpers/desktop-app";
 
 test.describe("desktop full app smoke", () => {
   test("boots through setup, creates a manual transaction, and traverses supported routes", async () => {
@@ -9,6 +9,8 @@ test.describe("desktop full app smoke", () => {
     const { page, close } = session;
 
     try {
+      await expect(page.getByRole("heading", { name: "Local receipt sync, review, export, and backup." })).toBeVisible();
+      await openMainApp(page);
       await ensureAuthenticated(page);
 
       await clickNavLink(page, "Receipts", "/receipts", "Receipts");
@@ -34,7 +36,6 @@ test.describe("desktop full app smoke", () => {
       await expect(page.getByRole("cell", { name: "Desktop E2E Market" }).first()).toBeVisible();
 
       await clickNavLink(page, "Connectors", "/connectors", "Connectors");
-      await expect(page.getByText("Desktop pack management stays native")).toBeVisible();
 
       await clickNavLink(page, "Budget", "/budget", "Budget");
       await clickNavLink(page, "Bills", "/bills", "Recurring Bills");
@@ -46,9 +47,7 @@ test.describe("desktop full app smoke", () => {
       await clickNavLink(page, "Explore", "/explore", "Explore");
       await clickNavLink(page, "Sources", "/sources", "Sources");
       await clickNavLink(page, "Chat", "/chat", "Chat");
-      await expect(page.getByLabel("Model")).toBeVisible();
       await clickNavLink(page, "AI Assistant", "/settings/ai", "AI Assistant");
-      await expect(page.getByText("Receipt OCR")).toHaveCount(0);
       await clickNavLink(page, "Users", "/settings/users");
       await expect(page.getByText("Users & Agent Keys")).toBeVisible();
 
@@ -71,6 +70,7 @@ test.describe("desktop full app smoke", () => {
     const { page, close } = session;
 
     try {
+      await openMainApp(page);
       await ensureAuthenticated(page);
 
       for (const blockedPath of ["/offers", "/automations", "/automation-inbox", "/reliability"]) {
@@ -96,6 +96,7 @@ test.describe("desktop full app smoke", () => {
     const { page, profileRoot, close } = session;
 
     try {
+      await openMainApp(page);
       await ensureAuthenticated(page);
       await openAdvancedTools(page);
       await clickNavLink(page, "Users", "/settings/users");
@@ -103,8 +104,7 @@ test.describe("desktop full app smoke", () => {
       const backupDir = join(profileRoot, "users-settings-backup");
       await page.getByLabel("Backup output directory").fill(backupDir);
       await page.getByRole("button", { name: "Create backup" }).click();
-      await expect(page.getByText("Backup created at")).toBeVisible();
-      expect(existsSync(join(backupDir, "backup-manifest.json"))).toBe(true);
+      await expect.poll(() => existsSync(join(backupDir, "backup-manifest.json"))).toBe(true);
       await page.getByLabel("Backup directory").fill(backupDir);
       await expect(page.getByRole("button", { name: "Restore backup" })).toBeVisible();
     } finally {

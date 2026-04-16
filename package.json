@@ -26,6 +26,7 @@
     "test:plugin-packs": "node --test --experimental-strip-types tests/receipt-plugin-packs.test.ts",
     "test:release-metadata": "node --test --experimental-strip-types tests/release-metadata.test.ts",
     "test:trusted-distribution": "node --test --experimental-strip-types tests/control-center-model.test.ts tests/receipt-plugin-packs.test.ts tests/release-metadata.test.ts",
+    "profile:desktop": "node ./scripts/profile-desktop.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",

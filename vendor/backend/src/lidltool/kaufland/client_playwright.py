@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import sync_playwright
+from lidltool.connectors.auth.browser_runtime import (
+    launch_playwright_chromium,
+    wait_for_page_network_idle,
+)
 
 
 class KauflandClientError(RuntimeError):
@@ -170,8 +174,6 @@ class KauflandPlaywrightClient:
         out: list[dict[str, Any]] = []
         seen: set[str] = set()
         with sync_playwright() as playwright:
-            from lidltool.connectors.auth.browser_runtime import launch_playwright_chromium
-
             browser = launch_playwright_chromium(playwright=playwright, headless=self._headless)
             context = browser.new_context(storage_state=str(self._state_file))
             page = context.new_page()
@@ -180,7 +182,7 @@ class KauflandPlaywrightClient:
             for page_idx in range(1, self._max_pages + 1):
                 orders_url = f"https://{self._domain}/order-history?page={page_idx}"
                 page.goto(orders_url, wait_until="domcontentloaded")
-                page.wait_for_timeout(1000)
+                wait_for_page_network_idle(page, timeout_ms=1000)
                 self._ensure_logged_in(page)
                 rows = page.evaluate(_SCRAPE_ORDERS_SCRIPT)
                 if not isinstance(rows, list) or not rows:
@@ -207,8 +209,10 @@ class KauflandPlaywrightClient:
                 if added == 0:
                     break
 
-            context.close()
-            browser.close()
+            try:
+                context.close()
+            finally:
+                browser.close()
 
         return out
 

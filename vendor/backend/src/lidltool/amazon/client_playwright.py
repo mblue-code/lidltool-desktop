@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 from playwright.sync_api import BrowserContext, sync_playwright
+from lidltool.connectors.auth.browser_runtime import wait_for_page_network_idle
 
 from lidltool.amazon.auth_state import classify_amazon_auth_state, describe_auth_failure
 from lidltool.amazon.parsers import (
@@ -204,9 +205,11 @@ class AmazonPlaywrightClient:
                     if not year_any and offset > 0:
                         continue
             finally:
-                context.close()
-                if browser is not None:
-                    browser.close()
+                try:
+                    context.close()
+                finally:
+                    if browser is not None:
+                        browser.close()
 
     def validate_session(self) -> None:
         if not self._session_artifact_exists():
@@ -226,9 +229,11 @@ class AmazonPlaywrightClient:
                     url=self._profile.order_history_url(),
                 )
             finally:
-                context.close()
-                if browser is not None:
-                    browser.close()
+                try:
+                    context.close()
+                finally:
+                    if browser is not None:
+                        browser.close()
 
     def _session_artifact_exists(self) -> bool:
         if self._profile_dir is not None and self._profile_dir.exists():
@@ -444,7 +449,7 @@ class AmazonPlaywrightClient:
         last_error: AmazonReauthRequiredError | None = None
         for attempt in range(max(0, retries) + 1):
             page.goto(url, wait_until="domcontentloaded")
-            page.wait_for_timeout(self._page_delay_ms)
+            wait_for_page_network_idle(page, timeout_ms=self._page_delay_ms)
             html = page.content()
             try:
                 self._ensure_logged_in(page.url, html)
@@ -459,7 +464,7 @@ class AmazonPlaywrightClient:
                     )
                 if attempt >= max(0, retries):
                     raise
-                page.wait_for_timeout(self._page_delay_ms * 2)
+                wait_for_page_network_idle(page, timeout_ms=self._page_delay_ms * 2)
                 continue
             self._persist_storage_state(context)
             return html
@@ -493,7 +498,7 @@ class AmazonPlaywrightClient:
             if not classification.authenticated:
                 continue
             page.goto(target_url, wait_until="domcontentloaded")
-            page.wait_for_timeout(self._page_delay_ms)
+            wait_for_page_network_idle(page, timeout_ms=self._page_delay_ms)
             recovered_html = page.content()
             self._ensure_logged_in(page.url, recovered_html)
             self._persist_storage_state(context)

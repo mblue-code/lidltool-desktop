@@ -25,6 +25,7 @@ Sprint 16 focuses on product polish instead of new parity scope.
 
 - first-run and control-center copy now frames desktop as a local occasional-use product
 - the control center now explains whether you are in full-app-ready mode, reduced fallback mode, or control-center-only mode
+- desktop now boots into the low-power control center first and starts the Python backend only when the user explicitly opens the main app or starts the local service
 - receipt pack management is organized around installed packs, trusted optional packs, explicit enable/disable/remove actions, and clearer trust/support labels
 - backup, export, and restore flows now explain what is included, what stays out of scope, and where misunderstandings are most likely
 - regional edition and market profile context is surfaced more clearly from the existing release metadata
@@ -79,14 +80,19 @@ Residual debt after Sprint 6:
 
 Typical desktop flow:
 1. Open the app.
-2. Confirm whether the main app is available or whether the local control center is active.
+2. Land in the control center with the backend still off.
 3. Review the installed edition and market profile.
 4. Install, update, enable, disable, or remove receipt packs if needed.
-5. Run a one-off sync from the main app or from the control center using the connector `source_id` entries that the current desktop build exposes.
-6. Review results locally, then export or back up if you want a portable copy.
+5. Either keep the session shell-only for one-off export/backup/import work, or explicitly choose **Open main app** when you want the full UI.
+6. Run a one-off sync from the main app or from the control center using the connector `source_id` entries that the current desktop build exposes.
+7. Review results locally, then export or back up if you want a portable copy.
 
 ## Runtime model
 
+- Desktop launches into the Electron control center first.
+- The Python backend stays off at idle until the user explicitly chooses **Open main app** or **Start local service**.
+- Full-app startup runs the backend in desktop-minimal mode, which disables server-style background work such as the automation scheduler and connector live-sync thread.
+- One-off control-center tasks such as export, backup, restore, and most shell-managed workflows remain short-lived subprocesses instead of depending on a resident backend.
 - Preferred backend executable order:
   1. `LIDLTOOL_EXECUTABLE` env override
   2. bundled backend venv inside packaged app (`resources/backend-venv/...`)
@@ -99,6 +105,7 @@ Typical desktop flow:
   - `LIDLTOOL_REPO_ROOT`
   - `LIDLTOOL_CONFIG_DIR` rooted inside the Electron `userData` profile
   - `LIDLTOOL_DOCUMENT_STORAGE_PATH` rooted inside the Electron `userData` profile
+  - `LIDLTOOL_DESKTOP_MODE=true`
   - `LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY`
   - desktop-managed connector plugin env vars for explicitly enabled receipt plugin packs
   - `PLAYWRIGHT_BROWSERS_PATH=0` for bundled or managed venv backends
@@ -397,6 +404,37 @@ npm run test:e2e:prepare
 npm run test:e2e
 ```
 
+## Desktop profiling
+
+Use the built-in profiler to capture the full desktop process tree as JSON.
+
+Idle control center:
+
+```bash
+cd apps/desktop
+npm run profile:desktop -- --scenario idle-control-center
+```
+
+Idle full app:
+
+```bash
+cd apps/desktop
+npm run profile:desktop -- --scenario idle-full-app
+```
+
+Custom active workflow profiling:
+
+```bash
+cd apps/desktop
+npm run profile:desktop -- --scenario export --action-shell 'echo "drive the export flow here"'
+```
+
+Notes:
+- Reports are written under `apps/desktop/output/desktop-profiles/.../profile.json`.
+- The profiler launches Electron with an isolated desktop profile so measurements do not reuse your normal local state.
+- `idle-full-app` has a built-in **Open main app** transition.
+- `sync`, `export`, and `backup` are named profiling slots; drive the active step with `--action-shell` when you want a repeatable workflow-specific sample.
+
 ## Exact release workflow
 
 Run from `apps/desktop` on the target OS you are releasing for.
@@ -523,7 +561,8 @@ APP="$PWD/dist_electron/mac-arm64/LidlTool Desktop.app/Contents/MacOS/LidlTool D
 ```
 
 Verified via DevTools target + health probe:
-- page target URL auto-loaded to full UI on `http://127.0.0.1:18765/setup`
+- desktop launched into the control center first
+- opening the main app transitioned to the full UI on `http://127.0.0.1:18765/setup`
 - backend health endpoint `GET /api/v1/health` returned `200`
 
 Failure fallback command:

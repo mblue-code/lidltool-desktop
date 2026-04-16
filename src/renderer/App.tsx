@@ -468,6 +468,10 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
+      if (!backend?.running) {
+        const status = await window.desktopApi.startBackend();
+        setBackend(status);
+      }
       const url = new URL("/api/v1/dashboard/cards", config.apiBaseUrl);
       url.searchParams.set("db", config.dbPath);
       url.searchParams.set("year", String(year));
@@ -730,7 +734,7 @@ export default function App() {
         <div className="feature-grid">
           <div className="feature-card">
             <h3>Best for</h3>
-            <p>Open the app when you need a sync, a quick review, a JSON export, or a local backup.</p>
+            <p>Start here when you want a low-power shell for a sync, a quick review, a JSON export, or a local backup.</p>
           </div>
           <div className="feature-card">
             <h3>Supports</h3>
@@ -755,8 +759,9 @@ export default function App() {
             <span className={`status-chip ${backend?.running ? "status-enabled" : "status-disabled"}`}>{backendStatusText}</span>
           </div>
           <p>
-            The control center is the low-friction place to start the local service, open the main app, run a one-off
-            sync, or recover with exports and backups when the full UI is unavailable.
+            The control center is the low-friction place to keep desktop light at idle, start the local service only
+            when you need it, open the main app on demand, or recover with exports and backups when the full UI is
+            unavailable.
           </p>
           <div className="key-value-grid">
             <div>

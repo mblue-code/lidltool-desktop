@@ -10,18 +10,13 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-import uvicorn
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from lidltool.amazon.client_playwright import AmazonClientError, AmazonPlaywrightClient
-from lidltool.amazon.profiles import get_country_profile, is_amazon_source_id
-from lidltool.amazon.importer import AmazonImportService
-from lidltool.amazon.session import default_amazon_state_file
-from lidltool.analytics.queries import export_receipts, month_stats
+from lidltool.amazon.profiles import is_amazon_source_id
 from lidltool.auth.users import (
     SERVICE_USERNAME,
     create_local_user,
@@ -36,13 +31,8 @@ from lidltool.config import (
     default_config_file,
     validate_config,
 )
-from lidltool.connectors.auth.auth_orchestration import ConnectorAuthOrchestrationService
-from lidltool.connectors.runtime.errors import ConnectorRuntimeError
-from lidltool.connectors.runtime.execution import ConnectorExecutionService
-from lidltool.deployment_policy import evaluate_deployment_policy
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
 from lidltool.db.models import Source, Transaction, User
-from lidltool.ingest.sync import SyncProgress, SyncService
 from lidltool.logging import configure_logging
 
 app = typer.Typer(help="Lidl Plus receipts CLI")
@@ -127,15 +117,21 @@ def _resolve_amazon_state_file(
     *,
     source_id: str = "amazon_de",
 ) -> Path:
+    from lidltool.amazon.session import default_amazon_state_file
+
     target = path or default_amazon_state_file(config, source_id=source_id)
     return target.expanduser().resolve()
 
 
 def _connector_execution_service(config: AppConfig) -> ConnectorExecutionService:
+    from lidltool.connectors.runtime.execution import ConnectorExecutionService
+
     return ConnectorExecutionService(config=config)
 
 
 def _connector_auth_service(config: AppConfig) -> ConnectorAuthOrchestrationService:
+    from lidltool.connectors.auth.auth_orchestration import ConnectorAuthOrchestrationService
+
     execution = _connector_execution_service(config)
     return ConnectorAuthOrchestrationService(
         config=config,
@@ -150,6 +146,8 @@ def _connector_error_exit_code(exc: Exception) -> int:
 
 
 def _json_error_payload(exc: Exception) -> dict[str, Any]:
+    from lidltool.connectors.runtime.errors import ConnectorRuntimeError
+
     payload: dict[str, Any] = {
         "ok": False,
         "error": str(exc),
@@ -298,6 +296,8 @@ def _run_connector_sync_command(
     connector_options: dict[str, Any] | None = None,
     tracking_source_id: str | None = None,
 ) -> None:
+    from lidltool.ingest.sync import SyncService
+
     runtime = _ctx(ctx)
     service = _connector_execution_service(runtime.config)
     sync_options = dict(connector_options or {})
@@ -797,11 +797,23 @@ def serve_command(
     host: Annotated[str, typer.Option("--host", help="HTTP bind host")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", help="HTTP bind port")] = 8000,
     workers: Annotated[int, typer.Option("--workers", help="Uvicorn worker processes")] = 1,
+    desktop_mode: Annotated[
+        bool,
+        typer.Option(
+            "--desktop-mode/--no-desktop-mode",
+            help="Run the HTTP server in desktop-minimal mode",
+        ),
+    ] = False,
 ) -> None:
     runtime = _ctx(ctx)
     if workers < 1:
         raise typer.BadParameter("--workers must be >= 1")
+    import uvicorn
+    from lidltool.deployment_policy import evaluate_deployment_policy
+
     os.environ["LIDLTOOL_HTTP_BIND_HOST"] = host
+    if desktop_mode:
+        os.environ["LIDLTOOL_DESKTOP_MODE"] = "true"
     os.environ["LIDLTOOL_CONFIG"] = str(
         runtime.config_path or default_config_file(runtime.config.config_dir)
     )
@@ -831,6 +843,8 @@ def stats_month(
     year: Annotated[int, typer.Option("--year", help="Calendar year, e.g. 2026")],
     month: Annotated[int | None, typer.Option("--month", help="Optional month 1..12")] = None,
 ) -> None:
+    from lidltool.analytics.queries import month_stats
+
     runtime = _ctx(ctx)
     db_sessions = _create_session_factory(runtime.config)
 
@@ -867,6 +881,8 @@ def export_command(
     out: Annotated[Path, typer.Option("--out", help="Output file path")],
     format_name: Annotated[str, typer.Option("--format", help="Export format: json")] = "json",
 ) -> None:
+    from lidltool.analytics.queries import export_receipts
+
     runtime = _ctx(ctx)
     if format_name.lower() != "json":
         raise typer.BadParameter("Only --format json is currently supported")
@@ -900,6 +916,8 @@ def amazon_import_command(
         typer.Option("--store-name", help="Store name to persist for imported orders"),
     ] = "Amazon",
 ) -> None:
+    from lidltool.amazon.importer import AmazonImportService
+
     runtime = _ctx(ctx)
     db_sessions = _create_session_factory(runtime.config)
     service = AmazonImportService(
@@ -969,6 +987,9 @@ def amazon_scrape_command(
         typer.Option("--out", help="Write scraped orders JSON to this file"),
     ] = None,
 ) -> None:
+    from lidltool.amazon.client_playwright import AmazonClientError, AmazonPlaywrightClient
+    from lidltool.amazon.profiles import get_country_profile
+
     runtime = _ctx(ctx)
     profile = get_country_profile(source_id=source_id, domain=domain or None)
     target_state = _resolve_amazon_state_file(state_file, runtime.config, source_id=profile.source_id)

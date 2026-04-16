@@ -3620,12 +3620,19 @@ def create_app(
             sessions=sessions,
             bind_host=runtime_context.bind_host,
         )
-        scheduler = AutomationScheduler(session_factory=sessions, config=config)
-        scheduler.start()
-        app.state.automation_scheduler = scheduler
+        app.state.desktop_mode = config.desktop_mode
+        if config.desktop_mode:
+            LOGGER.info(
+                "desktop.minimal mode active; skipping automation scheduler and connector live sync"
+            )
+            app.state.automation_scheduler = None
+        else:
+            scheduler = AutomationScheduler(session_factory=sessions, config=config)
+            scheduler.start()
+            app.state.automation_scheduler = scheduler
         live_sync_stop = threading.Event()
         app.state.connector_live_sync_stop = live_sync_stop
-        if config.connector_live_sync_enabled:
+        if config.connector_live_sync_enabled and not config.desktop_mode:
             live_sync_thread = threading.Thread(
                 target=_run_periodic_connector_sync,
                 kwargs={

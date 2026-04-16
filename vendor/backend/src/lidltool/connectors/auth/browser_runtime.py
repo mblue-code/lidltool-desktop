@@ -405,6 +405,17 @@ def _should_accept_callback_candidate(
     return actual_state == expected_callback_state
 
 
+def wait_for_page_network_idle(page: Any, *, timeout_ms: int = 1000) -> None:
+    wait_for_load_state = getattr(page, "wait_for_load_state", None)
+    if not callable(wait_for_load_state):
+        return
+    try:
+        wait_for_load_state("networkidle", timeout=timeout_ms)
+    except PlaywrightError as exc:
+        if "timeout" not in str(exc).lower():
+            raise
+
+
 def _launch_auth_browser(
     *,
     playwright: Any,

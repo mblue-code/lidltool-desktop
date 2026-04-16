@@ -29,7 +29,7 @@ async function loadControlCenter(window: BrowserWindow, bootError?: string): Pro
   }
 }
 
-async function bootIntoFullApp(window: BrowserWindow): Promise<void> {
+async function openMainApp(window: BrowserWindow): Promise<void> {
   try {
     const diagnostics = runtime.getRuntimeDiagnostics();
     if (!diagnostics.fullAppReady) {
@@ -49,6 +49,23 @@ async function bootIntoFullApp(window: BrowserWindow): Promise<void> {
   }
 }
 
+async function loadStartupSurface(window: BrowserWindow): Promise<void> {
+  try {
+    const diagnostics = runtime.getRuntimeDiagnostics();
+    if (!diagnostics.fullAppReady) {
+      await loadControlCenter(
+        window,
+        `This build does not include the main app pages at '${diagnostics.frontendDistPath}'. ` +
+          "You can still run local sync, plugin pack, export, and backup tasks from the control center."
+      );
+      return;
+    }
+    await loadControlCenter(window);
+  } catch (err) {
+    await loadControlCenter(window, String(err));
+  }
+}
+
 function broadcastLocaleChanged(locale: DesktopLocale): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send("desktop:locale-changed", locale);
@@ -61,11 +78,12 @@ function updateDesktopLocale(locale: DesktopLocale): DesktopLocale {
   applyDesktopMenu(locale, mainWindow, {
     openFullApp: async () => {
       if (mainWindow) {
-        await bootIntoFullApp(mainWindow);
+        await openMainApp(mainWindow);
       }
     },
     reloadControlCenter: async () => {
       if (mainWindow) {
+        await runtime.stopBackend();
         await loadControlCenter(mainWindow, latestBootError ?? undefined);
       }
     },
@@ -171,7 +189,7 @@ function createWindow(): BrowserWindow {
     }
   });
 
-  void bootIntoFullApp(window);
+  void loadStartupSurface(window);
 
   return window;
 }

@@ -137,6 +137,22 @@ export async function launchDesktopApp(options: DesktopLaunchOptions = {}): Prom
   };
 }
 
+export async function openMainApp(page: Page): Promise<void> {
+  const openButton = page.getByRole("button", { name: "Open main app" }).first();
+  await expect(openButton).toBeVisible();
+  await openButton.click();
+  await page.waitForURL(/:\/\/(?:127\.0\.0\.1|localhost):\d+(?:\/|$)/, { timeout: 90_000 });
+  await page.waitForLoadState("domcontentloaded");
+  await page.evaluate(() => {
+    try {
+      window.localStorage.setItem("app.locale", "en");
+    } catch {
+      // Ignore storage access errors during bootstrap.
+    }
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+}
+
 export async function ensureAuthenticated(
   page: Page,
   credentials = {
@@ -156,6 +172,7 @@ export async function ensureAuthenticated(
   }
 
   async function createAccount(): Promise<string | null> {
+    await page.locator("#username").waitFor({ state: "visible" });
     await page.locator("#username").fill(credentials.username);
     await page.locator("#password").fill(credentials.password);
     await page.locator("#confirm").fill(credentials.password);
@@ -168,6 +185,7 @@ export async function ensureAuthenticated(
   }
 
   async function signIn(): Promise<string | null> {
+    await page.locator("#username").waitFor({ state: "visible" });
     await page.locator("#username").fill(credentials.username);
     await page.locator("#password").fill(credentials.password);
     const responsePromise = page.waitForResponse(
@@ -181,11 +199,23 @@ export async function ensureAuthenticated(
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const currentPath = new URL(page.url()).pathname;
 
+    if (
+      await page
+        .getByRole("button", { name: "Open main app" })
+        .first()
+        .isVisible()
+        .catch(() => false)
+    ) {
+      await openMainApp(page);
+      await page.waitForLoadState("domcontentloaded");
+      continue;
+    }
+
     if (currentPath === "/" && (await page.getByRole("heading", { name: "Overview" }).isVisible().catch(() => false))) {
       return;
     }
 
-    if (currentPath === "/setup" && (await page.getByRole("button", { name: "Create account" }).isVisible().catch(() => false))) {
+    if (currentPath === "/setup") {
       const error = await createAccount();
       if (error?.includes("setup already completed")) {
         await page.goto(new URL("/login", page.url()).toString());
@@ -197,7 +227,7 @@ export async function ensureAuthenticated(
       continue;
     }
 
-    if (currentPath === "/login" && (await page.getByRole("button", { name: "Sign in" }).isVisible().catch(() => false))) {
+    if (currentPath === "/login") {
       const error = await signIn();
       if (error?.includes("Invalid username or password")) {
         await page.goto(new URL("/setup", page.url()).toString());

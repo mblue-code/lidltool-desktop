@@ -206,28 +206,86 @@ export function AISettingsPage() {
     if (oauthStatus !== "pending") {
       return;
     }
-    const interval = window.setInterval(() => {
-      void fetchAIOAuthStatus()
-        .then((status) => {
-          if (status.status === "connected") {
-            setOauthStatus("connected");
-            setOauthError(null);
-            toast.success(t("pages.aiSettings.toast.oauthConnected"));
-            void queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
-            return;
-          }
-          if (status.status === "error") {
-            setOauthStatus("error");
-            setOauthError(status.error || t("pages.aiSettings.oauth.failed"));
-          }
-        })
-        .catch((error: unknown) => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    let polling = false;
+
+    const scheduleNextPoll = () => {
+      if (cancelled || document.visibilityState !== "visible") {
+        return;
+      }
+      timeoutId = window.setTimeout(() => {
+        timeoutId = null;
+        void pollStatus();
+      }, 1000);
+    };
+
+    const pollStatus = async () => {
+      if (cancelled || polling || document.visibilityState !== "visible") {
+        return;
+      }
+      polling = true;
+      let shouldPollAgain = false;
+      try {
+        const status = await fetchAIOAuthStatus();
+        if (cancelled) {
+          return;
+        }
+        if (status.status === "connected") {
+          setOauthStatus("connected");
+          setOauthError(null);
+          toast.success(t("pages.aiSettings.toast.oauthConnected"));
+          void queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
+          return;
+        }
+        if (status.status === "error") {
+          setOauthStatus("error");
+          setOauthError(status.error || t("pages.aiSettings.oauth.failed"));
+          return;
+        }
+        shouldPollAgain = true;
+      } catch (error: unknown) {
+        if (!cancelled) {
           setOauthStatus("error");
           setOauthError(resolveApiErrorMessage(error, t, t("pages.aiSettings.error.oauthStatus")));
-        });
-    }, 1000);
+        }
+      } finally {
+        polling = false;
+        if (!cancelled && shouldPollAgain && oauthStatus === "pending" && document.visibilityState === "visible") {
+          scheduleNextPoll();
+        }
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (cancelled) {
+        return;
+      }
+      if (document.visibilityState !== "visible") {
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        return;
+      }
+      if (timeoutId === null) {
+        void pollStatus();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    void pollStatus();
+
     return () => {
-      window.clearInterval(interval);
+      cancelled = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [oauthStatus, queryClient, t]);
 
