@@ -19,11 +19,6 @@ from lidltool.auth.bootstrap_playwright import run_headful_bootstrap
 from lidltool.auth.token_store import TokenStore
 from lidltool.config import AppConfig
 from lidltool.connectors.auth.auth_capabilities import ConnectorAuthCapabilities
-from lidltool.connectors.auth.browser_runtime import (
-    AuthBrowserRuntimeService,
-    build_auth_browser_runtime_context,
-    parse_auth_browser_start_request,
-)
 from lidltool.connectors.auth.auth_status import (
     AuthActionResult,
     AuthBootstrapSnapshot,
@@ -31,12 +26,14 @@ from lidltool.connectors.auth.auth_status import (
     BootstrapLifecycleState,
     NormalizedAuthState,
 )
+from lidltool.connectors.auth.browser_runtime import (
+    AuthBrowserRuntimeService,
+    build_auth_browser_runtime_context,
+    parse_auth_browser_start_request,
+)
 from lidltool.connectors.lifecycle import connector_runtime_options
 from lidltool.connectors.registry import ConnectorRegistry, get_connector_registry
 from lidltool.connectors.sdk.manifest import ConnectorManifest
-from lidltool.kaufland.bootstrap_playwright import run_kaufland_headful_bootstrap
-from lidltool.kaufland.client_playwright import KauflandClientError
-from lidltool.kaufland.session import default_kaufland_state_file
 from lidltool.lidl.client import LidlClientError
 from lidltool.lidl.market import resolve_lidl_market
 from lidltool.rewe.bootstrap_playwright import run_rewe_headful_bootstrap
@@ -223,14 +220,6 @@ _BUILTIN_AUTH_BRIDGES: dict[str, _BuiltinAuthBridge] = {
         state_file_resolver=default_rewe_state_file,
         bootstrap_runner=run_rewe_headful_bootstrap,
         default_domain="shop.rewe.de",
-    ),
-    "kaufland_de": _BuiltinAuthBridge(
-        source_id="kaufland_de",
-        auth_kind="browser_session",
-        handled_exceptions=(KauflandClientError,),
-        state_file_resolver=default_kaufland_state_file,
-        bootstrap_runner=run_kaufland_headful_bootstrap,
-        default_domain="www.kaufland.de",
     ),
     "rossmann_de": _BuiltinAuthBridge(
         source_id="rossmann_de",

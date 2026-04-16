@@ -299,7 +299,7 @@ test("installs, enables, lists, and uninstalls manual unsigned receipt plugin pa
     assert.equal(list.packs[0]?.status, "enabled");
     const runtimePolicy = await manager.getRuntimePolicy();
     assert.equal(runtimePolicy.activePluginSearchPaths.length, 1);
-    assert.equal(runtimePolicy.activePluginSearchPaths[0], list.packs[0]?.runtimeRoot);
+    assert.equal(runtimePolicy.activePluginSearchPaths[0], list.packs[0]?.installPath);
     assert.equal(runtimePolicy.allowedTrustClasses[0], "community_unsigned");
 
     const uninstall = await manager.uninstall("community.fixture_receipt_de");
@@ -471,7 +471,37 @@ test("reference receipt plugin template builds a desktop pack that installs clea
 
     const enabled = await manager.setEnabled(install.pack.pluginId, true);
     assert.equal(enabled.status, "enabled");
-    assert.equal((await manager.getRuntimePolicy()).activePluginSearchPaths[0], enabled.runtimeRoot);
+    assert.equal((await manager.getRuntimePolicy()).activePluginSearchPaths[0], enabled.installPath);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("kaufland receipt plugin builds a desktop pack that installs cleanly", async () => {
+  const rootDir = createManagerRoot();
+  const manager = createManager(rootDir);
+  const pluginDir = fileURLToPath(new URL("../../../plugins/kaufland_de/", import.meta.url));
+  const outputDir = join(rootDir, "kaufland-pack");
+  const build = spawnSync(
+    "python3",
+    [join(pluginDir, "build_desktop_pack.py"), "--output-dir", outputDir],
+    { encoding: "utf-8" }
+  );
+
+  try {
+    assert.equal(build.status, 0, build.stderr || build.stdout);
+    const packPath = build.stdout.trim().split(/\r?\n/).at(-1);
+    assert.ok(packPath);
+
+    const install = await manager.installFromFile(packPath);
+    assert.equal(install.action, "installed");
+    assert.equal(install.pack.sourceId, "kaufland_de");
+    assert.equal(install.pack.status, "disabled");
+    assert.equal(install.pack.integrityStatus, "verified");
+
+    const enabled = await manager.setEnabled(install.pack.pluginId, true);
+    assert.equal(enabled.status, "enabled");
+    assert.equal((await manager.getRuntimePolicy()).activePluginSearchPaths[0], enabled.installPath);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

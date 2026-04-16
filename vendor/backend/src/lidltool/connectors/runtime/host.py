@@ -397,12 +397,12 @@ class RuntimeHostedReceiptConnector(Connector):
             "entrypoint": manifest.entrypoint,
         }
 
-    def _streaming_delegate(self) -> object:
+    def _streaming_delegate(self) -> object | None:
         if self._target.connector is not None:
             return self._target.connector
         if self._target.legacy_auth_delegate is not None:
             return self._target.legacy_auth_delegate
-        return self
+        return None
 
     def _invoke(self, request: ReceiptActionRequest) -> ReceiptActionResponse:
         validated_request = validate_receipt_action_request(request)

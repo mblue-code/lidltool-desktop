@@ -4,6 +4,7 @@ import html
 import os
 import secrets
 import shutil
+import subprocess
 import sys
 import urllib.parse
 from tempfile import TemporaryDirectory
@@ -159,6 +160,8 @@ class AuthBrowserRuntimeService:
                 except PlaywrightError as exc:
                     context.close()
                     raise RuntimeError(f"browser auth session failed to open login page: {exc}") from exc
+
+                _foreground_auth_browser(page=page, environment=environment)
 
                 print("Browser open: complete login in the shared auth session window.", flush=True)
                 deadline = datetime.now(tz=UTC).timestamp() + request.plan.timeout_seconds
@@ -486,6 +489,50 @@ def _browser_launch_override(environment: Mapping[str, str]) -> dict[str, str] |
     browser_channel = str(environment.get(AUTH_BROWSER_CHANNEL_ENV) or "").strip()
     if browser_channel:
         return {"channel": browser_channel}
+    return None
+
+
+def _foreground_auth_browser(*, page: Any, environment: Mapping[str, str]) -> None:
+    try:
+        page.bring_to_front()
+    except Exception:
+        pass
+    if sys.platform != "darwin":
+        return
+    app_name = _browser_app_name(environment)
+    if not app_name:
+        return
+    try:
+        subprocess.run(
+            ["osascript", "-e", f'tell application "{app_name}" to activate'],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return
+
+
+def _browser_app_name(environment: Mapping[str, str]) -> str | None:
+    executable_path = str(environment.get(AUTH_BROWSER_EXECUTABLE_ENV) or "").strip()
+    lowered_path = executable_path.lower()
+    if "google chrome.app" in lowered_path:
+        return "Google Chrome"
+    if "chromium.app" in lowered_path:
+        return "Chromium"
+
+    browser_channel = str(environment.get(AUTH_BROWSER_CHANNEL_ENV) or "").strip().lower()
+    if browser_channel == "chrome":
+        return "Google Chrome"
+
+    detected = _detect_system_chromium_executable()
+    if detected is None:
+        return None
+    lowered_detected = str(detected).lower()
+    if "google chrome.app" in lowered_detected:
+        return "Google Chrome"
+    if "chromium.app" in lowered_detected:
+        return "Chromium"
     return None
 
 

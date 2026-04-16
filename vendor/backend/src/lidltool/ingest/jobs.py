@@ -16,9 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from lidltool.ai.mediation import PluginAiMediationService
 from lidltool.amazon.client_playwright import AmazonPlaywrightClient
-from lidltool.amazon.session import default_amazon_state_file
 from lidltool.auth.users import ensure_service_user
-from lidltool.auth.token_store import TokenStore
 from lidltool.config import AppConfig, build_config, database_url
 from lidltool.connectors.base import Connector
 from lidltool.connectors.registry import source_display_name
@@ -26,13 +24,12 @@ from lidltool.connectors.runtime import (
     ConnectorRuntimeHost,
     RuntimeHostedReceiptConnector,
 )
-from lidltool.connectors.runtime.errors import ConnectorRuntimeError
 from lidltool.connectors.runtime import execution as connector_execution_module
+from lidltool.connectors.runtime.errors import ConnectorRuntimeError
 from lidltool.connectors.runtime.execution import ConnectorExecutionService
 from lidltool.connectors.runtime.logging import log_runtime_invocation
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
 from lidltool.db.models import Document, IngestionJob, Source, SourceAccount
-from lidltool.kaufland.client_playwright import KauflandPlaywrightClient
 from lidltool.ingest.sync import SyncProgress, SyncResult, SyncService
 from lidltool.lidl.client import create_lidl_client
 from lidltool.rossmann.client_playwright import RossmannPlaywrightClient
@@ -595,7 +592,6 @@ class JobService:
     def _build_source_connector(self, *, source_config: AppConfig) -> tuple[Any | None, Connector]:
         connector_execution_module.create_lidl_client = create_lidl_client
         connector_execution_module.AmazonPlaywrightClient = AmazonPlaywrightClient
-        connector_execution_module.KauflandPlaywrightClient = KauflandPlaywrightClient
         connector_execution_module.RossmannPlaywrightClient = RossmannPlaywrightClient
         resolved = ConnectorExecutionService(
             config=source_config,

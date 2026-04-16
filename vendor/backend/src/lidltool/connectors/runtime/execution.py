@@ -19,7 +19,6 @@ from lidltool.connectors.base import (
     require_connector_action_scope,
     validate_connector_scope_contract,
 )
-from lidltool.connectors.kaufland_adapter import KauflandConnectorAdapter
 from lidltool.connectors.lidl_adapter import LidlConnectorAdapter
 from lidltool.connectors.lifecycle import connector_runtime_options
 from lidltool.connectors.netto_adapter import NettoConnectorAdapter
@@ -40,8 +39,6 @@ from lidltool.connectors.runtime.host import (
 )
 from lidltool.connectors.sdk.manifest import ConnectorManifest
 from lidltool.connectors.sdk.offer import OfferConnector
-from lidltool.kaufland.client_playwright import KauflandClientError, KauflandPlaywrightClient
-from lidltool.kaufland.session import default_kaufland_state_file
 from lidltool.lidl.client import LidlClientError, create_lidl_client
 from lidltool.rossmann.client_playwright import RossmannClientError, RossmannPlaywrightClient
 from lidltool.rossmann.session import default_rossmann_state_file
@@ -421,34 +418,6 @@ class ConnectorExecutionService:
                 connector=amazon_connector,
                 metadata={"state_file": str(state_file), "profile_dir": str(profile_dir), "domain": domain},
                 handled_exceptions=(AmazonClientError,),
-            )
-        if manifest.source_id == "kaufland_de":
-            state_file = self._resolve_state_file(
-                connector_options.get("state_file"),
-                default_kaufland_state_file(source_config),
-            )
-            domain = _string_option(connector_options, "domain", "www.kaufland.de")
-            headless = _bool_option(connector_options, "headless", True)
-            max_pages = _int_option(connector_options, "max_pages", 10)
-            store_name = _string_option(connector_options, "store_name", "Kaufland")
-            kaufland_client = KauflandPlaywrightClient(
-                state_file=state_file,
-                domain=domain,
-                headless=headless,
-                max_pages=max_pages,
-            )
-            kaufland_connector: Connector = KauflandConnectorAdapter(
-                client=kaufland_client,
-                source=tracking_source_id,
-                store_name=store_name,
-            )
-            return self._resolved_receipt_connector(
-                manifest=manifest,
-                source_config=source_config,
-                client=None,
-                connector=kaufland_connector,
-                metadata={"state_file": str(state_file), "domain": domain},
-                handled_exceptions=(KauflandClientError,),
             )
         if manifest.source_id == "netto_de":
             netto_connector: Connector = NettoConnectorAdapter(source=tracking_source_id)

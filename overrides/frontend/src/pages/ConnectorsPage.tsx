@@ -190,8 +190,8 @@ function isLidlConnector(sourceId: string): boolean {
   return sourceId === "lidl_plus_de" || sourceId === "lidl_plus_fr" || sourceId === "lidl_plus_gb";
 }
 
-function isDesktopHiddenBuiltinConnector(sourceId: string): boolean {
-  return sourceId === "kaufland_de" || sourceId === "rossmann_de";
+function isDesktopBundledBuiltinConnector(sourceId: string): boolean {
+  return isAmazonConnector(sourceId) || isLidlConnector(sourceId);
 }
 
 function connectorSortOrder(sourceId: string): number {
@@ -368,12 +368,76 @@ function fallbackConnectorGuide(displayName: string, locale: SupportedLocale): C
   };
 }
 
+function localizedKauflandGuide(locale: SupportedLocale): ConnectorGuide {
+  return {
+    headline: byLocale(locale, "Sign in with your Kaufland account", "Mit Ihrem Kaufland-Konto anmelden"),
+    summary: byLocale(
+      locale,
+      "Kaufland receipt sync uses the same Cidaas browser login flow as the Kaufland Android app.",
+      "Der Kaufland-Belegimport nutzt denselben Cidaas-Browser-Login wie die Kaufland-Android-App."
+    ),
+    speedDescription: byLocale(
+      locale,
+      "Usually quick once the Kaufland login finishes in the browser window opened by the desktop app.",
+      "Normalerweise schnell, sobald die Kaufland-Anmeldung im von der Desktop-App geöffneten Browserfenster abgeschlossen ist."
+    ),
+    caution: byLocale(
+      locale,
+      "This connector targets app-backed grocery receipts, not marketplace orders from kaufland.de.",
+      "Diese Anbindung richtet sich auf app-basierte Lebensmittelbelege und nicht auf Marktplatzbestellungen von kaufland.de."
+    ),
+    steps: [
+      {
+        title: byLocale(locale, "Start connector sign-in", "Anbindung anmelden"),
+        description: byLocale(
+          locale,
+          "Use the normal setup action so the desktop app can open the Kaufland login flow for you.",
+          "Nutzen Sie die normale Einrichtungsaktion, damit die Desktop-App den Kaufland-Login für Sie öffnen kann."
+        )
+      },
+      {
+        title: byLocale(locale, "Finish the Kaufland login", "Kaufland-Login abschließen"),
+        description: byLocale(
+          locale,
+          "Sign in in the browser window opened by the desktop app and let the redirect finish there.",
+          "Melden Sie sich im von der Desktop-App geöffneten Browserfenster an und lassen Sie die Weiterleitung dort vollständig durchlaufen."
+        )
+      },
+      {
+        title: byLocale(locale, "Import digital receipts", "Digitale Belege importieren"),
+        description: byLocale(
+          locale,
+          "After the callback succeeds, later imports run through Kaufland's receipt API from the host side.",
+          "Sobald der Callback abgeschlossen ist, laufen spätere Importe hostseitig über Kauflands Beleg-API."
+        )
+      }
+    ]
+  };
+}
+
+function pluginGuideOverride(
+  pack: DesktopReceiptPluginPackInfo | null,
+  locale: SupportedLocale
+): ConnectorGuide | null {
+  if (!pack) {
+    return null;
+  }
+  if (pack.sourceId === "kaufland_de") {
+    return localizedKauflandGuide(locale);
+  }
+  return null;
+}
+
 function connectorGuideForPack(
   pack: DesktopReceiptPluginPackInfo | null,
   displayName: string,
   locale: SupportedLocale
 ): ConnectorGuide {
   const fallback = fallbackConnectorGuide(displayName, locale);
+  const override = pluginGuideOverride(pack, locale);
+  if (override) {
+    return override;
+  }
   const onboarding = pack?.onboarding;
   if (!onboarding) {
     return fallback;
@@ -664,7 +728,19 @@ export function ConnectorsPage() {
         return;
       }
       setHighlightedPackId(result.pack.pluginId);
-      setFeedback(`Imported ${result.pack.displayName}. One more step: turn it on to use it in this app.`);
+      setFeedback(
+        result.pack.status === "disabled"
+          ? byLocale(
+              locale,
+              `Imported ${result.pack.displayName}. Use the Enable connector button below to finish adding it.`,
+              `${result.pack.displayName} wurde importiert. Aktivieren Sie die Anbindung unten, um sie fertig hinzuzufügen.`
+            )
+          : byLocale(
+              locale,
+              `Imported ${result.pack.displayName}. It is already active on this desktop.`,
+              `${result.pack.displayName} wurde importiert und ist auf diesem Gerät bereits aktiv.`
+            )
+      );
       if (result.pack.status === "disabled") {
         setPackGuideState({
           pack: result.pack,
@@ -676,7 +752,13 @@ export function ConnectorsPage() {
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
     onError: (error) => {
-      setFeedback(`Could not import the local receipt pack. ${String(error)}`);
+      setFeedback(
+        byLocale(
+          locale,
+          `Could not import the local receipt pack. ${String(error)}`,
+          `Das lokale Belegpaket konnte nicht importiert werden. ${String(error)}`
+        )
+      );
     }
   });
 
@@ -692,8 +774,16 @@ export function ConnectorsPage() {
       setHighlightedPackId(result.pack.pluginId);
       setFeedback(
         result.pack.status === "disabled"
-          ? `Installed ${result.pack.displayName}. Turn it on to finish adding it to this desktop app.`
-          : `Installed ${result.pack.displayName} from the trusted catalog.`
+          ? byLocale(
+              locale,
+              `Installed ${result.pack.displayName}. Use the Enable connector button below to finish adding it.`,
+              `${result.pack.displayName} wurde installiert. Aktivieren Sie die Anbindung unten, um sie fertig hinzuzufügen.`
+            )
+          : byLocale(
+              locale,
+              `Installed ${result.pack.displayName} from the trusted catalog.`,
+              `${result.pack.displayName} wurde aus dem vertrauenswürdigen Katalog installiert.`
+            )
       );
       if (result.pack.status === "disabled") {
         setPackGuideState({
@@ -706,7 +796,13 @@ export function ConnectorsPage() {
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
     onError: (error) => {
-      setFeedback(`Could not install the trusted receipt pack. ${String(error)}`);
+      setFeedback(
+        byLocale(
+          locale,
+          `Could not install the trusted receipt pack. ${String(error)}`,
+          `Das vertrauenswürdige Belegpaket konnte nicht installiert werden. ${String(error)}`
+        )
+      );
     }
   });
 
@@ -721,8 +817,16 @@ export function ConnectorsPage() {
     onSuccess: async (result, variables) => {
       setFeedback(
         variables.enabled
-          ? `${result.pack.displayName} is turned on. Next, use Set up to sign in if the connector asks for it.`
-          : `${result.pack.displayName} is turned off on this computer.`
+          ? byLocale(
+              locale,
+              `${result.pack.displayName} is turned on. Next, use Set up to sign in if the connector asks for it.`,
+              `${result.pack.displayName} ist jetzt aktiv. Nutzen Sie als Nächstes Einrichten, falls die Anbindung eine Anmeldung benötigt.`
+            )
+          : byLocale(
+              locale,
+              `${result.pack.displayName} is turned off on this computer.`,
+              `${result.pack.displayName} ist auf diesem Gerät jetzt deaktiviert.`
+            )
       );
       if (variables.enabled) {
         setHighlightedPackId(result.pack.pluginId);
@@ -732,7 +836,13 @@ export function ConnectorsPage() {
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
     onError: (error) => {
-      setFeedback(`Could not update the receipt pack state. ${String(error)}`);
+      setFeedback(
+        byLocale(
+          locale,
+          `Could not update the receipt pack state. ${String(error)}`,
+          `Der Status des Belegpakets konnte nicht aktualisiert werden. ${String(error)}`
+        )
+      );
     }
   });
 
@@ -745,14 +855,26 @@ export function ConnectorsPage() {
       return await bridge.uninstallReceiptPlugin(pluginId);
     },
     onSuccess: async (_result, pluginId) => {
-      setFeedback(`Removed ${pluginId} from desktop storage.`);
+      setFeedback(
+        byLocale(
+          locale,
+          `Removed ${pluginId} from desktop storage.`,
+          `${pluginId} wurde aus dem Desktop-Speicher entfernt.`
+        )
+      );
       setHighlightedPackId((current) => (current === pluginId ? null : current));
       setPackGuideState((current) => (current?.pack.pluginId === pluginId ? null : current));
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
     onError: (error) => {
-      setFeedback(`Could not remove the receipt pack. ${String(error)}`);
+      setFeedback(
+        byLocale(
+          locale,
+          `Could not remove the receipt pack. ${String(error)}`,
+          `Das Belegpaket konnte nicht entfernt werden. ${String(error)}`
+        )
+      );
     }
   });
 
@@ -791,10 +913,15 @@ export function ConnectorsPage() {
   const viewerIsAdmin = Boolean(connectorsQuery.data?.viewer.is_admin);
   const visibleConnectors = useMemo(
     () =>
-      connectors.filter(
-        (connector) =>
-          connector.ui.visibility === "default" && !isDesktopHiddenBuiltinConnector(connector.source_id)
-      ),
+      connectors.filter((connector) => {
+        if (connector.ui.visibility !== "default") {
+          return false;
+        }
+        if (connector.install_origin === "builtin") {
+          return isDesktopBundledBuiltinConnector(connector.source_id);
+        }
+        return true;
+      }),
     [connectors]
   );
   const bootstrapCapableConnectors = useMemo(
@@ -1413,10 +1540,20 @@ export function ConnectorsPage() {
                     <p className="text-sm text-muted-foreground">{guide.caution}</p>
                     <div className="flex flex-wrap gap-2">
                       <Button
+                        onClick={() => void togglePackMutation.mutateAsync({ pluginId: pack.pluginId, enabled: true })}
+                        disabled={togglePackMutation.isPending}
+                      >
+                        {togglePackMutation.isPending && togglePackMutation.variables?.pluginId === pack.pluginId ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : null}
+                        {byLocale(locale, "Enable connector", "Anbindung aktivieren")}
+                      </Button>
+                      <Button
+                        variant="outline"
                         onClick={() => openPackGuide(pack, true)}
                         disabled={togglePackMutation.isPending}
                       >
-                        {byLocale(locale, "Review and enable", "Prüfen und aktivieren")}
+                        {byLocale(locale, "Review first", "Zuerst prüfen")}
                       </Button>
                       <Button
                         variant="outline"

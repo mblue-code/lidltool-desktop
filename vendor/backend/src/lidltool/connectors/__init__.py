@@ -1,8 +1,6 @@
 from lidltool.connectors.amazon_adapter import AmazonConnectorAdapter
 from lidltool.connectors.base import BaseConnectorAdapter, Connector
-from lidltool.connectors.kaufland_adapter import KauflandConnectorAdapter
 from lidltool.connectors.lidl_adapter import LidlConnectorAdapter
-from lidltool.connectors.netto_adapter import NettoConnectorAdapter
 from lidltool.connectors.manifest import ConnectorManifest, ManifestValidationError
 from lidltool.connectors.market_catalog import (
     connector_distribution_payload,
@@ -10,6 +8,7 @@ from lidltool.connectors.market_catalog import (
     product_market_strategy_payload,
     self_hosted_market_strategy_payload,
 )
+from lidltool.connectors.netto_adapter import NettoConnectorAdapter
 from lidltool.connectors.registry import ConnectorRegistry, get_connector_registry
 from lidltool.connectors.rewe_adapter import ReweConnectorAdapter
 from lidltool.connectors.rossmann_adapter import RossmannConnectorAdapter
@@ -30,7 +29,6 @@ __all__ = [
     "connector_distribution_payload",
     "get_connector_market_catalog",
     "ConnectorPolicy",
-    "KauflandConnectorAdapter",
     "LidlConnectorAdapter",
     "NettoConnectorAdapter",
     "ManifestValidationError",

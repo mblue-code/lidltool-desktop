@@ -108,7 +108,6 @@ def _fallback_maturity(source_id: str) -> ConnectorMaturity:
         "amazon_de": "working",
         "amazon_fr": "working",
         "amazon_gb": "working",
-        "kaufland_de": "preview",
         "rossmann_de": "preview",
         "rewe_de": "stub",
     }

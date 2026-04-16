@@ -163,12 +163,12 @@ describe("ConnectorsPage", () => {
         },
         {
           source_id: "kaufland_de",
-          plugin_id: "builtin.kaufland_de",
+          plugin_id: "local.kaufland_de",
           display_name: "Kaufland",
-          origin: "builtin",
-          origin_label: "Built-in",
-          runtime_kind: "builtin",
-          install_origin: "builtin",
+          origin: "local_path",
+          origin_label: "Local plugin",
+          runtime_kind: "subprocess_python",
+          install_origin: "local_path",
           install_state: "installed",
           enable_state: "enabled",
           config_state: "complete",
@@ -246,11 +246,11 @@ describe("ConnectorsPage", () => {
               graduation_requirements: []
             },
             origin: {
-              kind: "builtin",
-              runtime_kind: "builtin",
-              search_path: null,
-              origin_path: null,
-              origin_directory: null
+              kind: "local_path",
+              runtime_kind: "subprocess_python",
+              search_path: "/tmp/plugins",
+              origin_path: "/tmp/plugins/kaufland_de/manifest.json",
+              origin_directory: "/tmp/plugins/kaufland_de"
             },
             diagnostics: [],
             manual_commands: {}
@@ -670,7 +670,7 @@ describe("ConnectorsPage", () => {
     expect(await screen.findByText("Finish adding connectors")).toBeInTheDocument();
     expect(screen.getByText("Your stores")).toBeInTheDocument();
     expect(await screen.findByText("Amazon")).toBeInTheDocument();
-    expect(screen.queryByText("Kaufland")).not.toBeInTheDocument();
+    expect(await screen.findByText("Kaufland")).toBeInTheDocument();
     expect(screen.queryByText("Rossmann")).not.toBeInTheDocument();
     expect((await screen.findAllByText("DM")).length).toBeGreaterThan(0);
     expect(await screen.findByText("Trusted connectors you can add")).toBeInTheDocument();
@@ -678,14 +678,16 @@ describe("ConnectorsPage", () => {
     expect(screen.queryByText("Preview")).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Add connector file" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Sign in again" })).toBeInTheDocument();
-    expect(await screen.findByText("More options")).toBeInTheDocument();
+    expect((await screen.findAllByText("More options")).length).toBeGreaterThan(0);
   });
 
   it("saves connector settings before continuing setup", async () => {
     renderPage();
 
-    fireEvent.click(await screen.findByText("More options"));
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    const amazonCard = (await screen.findByText("Amazon")).closest('[class*="rounded-xl"]');
+    expect(amazonCard).not.toBeNull();
+    fireEvent.click(within(amazonCard as HTMLElement).getByText("More options"));
+    fireEvent.click(within(amazonCard as HTMLElement).getByRole("button", { name: "Settings" }));
     fireEvent.change(await screen.findByLabelText("Domain"), {
       target: { value: "amazon.com" }
     });
@@ -732,7 +734,7 @@ describe("ConnectorsPage", () => {
   it("shows slow DM guidance before enabling a slower scraper", async () => {
     renderPage();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review and enable" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Review first" }));
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Before you turn on DM")).toBeInTheDocument();
@@ -746,5 +748,18 @@ describe("ConnectorsPage", () => {
     await waitFor(() => {
       expect(window.desktopApi?.enableReceiptPlugin).toHaveBeenCalledWith("community.dm_de");
     });
+  });
+
+  it("shows a direct enable button for newly imported disabled packs", async () => {
+    renderPage();
+
+    const importButton = await screen.findByRole("button", { name: "Add connector file" });
+    await waitFor(() => {
+      expect(importButton).not.toBeDisabled();
+    });
+    fireEvent.click(importButton);
+
+    const enableButtons = await screen.findAllByRole("button", { name: "Enable connector" });
+    expect(enableButtons.length).toBeGreaterThan(0);
   });
 });
