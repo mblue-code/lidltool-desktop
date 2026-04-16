@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
+import { openDesktopControlCenter } from "@/lib/desktop-shell";
 
 type DesktopImportResult = {
   ok: boolean;
@@ -37,7 +38,7 @@ function getDesktopApiBridge(): DesktopApiBridge {
 
 export function SetupPage() {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -163,6 +164,17 @@ export function SetupPage() {
             {busy ? t("auth.setup.submitting") : t("auth.setup.submit")}
           </Button>
         </form>
+
+        <div className="app-section-divider space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {locale === "de"
+              ? "Lieber zuerst lokale Werkzeuge, Anbindungen oder Backups nutzen? Das Kontrollzentrum bleibt jederzeit erreichbar."
+              : "Need local tools, connectors, or backups first? The control center stays available at any time."}
+          </p>
+          <Button type="button" variant="outline" className="w-full" onClick={() => void openDesktopControlCenter()}>
+            {locale === "de" ? "Kontrollzentrum öffnen" : "Open control center"}
+          </Button>
+        </div>
 
         <div className="app-section-divider space-y-3">
           <p className="text-sm font-medium">{t("auth.setup.restoreTitle")}</p>

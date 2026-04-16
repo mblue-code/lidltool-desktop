@@ -158,6 +158,29 @@ h3 {
   gap: 10px;
 }
 
+.journey-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.journey-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(210, 226, 255, 0.1);
+  background: rgba(255, 255, 255, 0.035);
+  text-decoration: none;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.journey-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(127, 197, 255, 0.28);
+  background: rgba(255, 255, 255, 0.055);
+}
+
 .feature-grid,
 .trust-legend {
   display: grid;
@@ -199,6 +222,11 @@ h3 {
 .key-value-grid strong {
   font-size: 0.98rem;
   line-height: 1.45;
+}
+
+.stack-fields {
+  display: grid;
+  gap: 12px;
 }
 
 label {
@@ -320,6 +348,20 @@ button:not(:disabled):hover,
   background: rgba(255, 255, 255, 0.02);
 }
 
+.subpanel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(210, 226, 255, 0.1);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.subpanel-heading {
+  display: grid;
+  gap: 6px;
+}
+
 .plugin-list {
   display: grid;
   gap: 12px;
@@ -405,6 +447,10 @@ pre {
 details {
   display: grid;
   gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(210, 226, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 details summary {
@@ -435,6 +481,10 @@ details summary {
   .section-heading,
   .plugin-pack-header {
     flex-direction: column;
+  }
+
+  .journey-grid {
+    grid-template-columns: 1fr;
   }
 
   .locale-switcher {

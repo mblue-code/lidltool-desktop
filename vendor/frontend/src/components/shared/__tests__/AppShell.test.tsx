@@ -101,6 +101,12 @@ function renderShell(
 describe("AppShell", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    Object.defineProperty(window, "desktopApi", {
+      configurable: true,
+      value: {
+        openControlCenter: vi.fn()
+      }
+    });
     setRequestScope("personal");
     window.localStorage?.removeItem?.("app.global_sync_banner.dismissed");
     window.localStorage?.removeItem?.("layout.chat_panel_width");
@@ -164,6 +170,15 @@ describe("AppShell", () => {
     expect(screen.getByText("Receipts content")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preferences" })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Add Receipt" })[0]).toBeInTheDocument();
+  });
+
+  it("offers a signed-in path back to the control center from preferences", () => {
+    renderShell();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Preferences" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open control center" }));
+
+    expect((window.desktopApi as { openControlCenter?: ReturnType<typeof vi.fn> } | undefined)?.openControlCenter).toHaveBeenCalledTimes(1);
   });
 
   it("hides the global sync banner when sync status refetch fails after cached running data", async () => {

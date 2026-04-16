@@ -144,7 +144,7 @@ _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS: tuple[dict[str, Any], ...] = (
                 "lidl_plus_gb",
             ],
         },
-        "metadata": {"maturity": "preview"},
+        "metadata": {"maturity": "working"},
     },
     {
         "plugin_id": "builtin.lidl_plus_fr",
@@ -207,7 +207,7 @@ _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS: tuple[dict[str, Any], ...] = (
                 "lidl_plus_fr",
             ],
         },
-        "metadata": {"maturity": "preview"},
+        "metadata": {"maturity": "working"},
     },
     {
         "plugin_id": "builtin.amazon_de",
@@ -296,7 +296,7 @@ _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS: tuple[dict[str, Any], ...] = (
                 },
             ]
         },
-        "metadata": {"maturity": "preview"},
+        "metadata": {"maturity": "working"},
     },
     {
         "plugin_id": "builtin.amazon_fr",
@@ -385,7 +385,7 @@ _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS: tuple[dict[str, Any], ...] = (
                 },
             ]
         },
-        "metadata": {"maturity": "preview"},
+        "metadata": {"maturity": "working"},
     },
     {
         "plugin_id": "builtin.amazon_gb",
@@ -474,7 +474,7 @@ _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS: tuple[dict[str, Any], ...] = (
                 },
             ]
         },
-        "metadata": {"maturity": "preview"},
+        "metadata": {"maturity": "working"},
     },
     {
         "plugin_id": "builtin.kaufland_de",

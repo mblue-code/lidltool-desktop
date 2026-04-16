@@ -64,7 +64,7 @@ describe("ConnectorsPage", () => {
       generated_at: "2026-04-01T09:00:00Z",
       viewer: { is_admin: true },
       operator_actions: { can_reload: true, can_rescan: true },
-      summary: { total_connectors: 1, by_status: { ready: 1 } },
+      summary: { total_connectors: 3, by_status: { ready: 1, setup_required: 2 } },
       connectors: [
         {
           source_id: "amazon_de",
@@ -156,6 +156,196 @@ describe("ConnectorsPage", () => {
               search_path: "/tmp/plugins",
               origin_path: "/tmp/plugins/amazon",
               origin_directory: "/tmp/plugins"
+            },
+            diagnostics: [],
+            manual_commands: {}
+          }
+        },
+        {
+          source_id: "kaufland_de",
+          plugin_id: "builtin.kaufland_de",
+          display_name: "Kaufland",
+          origin: "builtin",
+          origin_label: "Built-in",
+          runtime_kind: "builtin",
+          install_origin: "builtin",
+          install_state: "installed",
+          enable_state: "enabled",
+          config_state: "complete",
+          maturity: "preview",
+          maturity_label: "Preview",
+          supports_bootstrap: true,
+          supports_sync: true,
+          supports_live_session: true,
+          supports_live_session_bootstrap: true,
+          trust_class: "official",
+          status_detail: null,
+          last_sync_summary: null,
+          last_synced_at: null,
+          ui: {
+            status: "setup_required",
+            visibility: "default",
+            description: "Kaufland setup",
+            actions: {
+              primary: { kind: "set_up", enabled: true },
+              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+              operator: {
+                full_sync: true,
+                rescan: true,
+                reload: true,
+                install: false,
+                enable: false,
+                disable: false,
+                uninstall: false,
+                configure: false,
+                manual_commands: {}
+              }
+            }
+          },
+          actions: {
+            primary: { kind: "set_up", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: false,
+              manual_commands: {}
+            }
+          },
+          advanced: {
+            source_exists: true,
+            stale: false,
+            stale_reason: null,
+            auth_state: "not_connected",
+            latest_sync_output: [],
+            latest_bootstrap_output: [],
+            latest_sync_status: "idle",
+            latest_bootstrap_status: "idle",
+            block_reason: null,
+            policy: {
+              blocked: false,
+              block_reason: null,
+              status: "enabled",
+              status_detail: null,
+              trust_class: "official",
+              external_runtime_enabled: true,
+              external_receipt_plugins_enabled: true,
+              allowed_trust_classes: ["official"]
+            },
+            release: {
+              maturity: "preview",
+              label: "Preview",
+              support_posture: "Preview",
+              description: "Desktop-managed pack.",
+              default_visibility: "default",
+              graduation_requirements: []
+            },
+            origin: {
+              kind: "builtin",
+              runtime_kind: "builtin",
+              search_path: null,
+              origin_path: null,
+              origin_directory: null
+            },
+            diagnostics: [],
+            manual_commands: {}
+          }
+        },
+        {
+          source_id: "rossmann_de",
+          plugin_id: "builtin.rossmann_de",
+          display_name: "Rossmann",
+          origin: "builtin",
+          origin_label: "Built-in",
+          runtime_kind: "builtin",
+          install_origin: "builtin",
+          install_state: "installed",
+          enable_state: "enabled",
+          config_state: "complete",
+          maturity: "preview",
+          maturity_label: "Preview",
+          supports_bootstrap: true,
+          supports_sync: true,
+          supports_live_session: true,
+          supports_live_session_bootstrap: true,
+          trust_class: "official",
+          status_detail: null,
+          last_sync_summary: null,
+          last_synced_at: null,
+          ui: {
+            status: "setup_required",
+            visibility: "default",
+            description: "Rossmann setup",
+            actions: {
+              primary: { kind: "set_up", enabled: true },
+              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+              operator: {
+                full_sync: true,
+                rescan: true,
+                reload: true,
+                install: false,
+                enable: false,
+                disable: false,
+                uninstall: false,
+                configure: false,
+                manual_commands: {}
+              }
+            }
+          },
+          actions: {
+            primary: { kind: "set_up", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: false,
+              manual_commands: {}
+            }
+          },
+          advanced: {
+            source_exists: true,
+            stale: false,
+            stale_reason: null,
+            auth_state: "not_connected",
+            latest_sync_output: [],
+            latest_bootstrap_output: [],
+            latest_sync_status: "idle",
+            latest_bootstrap_status: "idle",
+            block_reason: null,
+            policy: {
+              blocked: false,
+              block_reason: null,
+              status: "enabled",
+              status_detail: null,
+              trust_class: "official",
+              external_runtime_enabled: true,
+              external_receipt_plugins_enabled: true,
+              allowed_trust_classes: ["official"]
+            },
+            release: {
+              maturity: "preview",
+              label: "Preview",
+              support_posture: "Preview",
+              description: "Desktop-managed pack.",
+              default_visibility: "default",
+              graduation_requirements: []
+            },
+            origin: {
+              kind: "builtin",
+              runtime_kind: "builtin",
+              search_path: null,
+              origin_path: null,
+              origin_directory: null
             },
             diagnostics: [],
             manual_commands: {}
@@ -476,20 +666,26 @@ describe("ConnectorsPage", () => {
     renderPage();
 
     expect(await screen.findByText("Connectors")).toBeInTheDocument();
-    expect(screen.getByText("Start here")).toBeInTheDocument();
-    expect(await screen.findByText("Turn on imported connectors")).toBeInTheDocument();
-    expect(screen.getByText("Your connectors")).toBeInTheDocument();
+    expect(screen.queryByText("Start here")).not.toBeInTheDocument();
+    expect(await screen.findByText("Finish adding connectors")).toBeInTheDocument();
+    expect(screen.getByText("Your stores")).toBeInTheDocument();
     expect(await screen.findByText("Amazon")).toBeInTheDocument();
+    expect(screen.queryByText("Kaufland")).not.toBeInTheDocument();
+    expect(screen.queryByText("Rossmann")).not.toBeInTheDocument();
     expect((await screen.findAllByText("DM")).length).toBeGreaterThan(0);
-    expect(await screen.findByText("Trusted pack update available")).toBeInTheDocument();
     expect(await screen.findByText("Trusted connectors you can add")).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "Import .zip connector" })).toBeInTheDocument();
+    expect(await screen.findByText("Needs attention")).toBeInTheDocument();
+    expect(screen.queryByText("Preview")).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Add connector file" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Sign in again" })).toBeInTheDocument();
+    expect(await screen.findByText("More options")).toBeInTheDocument();
   });
 
   it("saves connector settings before continuing setup", async () => {
     renderPage();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Connector settings" }));
+    fireEvent.click(await screen.findByText("More options"));
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     fireEvent.change(await screen.findByLabelText("Domain"), {
       target: { value: "amazon.com" }
     });
@@ -508,7 +704,7 @@ describe("ConnectorsPage", () => {
   it("opens fast onboarding after import and lets the user enable the connector immediately", async () => {
     renderPage();
 
-    const importButton = await screen.findByRole("button", { name: "Import .zip connector" });
+    const importButton = await screen.findByRole("button", { name: "Add connector file" });
     await waitFor(() => {
       expect(importButton).not.toBeDisabled();
     });

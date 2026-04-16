@@ -5,7 +5,7 @@ test("falls back to the control center when the main frontend bundle is unavaila
   const session = await launchDesktopApp({ frontendDistMode: "missing" });
   const { page, close } = session;
   const controlCenterCard = page.locator("article.card").filter({
-    has: page.getByRole("heading", { name: "Desktop mode and quick actions" })
+    has: page.getByRole("heading", { name: "Use LidlTool on this computer" })
   });
 
   try {
@@ -16,8 +16,8 @@ test("falls back to the control center when the main frontend bundle is unavaila
 
     await page.getByRole("button", { name: "Start local service" }).first().click();
     await expect(controlCenterCard.locator(".status-chip").first()).toContainText(/Running|aktiv/);
-    await expect(page.getByRole("link", { name: "Manage receipt packs" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Backup or export data" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Manage connectors", exact: true })).toBeVisible();
+    await expect(page.locator('a[href="#safety"]').first()).toBeVisible();
 
     await page.getByRole("button", { name: "Stop local service" }).first().click();
     await expect(controlCenterCard.locator(".status-chip").first()).toContainText(/Stopped|gestoppt/);

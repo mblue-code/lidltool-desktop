@@ -66,6 +66,11 @@ async function loadStartupSurface(window: BrowserWindow): Promise<void> {
   }
 }
 
+async function openControlCenter(window: BrowserWindow): Promise<void> {
+  await runtime.stopBackend();
+  await loadControlCenter(window, latestBootError ?? undefined);
+}
+
 function broadcastLocaleChanged(locale: DesktopLocale): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send("desktop:locale-changed", locale);
@@ -204,7 +209,12 @@ app.whenReady().then(() => {
     runtime,
     () => latestBootError,
     () => currentLocale,
-    (locale) => updateDesktopLocale(locale)
+    (locale) => updateDesktopLocale(locale),
+    async () => {
+      if (mainWindow) {
+        await openControlCenter(mainWindow);
+      }
+    }
   );
 
   app.on("activate", () => {

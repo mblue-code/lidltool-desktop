@@ -69,10 +69,7 @@ type ConnectorGuide = {
   }>;
 };
 
-type ActionExplain = {
-  label: string;
-  description: string;
-};
+type ConnectorTaskState = "setup_required" | "ready" | "syncing" | "needs_attention";
 
 function byLocale(locale: SupportedLocale, en: string, de: string): string {
   return locale === "de" ? de : en;
@@ -193,6 +190,10 @@ function isLidlConnector(sourceId: string): boolean {
   return sourceId === "lidl_plus_de" || sourceId === "lidl_plus_fr" || sourceId === "lidl_plus_gb";
 }
 
+function isDesktopHiddenBuiltinConnector(sourceId: string): boolean {
+  return sourceId === "kaufland_de" || sourceId === "rossmann_de";
+}
+
 function connectorSortOrder(sourceId: string): number {
   if (sourceId.endsWith("_de")) {
     return 0;
@@ -241,24 +242,40 @@ function connectorDisplayName(connector: ConnectorDiscoveryRow): string {
   return connector.display_name;
 }
 
-function connectorStatusLabel(connector: ConnectorDiscoveryRow, locale: SupportedLocale): string {
-  switch (connector.ui.status) {
+function connectorTaskState(connector: ConnectorDiscoveryRow): ConnectorTaskState {
+  if (connector.ui.status === "syncing") {
+    return "syncing";
+  }
+  if (
+    connector.actions.primary.kind === "reconnect" ||
+    connector.advanced.auth_state === "reauth_required" ||
+    connector.advanced.auth_state === "auth_failed" ||
+    connector.ui.status === "needs_attention" ||
+    connector.ui.status === "error"
+  ) {
+    return "needs_attention";
+  }
+  if (
+    connector.actions.primary.kind === "set_up" ||
+    connector.advanced.auth_state === "not_connected" ||
+    connector.ui.status === "setup_required" ||
+    connector.ui.status === "preview"
+  ) {
+    return "setup_required";
+  }
+  return "ready";
+}
+
+function connectorStatusLabel(state: ConnectorTaskState, locale: SupportedLocale): string {
+  switch (state) {
     case "setup_required":
       return byLocale(locale, "Setup required", "Einrichtung nötig");
-    case "connected":
-      return byLocale(locale, "Connected", "Verbunden");
-    case "syncing":
-      return byLocale(locale, "Syncing", "Import läuft");
     case "ready":
       return byLocale(locale, "Ready", "Bereit");
+    case "syncing":
+      return byLocale(locale, "Importing", "Import läuft");
     case "needs_attention":
       return byLocale(locale, "Needs attention", "Aktion nötig");
-    case "error":
-      return byLocale(locale, "Error", "Fehler");
-    case "preview":
-      return byLocale(locale, "Preview", "Vorschau");
-    default:
-      return byLocale(locale, "Unknown", "Unbekannt");
   }
 }
 
@@ -373,152 +390,84 @@ function connectorGuideForPack(
 function connectorStatusSummary(
   connector: ConnectorDiscoveryRow,
   pack: DesktopReceiptPluginPackInfo | null,
+  displayName: string,
   locale: SupportedLocale
 ): string {
+  const taskState = connectorTaskState(connector);
   if (pack?.status === "disabled") {
     return byLocale(
       locale,
-      "Imported on this computer, but still turned off.",
-      "Auf diesem Gerät vorhanden, aber noch ausgeschaltet."
+      `Turn on ${displayName} to finish adding it to this computer.`,
+      `Aktivieren Sie ${displayName}, um die Einrichtung auf diesem Gerät abzuschließen.`
     );
   }
-  if (connector.ui.status === "syncing") {
+  if (taskState === "syncing") {
     return byLocale(
       locale,
-      "Import is running right now.",
-      "Der Import läuft gerade. Neue Belege werden schrittweise hinzugefügt."
+      "Your receipts are being imported now.",
+      "Ihre Belege werden gerade importiert."
     );
   }
-  if (connector.ui.status === "setup_required") {
+  if (taskState === "setup_required") {
     return byLocale(
       locale,
-      "Needs a first sign-in before it can import receipts.",
-      "Vor dem ersten Import ist eine Anmeldung nötig."
+      `Sign in once to import receipts from ${displayName}.`,
+      `Melden Sie sich einmal an, um Belege von ${displayName} zu importieren.`
     );
   }
-  if (connector.actions.primary.kind === "reconnect") {
+  if (taskState === "needs_attention") {
     return byLocale(
       locale,
-      "Your sign-in needs attention before the next import.",
-      "Die Anmeldung muss vor dem nächsten Import erneuert werden."
+      "Your sign-in needs a quick refresh before the next import.",
+      "Ihre Anmeldung muss vor dem nächsten Import kurz erneuert werden."
     );
-  }
-  if (connector.ui.status === "error" || connector.ui.status === "needs_attention") {
-    return connector.advanced.auth_state === "reauth_required"
-      ? byLocale(
-          locale,
-          "Saved sign-in expired. Please sign in again.",
-          "Die gespeicherte Anmeldung ist abgelaufen. Bitte erneut anmelden."
-        )
-      : connector.status_detail ??
-          byLocale(
-            locale,
-            "This connector needs attention before it can be used normally.",
-            "Diese Anbindung braucht Aufmerksamkeit, bevor sie wieder normal genutzt werden kann."
-          );
   }
   if (connector.last_synced_at) {
-    return byLocale(locale, "Ready for the next import.", "Bereit für den nächsten Import.");
+    return byLocale(locale, "Everything is ready for the next import.", "Alles ist bereit für den nächsten Import.");
   }
-  return connector.ui.description;
+  return byLocale(
+    locale,
+    "Everything is ready. Start an import whenever you want.",
+    "Alles ist bereit. Starten Sie den Import, wann immer Sie möchten."
+  );
 }
 
-function primaryActionLabel(connector: ConnectorDiscoveryRow, locale: SupportedLocale): string {
+function primaryActionLabel(
+  connector: ConnectorDiscoveryRow,
+  taskState: ConnectorTaskState,
+  locale: SupportedLocale
+): string {
+  if (taskState === "setup_required") {
+    return byLocale(locale, "Set up", "Einrichten");
+  }
   if (connector.actions.primary.kind === "reconnect") {
     return byLocale(locale, "Sign in again", "Erneut anmelden");
   }
   if (connector.actions.primary.kind === "sync_now") {
-    return byLocale(locale, "Import new receipts", "Neue Belege laden");
+    return byLocale(locale, "Import receipts", "Belege importieren");
   }
-  return byLocale(locale, "Connect", "Verbinden");
+  return byLocale(locale, "Set up", "Einrichten");
 }
 
-function connectorAuthHint(connector: ConnectorDiscoveryRow, locale: SupportedLocale): string | null {
-  const detail = connector.status_detail?.trim() ?? "";
-  if (connector.advanced.auth_state === "connected") {
+function connectorSecondarySummary(
+  connector: ConnectorDiscoveryRow,
+  pack: DesktopReceiptPluginPackInfo | null,
+  locale: SupportedLocale
+): string | null {
+  if (connector.last_synced_at) {
     return byLocale(
       locale,
-      "Sign-in is active on this device.",
-      "Die Anmeldung ist auf diesem Gerät aktiv."
+      `Last import: ${formatDateTime(connector.last_synced_at)}`,
+      `Letzter Import: ${formatDateTime(connector.last_synced_at)}`
     );
   }
-  if (detail.includes("connector auth storage is present")) {
-    return byLocale(
-      locale,
-      "A saved sign-in file exists on this device. The app will verify it before importing.",
-      "Auf diesem Gerät ist eine gespeicherte Anmeldung vorhanden. Die App prüft sie vor jedem Import."
-    );
-  }
-  if (
-    connector.advanced.auth_state === "reauth_required" ||
-    detail.includes("session check failed") ||
-    detail.includes("saved browser session expired")
-  ) {
-    return byLocale(
-      locale,
-      "Saved sign-in expired. Please sign in again before the next import.",
-      "Die gespeicherte Anmeldung ist abgelaufen. Bitte vor dem nächsten Import erneut anmelden."
-    );
-  }
-  if (connector.advanced.auth_state === "not_connected") {
-    return byLocale(
-      locale,
-      "Not signed in yet.",
-      "Noch nicht angemeldet."
-    );
+  if (pack?.status === "disabled") {
+    return byLocale(locale, "Saved on this computer, but still turned off.", "Auf diesem Gerät gespeichert, aber noch ausgeschaltet.");
   }
   if (connector.advanced.auth_state === "bootstrap_running") {
-    return byLocale(
-      locale,
-      "Sign-in is currently being completed in the browser.",
-      "Die Anmeldung wird gerade im Browser abgeschlossen."
-    );
+    return byLocale(locale, "Finish sign-in in the browser window the app opened.", "Schließen Sie die Anmeldung im geöffneten Browserfenster ab.");
   }
-  return detail || null;
-}
-
-function actionExplanations(connector: ConnectorDiscoveryRow, locale: SupportedLocale): ActionExplain[] {
-  const items: ActionExplain[] = [];
-  if (connector.actions.primary.kind === "set_up") {
-    items.push({
-      label: primaryActionLabel(connector, locale),
-      description: byLocale(
-        locale,
-        "Opens the browser so you can sign in and save the connection on this device.",
-        "Öffnet den Browser, damit Sie sich anmelden und die Verbindung auf diesem Gerät speichern können."
-      )
-    });
-  } else if (connector.actions.primary.kind === "reconnect") {
-    items.push({
-      label: primaryActionLabel(connector, locale),
-      description: byLocale(
-        locale,
-        "Renews an expired sign-in before the next import.",
-        "Erneuert eine abgelaufene Anmeldung vor dem nächsten Import."
-      )
-    });
-  } else if (connector.actions.primary.kind === "sync_now") {
-    items.push({
-      label: primaryActionLabel(connector, locale),
-      description: byLocale(
-        locale,
-        "Checks for receipts that are new since the last successful import.",
-        "Lädt nur Belege, die seit dem letzten erfolgreichen Import neu dazugekommen sind."
-      )
-    });
-  }
-
-  if (connector.supports_sync) {
-    items.push({
-      label: byLocale(locale, "Import full history", "Gesamte Historie laden"),
-      description: byLocale(
-        locale,
-        "Goes through all available pages in the selected years. This takes longer but finds older receipts too.",
-        "Geht alle verfügbaren Seiten in den gewählten Jahren durch. Dauert länger, findet aber auch ältere Belege."
-      )
-    });
-  }
-  return items;
+  return null;
 }
 
 function parseStageValue(line: string, key: string): string | null {
@@ -841,7 +790,11 @@ export function ConnectorsPage() {
   const connectors = connectorsQuery.data?.connectors ?? [];
   const viewerIsAdmin = Boolean(connectorsQuery.data?.viewer.is_admin);
   const visibleConnectors = useMemo(
-    () => connectors.filter((connector) => connector.ui.visibility === "default"),
+    () =>
+      connectors.filter(
+        (connector) =>
+          connector.ui.visibility === "default" && !isDesktopHiddenBuiltinConnector(connector.source_id)
+      ),
     [connectors]
   );
   const bootstrapCapableConnectors = useMemo(
@@ -1147,7 +1100,7 @@ export function ConnectorsPage() {
       catalogEntry?.current_version &&
       compareVersions(pack.version, catalogEntry.current_version) < 0;
     const displayName = options?.title ?? connectorDisplayName(connector);
-    const guide = connectorGuideForPack(pack, displayName, locale);
+    const taskState = connectorTaskState(connector);
     const bootstrapStatus = bootstrapStatusBySourceId.get(connector.source_id) ?? null;
     const bootstrapLines = bootstrapStatus?.output_tail ?? [];
     const bootstrapLatestLine =
@@ -1156,8 +1109,7 @@ export function ConnectorsPage() {
     const syncLines = viewerIsAdmin ? connector.advanced.latest_sync_output : [];
     const latestSyncLine = syncLines.length > 0 ? syncLines[syncLines.length - 1] ?? null : null;
     const showSyncStatus = connector.ui.status === "syncing";
-    const detailLine = connectorAuthHint(connector, locale);
-    const actionHints = actionExplanations(connector, locale);
+    const secondarySummary = connectorSecondarySummary(connector, pack, locale);
     const bootstrapTitle =
       bootstrapStatus?.status === "running"
         ? byLocale(locale, "Sign-in in progress", "Anmeldung läuft")
@@ -1170,70 +1122,23 @@ export function ConnectorsPage() {
 
     return (
       <Card key={options?.key ?? connector.source_id} className="border-border/60 bg-card/85 shadow-sm">
-        <CardHeader className="space-y-3 border-b border-border/50 bg-background/40">
+        <CardHeader className="space-y-3 border-b border-border/50 bg-background/30">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="space-y-1">
               <CardTitle className="text-lg">{displayName}</CardTitle>
-              <CardDescription>{connectorStatusSummary(connector, pack, locale)}</CardDescription>
+              <CardDescription>{connectorStatusSummary(connector, pack, displayName, locale)}</CardDescription>
               {options?.headerExtra ? <div className="pt-2">{options.headerExtra}</div> : null}
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Badge>{connectorStatusLabel(connector, locale)}</Badge>
-              <Badge variant="secondary">{trustLabel(pack?.trustClass ?? connector.trust_class, locale)}</Badge>
-            </div>
+            <Badge>{connectorStatusLabel(taskState, locale)}</Badge>
           </div>
-          {detailLine ? <p className="text-sm text-muted-foreground">{detailLine}</p> : null}
-          {updateAvailable ? (
-            <Alert>
-              <AlertTitle>{byLocale(locale, "Trusted pack update available", "Vertrauenswürdiges Update verfügbar")}</AlertTitle>
-              <AlertDescription>
-                {byLocale(
-                  locale,
-                  `${displayName} is running ${pack.version}, while the catalog entry lists ${catalogEntry?.current_version}. Install the trusted update from this page when you want the newer pack.`,
-                  `${displayName} nutzt derzeit ${pack.version}, im Katalog ist aber ${catalogEntry?.current_version} verfügbar. Installieren Sie das vertrauenswürdige Update von dieser Seite, wenn Sie die neuere Version möchten.`
-                )}
-              </AlertDescription>
-            </Alert>
-          ) : null}
         </CardHeader>
-        <CardContent className="space-y-4 bg-card/70">
-          <div className="grid gap-2 text-sm text-muted-foreground">
-            <p>
-              <strong className="text-foreground">{byLocale(locale, "What to expect:", "Was passiert jetzt:")}</strong>{" "}
-              {guide.speedDescription}
+        <CardContent className="space-y-4">
+          {secondarySummary ? <p className="text-sm text-muted-foreground">{secondarySummary}</p> : null}
+          {connector.last_sync_summary ? (
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">{byLocale(locale, "Last result:", "Letztes Ergebnis:")}</span>{" "}
+              {tText(connector.last_sync_summary)}
             </p>
-            {connector.last_synced_at ? (
-              <p>
-                <strong className="text-foreground">{byLocale(locale, "Last import:", "Letzter Import:")}</strong>{" "}
-                {formatDateTime(connector.last_synced_at)}
-              </p>
-            ) : null}
-            {connector.last_sync_summary ? (
-              <p>
-                <strong className="text-foreground">{byLocale(locale, "Last result:", "Letztes Ergebnis:")}</strong>{" "}
-                {tText(connector.last_sync_summary)}
-              </p>
-            ) : null}
-            {pack ? (
-              <p>
-                <strong className="text-foreground">{byLocale(locale, "Installed on this computer:", "Auf diesem Gerät:")}</strong>{" "}
-                {packStateLabel(pack, locale)}{" "}
-                {byLocale(locale, "via", "über")}{" "}
-                {pack.installedVia === "catalog_url"
-                  ? byLocale(locale, "trusted catalog download", "vertrauenswürdigen Katalog-Download")
-                  : byLocale(locale, ".zip import", ".zip-Import")}
-                .
-              </p>
-            ) : null}
-          </div>
-
-          {pack ? (
-            <Alert>
-              <AlertTitle>{byLocale(locale, "Before your first import", "Vor dem ersten Import")}</AlertTitle>
-              <AlertDescription>
-                {guide.summary} {guide.caution}
-              </AlertDescription>
-            </Alert>
           ) : null}
 
           <div className="flex flex-wrap gap-2">
@@ -1251,87 +1156,9 @@ export function ConnectorsPage() {
                 syncMutation.variables?.sourceId === connector.source_id) ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
-              {primaryActionLabel(connector, locale)}
+              {primaryActionLabel(connector, taskState, locale)}
             </Button>
-
-            {showBootstrapStatus && bootstrapStatus?.can_cancel ? (
-              <Button
-                variant="outline"
-                onClick={() => void cancelBootstrapMutation.mutateAsync(connector.source_id)}
-                disabled={cancelBootstrapMutation.isPending}
-              >
-                {cancelBootstrapMutation.isPending &&
-                cancelBootstrapMutation.variables === connector.source_id ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : null}
-                {byLocale(locale, "Cancel sign-in", "Anmeldung abbrechen")}
-              </Button>
-            ) : null}
-
-            {connector.supports_sync ? (
-              <Button
-                variant="outline"
-                onClick={() => void syncMutation.mutateAsync({ sourceId: connector.source_id, full: true })}
-                disabled={syncMutation.isPending || connector.enable_state !== "enabled"}
-              >
-                {byLocale(locale, "Import full history", "Gesamte Historie laden")}
-              </Button>
-            ) : null}
-
-            {viewerIsAdmin &&
-            (connector.actions.operator.configure || connector.config_state !== "not_required") ? (
-              <Button
-                variant="outline"
-                onClick={() => void openSetup(connector, "configure")}
-              >
-                {byLocale(locale, "Connector settings", "Anbindungseinstellungen")}
-              </Button>
-            ) : null}
-
-            {pack ? (
-              <Button
-                variant="outline"
-                onClick={() => openPackGuide(pack, false)}
-              >
-                {byLocale(locale, "Help", "Hilfe")}
-              </Button>
-            ) : null}
-
-            {connector.actions.secondary.href ? (
-              <Button asChild variant="ghost">
-                <Link to={connector.actions.secondary.href}>
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  {connector.actions.secondary.kind === "view_receipts"
-                    ? byLocale(locale, "View receipts", "Belege ansehen")
-                    : byLocale(locale, "Open source", "Quelle öffnen")}
-                </Link>
-              </Button>
-            ) : null}
-
-            {updateAvailable && catalogEntry?.entry_type === "desktop_pack" ? (
-              <Button
-                variant="outline"
-                onClick={() => void installCatalogPackMutation.mutateAsync(catalogEntry.entry_id)}
-                disabled={installCatalogPackMutation.isPending || !desktopBridgeAvailable}
-              >
-                {installCatalogPackMutation.isPending &&
-                installCatalogPackMutation.variables === catalogEntry.entry_id ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : null}
-                {byLocale(locale, "Install trusted update", "Vertrauenswürdiges Update installieren")}
-              </Button>
-            ) : null}
           </div>
-
-          {actionHints.length > 0 ? (
-            <div className="grid gap-2 rounded-lg border border-border/60 bg-background/40 p-3 text-sm text-muted-foreground">
-              {actionHints.map((item) => (
-                <p key={item.label}>
-                  <strong className="text-foreground">{item.label}:</strong> {item.description}
-                </p>
-              ))}
-            </div>
-          ) : null}
 
           {showBootstrapStatus ? (
             <Alert variant={bootstrapStatus?.status === "failed" ? "destructive" : "default"}>
@@ -1371,23 +1198,116 @@ export function ConnectorsPage() {
             </Alert>
           ) : null}
 
-          {viewerIsAdmin && connector.advanced.manual_commands.sync ? (
-            <details className="rounded-lg border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
-              <summary className="cursor-pointer font-medium text-foreground">
-                {byLocale(locale, "Technical fallback for admins", "Technischer Fallback für Admins")}
-              </summary>
-              <p className="mt-2">
-                {byLocale(
-                  locale,
-                  "Only needed if the app UI cannot start the import correctly.",
-                  "Nur nötig, wenn die App den Import über die Oberfläche nicht korrekt starten kann."
-                )}
-              </p>
-              <code className="mt-2 block overflow-auto whitespace-pre-wrap">
-                {connector.advanced.manual_commands.sync}
-              </code>
-            </details>
-          ) : null}
+          <details className="rounded-lg border border-border/60 bg-background/40 px-4 py-3">
+            <summary className="cursor-pointer text-sm font-medium text-foreground">
+              {byLocale(locale, "More options", "Weitere Optionen")}
+            </summary>
+            <div className="mt-3 space-y-3">
+              {updateAvailable ? (
+                <p className="text-sm text-muted-foreground">
+                  {byLocale(
+                    locale,
+                    `${displayName} has a newer trusted version available.`,
+                    `Für ${displayName} ist eine neuere vertrauenswürdige Version verfügbar.`
+                  )}
+                </p>
+              ) : null}
+              {pack ? (
+                <p className="text-sm text-muted-foreground">
+                  {byLocale(locale, "Installed on this computer:", "Auf diesem Gerät installiert:")}{" "}
+                  {packStateLabel(pack, locale)}.
+                </p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {showBootstrapStatus && bootstrapStatus?.can_cancel ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => void cancelBootstrapMutation.mutateAsync(connector.source_id)}
+                    disabled={cancelBootstrapMutation.isPending}
+                  >
+                    {cancelBootstrapMutation.isPending &&
+                    cancelBootstrapMutation.variables === connector.source_id ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    {byLocale(locale, "Cancel sign-in", "Anmeldung abbrechen")}
+                  </Button>
+                ) : null}
+
+                {connector.supports_sync ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => void syncMutation.mutateAsync({ sourceId: connector.source_id, full: true })}
+                    disabled={syncMutation.isPending || connector.enable_state !== "enabled"}
+                  >
+                    {byLocale(locale, "Import full history", "Gesamte Historie laden")}
+                  </Button>
+                ) : null}
+
+                {viewerIsAdmin &&
+                (connector.actions.operator.configure || connector.config_state !== "not_required") ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => void openSetup(connector, "configure")}
+                  >
+                    {byLocale(locale, "Settings", "Einstellungen")}
+                  </Button>
+                ) : null}
+
+                {pack ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => openPackGuide(pack, false)}
+                  >
+                    {byLocale(locale, "How this works", "So funktioniert es")}
+                  </Button>
+                ) : null}
+
+                {connector.actions.secondary.href ? (
+                  <Button asChild variant="outline">
+                    <Link to={connector.actions.secondary.href}>
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      {connector.actions.secondary.kind === "view_receipts"
+                        ? byLocale(locale, "View receipts", "Belege ansehen")
+                        : byLocale(locale, "Open source", "Quelle öffnen")}
+                    </Link>
+                  </Button>
+                ) : null}
+
+                {updateAvailable && catalogEntry?.entry_type === "desktop_pack" ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => void installCatalogPackMutation.mutateAsync(catalogEntry.entry_id)}
+                    disabled={installCatalogPackMutation.isPending || !desktopBridgeAvailable}
+                  >
+                    {installCatalogPackMutation.isPending &&
+                    installCatalogPackMutation.variables === catalogEntry.entry_id ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    {byLocale(locale, "Install trusted update", "Vertrauenswürdiges Update installieren")}
+                  </Button>
+                ) : null}
+              </div>
+
+              {viewerIsAdmin && connector.advanced.manual_commands.sync ? (
+                <details className="rounded-lg border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
+                  <summary className="cursor-pointer font-medium text-foreground">
+                    {byLocale(locale, "Admin fallback", "Admin-Fallback")}
+                  </summary>
+                  <p className="mt-2">
+                    {byLocale(
+                      locale,
+                      "Only needed if the app cannot start the import for you.",
+                      "Nur nötig, wenn die App den Import nicht selbst starten kann."
+                    )}
+                  </p>
+                  <code className="mt-2 block overflow-auto whitespace-pre-wrap">
+                    {connector.advanced.manual_commands.sync}
+                  </code>
+                </details>
+              ) : null}
+            </div>
+          </details>
+
         </CardContent>
       </Card>
     );
@@ -1399,8 +1319,8 @@ export function ConnectorsPage() {
         title={byLocale(locale, "Connectors", "Anbindungen")}
         description={byLocale(
           locale,
-          "Add store connectors, turn them on, and import receipts from one place.",
-          "Verbinden Sie Händlerkonten, aktivieren Sie sie und importieren Sie Belege an einem Ort."
+          "Choose a store, finish setup once, then import receipts with a single button.",
+          "Wählen Sie einen Händler, richten Sie ihn einmal ein und importieren Sie Belege dann mit nur einem Button."
         )}
       >
         <div className="flex flex-wrap gap-2">
@@ -1410,7 +1330,7 @@ export function ConnectorsPage() {
             disabled={installLocalPackMutation.isPending || !desktopBridgeAvailable}
           >
             {installLocalPackMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {byLocale(locale, "Import .zip connector", ".zip-Anbindung importieren")}
+            {byLocale(locale, "Add connector file", "Anbindungsdatei hinzufügen")}
           </Button>
           <Button
             variant="outline"
@@ -1418,61 +1338,18 @@ export function ConnectorsPage() {
             disabled={reloadMutation.isPending}
           >
             {reloadMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-            {byLocale(locale, "Refresh", "Aktualisieren")}
+            {byLocale(locale, "Refresh list", "Liste aktualisieren")}
           </Button>
         </div>
       </PageHeader>
 
-      <Card className="border-border/60 bg-card/85 shadow-sm">
-        <CardHeader className="space-y-2">
-          <CardTitle>Start here</CardTitle>
-          <CardDescription>
-            Most connector imports only need three simple steps. If you already downloaded a plugin file, start with
-            the import button above.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-xl border border-border/60 bg-background/60 p-4">
-            <p className="text-sm font-medium text-foreground">1. Import your connector</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Choose the plugin `.zip` file you downloaded, or install a trusted connector below.
-            </p>
-          </div>
-          <div className="rounded-xl border border-border/60 bg-background/60 p-4">
-            <p className="text-sm font-medium text-foreground">2. Turn it on</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Newly imported connectors stay off until you confirm that you want to use them on this computer.
-            </p>
-          </div>
-          <div className="rounded-xl border border-border/60 bg-background/60 p-4">
-            <p className="text-sm font-medium text-foreground">3. Sign in and import</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Use the connector card to finish setup, then start your first receipt import.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {desktopContextQuery.data?.releaseMetadata ? (
-        <div className="app-section-divider grid gap-4 md:grid-cols-3">
-          <div>
-            <p className="text-xs uppercase text-muted-foreground">Edition</p>
-            <p className="font-medium">
-              {desktopContextQuery.data.releaseMetadata.active_release_variant.display_name}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs uppercase text-muted-foreground">Market profile</p>
-            <p className="font-medium">
-              {desktopContextQuery.data.releaseMetadata.selected_market_profile.display_name}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs uppercase text-muted-foreground">Installed connector plugins</p>
-            <p className="font-medium">{receiptPlugins.length}</p>
-          </div>
-        </div>
-      ) : null}
+      <p className="text-sm text-muted-foreground">
+        {byLocale(
+          locale,
+          "Most stores only need one quick sign-in. After that, you can come back here whenever you want to import new receipts.",
+          "Die meisten Händler brauchen nur eine kurze Anmeldung. Danach können Sie jederzeit hierher zurückkommen und neue Belege importieren."
+        )}
+      </p>
 
       {feedback ? (
         <Alert>
@@ -1492,13 +1369,13 @@ export function ConnectorsPage() {
         <div className="app-section-divider space-y-4">
           <div className="space-y-1.5">
             <h2 className="font-semibold leading-none tracking-tight">
-              {byLocale(locale, "Turn on imported connectors", "Importierte Anbindungen aktivieren")}
+              {byLocale(locale, "Finish adding connectors", "Anbindungen fertig hinzufügen")}
             </h2>
             <p className="text-sm text-muted-foreground">
               {byLocale(
                 locale,
-                "These connectors are already on your computer. They need one more confirmation before they show up as active connectors.",
-                "Diese Anbindungen sind bereits auf Ihrem Gerät. Sie brauchen noch eine Bestätigung, bevor sie als aktive Anbindungen erscheinen."
+                "These are already on your computer. Review them once, then turn them on when you're ready to use them.",
+                "Diese Anbindungen sind bereits auf Ihrem Gerät. Prüfen Sie sie kurz und aktivieren Sie sie, sobald Sie sie verwenden möchten."
               )}
             </p>
           </div>
@@ -1529,19 +1406,11 @@ export function ConnectorsPage() {
                       </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-4 bg-card/70 pt-6">
+                  <CardContent className="space-y-4 pt-6">
                     <p className="text-sm text-muted-foreground">
-                      {guide.summary} {guide.speedDescription}
+                      {guide.summary}
                     </p>
-                    <Alert>
-                      <AlertTitle>{guide.headline}</AlertTitle>
-                      <AlertDescription>{guide.caution}</AlertDescription>
-                    </Alert>
-                    {catalogEntry?.support_policy ? (
-                      <p className="text-sm text-muted-foreground">
-                        {catalogEntry.support_policy.maintainer_support} {catalogEntry.support_policy.update_expectations}
-                      </p>
-                    ) : null}
+                    <p className="text-sm text-muted-foreground">{guide.caution}</p>
                     <div className="flex flex-wrap gap-2">
                       <Button
                         onClick={() => openPackGuide(pack, true)}
@@ -1570,13 +1439,13 @@ export function ConnectorsPage() {
 
       <div className="space-y-1.5">
         <h2 className="font-semibold leading-none tracking-tight">
-          {byLocale(locale, "Your connectors", "Ihre Anbindungen")}
+          {byLocale(locale, "Your stores", "Ihre Händler")}
         </h2>
         <p className="text-sm text-muted-foreground">
           {byLocale(
             locale,
-            "Active and built-in connectors live here. Use them to sign in, reconnect, and run imports.",
-            "Hier finden Sie aktive und eingebaute Anbindungen. Nutzen Sie sie zum Anmelden, erneuten Verbinden und Importieren."
+            "Each store shows the next step clearly, so you can set it up once and come back for easy imports later.",
+            "Jeder Händler zeigt klar den nächsten Schritt, damit Sie ihn einmal einrichten und später einfach wieder importieren können."
           )}
         </p>
       </div>
@@ -1729,8 +1598,8 @@ export function ConnectorsPage() {
             <p className="text-sm text-muted-foreground">
               {byLocale(
                 locale,
-                "Signed optional connectors for this desktop build can be installed directly from this page.",
-                "Signierte optionale Anbindungen für diese Desktop-Version können direkt auf dieser Seite installiert werden."
+                "Add more supported stores here when you need them.",
+                "Fügen Sie hier weitere unterstützte Händler hinzu, wenn Sie sie brauchen."
               )}
             </p>
           </div>

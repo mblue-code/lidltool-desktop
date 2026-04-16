@@ -33,6 +33,7 @@ const api = {
   startBackend: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:start"),
   stopBackend: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:stop"),
   openFullApp: async (): Promise<string> => await ipcRenderer.invoke("desktop:app:url"),
+  openControlCenter: async (): Promise<void> => await ipcRenderer.invoke("desktop:control-center:open"),
   runSync: async (payload: SyncRequest): Promise<CommandResult> => await ipcRenderer.invoke("desktop:sync:run", payload),
   runExport: async (payload: ExportRequest): Promise<CommandResult> => await ipcRenderer.invoke("desktop:export:run", payload),
   runBackup: async (payload: BackupRequest): Promise<CommandResult> => await ipcRenderer.invoke("desktop:backup:run", payload),

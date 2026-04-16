@@ -14,7 +14,8 @@ export function registerIpc(
   runtime: DesktopRuntime,
   getBootError: () => string | null,
   getLocale: () => DesktopLocale,
-  setLocale: (locale: DesktopLocale) => DesktopLocale
+  setLocale: (locale: DesktopLocale) => DesktopLocale,
+  openControlCenter: () => Promise<void>
 ): void {
   ipcMain.handle("desktop:get-config", () => runtime.getConfig());
   ipcMain.handle("desktop:capabilities:get", () => DESKTOP_CAPABILITIES);
@@ -29,6 +30,9 @@ export function registerIpc(
   ipcMain.handle("desktop:app:url", async () => {
     await runtime.startBackend();
     return runtime.getFullAppUrl();
+  });
+  ipcMain.handle("desktop:control-center:open", async () => {
+    await openControlCenter();
   });
   ipcMain.handle("desktop:sync:run", async (_event, payload: SyncRequest) => await runtime.runSyncJob(payload));
   ipcMain.handle("desktop:export:run", async (_event, payload: ExportRequest) => await runtime.runExportJob(payload));

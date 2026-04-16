@@ -34,6 +34,7 @@ declare global {
       startBackend: () => Promise<BackendStatus>;
       stopBackend: () => Promise<BackendStatus>;
       openFullApp: () => Promise<string>;
+      openControlCenter: () => Promise<void>;
       runSync: (payload: SyncRequest) => Promise<CommandResult>;
       runExport: (payload: ExportRequest) => Promise<CommandResult>;
       runBackup: (payload: BackupRequest) => Promise<CommandResult>;

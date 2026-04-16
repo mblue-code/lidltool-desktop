@@ -63,6 +63,7 @@ import {
   useDesktopCapabilities,
   type DesktopLocationState
 } from "@/lib/desktop-capabilities";
+import { hasDesktopControlCenterBridge, openDesktopControlCenter } from "@/lib/desktop-shell";
 import { type TranslationKey, isSupportedLocale, useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 
@@ -145,6 +146,10 @@ type ParsedSyncProgress = {
 
 function preferencesLabel(locale: "en" | "de"): string {
   return locale === "de" ? "Einstellungen" : "Preferences";
+}
+
+function controlCenterMenuLabel(locale: "en" | "de"): string {
+  return locale === "de" ? "Kontrollzentrum öffnen" : "Open control center";
 }
 
 function advancedToggleLabel(locale: "en" | "de", expanded: boolean): string {
@@ -640,6 +645,7 @@ export function AppShell({ user }: AppShellProps) {
   );
   const { scope, setScope } = useAccessScope();
   const { locale, setLocale, t } = useI18n();
+  const canOpenControlCenter = hasDesktopControlCenterBridge();
   const [chatOpen, setChatOpen] = useState(false);
   const [dismissedSyncRun, setDismissedSyncRun] = useState<string | null>(() => {
     if (typeof window === "undefined") {
@@ -734,6 +740,10 @@ export function AppShell({ user }: AppShellProps) {
     } finally {
       navigate("/login", { replace: true });
     }
+  }
+
+  function handleOpenControlCenter(): void {
+    void openDesktopControlCenter();
   }
 
   function handleOpenChat(): void {
@@ -934,6 +944,14 @@ export function AppShell({ user }: AppShellProps) {
                       <DropdownMenuRadioItem value="family">{t("app.scope.family")}</DropdownMenuRadioItem>
                     </DropdownMenuRadioGroup>
                     <DropdownMenuSeparator />
+                    {canOpenControlCenter ? (
+                      <>
+                        <DropdownMenuItem onClick={handleOpenControlCenter}>
+                          {controlCenterMenuLabel(locale)}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    ) : null}
                     <DropdownMenuItem onClick={handleLogout}>{t("action.signOut")}</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

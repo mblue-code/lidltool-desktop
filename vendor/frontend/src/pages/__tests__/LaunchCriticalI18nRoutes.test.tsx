@@ -8,10 +8,13 @@ import { I18nProvider } from "@/i18n";
 import { AISettingsPage } from "../AISettingsPage";
 import { ChatWorkspacePage } from "../ChatWorkspacePage";
 import { ConnectorsPage } from "../ConnectorsPage";
+import { LoginPage } from "../LoginPage";
 import { SetupPage } from "../SetupPage";
 import { UsersSettingsPage } from "../UsersSettingsPage";
 
 const mocks = vi.hoisted(() => ({
+  checkSetupRequiredMock: vi.fn(),
+  loginMock: vi.fn(),
   fetchConnectorsMock: vi.fn(),
   fetchConnectorConfigMock: vi.fn(),
   reloadConnectorsMock: vi.fn(),
@@ -49,6 +52,11 @@ const mocks = vi.hoisted(() => ({
   patchChatThreadMock: vi.fn(),
   persistChatRunMock: vi.fn(),
   createSpendingAgentMock: vi.fn()
+}));
+
+vi.mock("@/api/auth", () => ({
+  checkSetupRequired: mocks.checkSetupRequiredMock,
+  login: mocks.loginMock
 }));
 
 vi.mock("@/api/connectors", () => ({
@@ -162,6 +170,7 @@ describe("launch-critical route i18n smoke", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     const storage = new Map<string, string>();
+    const openControlCenter = vi.fn();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
       value: {
@@ -174,10 +183,18 @@ describe("launch-critical route i18n smoke", () => {
         }
       }
     });
+    Object.defineProperty(window, "desktopApi", {
+      configurable: true,
+      value: {
+        openControlCenter
+      }
+    });
 
     mocks.fetchSourcesMock.mockResolvedValue({
       sources: [{ id: "lidl_plus_de", status: "healthy" }]
     });
+    mocks.checkSetupRequiredMock.mockResolvedValue(false);
+    mocks.loginMock.mockResolvedValue({});
     mocks.fetchConnectorsMock.mockResolvedValue({
       generated_at: "2026-04-01T09:00:00Z",
       viewer: { is_admin: true },
@@ -589,7 +606,7 @@ describe("launch-critical route i18n smoke", () => {
     renderGerman(<ConnectorsPage />);
 
     expect(await screen.findByText("Anbindungen")).toBeInTheDocument();
-    expect(screen.getByText("Desktop receipt packs can be managed here")).toBeInTheDocument();
+    expect(screen.getByText("Wählen Sie einen Händler, richten Sie ihn einmal ein und importieren Sie Belege dann mit nur einem Button.")).toBeInTheDocument();
     expect(await screen.findByText("Lidl Plus")).toBeInTheDocument();
   });
 
@@ -616,6 +633,15 @@ describe("launch-critical route i18n smoke", () => {
 
     expect(await screen.findByText("Aus Backup wiederherstellen")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Backup wiederherstellen und anmelden" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Kontrollzentrum öffnen" })).toBeInTheDocument();
+  });
+
+  it("renders login control center copy in german", async () => {
+    mocks.fetchCurrentUserMock.mockRejectedValue(new Error("authentication required"));
+    renderGerman(<LoginPage />);
+
+    expect(await screen.findByRole("button", { name: "Anmelden" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Kontrollzentrum öffnen" })).toBeInTheDocument();
   });
 
   it("renders chat workspace copy and statuses in german", async () => {

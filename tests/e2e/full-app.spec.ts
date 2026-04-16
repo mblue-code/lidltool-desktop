@@ -4,6 +4,26 @@ import { join } from "node:path";
 import { clickNavLink, ensureAuthenticated, launchDesktopApp, openAdvancedTools, openMainApp } from "./helpers/desktop-app";
 
 test.describe("desktop full app smoke", () => {
+  test("returns to the control center from auth and signed-in flows", async () => {
+    const session = await launchDesktopApp();
+    const { page, close } = session;
+
+    try {
+      await expect(page.getByRole("heading", { name: "Local receipt sync, review, export, and backup." })).toBeVisible();
+      await openMainApp(page);
+      await page.getByRole("button", { name: "Open control center" }).click();
+      await expect(page.getByRole("heading", { name: "Local receipt sync, review, export, and backup." })).toBeVisible();
+
+      await openMainApp(page);
+      await ensureAuthenticated(page);
+      await page.getByRole("button", { name: "Preferences" }).click();
+      await page.getByRole("menuitem", { name: "Open control center" }).click();
+      await expect(page.getByRole("heading", { name: "Local receipt sync, review, export, and backup." })).toBeVisible();
+    } finally {
+      await close();
+    }
+  });
+
   test("boots through setup, creates a manual transaction, and traverses supported routes", async () => {
     const session = await launchDesktopApp();
     const { page, close } = session;
