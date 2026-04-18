@@ -15,7 +15,6 @@ import {
   Menu,
   MessageCircle,
   Package,
-  Percent,
   Plus,
   ReceiptText,
   Search,
@@ -66,6 +65,7 @@ import {
 import { hasDesktopControlCenterBridge, openDesktopControlCenter } from "@/lib/desktop-shell";
 import { type TranslationKey, isSupportedLocale, useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
+import logoMark from "@/assets/logo-mark.svg";
 
 type NavItem = {
   to: string;
@@ -166,7 +166,14 @@ function advancedDescription(locale: "en" | "de"): string {
   return "Connectors, diagnostics, and power-user tools stay here until you need them.";
 }
 
-function syncBannerStatusLabel(locale: "en" | "de", status: ConnectorSyncStatus["status"]): string {
+function syncBannerStatusLabel(
+  locale: "en" | "de",
+  status: ConnectorSyncStatus["status"],
+  partialSuccess = false
+): string {
+  if (partialSuccess) {
+    return locale === "de" ? "Mit Hinweisen" : "With issues";
+  }
   if (locale === "de") {
     if (status === "running") {
       return "Läuft";
@@ -231,6 +238,12 @@ function syncBannerStageLabel(
 
 function syncBannerOpenConnectorsLabel(locale: "en" | "de"): string {
   return locale === "de" ? "Anbindungen öffnen" : "Open connectors";
+}
+
+function partialSyncDescription(locale: "en" | "de"): string {
+  return locale === "de"
+    ? "Der Import hat bereits Belege gespeichert, aber ein späterer Schritt braucht noch Aufmerksamkeit."
+    : "The import already saved receipts, but a later follow-up step still needs attention.";
 }
 
 function parseSyncProgress(status: ConnectorSyncStatus): ParsedSyncProgress {
@@ -356,31 +369,40 @@ function SyncStatusBanner({
 }) {
   const { locale, t } = useI18n();
   const progress = parseSyncProgress(status);
+  const partialSuccess =
+    status.status === "failed" &&
+    ((progress.seen ?? 0) > 0 || Number(parseSyncFields(progress.latestLine)?.new ?? "0") > 0);
   const Icon =
     status.status === "running"
       ? LoaderCircle
       : status.status === "succeeded"
         ? CheckCircle2
-        : AlertCircle;
+        : partialSuccess
+          ? CheckCircle2
+          : AlertCircle;
   const iconClassName =
     status.status === "running"
       ? "text-sky-700 animate-spin"
       : status.status === "succeeded"
         ? "text-emerald-700"
-        : "text-destructive";
+        : partialSuccess
+          ? "text-amber-700"
+          : "text-destructive";
   const alertClassName =
     status.status === "running"
       ? "border-sky-200 bg-sky-50/80 text-sky-950"
       : status.status === "succeeded"
         ? "border-emerald-200 bg-emerald-50/80 text-emerald-950"
-        : "border-destructive/30 bg-destructive/5";
+        : partialSuccess
+          ? "border-amber-200 bg-amber-50/80 text-amber-950"
+          : "border-destructive/30 bg-destructive/5";
   const progressLabel =
     progress.seen !== null && progress.seen > 0 && progress.total !== null
       ? syncBannerProgressLabel(locale, progress.seen, progress.total)
       : progress.seen !== null && progress.seen > 0
         ? syncBannerProgressLabel(locale, progress.seen, null)
         : null;
-  const latestLine = formatSyncLine(locale, progress.latestLine);
+  const latestLine = partialSuccess ? partialSyncDescription(locale) : formatSyncLine(locale, progress.latestLine);
 
   return (
     <Alert className={cn("rounded-xl", alertClassName)}>
@@ -388,8 +410,8 @@ function SyncStatusBanner({
       <AlertTitle className="flex items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <span>{syncBannerTitle(locale, sourceLabel)}</span>
-          <Badge variant={status.status === "failed" ? "destructive" : "secondary"}>
-            {syncBannerStatusLabel(locale, status.status)}
+          <Badge variant={status.status === "failed" && !partialSuccess ? "destructive" : "secondary"}>
+            {syncBannerStatusLabel(locale, status.status, partialSuccess)}
           </Badge>
           {progressLabel ? <Badge variant="outline">{progressLabel}</Badge> : null}
         </div>
@@ -548,8 +570,8 @@ function SidebarContent({
   return (
     <div className="flex h-full flex-col bg-sidebar">
       <div className="flex items-center gap-3 border-b border-sidebar-border px-4 py-4">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Percent className="h-4 w-4" />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sidebar-border/70 bg-sidebar-accent/40 p-1.5 shadow-[0_10px_28px_rgba(2,12,24,0.32)]">
+          <img src={logoMark} alt="" aria-hidden="true" className="h-full w-full" />
         </div>
         <div>
           <p className="text-sm font-semibold text-sidebar-foreground">{t("app.brand.title")}</p>

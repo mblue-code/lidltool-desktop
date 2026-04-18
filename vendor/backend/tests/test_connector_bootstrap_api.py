@@ -11,6 +11,7 @@ from lidltool.api.http_state import get_connector_command_sessions
 from lidltool.auth.sessions import SESSION_MODE_COOKIE, SessionClientMetadata, create_user_session
 from lidltool.auth.users import create_local_user
 from lidltool.config import AppConfig
+from lidltool.connectors.auth.auth_status import AuthBootstrapSnapshot
 from lidltool.db.engine import session_scope
 
 
@@ -186,6 +187,72 @@ def test_start_connector_bootstrap_prefers_local_browser_for_loopback_requests(t
     assert payload["result"]["source_id"] == "amazon_de"
     assert payload["result"]["remote_login_url"] is None
     assert captured["env"] is None
+
+
+def test_start_connector_bootstrap_accepts_immediate_plugin_bootstrap_without_session(tmp_path, monkeypatch) -> None:
+    config = AppConfig(
+        db_path=tmp_path / "lidltool.sqlite",
+        config_dir=tmp_path / "config",
+        credential_encryption_key="test-secret-key-with-sufficient-entropy-123456",
+        connector_live_sync_enabled=False,
+    )
+    config.config_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(config=config)
+
+    with TestClient(app) as client:
+        token = _issue_admin_session(app)
+
+        class FakeService:
+            def get_auth_status(self, *, source_id: str, validate_session: bool = True):
+                return SimpleNamespace(manifest=SimpleNamespace(source_id=source_id))
+
+            def start_bootstrap(
+                self,
+                *,
+                source_id: str,
+                env=None,
+                connector_options=None,
+                extra_args=(),
+            ):
+                return SimpleNamespace(
+                    status="confirmed",
+                    bootstrap=AuthBootstrapSnapshot(
+                        source_id=source_id,
+                        state="succeeded",
+                        command=None,
+                        pid=None,
+                        started_at=None,
+                        finished_at=None,
+                        return_code=0,
+                        output_tail=("Imported Netto Plus session bundle into plugin-local state.",),
+                        can_cancel=False,
+                    ),
+                )
+
+        monkeypatch.setattr(
+            http_server,
+            "_connector_auth_service",
+            lambda app, config: FakeService(),
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_connector_is_preview_source",
+            lambda *args, **kwargs: False,
+        )
+
+        client.cookies.set("lidltool_session", token)
+        response = client.post("/api/v1/connectors/amazon_de/bootstrap/start")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["result"]["source_id"] == "amazon_de"
+    assert payload["result"]["reused"] is False
+    assert payload["result"]["bootstrap"]["status"] == "succeeded"
+    assert payload["result"]["bootstrap"]["return_code"] == 0
+    assert payload["result"]["bootstrap"]["output_tail"] == [
+        "Imported Netto Plus session bundle into plugin-local state."
+    ]
 
 
 def test_start_connector_sync_includes_saved_connector_options(tmp_path, monkeypatch) -> None:

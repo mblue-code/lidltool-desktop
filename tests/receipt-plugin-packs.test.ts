@@ -506,3 +506,65 @@ test("kaufland receipt plugin builds a desktop pack that installs cleanly", asyn
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("netto plus receipt plugin builds a desktop pack that installs cleanly", async () => {
+  const rootDir = createManagerRoot();
+  const manager = createManager(rootDir);
+  const pluginDir = fileURLToPath(new URL("../../../plugins/netto_plus_de/", import.meta.url));
+  const outputDir = join(rootDir, "netto-plus-pack");
+  const build = spawnSync(
+    "python3",
+    [join(pluginDir, "build_desktop_pack.py"), "--output-dir", outputDir],
+    { encoding: "utf-8" }
+  );
+
+  try {
+    assert.equal(build.status, 0, build.stderr || build.stdout);
+    const packPath = build.stdout.trim().split(/\r?\n/).at(-1);
+    assert.ok(packPath);
+
+    const install = await manager.installFromFile(packPath);
+    assert.equal(install.action, "installed");
+    assert.equal(install.pack.sourceId, "netto_plus_de");
+    assert.equal(install.pack.status, "disabled");
+    assert.equal(install.pack.integrityStatus, "verified");
+
+    const enabled = await manager.setEnabled(install.pack.pluginId, true);
+    assert.equal(enabled.status, "enabled");
+    assert.equal((await manager.getRuntimePolicy()).activePluginSearchPaths[0], enabled.installPath);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("rewe receipt plugin builds a desktop pack that installs cleanly", async () => {
+  const rootDir = createManagerRoot();
+  const manager = createManager(rootDir);
+  const pluginDir = fileURLToPath(new URL("../../../plugins/rewe_de/", import.meta.url));
+  const outputDir = join(rootDir, "rewe-pack");
+  const build = spawnSync(
+    "python3",
+    [join(pluginDir, "build_desktop_pack.py"), "--output-dir", outputDir],
+    { encoding: "utf-8" }
+  );
+
+  try {
+    assert.equal(build.status, 0, build.stderr || build.stdout);
+    const packPath = build.stdout.trim().split(/\r?\n/).at(-1);
+    assert.ok(packPath);
+
+    const install = await manager.installFromFile(packPath);
+    assert.equal(install.action, "installed");
+    assert.equal(install.pack.sourceId, "rewe_de");
+    assert.equal(install.pack.pluginId, "local.rewe_de");
+    assert.equal(install.pack.status, "disabled");
+    assert.equal(install.pack.runtimeKind, "subprocess_python");
+    assert.equal(install.pack.integrityStatus, "verified");
+
+    const enabled = await manager.setEnabled(install.pack.pluginId, true);
+    assert.equal(enabled.status, "enabled");
+    assert.equal((await manager.getRuntimePolicy()).activePluginSearchPaths[0], enabled.installPath);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

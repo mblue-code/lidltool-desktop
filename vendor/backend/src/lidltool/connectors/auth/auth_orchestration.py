@@ -36,9 +36,6 @@ from lidltool.connectors.registry import ConnectorRegistry, get_connector_regist
 from lidltool.connectors.sdk.manifest import ConnectorManifest
 from lidltool.lidl.client import LidlClientError
 from lidltool.lidl.market import resolve_lidl_market
-from lidltool.rewe.bootstrap_playwright import run_rewe_headful_bootstrap
-from lidltool.rewe.client_playwright import ReweClientError
-from lidltool.rewe.session import default_rewe_state_file
 from lidltool.rossmann.bootstrap_playwright import run_rossmann_headful_bootstrap
 from lidltool.rossmann.client_playwright import RossmannClientError
 from lidltool.rossmann.session import default_rossmann_state_file
@@ -212,22 +209,6 @@ _BUILTIN_AUTH_BRIDGES: dict[str, _BuiltinAuthBridge] = {
         source_id="lidl_plus_fr",
         auth_kind="oauth_pkce",
         handled_exceptions=(LidlClientError,),
-    ),
-    "rewe_de": _BuiltinAuthBridge(
-        source_id="rewe_de",
-        auth_kind="browser_session",
-        handled_exceptions=(ReweClientError,),
-        state_file_resolver=default_rewe_state_file,
-        bootstrap_runner=run_rewe_headful_bootstrap,
-        default_domain="shop.rewe.de",
-    ),
-    "rossmann_de": _BuiltinAuthBridge(
-        source_id="rossmann_de",
-        auth_kind="browser_session",
-        handled_exceptions=(RossmannClientError,),
-        state_file_resolver=default_rossmann_state_file,
-        bootstrap_runner=run_rossmann_headful_bootstrap,
-        default_domain="www.rossmann.de",
     ),
 }
 
@@ -612,6 +593,37 @@ class ConnectorAuthOrchestrationService:
             extra_args=(*option_args, *extra_args),
         )
         if command is None:
+            if manifest.runtime_kind in {"subprocess_python", "subprocess_binary"}:
+                immediate = self.run_bootstrap(source_id=source_id, options=resolved_options)
+                if immediate.bootstrap is not None:
+                    return immediate
+                now = datetime.now(tz=UTC)
+                bootstrap_state: BootstrapLifecycleState = (
+                    "succeeded" if immediate.ok and immediate.state == "connected" else "failed"
+                )
+                output_tail = (immediate.detail,) if immediate.detail else ()
+                return AuthActionResult(
+                    manifest=immediate.manifest,
+                    source_id=immediate.source_id,
+                    state=immediate.state,
+                    status=immediate.status,
+                    ok=immediate.ok,
+                    detail=immediate.detail,
+                    bootstrap=AuthBootstrapSnapshot(
+                        source_id=immediate.source_id,
+                        state=bootstrap_state,
+                        command=None,
+                        pid=None,
+                        started_at=now,
+                        finished_at=now,
+                        return_code=0 if bootstrap_state == "succeeded" else 1,
+                        output_tail=output_tail,
+                        can_cancel=False,
+                    ),
+                    metadata=dict(immediate.metadata),
+                    diagnostics=dict(immediate.diagnostics),
+                    handled_exceptions=immediate.handled_exceptions,
+                )
             raise RuntimeError(f"connector bootstrap not supported for source: {source_id}")
         existing = self._session_registry.sessions.get(source_id)
         if existing is not None and connector_bootstrap_is_running(existing):

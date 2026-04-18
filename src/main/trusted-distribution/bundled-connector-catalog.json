@@ -100,28 +100,6 @@
         "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
       },
       {
-        "entry_id": "connector.builtin.rewe_de",
-        "entry_type": "connector",
-        "plugin_id": "builtin.rewe_de",
-        "source_id": "rewe_de",
-        "display_name": "REWE",
-        "summary": "Official REWE receipt connector available in the core bundle.",
-        "description": "Built-in connector entry for REWE account bootstrap and sync.",
-        "trust_class": "official",
-        "maintainer": "lidltool maintainers",
-        "source": "lidltool curated catalog",
-        "supported_products": ["self_hosted", "desktop"],
-        "supported_markets": ["DE"],
-        "current_version": "1.0.0",
-        "compatibility": {
-          "min_core_version": "0.1.0",
-          "supported_host_kinds": ["self_hosted", "electron"]
-        },
-        "install_methods": ["built_in"],
-        "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
-        "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
-      },
-      {
         "entry_id": "connector.builtin.kaufland_de",
         "entry_type": "connector",
         "plugin_id": "builtin.kaufland_de",
@@ -129,28 +107,6 @@
         "display_name": "Kaufland",
         "summary": "Official Kaufland receipt connector available in the core bundle.",
         "description": "Built-in connector entry for Kaufland account bootstrap and sync.",
-        "trust_class": "official",
-        "maintainer": "lidltool maintainers",
-        "source": "lidltool curated catalog",
-        "supported_products": ["self_hosted", "desktop"],
-        "supported_markets": ["DE"],
-        "current_version": "1.0.0",
-        "compatibility": {
-          "min_core_version": "0.1.0",
-          "supported_host_kinds": ["self_hosted", "electron"]
-        },
-        "install_methods": ["built_in"],
-        "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
-        "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
-      },
-      {
-        "entry_id": "connector.builtin.rossmann_de",
-        "entry_type": "connector",
-        "plugin_id": "builtin.rossmann_de",
-        "source_id": "rossmann_de",
-        "display_name": "Rossmann",
-        "summary": "Official Rossmann receipt connector available in the core bundle.",
-        "description": "Built-in connector entry for Rossmann.de auth bootstrap and sync.",
         "trust_class": "official",
         "maintainer": "lidltool maintainers",
         "source": "lidltool curated catalog",

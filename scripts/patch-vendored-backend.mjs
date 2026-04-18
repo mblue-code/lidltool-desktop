@@ -119,6 +119,140 @@ function patchAuthBrowserRuntime(current) {
 
 function patchHttpServer(current) {
   let next = current;
+  const backupRouteBlock =
+    `    @app.post("/api/v1/system/backup")\n` +
+    `    def run_system_backup(\n` +
+    `        request: Request,\n` +
+    `        payload: SystemBackupRequest,\n` +
+    `    ) -> Any:\n` +
+    `        try:\n` +
+    `            context = _resolve_request_context(request)\n` +
+    `            app_config = context.config\n` +
+    `            with session_scope(context.sessions) as session:\n` +
+    `                auth_context = _require_user_session_auth_context(\n` +
+    `                    request=request,\n` +
+    `                    session=session,\n` +
+    `                    config=app_config,\n` +
+    `                    admin_required=True,\n` +
+    `                )\n` +
+    `                current_user = auth_context.user\n` +
+    `\n` +
+    `                timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")\n` +
+    `                if payload.output_dir and payload.output_dir.strip():\n` +
+    `                    output_dir = Path(payload.output_dir.strip()).expanduser().resolve()\n` +
+    `                else:\n` +
+    `                    output_dir = (app_config.config_dir / "desktop-backups" / f"backup-{timestamp}").resolve()\n` +
+    `\n` +
+    `                output_dir.mkdir(parents=True, exist_ok=True)\n` +
+    `                if any(output_dir.iterdir()):\n` +
+    `                    raise RuntimeError(f"backup output directory must be empty: {output_dir}")\n` +
+    `\n` +
+    `                backup_result = backup_database(\n` +
+    `                    app_config, output_dir, include_documents=payload.include_documents\n` +
+    `                )\n` +
+    `                copied: list[str] = [str(backup_result.db_artifact)]\n` +
+    `                skipped: list[str] = []\n` +
+    `\n` +
+    `                token_artifact: str | None = None\n` +
+    `                if backup_result.token_artifact:\n` +
+    `                    token_artifact = str(backup_result.token_artifact)\n` +
+    `                    copied.append(token_artifact)\n` +
+    `                else:\n` +
+    `                    skipped.append("token file not found")\n` +
+    `\n` +
+    `                documents_artifact: str | None = None\n` +
+    `                if payload.include_documents:\n` +
+    `                    if backup_result.documents_artifact:\n` +
+    `                        documents_artifact = str(backup_result.documents_artifact)\n` +
+    `                        copied.append(documents_artifact)\n` +
+    `                    else:\n` +
+    `                        skipped.append("documents directory not found")\n` +
+    `                else:\n` +
+    `                    skipped.append("documents excluded by request")\n` +
+    `\n` +
+    `                credential_key_artifact: str | None = None\n` +
+    `                credential_key = (\n` +
+    `                    os.getenv("LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY")\n` +
+    `                    or app_config.credential_encryption_key\n` +
+    `                )\n` +
+    `                if credential_key and credential_key.strip():\n` +
+    `                    key_artifact = output_dir / "credential_encryption_key.txt"\n` +
+    `                    key_artifact.write_text(f"{credential_key.strip()}\\n", encoding="utf-8")\n` +
+    `                    credential_key_artifact = str(key_artifact)\n` +
+    `                    copied.append(credential_key_artifact)\n` +
+    `                else:\n` +
+    `                    skipped.append("credential encryption key not available")\n` +
+    `\n` +
+    `                export_artifact: str | None = None\n` +
+    `                export_records: int | None = None\n` +
+    `                if payload.include_export_json:\n` +
+    `                    export_payload = export_receipts(session)\n` +
+    `                    export_file = output_dir / "receipts-export.json"\n` +
+    `                    export_file.write_text(\n` +
+    `                        json.dumps(export_payload, indent=2, default=str), encoding="utf-8"\n` +
+    `                    )\n` +
+    `                    export_artifact = str(export_file)\n` +
+    `                    export_records = len(export_payload)\n` +
+    `                    copied.append(export_artifact)\n` +
+    `\n` +
+    `                manifest_path = output_dir / "backup-manifest.json"\n` +
+    `                manifest_payload = {\n` +
+    `                    "created_at": datetime.now(tz=UTC).isoformat(),\n` +
+    `                    "requested_by_user_id": current_user.user_id,\n` +
+    `                    "provider": backup_result.provider,\n` +
+    `                    "output_dir": str(output_dir),\n` +
+    `                    "db_artifact": str(backup_result.db_artifact),\n` +
+    `                    "token_artifact": token_artifact,\n` +
+    `                    "documents_artifact": documents_artifact,\n` +
+    `                    "credential_key_artifact": credential_key_artifact,\n` +
+    `                    "export_artifact": export_artifact,\n` +
+    `                    "export_records": export_records,\n` +
+    `                    "include_documents": payload.include_documents,\n` +
+    `                    "include_export_json": payload.include_export_json,\n` +
+    `                    "copied": copied,\n` +
+    `                    "skipped": skipped,\n` +
+    `                }\n` +
+    `                manifest_path.write_text(\n` +
+    `                    json.dumps(manifest_payload, indent=2), encoding="utf-8"\n` +
+    `                )\n` +
+    `                copied.append(str(manifest_path))\n` +
+    `\n` +
+    `                result = {\n` +
+    `                    "provider": backup_result.provider,\n` +
+    `                    "output_dir": str(output_dir),\n` +
+    `                    "db_artifact": str(backup_result.db_artifact),\n` +
+    `                    "token_artifact": token_artifact,\n` +
+    `                    "documents_artifact": documents_artifact,\n` +
+    `                    "credential_key_artifact": credential_key_artifact,\n` +
+    `                    "export_artifact": export_artifact,\n` +
+    `                    "export_records": export_records,\n` +
+    `                    "manifest_path": str(manifest_path),\n` +
+    `                    "copied": copied,\n` +
+    `                    "skipped": skipped,\n` +
+    `                }\n` +
+    `            return _response(True, result=result, warnings=[], error=None)\n` +
+    `        except Exception as exc:  # noqa: BLE001\n` +
+    `            return _error_response(exc)\n\n`;
+  const backupRoutePattern =
+    /    @app\.post\("\/api\/v1\/system\/backup"\)\n[\s\S]*?\n\n(?=    @app\.post\("\/api\/v1\/documents\/upload"\)\n)/;
+
+  if (!next.includes("        scheduler: AutomationScheduler | None = None\n")) {
+    next = replaceOnce(
+      next,
+      "        app.state.desktop_mode = config.desktop_mode\n",
+      "        app.state.desktop_mode = config.desktop_mode\n        scheduler: AutomationScheduler | None = None\n",
+      httpServerPath
+    );
+  }
+
+  if (!next.includes("            if scheduler is not None:\n                scheduler.stop()\n")) {
+    next = replaceOnce(
+      next,
+      "            live_sync_stop.set()\n            scheduler.stop()\n",
+      "            live_sync_stop.set()\n            if scheduler is not None:\n                scheduler.stop()\n",
+      httpServerPath
+    );
+  }
 
   if (!next.includes("    export_receipts,\n")) {
     next = replaceOnce(
@@ -147,11 +281,13 @@ function patchHttpServer(current) {
     );
   }
 
-  if (!next.includes('@app.post("/api/v1/system/backup")')) {
+  if (backupRoutePattern.test(next)) {
+    next = next.replace(backupRoutePattern, backupRouteBlock);
+  } else if (!next.includes('@app.post("/api/v1/system/backup")')) {
     next = replaceOnce(
       next,
       '    @app.post("/api/v1/documents/upload")\n',
-      `    @app.post("/api/v1/system/backup")\n    def run_system_backup(\n        request: Request,\n        payload: SystemBackupRequest,\n        db: str | None = None,\n        config: str | None = None,\n    ) -> Any:\n        try:\n            context = _resolve_request_context(request, db=db, config_path=config)\n            app_config = context.config\n            warnings = _apply_auth_guard(app_config, request=request)\n            with session_scope(context.sessions) as session:\n                current_user = _resolve_request_user(\n                    request=request, session=session, config=app_config\n                )\n                _require_admin(current_user)\n\n                timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")\n                if payload.output_dir and payload.output_dir.strip():\n                    output_dir = Path(payload.output_dir.strip()).expanduser().resolve()\n                else:\n                    output_dir = (app_config.config_dir / "desktop-backups" / f"backup-{timestamp}").resolve()\n\n                output_dir.mkdir(parents=True, exist_ok=True)\n                if any(output_dir.iterdir()):\n                    raise RuntimeError(f"backup output directory must be empty: {output_dir}")\n\n                backup_result = backup_database(\n                    app_config, output_dir, include_documents=payload.include_documents\n                )\n                copied: list[str] = [str(backup_result.db_artifact)]\n                skipped: list[str] = []\n\n                token_artifact: str | None = None\n                if backup_result.token_artifact:\n                    token_artifact = str(backup_result.token_artifact)\n                    copied.append(token_artifact)\n                else:\n                    skipped.append("token file not found")\n\n                documents_artifact: str | None = None\n                if payload.include_documents:\n                    if backup_result.documents_artifact:\n                        documents_artifact = str(backup_result.documents_artifact)\n                        copied.append(documents_artifact)\n                    else:\n                        skipped.append("documents directory not found")\n                else:\n                    skipped.append("documents excluded by request")\n\n                credential_key_artifact: str | None = None\n                credential_key = (\n                    os.getenv("LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY")\n                    or app_config.credential_encryption_key\n                )\n                if credential_key and credential_key.strip():\n                    key_artifact = output_dir / "credential_encryption_key.txt"\n                    key_artifact.write_text(f"{credential_key.strip()}\\n", encoding="utf-8")\n                    credential_key_artifact = str(key_artifact)\n                    copied.append(credential_key_artifact)\n                else:\n                    skipped.append("credential encryption key not available")\n\n                export_artifact: str | None = None\n                export_records: int | None = None\n                if payload.include_export_json:\n                    export_payload = export_receipts(session)\n                    export_file = output_dir / "receipts-export.json"\n                    export_file.write_text(\n                        json.dumps(export_payload, indent=2, default=str), encoding="utf-8"\n                    )\n                    export_artifact = str(export_file)\n                    export_records = len(export_payload)\n                    copied.append(export_artifact)\n\n                manifest_path = output_dir / "backup-manifest.json"\n                manifest_payload = {\n                    "created_at": datetime.now(tz=UTC).isoformat(),\n                    "requested_by_user_id": current_user.user_id,\n                    "provider": backup_result.provider,\n                    "output_dir": str(output_dir),\n                    "db_artifact": str(backup_result.db_artifact),\n                    "token_artifact": token_artifact,\n                    "documents_artifact": documents_artifact,\n                    "credential_key_artifact": credential_key_artifact,\n                    "export_artifact": export_artifact,\n                    "export_records": export_records,\n                    "include_documents": payload.include_documents,\n                    "include_export_json": payload.include_export_json,\n                    "copied": copied,\n                    "skipped": skipped,\n                }\n                manifest_path.write_text(\n                    json.dumps(manifest_payload, indent=2), encoding="utf-8"\n                )\n                copied.append(str(manifest_path))\n\n                result = {\n                    "provider": backup_result.provider,\n                    "output_dir": str(output_dir),\n                    "db_artifact": str(backup_result.db_artifact),\n                    "token_artifact": token_artifact,\n                    "documents_artifact": documents_artifact,\n                    "credential_key_artifact": credential_key_artifact,\n                    "export_artifact": export_artifact,\n                    "export_records": export_records,\n                    "manifest_path": str(manifest_path),\n                    "copied": copied,\n                    "skipped": skipped,\n                }\n            return _response(True, result=result, warnings=warnings, error=None)\n        except Exception as exc:  # noqa: BLE001\n            return _error_response(exc)\n\n    @app.post("/api/v1/documents/upload")\n`,
+      `${backupRouteBlock}    @app.post("/api/v1/documents/upload")\n`,
       httpServerPath
     );
   }
