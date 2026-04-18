@@ -39,9 +39,6 @@ from lidltool.lidl.market import resolve_lidl_market
 from lidltool.rewe.bootstrap_playwright import run_rewe_headful_bootstrap
 from lidltool.rewe.client_playwright import ReweClientError
 from lidltool.rewe.session import default_rewe_state_file
-from lidltool.rossmann.bootstrap_playwright import run_rossmann_headful_bootstrap
-from lidltool.rossmann.client_playwright import RossmannClientError
-from lidltool.rossmann.session import default_rossmann_state_file
 
 DEFAULT_LIDL_BOOTSTRAP_HAR_OUT = Path("/tmp/lidl_auth_capture.har")
 
@@ -220,14 +217,6 @@ _BUILTIN_AUTH_BRIDGES: dict[str, _BuiltinAuthBridge] = {
         state_file_resolver=default_rewe_state_file,
         bootstrap_runner=run_rewe_headful_bootstrap,
         default_domain="shop.rewe.de",
-    ),
-    "rossmann_de": _BuiltinAuthBridge(
-        source_id="rossmann_de",
-        auth_kind="browser_session",
-        handled_exceptions=(RossmannClientError,),
-        state_file_resolver=default_rossmann_state_file,
-        bootstrap_runner=run_rossmann_headful_bootstrap,
-        default_domain="www.rossmann.de",
     ),
 }
 
@@ -612,6 +601,15 @@ class ConnectorAuthOrchestrationService:
             extra_args=(*option_args, *extra_args),
         )
         if command is None:
+            if manifest.plugin_family == "receipt" and manifest.runtime_kind in {
+                "subprocess_python",
+                "subprocess_binary",
+            }:
+                return self._run_plugin_bootstrap(
+                    source_id=source_id,
+                    manifest=manifest,
+                    options=resolved_options,
+                )
             raise RuntimeError(f"connector bootstrap not supported for source: {source_id}")
         existing = self._session_registry.sessions.get(source_id)
         if existing is not None and connector_bootstrap_is_running(existing):

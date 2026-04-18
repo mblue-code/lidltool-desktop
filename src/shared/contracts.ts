@@ -7,8 +7,7 @@ export type BuiltInSyncSourceId =
   | "amazon_gb"
   | "rewe_de"
   | "kaufland_de"
-  | "dm_de"
-  | "rossmann_de";
+  | "dm_de";
 export type SyncSourceId = BuiltInSyncSourceId | string;
 export type DesktopLocale = "en" | "de";
 export type ConnectorTrustClass = "official" | "community_verified" | "community_unsigned" | "local_custom";

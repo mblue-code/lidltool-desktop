@@ -188,6 +188,66 @@ def test_start_connector_bootstrap_prefers_local_browser_for_loopback_requests(t
     assert captured["env"] is None
 
 
+def test_start_connector_bootstrap_returns_immediate_plugin_result_without_session(
+    tmp_path, monkeypatch
+) -> None:
+    config = AppConfig(
+        db_path=tmp_path / "lidltool.sqlite",
+        config_dir=tmp_path / "config",
+        credential_encryption_key="test-secret-key-with-sufficient-entropy-123456",
+        connector_live_sync_enabled=False,
+    )
+    config.config_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(config=config)
+
+    with TestClient(app) as client:
+        token = _issue_admin_session(app)
+
+        class FakeService:
+            def get_auth_status(self, *, source_id: str, validate_session: bool = True):
+                return SimpleNamespace(manifest=SimpleNamespace(source_id=source_id))
+
+            def start_bootstrap(
+                self,
+                *,
+                source_id: str,
+                env=None,
+                connector_options=None,
+                extra_args=(),
+            ):
+                return SimpleNamespace(
+                    source_id=source_id,
+                    state="connected",
+                    status="confirmed",
+                    ok=True,
+                    detail="plugin bootstrap completed",
+                    bootstrap=None,
+                )
+
+        monkeypatch.setattr(
+            http_server,
+            "_connector_auth_service",
+            lambda app, config: FakeService(),
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_connector_is_preview_source",
+            lambda *args, **kwargs: False,
+        )
+
+        client.cookies.set("lidltool_session", token)
+        response = client.post("/api/v1/connectors/amazon_de/bootstrap/start")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["result"]["source_id"] == "amazon_de"
+    assert payload["result"]["reused"] is False
+    assert payload["result"]["bootstrap"]["status"] == "succeeded"
+    assert payload["result"]["bootstrap"]["command"] is None
+    assert payload["result"]["bootstrap"]["return_code"] == 0
+
+
 def test_start_connector_sync_includes_saved_connector_options(tmp_path, monkeypatch) -> None:
     config = AppConfig(
         db_path=tmp_path / "lidltool.sqlite",

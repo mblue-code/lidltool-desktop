@@ -227,6 +227,7 @@ from lidltool.connectors.auth.auth_orchestration import (
     start_connector_command_session,
     terminate_connector_bootstrap,
 )
+from lidltool.connectors.auth.auth_status import AuthBootstrapSnapshot
 from lidltool.connectors.discovery import connector_discovery_payload
 from lidltool.connectors.lifecycle import (
     assert_connector_operation_allowed,
@@ -7658,7 +7659,41 @@ def create_app(
                 ),
             )
             if started.bootstrap is None:
-                raise RuntimeError(f"failed to start connector bootstrap for source: {source_id}")
+                finished_at = datetime.now(tz=UTC)
+                immediate_status = "succeeded" if started.ok and started.state == "connected" else "failed"
+                immediate_bootstrap = AuthBootstrapSnapshot(
+                    source_id=source_id,
+                    state=immediate_status,
+                    started_at=finished_at,
+                    finished_at=finished_at,
+                    return_code=0 if immediate_status == "succeeded" else 1,
+                    output_tail=(started.detail,) if started.detail else (),
+                    can_cancel=False,
+                )
+                result = {
+                    "source_id": source_id,
+                    "reused": False,
+                    "bootstrap": {
+                        "source_id": immediate_bootstrap.source_id,
+                        "status": immediate_bootstrap.state,
+                        "command": None,
+                        "pid": None,
+                        "started_at": immediate_bootstrap.started_at.isoformat(),
+                        "finished_at": immediate_bootstrap.finished_at.isoformat(),
+                        "return_code": immediate_bootstrap.return_code,
+                        "output_tail": list(immediate_bootstrap.output_tail),
+                        "can_cancel": immediate_bootstrap.can_cancel,
+                    },
+                    "remote_login_url": remote_login_url,
+                }
+                if _connector_is_preview_source(source_id, config=app_config):
+                    warnings.append(
+                        _warning(
+                            "preview connector bootstrap started; this connector is not live-validated yet",
+                            code="connector_preview_bootstrap_started",
+                        )
+                    )
+                return _response(True, result=result, warnings=warnings, error=None)
             bootstrap = bootstrap_sessions.get(source_id)
             if bootstrap is None:
                 raise RuntimeError(f"connector bootstrap session missing after start: {source_id}")

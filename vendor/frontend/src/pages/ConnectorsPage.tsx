@@ -834,6 +834,7 @@ export function ConnectorsPage() {
       setPackGuideState((current) => (current?.pack.pluginId === result.pack.pluginId ? null : current));
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
+      await Promise.all([connectorsQuery.refetch(), desktopContextQuery.refetch()]);
     },
     onError: (error) => {
       setFeedback(
@@ -970,9 +971,22 @@ export function ConnectorsPage() {
     [catalogEntries, packBySourceId, visibleConnectors]
   );
 
+  const enabledConnectorSourceIds = useMemo(
+    () =>
+      new Set(
+        visibleConnectors
+          .filter((connector) => connector.enable_state === "enabled")
+          .map((connector) => connector.source_id)
+      ),
+    [visibleConnectors]
+  );
+
   const pendingActivationPacks = useMemo(
-    () => receiptPlugins.filter((pack) => pack.status === "disabled"),
-    [receiptPlugins]
+    () =>
+      receiptPlugins.filter(
+        (pack) => pack.status === "disabled" && !enabledConnectorSourceIds.has(pack.sourceId)
+      ),
+    [enabledConnectorSourceIds, receiptPlugins]
   );
 
   const pendingActivationPluginIds = useMemo(
@@ -1141,11 +1155,11 @@ export function ConnectorsPage() {
       return;
     }
     if (kind === "set_up") {
-      await bootstrapMutation.mutateAsync(connector.source_id);
+      await openSetup(connector, "setup");
       return;
     }
     if (kind === "reconnect") {
-      await bootstrapMutation.mutateAsync(connector.source_id);
+      await openSetup(connector, "reconnect");
       return;
     }
     if (kind === "sync_now") {
@@ -1169,7 +1183,10 @@ export function ConnectorsPage() {
                 "Bitte melden Sie sich vor dem ersten Import an."
               )
         );
-        await bootstrapMutation.mutateAsync(connector.source_id);
+        await openSetup(
+          connector,
+          authStatus.state === "not_connected" ? "setup" : "reconnect"
+        );
         return;
       }
       await syncMutation.mutateAsync({ sourceId: connector.source_id, full: false });

@@ -50,8 +50,7 @@ const DEFAULT_SOURCE_OPTIONS: SyncSourceOption[] = [
   { id: "amazon_gb", label: "Amazon (UK)", defaultDomain: "amazon.co.uk", syncFamily: "amazon" },
   { id: "rewe_de", label: "REWE (DE)", defaultDomain: "shop.rewe.de", syncFamily: "browser" },
   { id: "kaufland_de", label: "Kaufland (DE)", defaultDomain: "www.kaufland.de", syncFamily: "browser" },
-  { id: "dm_de", label: "dm (DE)", defaultDomain: "www.dm.de", syncFamily: "browser" },
-  { id: "rossmann_de", label: "Rossmann (DE)", defaultDomain: "www.rossmann.de", syncFamily: "browser" }
+  { id: "dm_de", label: "dm (DE)", defaultDomain: "www.dm.de", syncFamily: "browser" }
 ];
 
 function sourceLabelFromId(sourceId: string, displayName?: string, supportedMarkets?: string[]): string {
@@ -80,8 +79,6 @@ function defaultDomainForSource(sourceId: string): string | undefined {
       return "www.kaufland.de";
     case "dm_de":
       return "www.dm.de";
-    case "rossmann_de":
-      return "www.rossmann.de";
     default:
       return undefined;
   }
@@ -94,7 +91,7 @@ function syncFamilyForSource(sourceId: string): SyncSourceOption["syncFamily"] {
   if (sourceId.startsWith("amazon_")) {
     return "amazon";
   }
-  if (["rewe_de", "kaufland_de", "dm_de", "rossmann_de"].includes(sourceId)) {
+  if (["rewe_de", "kaufland_de", "dm_de"].includes(sourceId)) {
     return "browser";
   }
   return "generic";

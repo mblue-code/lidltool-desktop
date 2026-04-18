@@ -703,6 +703,152 @@ describe("ConnectorsPage", () => {
     });
   });
 
+  it("opens the config dialog before reconnecting a connector with auth settings", async () => {
+    renderPage();
+
+    const amazonCard = (await screen.findByText("Amazon")).closest('[class*="rounded-xl"]');
+    expect(amazonCard).not.toBeNull();
+    fireEvent.click(within(amazonCard as HTMLElement).getByRole("button", { name: "Sign in again" }));
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Domain")).toBeInTheDocument();
+    expect(mocks.startConnectorBootstrapMock).not.toHaveBeenCalled();
+  });
+
+  it("opens the config dialog before setup when a connector requires saved credentials", async () => {
+    mocks.fetchConnectorsMock.mockResolvedValueOnce({
+      generated_at: "2026-04-01T09:00:00Z",
+      viewer: { is_admin: true },
+      operator_actions: { can_reload: true, can_rescan: true },
+      summary: { total_connectors: 1, by_status: { setup_required: 1 } },
+      connectors: [
+        {
+          source_id: "configurable_shop",
+          plugin_id: "local.configurable_shop",
+          display_name: "Configurable Shop",
+          origin: "local_path",
+          origin_label: "Local plugin",
+          runtime_kind: "subprocess_python",
+          install_origin: "local_path",
+          install_state: "installed",
+          enable_state: "enabled",
+          config_state: "required",
+          maturity: "preview",
+          maturity_label: "Preview",
+          supports_bootstrap: true,
+          supports_sync: true,
+          supports_live_session: false,
+          supports_live_session_bootstrap: false,
+          trust_class: "official",
+          status_detail: null,
+          last_sync_summary: null,
+          last_synced_at: null,
+          ui: {
+            status: "setup_required",
+            visibility: "default",
+            description: "Needs credentials first.",
+            actions: {
+              primary: { kind: "set_up", enabled: true },
+              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+              operator: {
+                full_sync: true,
+                rescan: true,
+                reload: true,
+                install: false,
+                enable: false,
+                disable: false,
+                uninstall: false,
+                configure: true,
+                manual_commands: {}
+              }
+            }
+          },
+          actions: {
+            primary: { kind: "set_up", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: true,
+              manual_commands: {}
+            }
+          },
+          advanced: {
+            source_exists: true,
+            stale: false,
+            stale_reason: null,
+            auth_state: "not_connected",
+            latest_sync_output: [],
+            latest_bootstrap_output: [],
+            latest_sync_status: "idle",
+            latest_bootstrap_status: "idle",
+            block_reason: null,
+            policy: {
+              blocked: false,
+              block_reason: null,
+              status: "enabled",
+              status_detail: null,
+              trust_class: "official",
+              external_runtime_enabled: true,
+              external_receipt_plugins_enabled: true,
+              allowed_trust_classes: ["official"]
+            },
+            release: {
+              maturity: "preview",
+              label: "Preview",
+              support_posture: "Preview",
+              description: "Desktop-managed pack.",
+              default_visibility: "default",
+              graduation_requirements: []
+            },
+            origin: {
+              kind: "local_path",
+              runtime_kind: "subprocess_python",
+              search_path: "/tmp/plugins",
+              origin_path: "/tmp/plugins/configurable_shop/manifest.json",
+              origin_directory: "/tmp/plugins/configurable_shop"
+            },
+            diagnostics: [],
+            manual_commands: {}
+          }
+        }
+      ]
+    });
+    mocks.fetchConnectorConfigMock.mockResolvedValueOnce({
+      source_id: "configurable_shop",
+      plugin_id: "local.configurable_shop",
+      display_name: "Configurable Shop",
+      install_origin: "local_path",
+      config_state: "required",
+      fields: [
+        {
+          key: "email",
+          label: "Email",
+          input_kind: "text",
+          required: true,
+          sensitive: false,
+          operator_only: false,
+          value: ""
+        }
+      ]
+    });
+
+    renderPage();
+
+    const card = (await screen.findByText("Configurable Shop")).closest('[class*="rounded-xl"]');
+    expect(card).not.toBeNull();
+    fireEvent.click(within(card as HTMLElement).getByRole("button", { name: "Set up" }));
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+    expect(mocks.startConnectorBootstrapMock).not.toHaveBeenCalled();
+  });
+
   it("opens fast onboarding after import and lets the user enable the connector immediately", async () => {
     renderPage();
 
