@@ -82,6 +82,8 @@ from lidltool.connectors.sdk.receipt import (
     validate_receipt_action_response,
 )
 
+AUTH_ACTION_TIMEOUT_FLOOR_S = 180.0
+
 
 @dataclass(slots=True, frozen=True)
 class ConnectorRuntimeTarget:
@@ -580,13 +582,14 @@ class RuntimeHostedOfferConnector:
 
 def default_runtime_action_timeouts(request_timeout_s: float) -> dict[ReceiptActionName, float]:
     timeout = max(request_timeout_s, 1.0)
+    auth_timeout = max(timeout, AUTH_ACTION_TIMEOUT_FLOOR_S)
     return {
         "get_manifest": min(timeout, 5.0),
         "healthcheck": timeout,
         "get_auth_status": timeout,
-        "start_auth": timeout,
-        "cancel_auth": timeout,
-        "confirm_auth": timeout,
+        "start_auth": auth_timeout,
+        "cancel_auth": auth_timeout,
+        "confirm_auth": auth_timeout,
         "discover_records": timeout,
         "fetch_record": timeout,
         "normalize_record": timeout,

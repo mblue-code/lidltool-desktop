@@ -5,7 +5,6 @@ export type BuiltInSyncSourceId =
   | "amazon_de"
   | "amazon_fr"
   | "amazon_gb"
-  | "rewe_de"
   | "kaufland_de"
   | "dm_de";
 export type SyncSourceId = BuiltInSyncSourceId | string;

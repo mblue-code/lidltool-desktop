@@ -37,6 +37,7 @@
   "build": {
     "appId": "com.lidltool.desktop",
     "productName": "LidlTool Desktop",
+    "icon": "build/icon.png",
     "directories": {
       "output": "dist_electron",
       "buildResources": "build"
@@ -72,12 +73,14 @@
     ],
     "mac": {
       "category": "public.app-category.finance",
+      "icon": "build/icon.icns",
       "target": [
         "dmg",
         "zip"
       ]
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis",
         "zip"

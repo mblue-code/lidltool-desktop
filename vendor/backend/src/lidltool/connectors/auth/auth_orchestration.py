@@ -605,10 +605,39 @@ class ConnectorAuthOrchestrationService:
                 "subprocess_python",
                 "subprocess_binary",
             }:
-                return self._run_plugin_bootstrap(
+                immediate = self._run_plugin_bootstrap(
                     source_id=source_id,
                     manifest=manifest,
                     options=resolved_options,
+                )
+                if immediate.bootstrap is not None:
+                    return immediate
+                now = datetime.now(tz=UTC)
+                bootstrap_state: BootstrapLifecycleState = (
+                    "succeeded" if immediate.ok and immediate.state == "connected" else "failed"
+                )
+                output_tail = (immediate.detail,) if immediate.detail else ()
+                return AuthActionResult(
+                    manifest=immediate.manifest,
+                    source_id=immediate.source_id,
+                    state=immediate.state,
+                    status=immediate.status,
+                    ok=immediate.ok,
+                    detail=immediate.detail,
+                    bootstrap=AuthBootstrapSnapshot(
+                        source_id=immediate.source_id,
+                        state=bootstrap_state,
+                        command=None,
+                        pid=None,
+                        started_at=now,
+                        finished_at=now,
+                        return_code=0 if bootstrap_state == "succeeded" else 1,
+                        output_tail=output_tail,
+                        can_cancel=False,
+                    ),
+                    metadata=dict(immediate.metadata),
+                    diagnostics=dict(immediate.diagnostics),
+                    handled_exceptions=immediate.handled_exceptions,
                 )
             raise RuntimeError(f"connector bootstrap not supported for source: {source_id}")
         existing = self._session_registry.sessions.get(source_id)

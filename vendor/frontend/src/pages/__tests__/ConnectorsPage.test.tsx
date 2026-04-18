@@ -8,7 +8,10 @@ import { ConnectorsPage } from "../ConnectorsPage";
 
 const mocks = vi.hoisted(() => ({
   fetchConnectorsMock: vi.fn(),
+  fetchConnectorAuthStatusMock: vi.fn(),
+  fetchConnectorBootstrapStatusMock: vi.fn(),
   fetchConnectorConfigMock: vi.fn(),
+  cancelConnectorBootstrapMock: vi.fn(),
   reloadConnectorsMock: vi.fn(),
   startConnectorBootstrapMock: vi.fn(),
   startConnectorSyncMock: vi.fn(),
@@ -16,6 +19,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/api/connectors", () => ({
+  cancelConnectorBootstrap: mocks.cancelConnectorBootstrapMock,
+  fetchConnectorAuthStatus: mocks.fetchConnectorAuthStatusMock,
+  fetchConnectorBootstrapStatus: mocks.fetchConnectorBootstrapStatusMock,
   fetchConnectors: mocks.fetchConnectorsMock,
   fetchConnectorConfig: mocks.fetchConnectorConfigMock,
   reloadConnectors: mocks.reloadConnectorsMock,
@@ -59,6 +65,28 @@ describe("ConnectorsPage", () => {
       }
     });
     window.localStorage.setItem("app.locale", "en");
+    mocks.fetchConnectorAuthStatusMock.mockResolvedValue({
+      source_id: "amazon_de",
+      state: "connected",
+      detail: null,
+      available_actions: []
+    });
+    mocks.fetchConnectorBootstrapStatusMock.mockImplementation(async (sourceId: string) => ({
+      source_id: sourceId,
+      status: "idle",
+      command: null,
+      pid: null,
+      started_at: null,
+      finished_at: null,
+      return_code: null,
+      output_tail: [],
+      can_cancel: false
+    }));
+    mocks.cancelConnectorBootstrapMock.mockResolvedValue({
+      source_id: "amazon_de",
+      canceled: true,
+      bootstrap: null
+    });
 
     mocks.fetchConnectorsMock.mockResolvedValue({
       generated_at: "2026-04-01T09:00:00Z",
@@ -847,6 +875,279 @@ describe("ConnectorsPage", () => {
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(await screen.findByLabelText("Email")).toBeInTheDocument();
     expect(mocks.startConnectorBootstrapMock).not.toHaveBeenCalled();
+  });
+
+  it("opens setup fields from the primary Set up action before starting bootstrap", async () => {
+    mocks.fetchConnectorsMock.mockResolvedValueOnce({
+      generated_at: "2026-04-01T09:00:00Z",
+      viewer: { is_admin: true },
+      operator_actions: { can_reload: true, can_rescan: true },
+      summary: { total_connectors: 1, by_status: { setup_required: 1 } },
+      connectors: [
+        {
+          source_id: "netto_plus_de",
+          plugin_id: "local.netto_plus_de",
+          display_name: "Netto Plus",
+          origin: "local_path",
+          origin_label: "External",
+          runtime_kind: "subprocess_python",
+          install_origin: "local_path",
+          install_state: "installed",
+          enable_state: "enabled",
+          config_state: "required",
+          maturity: "preview",
+          maturity_label: "Preview",
+          supports_bootstrap: true,
+          supports_sync: true,
+          supports_live_session: false,
+          supports_live_session_bootstrap: false,
+          trust_class: "official",
+          status_detail: null,
+          last_sync_summary: null,
+          last_synced_at: null,
+          ui: {
+            status: "setup_required",
+            visibility: "default",
+            description: "Finish the Netto Plus setup before syncing.",
+            actions: {
+              primary: { kind: "set_up", enabled: true },
+              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+              operator: {
+                full_sync: true,
+                rescan: true,
+                reload: true,
+                install: false,
+                enable: false,
+                disable: false,
+                uninstall: false,
+                configure: true,
+                manual_commands: {}
+              }
+            }
+          },
+          actions: {
+            primary: { kind: "set_up", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: true,
+              manual_commands: {}
+            }
+          },
+          advanced: {
+            source_exists: true,
+            stale: false,
+            stale_reason: null,
+            auth_state: "not_connected",
+            latest_sync_output: [],
+            latest_bootstrap_output: [],
+            latest_sync_status: "idle",
+            latest_bootstrap_status: "idle",
+            block_reason: null,
+            policy: {
+              blocked: false,
+              block_reason: null,
+              status: "enabled",
+              status_detail: null,
+              trust_class: "official",
+              external_runtime_enabled: true,
+              external_receipt_plugins_enabled: true,
+              allowed_trust_classes: ["official"]
+            },
+            release: {
+              maturity: "preview",
+              label: "Preview",
+              support_posture: "Preview",
+              description: "Desktop-managed pack.",
+              default_visibility: "default",
+              graduation_requirements: []
+            },
+            origin: {
+              kind: "local_path",
+              runtime_kind: "subprocess_python",
+              search_path: "/tmp/plugins",
+              origin_path: "/tmp/plugins/netto_plus_de/manifest.json",
+              origin_directory: "/tmp/plugins/netto_plus_de"
+            },
+            diagnostics: [],
+            manual_commands: {}
+          }
+        }
+      ]
+    });
+    mocks.fetchConnectorConfigMock.mockResolvedValueOnce({
+      source_id: "netto_plus_de",
+      plugin_id: "local.netto_plus_de",
+      display_name: "Netto Plus",
+      install_origin: "local_path",
+      config_state: "required",
+      fields: [
+        {
+          key: "session_bundle_file",
+          label: "Netto Plus session bundle",
+          input_kind: "text",
+          required: true,
+          sensitive: false,
+          operator_only: false,
+          value: null
+        }
+      ]
+    });
+
+    renderPage();
+
+    const nettoCard = (await screen.findByText("Netto Plus")).closest('[class*="rounded-xl"]');
+    expect(nettoCard).not.toBeNull();
+    fireEvent.click(within(nettoCard as HTMLElement).getByRole("button", { name: "Set up" }));
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    fireEvent.change(await screen.findByLabelText("Netto Plus session bundle"), {
+      target: { value: "/tmp/netto-session-bundle.json" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }));
+
+    await waitFor(() => {
+      expect(mocks.submitConnectorConfigMock).toHaveBeenCalledWith("netto_plus_de", {
+        values: {
+          session_bundle_file: "/tmp/netto-session-bundle.json"
+        },
+        clear_secret_keys: undefined
+      });
+      expect(mocks.startConnectorBootstrapMock).toHaveBeenCalledWith("netto_plus_de");
+    });
+  });
+
+  it("hides stale REWE bootstrap browser messaging once the saved Chrome-backed session is already usable", async () => {
+    mocks.fetchConnectorsMock.mockResolvedValueOnce({
+      generated_at: "2026-04-18T17:05:00Z",
+      viewer: { is_admin: true },
+      operator_actions: { can_reload: true, can_rescan: true },
+      summary: { total_connectors: 1, by_status: { ready: 1 } },
+      connectors: [
+        {
+          source_id: "rewe_de",
+          plugin_id: "local.rewe_de",
+          display_name: "REWE",
+          origin: "local_path",
+          origin_label: "External",
+          runtime_kind: "subprocess_python",
+          install_origin: "local_path",
+          install_state: "installed",
+          enable_state: "enabled",
+          config_state: "complete",
+          maturity: "preview",
+          maturity_label: "Preview",
+          supports_bootstrap: true,
+          supports_sync: true,
+          supports_live_session: true,
+          supports_live_session_bootstrap: true,
+          trust_class: "official",
+          status_detail: null,
+          last_sync_summary: null,
+          last_synced_at: null,
+          ui: {
+            status: "connected",
+            visibility: "default",
+            description: "REWE is ready to import receipts.",
+            actions: {
+              primary: { kind: "sync_now", enabled: true },
+              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+              operator: {
+                full_sync: true,
+                rescan: true,
+                reload: true,
+                install: false,
+                enable: false,
+                disable: false,
+                uninstall: false,
+                configure: true,
+                manual_commands: {}
+              }
+            }
+          },
+          actions: {
+            primary: { kind: "sync_now", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: true,
+              manual_commands: {}
+            }
+          },
+          advanced: {
+            source_exists: true,
+            stale: false,
+            stale_reason: null,
+            auth_state: "connected",
+            latest_sync_output: [],
+            latest_bootstrap_output: [],
+            latest_sync_status: "idle",
+            latest_bootstrap_status: "running",
+            block_reason: null,
+            policy: {
+              blocked: false,
+              block_reason: null,
+              status: "enabled",
+              status_detail: null,
+              trust_class: "official",
+              external_runtime_enabled: true,
+              external_receipt_plugins_enabled: true,
+              allowed_trust_classes: ["official"]
+            },
+            release: {
+              maturity: "preview",
+              label: "Preview",
+              support_posture: "Preview",
+              description: "Desktop-managed pack.",
+              default_visibility: "default",
+              graduation_requirements: []
+            },
+            origin: {
+              kind: "local_path",
+              runtime_kind: "subprocess_python",
+              search_path: "/tmp/plugins",
+              origin_path: "/tmp/plugins/rewe_de/manifest.json",
+              origin_directory: "/tmp/plugins/rewe_de"
+            },
+            diagnostics: [],
+            manual_commands: {}
+          }
+        }
+      ]
+    });
+    mocks.fetchConnectorBootstrapStatusMock.mockImplementation(async (sourceId: string) => ({
+      source_id: sourceId,
+      status: sourceId === "rewe_de" ? "running" : "idle",
+      command: "python -m lidltool.cli connectors auth bootstrap --source-id rewe_de",
+      pid: sourceId === "rewe_de" ? 1234 : null,
+      started_at: sourceId === "rewe_de" ? "2026-04-18T17:04:50Z" : null,
+      finished_at: null,
+      return_code: null,
+      output_tail:
+        sourceId === "rewe_de"
+          ? ["Waiting for auth step: login_required"]
+          : [],
+      can_cancel: sourceId === "rewe_de"
+    }));
+
+    renderPage();
+
+    expect(await screen.findByText("REWE")).toBeInTheDocument();
+    expect(screen.getByText("The saved Chrome-backed REWE sign-in is ready for the next import.")).toBeInTheDocument();
+    expect(screen.queryByText("Sign-in in progress")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Finish sign-in in the browser window opened by the desktop app/i)).not.toBeInTheDocument();
   });
 
   it("opens fast onboarding after import and lets the user enable the connector immediately", async () => {

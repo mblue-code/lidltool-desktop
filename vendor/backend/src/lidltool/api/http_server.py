@@ -3622,6 +3622,7 @@ def create_app(
             bind_host=runtime_context.bind_host,
         )
         app.state.desktop_mode = config.desktop_mode
+        scheduler: AutomationScheduler | None = None
         if config.desktop_mode:
             LOGGER.info(
                 "desktop.minimal mode active; skipping automation scheduler and connector live sync"
@@ -3684,7 +3685,8 @@ def create_app(
             except Exception:  # noqa: BLE001
                 pass
             live_sync_stop.set()
-            scheduler.stop()
+            if scheduler is not None:
+                scheduler.stop()
 
     app = FastAPI(title="lidltool OCR API", version="1", lifespan=lifespan)
     initialize_http_api_state(app)
@@ -4459,18 +4461,18 @@ def create_app(
     def run_system_backup(
         request: Request,
         payload: SystemBackupRequest,
-        db: str | None = None,
-        config: str | None = None,
     ) -> Any:
         try:
-            context = _resolve_request_context(request, db=db, config_path=config)
+            context = _resolve_request_context(request)
             app_config = context.config
-            warnings = _apply_auth_guard(app_config, request=request)
             with session_scope(context.sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=app_config
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=app_config,
+                    admin_required=True,
                 )
-                _require_admin(current_user)
+                current_user = auth_context.user
 
                 timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
                 if payload.output_dir and payload.output_dir.strip():
@@ -4565,7 +4567,7 @@ def create_app(
                     "copied": copied,
                     "skipped": skipped,
                 }
-            return _response(True, result=result, warnings=warnings, error=None)
+            return _response(True, result=result, warnings=[], error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -7695,13 +7697,34 @@ def create_app(
                     )
                 return _response(True, result=result, warnings=warnings, error=None)
             bootstrap = bootstrap_sessions.get(source_id)
-            if bootstrap is None:
-                raise RuntimeError(f"connector bootstrap session missing after start: {source_id}")
+            bootstrap_result = (
+                _serialize_connector_bootstrap(bootstrap)
+                if bootstrap is not None
+                else {
+                    "source_id": started.bootstrap.source_id,
+                    "status": started.bootstrap.state,
+                    "command": " ".join(started.bootstrap.command or ()),
+                    "pid": started.bootstrap.pid,
+                    "started_at": (
+                        started.bootstrap.started_at.isoformat()
+                        if started.bootstrap.started_at is not None
+                        else None
+                    ),
+                    "finished_at": (
+                        started.bootstrap.finished_at.isoformat()
+                        if started.bootstrap.finished_at is not None
+                        else None
+                    ),
+                    "return_code": started.bootstrap.return_code,
+                    "output_tail": list(started.bootstrap.output_tail),
+                    "can_cancel": started.bootstrap.can_cancel,
+                }
+            )
 
             result = {
                 "source_id": source_id,
                 "reused": started.status == "reused",
-                "bootstrap": _serialize_connector_bootstrap(bootstrap),
+                "bootstrap": bootstrap_result,
                 "remote_login_url": remote_login_url,
             }
             if _connector_is_preview_source(
