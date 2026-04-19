@@ -1280,6 +1280,9 @@ export function ConnectorsPage() {
         if (connector.ui.visibility !== "default") {
           return false;
         }
+        if (connector.install_state !== "installed") {
+          return false;
+        }
         if (connector.install_origin === "builtin") {
           return isDesktopBundledBuiltinConnector(connector.source_id);
         }

@@ -738,6 +738,112 @@ describe("ConnectorsPage", () => {
     expect((await screen.findAllByText("More options")).length).toBeGreaterThan(0);
   });
 
+  it("keeps catalog-only external connectors out of the installed stores list", async () => {
+    const payload = makeDefaultConnectorsPayload();
+    payload.connectors.push({
+      source_id: "rewe_de",
+      plugin_id: "local.rewe_de",
+      display_name: "REWE",
+      origin: "catalog",
+      origin_label: "Catalog",
+      runtime_kind: "subprocess_python",
+      install_origin: null,
+      install_state: "catalog_only",
+      enable_state: "disabled",
+      config_state: "not_required",
+      maturity: "preview",
+      maturity_label: "Preview",
+      supports_bootstrap: true,
+      supports_sync: true,
+      supports_live_session: false,
+      supports_live_session_bootstrap: false,
+      trust_class: "community_verified",
+      status_detail: "Available as an optional desktop pack.",
+      last_sync_summary: null,
+      last_synced_at: null,
+      ui: {
+        status: "setup_required",
+        visibility: "default",
+        description: "Install and set up REWE before the first sync.",
+        actions: {
+          primary: { kind: "set_up", enabled: true },
+          secondary: { kind: null, enabled: false },
+          operator: {
+            full_sync: false,
+            rescan: true,
+            reload: true,
+            install: true,
+            enable: false,
+            disable: false,
+            uninstall: false,
+            configure: false,
+            manual_commands: {}
+          }
+        }
+      },
+      actions: {
+        primary: { kind: "set_up", enabled: true },
+        secondary: { kind: null, enabled: false },
+        operator: {
+          full_sync: false,
+          rescan: true,
+          reload: true,
+          install: true,
+          enable: false,
+          disable: false,
+          uninstall: false,
+          configure: false,
+          manual_commands: {}
+        }
+      },
+      advanced: {
+        source_exists: false,
+        stale: false,
+        stale_reason: null,
+        auth_state: "not_available",
+        latest_sync_output: [],
+        latest_bootstrap_output: [],
+        latest_sync_status: "idle",
+        latest_bootstrap_status: "idle",
+        block_reason: null,
+        policy: {
+          blocked: false,
+          block_reason: null,
+          status: "disabled",
+          status_detail: null,
+          trust_class: "community_verified",
+          external_runtime_enabled: true,
+          external_receipt_plugins_enabled: true,
+          allowed_trust_classes: ["community_verified"]
+        },
+        release: {
+          maturity: "preview",
+          label: "Preview",
+          support_posture: "Preview",
+          description: "Optional desktop pack.",
+          default_visibility: "default",
+          graduation_requirements: []
+        },
+        origin: {
+          kind: "catalog",
+          runtime_kind: "subprocess_python",
+          search_path: null,
+          origin_path: null,
+          origin_directory: null
+        },
+        diagnostics: [],
+        manual_commands: {}
+      }
+    });
+    mocks.fetchConnectorsMock.mockResolvedValue(payload);
+
+    renderPage();
+
+    expect(await screen.findByText("Connectors")).toBeInTheDocument();
+    expect(screen.queryByText("REWE")).not.toBeInTheDocument();
+    expect(await screen.findByText("Trusted connectors you can add")).toBeInTheDocument();
+  });
+
   it("promotes import actions right after successful setup and does not stay stuck on Set up", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const initialPayload = makeDefaultConnectorsPayload();

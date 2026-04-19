@@ -212,3 +212,81 @@ def test_plugin_bootstrap_falls_back_when_no_command_bridge(tmp_path: Path, monk
     assert result.bootstrap.state == "succeeded"
     assert result.bootstrap.return_code == 0
     assert result.bootstrap.command is None
+
+
+def test_external_rewe_plugin_uses_plugin_auth_runtime_instead_of_builtin_bridge(tmp_path: Path) -> None:
+    config = AppConfig(
+        db_path=tmp_path / "lidltool.sqlite",
+        config_dir=tmp_path / "config",
+        credential_encryption_key="test-secret-key-with-sufficient-entropy-123456",
+        connector_live_sync_enabled=False,
+    )
+    config.config_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest = {
+        "plugin_id": "local.rewe_de",
+        "plugin_version": "0.2.0",
+        "connector_api_version": "1",
+        "plugin_family": "receipt",
+        "source_id": "rewe_de",
+        "display_name": "REWE",
+        "merchant_name": "REWE",
+        "country_code": "DE",
+        "maintainer": "lidltool",
+        "license": "MIT",
+        "runtime_kind": "subprocess_python",
+        "entrypoint": "payload/plugin.py:ReweReceiptPlugin",
+        "auth_kind": "browser_session",
+        "auth": {
+            "auth_kind": "browser_session",
+            "supports_live_session_bootstrap": False,
+            "supports_reauth": True,
+            "supports_headless_refresh": False,
+            "supports_manual_confirm": False,
+            "supports_oauth_callback": False,
+            "supports_session_file": True,
+            "implemented_actions": ["start_auth", "cancel_auth", "confirm_auth"],
+            "compatibility_actions": [],
+            "reserved_actions": ["start_auth", "cancel_auth", "confirm_auth"],
+        },
+        "capabilities": ["healthcheck", "historical_sync", "manual_reauth"],
+        "trust_class": "community_verified",
+        "plugin_origin": "local_path",
+        "install_status": "installed",
+        "compatibility": {
+            "min_core_version": "0.1.0",
+            "supported_host_kinds": ["electron"],
+        },
+    }
+
+    captured: dict[str, int] = {"calls": 0}
+
+    class _FakeConnector:
+        def get_auth_status(self) -> dict[str, object]:
+            captured["calls"] += 1
+            return {
+                "status": "requires_auth",
+                "is_authenticated": False,
+                "available_actions": ["start_auth", "cancel_auth", "confirm_auth"],
+                "implemented_actions": ["start_auth", "cancel_auth", "confirm_auth"],
+                "compatibility_actions": [],
+                "reserved_actions": ["start_auth", "cancel_auth", "confirm_auth"],
+                "detail": "REWE needs a fresh session import.",
+                "metadata": {"state_file": str(tmp_path / "rewe_storage_state.json")},
+            }
+
+    class _ResolvedConnector:
+        def __init__(self) -> None:
+            self.connector = _FakeConnector()
+
+    service = ConnectorAuthOrchestrationService(
+        config=config,
+        registry=ConnectorRegistry.from_definitions([manifest]),
+        connector_builder=lambda **_: _ResolvedConnector(),
+    )
+
+    snapshot = service.get_auth_status(source_id="rewe_de", validate_session=False)
+
+    assert captured["calls"] == 1
+    assert snapshot.state == "not_connected"
+    assert snapshot.detail == "REWE needs a fresh session import."

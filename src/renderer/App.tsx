@@ -33,6 +33,7 @@ import {
   packOriginSummary,
   packSupportSummary
 } from "./control-center-model";
+import logoMark from "./assets/logo-mark.svg";
 
 type SyncSourceOption = {
   id: SyncSourceId;
@@ -48,7 +49,6 @@ const DEFAULT_SOURCE_OPTIONS: SyncSourceOption[] = [
   { id: "amazon_de", label: "Amazon (DE)", defaultDomain: "amazon.de", syncFamily: "amazon" },
   { id: "amazon_fr", label: "Amazon (FR)", defaultDomain: "amazon.fr", syncFamily: "amazon" },
   { id: "amazon_gb", label: "Amazon (UK)", defaultDomain: "amazon.co.uk", syncFamily: "amazon" },
-  { id: "rewe_de", label: "REWE (DE)", defaultDomain: "shop.rewe.de", syncFamily: "browser" },
   { id: "kaufland_de", label: "Kaufland (DE)", defaultDomain: "www.kaufland.de", syncFamily: "browser" },
   { id: "dm_de", label: "dm (DE)", defaultDomain: "www.dm.de", syncFamily: "browser" }
 ];
@@ -691,13 +691,18 @@ export default function App() {
   return (
     <main className="shell">
       <header className="shell-header">
-        <div>
-          <p className="eyebrow">{t("app.brand.title")}</p>
-          <h1>Local receipt sync, review, export, and backup.</h1>
-          <p className="shell-subtitle">
-            LidlTool Desktop is the occasional-use companion for this computer. Use it when you want a quick sync,
-            a local export, a backup, or a simple connector setup without running a full self-hosted server.
-          </p>
+        <div className="brand-lockup">
+          <div className="brand-mark-frame">
+            <img className="brand-mark" src={logoMark} alt="" aria-hidden="true" />
+          </div>
+          <div className="brand-copy">
+            <p className="eyebrow">{t("app.brand.title")}</p>
+            <h1>Local receipt sync, review, export, and backup.</h1>
+            <p className="shell-subtitle">
+              LidlTool Desktop is the occasional-use companion for this computer. Use it when you want a quick sync,
+              a local export, a backup, or a simple connector setup without running a full self-hosted server.
+            </p>
+          </div>
         </div>
         <label className="locale-switcher">
           <span>{t("app.header.language")}</span>

@@ -92,6 +92,40 @@ h3 {
   padding: 6px 4px 8px;
 }
 
+.brand-lockup {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  max-width: 64rem;
+}
+
+.brand-mark-frame {
+  position: relative;
+  flex: 0 0 auto;
+  width: 76px;
+  height: 76px;
+  border-radius: 22px;
+  border: 1px solid rgba(210, 226, 255, 0.12);
+  background:
+    radial-gradient(circle at 24% 22%, rgba(125, 231, 255, 0.12), transparent 48%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0)),
+    rgba(9, 14, 22, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 20px 36px rgba(1, 7, 18, 0.35);
+}
+
+.brand-mark {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.brand-copy {
+  display: grid;
+  gap: 2px;
+}
+
 .shell-subtitle,
 .muted {
   color: var(--muted);
@@ -477,6 +511,7 @@ details summary {
     padding-inline: 16px;
   }
 
+  .brand-lockup,
   .shell-header,
   .section-heading,
   .plugin-pack-header {
