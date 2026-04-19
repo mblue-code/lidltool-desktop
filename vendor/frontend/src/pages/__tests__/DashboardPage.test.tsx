@@ -3,16 +3,22 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { I18nProvider } from "@/i18n";
 import { DashboardPage } from "../DashboardPage";
 
-function renderDashboardRoute(initialEntry = "/"): void {
+const localStorageState = new Map<string, string>();
+
+function renderDashboardRoute(initialEntry = "/", options?: { withI18n?: boolean; locale?: "en" | "de" }): void {
+  if (options?.locale) {
+    localStorageState.set("app.locale", options.locale);
+  }
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false }
     }
   });
 
-  render(
+  const page = (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
@@ -20,6 +26,10 @@ function renderDashboardRoute(initialEntry = "/"): void {
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
+  );
+
+  render(
+    options?.withI18n ? <I18nProvider>{page}</I18nProvider> : page
   );
 }
 
@@ -30,11 +40,63 @@ describe("DashboardPage", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    localStorageState.clear();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => localStorageState.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          localStorageState.set(key, value);
+        },
+        removeItem: (key: string) => {
+          localStorageState.delete(key);
+        },
+        clear: () => {
+          localStorageState.clear();
+        }
+      }
+    });
 
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = new URL(String(input));
+
+        if (url.pathname === "/api/v1/auth/me") {
+          const preferredLocale = localStorageState.get("app.locale") === "de" ? "de" : "en";
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              result: {
+                user_id: "user-1",
+                username: "tester",
+                display_name: "Tester",
+                is_admin: true,
+                preferred_locale: preferredLocale
+              },
+              warnings: [],
+              error: null
+            })
+          };
+        }
+
+        if (url.pathname === "/api/v1/dashboard/years") {
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              result: {
+                years: [2017, 2018, 2019, 2024, 2026],
+                min_year: 2017,
+                max_year: 2026,
+                latest_year: 2026
+              },
+              warnings: [],
+              error: null
+            })
+          };
+        }
 
         if (url.pathname === "/api/v1/dashboard/cards") {
           return {
@@ -128,6 +190,25 @@ describe("DashboardPage", () => {
           };
         }
 
+        if (url.pathname === "/api/v1/analytics/deposits") {
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              result: {
+                date_from: url.searchParams.get("from_date") || "2024-03-01",
+                date_to: url.searchParams.get("to_date") || "2024-03-31",
+                total_paid_cents: url.searchParams.get("source_ids") === "lidl" ? 300 : 0,
+                total_returned_cents: 0,
+                net_outstanding_cents: url.searchParams.get("source_ids") === "lidl" ? 300 : 0,
+                monthly: []
+              },
+              warnings: [],
+              error: null
+            })
+          };
+        }
+
         if (url.pathname === "/api/v1/sources") {
           return {
             ok: true,
@@ -210,12 +291,15 @@ describe("DashboardPage", () => {
   });
 
   it("reads URL-persisted filters, shows month names, and applies updated year in requests", async () => {
-    renderDashboardRoute("/?year=2024&month=3&view=normalized&breakdown=table");
+    renderDashboardRoute("/?year=2024&month=3&view=normalized&breakdown=table&retailers=lidl");
 
     await waitFor(() => {
       expect(screen.getByDisplayValue("2024")).toBeInTheDocument();
       expect(screen.getByRole("combobox", { name: "Month" })).toHaveTextContent("March");
       expect(screen.getByText("Backend warnings")).toBeInTheDocument();
+      expect(screen.getByText("Available: 2017-2026")).toBeInTheDocument();
+      expect(screen.getByText("Spend")).toBeInTheDocument();
+      expect(screen.queryByText("Net spend")).not.toBeInTheDocument();
     });
 
     await waitFor(() => {
@@ -226,6 +310,14 @@ describe("DashboardPage", () => {
           (url) => url.includes("/api/v1/dashboard/savings-breakdown?year=2024&month=3&view=normalized")
         )
       ).toBe(true);
+      expect(
+        initialCalls.some(
+          (url) =>
+            url.includes(
+              "/api/v1/analytics/deposits?from_date=2024-03-01&to_date=2024-03-31&source_ids=lidl"
+            )
+        )
+      ).toBe(true);
     });
 
     fireEvent.change(screen.getByLabelText("Year"), { target: { value: "2025" } });
@@ -233,6 +325,16 @@ describe("DashboardPage", () => {
     await waitFor(() => {
       const calls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
       expect(calls.some((url) => url.includes("/api/v1/dashboard/cards?year=2025&month=3"))).toBe(true);
+    });
+  });
+
+  it("renders concise trend copy without repeated gross/net wording", async () => {
+    renderDashboardRoute("/?year=2026&month=2&spend=net");
+
+    await waitFor(() => {
+      expect(screen.getByText("Spending trend (last 6 months)")).toBeInTheDocument();
+      expect(screen.getAllByText(/€264\.00/).length).toBeGreaterThan(0);
+      expect(screen.getByText(/€32\.00 saved/).textContent).not.toContain("|");
     });
   });
 
@@ -270,6 +372,18 @@ describe("DashboardPage", () => {
       expect(createObjectUrlSpy).toHaveBeenCalledTimes(2);
       expect(revokeObjectUrlSpy).toHaveBeenCalledTimes(2);
       expect(screen.getByText("Exported CSV snapshot.")).toBeInTheDocument();
+    });
+  });
+
+  it("renders the simplified German dashboard wording when German is active", async () => {
+    renderDashboardRoute("/?year=2026&month=2&retailers=lidl", { withI18n: true, locale: "de" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Ausgaben")).toBeInTheDocument();
+      expect(screen.getByText("Pfand im Zeitraum:")).toBeInTheDocument();
+      expect(screen.getByText("Ausgabenverlauf (letzte 6 Monate)")).toBeInTheDocument();
+      expect(screen.getByText(/32,00.*gespart/)).toBeInTheDocument();
+      expect(screen.getByText("Verfügbar: 2017-2026")).toBeInTheDocument();
     });
   });
 });

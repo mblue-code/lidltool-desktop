@@ -47,6 +47,13 @@ def _normalized_source_kinds(source_kinds: list[str] | None) -> list[str] | None
     return normalized or None
 
 
+def _normalized_source_ids(source_ids: list[str] | None) -> list[str] | None:
+    if source_ids is None:
+        return None
+    normalized = sorted({source_id.strip() for source_id in source_ids if source_id.strip()})
+    return normalized or None
+
+
 def _shifted_transaction_datetime_expr(tz_offset_minutes: int) -> Any:
     if tz_offset_minutes == 0:
         return Transaction.purchased_at
@@ -863,10 +870,14 @@ def deposit_analytics(
     *,
     date_from: date | None = None,
     date_to: date | None = None,
+    source_ids: list[str] | None = None,
     visibility: VisibilityContext | None = None,
 ) -> dict[str, Any]:
     """Return deposit (Pfand) totals: paid, returned, net outstanding, and monthly breakdown."""
     start, end = _date_window(date_from, date_to, default_days=365 * 5)
+    start_dt = datetime.combine(start, datetime.min.time(), tzinfo=UTC)
+    end_exclusive_dt = datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
+    normalized_source_ids = _normalized_source_ids(source_ids)
 
     vis_ids = visible_transaction_ids_subquery(visibility) if visibility is not None else None
 
@@ -895,12 +906,14 @@ def deposit_analytics(
         .join(Transaction, Transaction.id == TransactionItem.transaction_id)
         .where(
             TransactionItem.is_deposit.is_(True),
-            Transaction.purchased_at >= start.isoformat(),
-            Transaction.purchased_at <= end.isoformat(),
+            Transaction.purchased_at >= start_dt,
+            Transaction.purchased_at < end_exclusive_dt,
         )
         .group_by(func.substr(Transaction.purchased_at, 1, 7))
         .order_by(func.substr(Transaction.purchased_at, 1, 7))
     )
+    if normalized_source_ids is not None:
+        stmt = stmt.where(Transaction.source_id.in_(normalized_source_ids))
     if vis_ids is not None:
         stmt = stmt.where(Transaction.id.in_(vis_ids))
 

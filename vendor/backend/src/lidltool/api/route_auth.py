@@ -107,6 +107,7 @@ HTTP_ROUTE_AUTH_MATRIX: tuple[RouteAuthPolicy, ...] = (
     RouteAuthPolicy("PATCH", "/api/v1/recurring-bills/{bill_id}", "authenticated_principal"),
     RouteAuthPolicy("DELETE", "/api/v1/recurring-bills/{bill_id}", "authenticated_principal"),
     RouteAuthPolicy("GET", "/api/v1/dashboard/cards", "authenticated_principal"),
+    RouteAuthPolicy("GET", "/api/v1/dashboard/years", "authenticated_principal"),
     RouteAuthPolicy("GET", "/api/v1/dashboard/summary", "authenticated_principal"),
     RouteAuthPolicy("GET", "/api/v1/dashboard/trends", "authenticated_principal"),
     RouteAuthPolicy("GET", "/api/v1/dashboard/savings-breakdown", "authenticated_principal"),

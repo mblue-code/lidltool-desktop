@@ -20,6 +20,13 @@ const DashboardCardsResponseSchema = z.object({
   })
 });
 
+const DashboardYearsResponseSchema = z.object({
+  years: z.array(z.number()),
+  min_year: z.number().nullable(),
+  max_year: z.number().nullable(),
+  latest_year: z.number().nullable()
+});
+
 const DashboardTrendsResponseSchema = z.object({
   points: z.array(
     z.object({
@@ -69,6 +76,7 @@ const RetailerCompositionResponseSchema = z.object({
 });
 
 export type DashboardCardsResponse = z.infer<typeof DashboardCardsResponseSchema>;
+export type DashboardYearsResponse = z.infer<typeof DashboardYearsResponseSchema>;
 export type DashboardTrendsResponse = z.infer<typeof DashboardTrendsResponseSchema>;
 export type SavingsBreakdownResponse = z.infer<typeof SavingsBreakdownResponseSchema>;
 export type RetailerCompositionResponse = z.infer<typeof RetailerCompositionResponseSchema>;
@@ -104,6 +112,12 @@ export async function fetchDashboardCards(
 ): Promise<DashboardCardsResponse> {
   const { result } = await fetchDashboardCardsWithWarnings(year, month, sourceIds);
   return result;
+}
+
+export async function fetchDashboardYears(sourceIds?: string[]): Promise<DashboardYearsResponse> {
+  return apiClient.get("/api/v1/dashboard/years", DashboardYearsResponseSchema, {
+    source_ids: sourceIdsParam(sourceIds)
+  });
 }
 
 export async function fetchDashboardTrendsWithWarnings(

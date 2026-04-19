@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarCheck, Euro, Package, Percent, PiggyBank, TrendingDown } from "lucide-react";
+import { CalendarCheck, Euro, Percent, PiggyBank, ReceiptText } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { fetchRecurringCalendar, fetchRecurringForecast } from "@/api/recurringBills";
 import { DashboardPeriodMode, dashboardPanelsQueryOptions } from "@/app/queries";
-import { fetchDepositAnalytics } from "@/api/analytics";
+import { fetchDashboardYears } from "@/api/dashboard";
 import { fetchSources } from "@/api/sources";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PageHeader } from "@/components/shared/PageHeader";
 import { type TranslationKey, useI18n } from "@/i18n";
 import { resolveApiErrorMessage, resolveApiWarningMessage } from "@/lib/backend-messages";
-import { formatEurFromCents, formatMonthDay, formatMonthName, formatMonthYear, formatPercent } from "../utils/format";
+import {
+  formatEurFromCents,
+  formatMonthDay,
+  formatMonthName,
+  formatMonthYear,
+  formatNumber,
+  formatPercent
+} from "../utils/format";
 
 type DiscountView = "native" | "normalized";
 type BreakdownDisplay = "chart" | "table";
@@ -53,7 +60,7 @@ type RetailerOption = {
   label: string;
 };
 
-const YEAR_MIN = 2020;
+const YEAR_MIN = 1900;
 const YEAR_MAX = 2100;
 const MONTH_MIN = 1;
 const MONTH_MAX = 12;
@@ -69,6 +76,7 @@ const RANGE_PRESETS: Array<{ label?: string; labelKey?: TranslationKey; startMon
 const DASHBOARD_SURFACE_CLASS = "app-dashboard-surface border-border/60";
 const DASHBOARD_SURFACE_STRONG_CLASS = "app-dashboard-surface-strong border-border/60";
 const DASHBOARD_CONTROL_CLASS = "app-dashboard-control border-border/70 text-foreground shadow-none";
+const DASHBOARD_BAR_CLASS = "bg-chart-2";
 
 function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -223,6 +231,33 @@ export function DashboardPage() {
 
   const [exportStatus, setExportStatus] = useState<string | null>(null);
 
+  const yearsQuery = useQuery({ queryKey: ["dashboard-years"], queryFn: () => fetchDashboardYears() });
+  const availableYearMin = yearsQuery.data?.min_year ?? YEAR_MIN;
+  const availableYearMax = yearsQuery.data?.max_year ?? YEAR_MAX;
+
+  useEffect(() => {
+    const latestYear = yearsQuery.data?.latest_year;
+    if (latestYear === null || latestYear === undefined) {
+      return;
+    }
+
+    const rawYearParam = searchParams.get("year");
+    if (rawYearParam === null) {
+      if (year !== latestYear) {
+        const next = new URLSearchParams(searchParams);
+        next.set("year", String(latestYear));
+        setSearchParams(next);
+      }
+      return;
+    }
+
+    if (year < availableYearMin || year > availableYearMax) {
+      const next = new URLSearchParams(searchParams);
+      next.set("year", String(clampNumber(year, availableYearMin, availableYearMax)));
+      setSearchParams(next);
+    }
+  }, [availableYearMax, availableYearMin, searchParams, setSearchParams, year, yearsQuery.data?.latest_year]);
+
   function updateSearchParams(nextValues: Partial<{
     year: number;
     period: DashboardPeriodMode;
@@ -247,7 +282,7 @@ export function DashboardPage() {
     const nextSpend = nextValues.spend ?? spendView;
     const nextRetailers = nextValues.retailers ?? selectedRetailerIds;
 
-    next.set("year", String(clampNumber(nextYear, YEAR_MIN, YEAR_MAX)));
+    next.set("year", String(clampNumber(nextYear, availableYearMin, availableYearMax)));
     next.set("period", nextPeriod);
     next.set("month", String(clampNumber(nextMonth, MONTH_MIN, MONTH_MAX)));
     next.set("start_month", String(clampNumber(normalizedStartMonth, MONTH_MIN, MONTH_MAX)));
@@ -278,7 +313,6 @@ export function DashboardPage() {
       sourceIds: selectedRetailerIds
     })
   );
-  const depositQuery = useQuery({ queryKey: ["deposit-analytics"], queryFn: fetchDepositAnalytics });
   const recurringCalendarQuery = useQuery({
     queryKey: [
       "dashboard-recurring-calendar",
@@ -300,6 +334,7 @@ export function DashboardPage() {
   const trends = data?.trends ?? null;
   const breakdown = data?.breakdown ?? null;
   const composition = data?.composition ?? null;
+  const deposit = data?.deposit ?? null;
   const warnings = data?.warnings ?? [];
   const loading = isPending || isFetching;
   const errorMessage = error ? resolveApiErrorMessage(error, t, t("pages.dashboard.loadError")) : null;
@@ -374,6 +409,10 @@ export function DashboardPage() {
   const netSpendCents = cards ? cards.totals.net_cents ?? cards.totals.paid_cents : null;
   const grossSpendCents = cards ? cards.totals.gross_cents : null;
   const savingsCents = cards ? cards.totals.discount_total_cents ?? cards.totals.saved_cents : null;
+  const depositNetCents = deposit?.net_outstanding_cents ?? 0;
+  const hasDepositActivity =
+    deposit !== null &&
+    (deposit.total_paid_cents !== 0 || deposit.total_returned_cents !== 0 || deposit.net_outstanding_cents !== 0);
 
   const ledgerParams = new URLSearchParams();
   ledgerParams.set("year", String(year));
@@ -394,13 +433,19 @@ export function DashboardPage() {
 
   const trendTitle =
     periodMode === "month"
-      ? t("pages.dashboard.trendTitle.month", { spendView })
+      ? t("pages.dashboard.trendTitle.month")
       : periodMode === "range"
         ? t("pages.dashboard.trendTitle.range", {
-            rangeLabel: `${monthName(startMonth)}-${monthName(endMonth)} ${year}`,
-            spendView
+            rangeLabel: `${monthName(startMonth)}-${monthName(endMonth)} ${year}`
           })
-        : t("pages.dashboard.trendTitle.year", { year, spendView });
+        : t("pages.dashboard.trendTitle.year", { year });
+
+  const visibleYearRangeLabel =
+    yearsQuery.data && yearsQuery.data.years.length > 0
+      ? yearsQuery.data.min_year === yearsQuery.data.max_year
+        ? String(yearsQuery.data.min_year)
+        : `${yearsQuery.data.min_year}-${yearsQuery.data.max_year}`
+      : null;
 
   const exportRows = useMemo<ExportRow[]>(() => {
     const rows: ExportRow[] = [];
@@ -522,17 +567,22 @@ export function DashboardPage() {
                 id="dashboard-year"
                 type="number"
                 value={year}
-                min={YEAR_MIN}
-                max={YEAR_MAX}
+                min={availableYearMin}
+                max={availableYearMax}
                 className={DASHBOARD_CONTROL_CLASS}
                 onChange={(event) => {
                   const parsed = Number(event.target.value);
                   if (!Number.isFinite(parsed)) {
                     return;
                   }
-                  updateSearchParams({ year: clampNumber(Math.floor(parsed), YEAR_MIN, YEAR_MAX) });
+                  updateSearchParams({ year: clampNumber(Math.floor(parsed), availableYearMin, availableYearMax) });
                 }}
               />
+              {visibleYearRangeLabel ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("pages.dashboard.availableYears", { range: visibleYearRangeLabel })}
+                </p>
+              ) : null}
             </div>
 
             {periodMode === "month" ? (
@@ -733,29 +783,27 @@ export function DashboardPage() {
           Dashboard summary
         </h2>
         {loading ? (
-          <div className="grid gap-4 p-4 lg:grid-cols-3 2xl:grid-cols-5">
-            <Skeleton className="h-20 rounded-lg" />
+          <div className="grid gap-4 p-4 lg:grid-cols-2 2xl:grid-cols-4">
             <Skeleton className="h-20 rounded-lg" />
             <Skeleton className="h-20 rounded-lg" />
             <Skeleton className="h-20 rounded-lg" />
             <Skeleton className="h-20 rounded-lg" />
           </div>
         ) : (
-          <div className="grid divide-y lg:divide-y-0 lg:divide-x divide-border/40 lg:grid-cols-3 2xl:grid-cols-5">
+          <div className="grid divide-y lg:divide-y-0 lg:divide-x divide-border/40 lg:grid-cols-2 2xl:grid-cols-4">
             <Link to={ledgerLink}>
               <MetricCard
-                title={t("pages.dashboard.card.netSpend")}
-                value={netSpendCents !== null ? formatEurFromCents(netSpendCents) : "—"}
-                icon={<TrendingDown className="h-3.5 w-3.5" />}
-                iconClassName="bg-primary/10 text-primary"
-              />
-            </Link>
-            <Link to={ledgerLink}>
-              <MetricCard
-                title={t("pages.dashboard.card.grossSpend")}
+                title={t("pages.dashboard.card.spend")}
                 value={grossSpendCents !== null ? formatEurFromCents(grossSpendCents) : "—"}
+                subtitle={
+                  netSpendCents !== null
+                    ? t("pages.dashboard.card.paidAfterDiscounts", {
+                        amount: formatEurFromCents(netSpendCents)
+                      })
+                    : undefined
+                }
                 icon={<Euro className="h-3.5 w-3.5" />}
-                iconClassName="bg-muted text-muted-foreground"
+                iconClassName="bg-primary/10 text-primary"
               />
             </Link>
             <Link to={savingsLedgerLink}>
@@ -774,15 +822,22 @@ export function DashboardPage() {
                 iconClassName="bg-chart-2/10 text-chart-2"
               />
             </Link>
-            <MetricCard
-              title={t("pages.dashboard.card.depositPaid")}
-              value={depositQuery.data ? formatEurFromCents(depositQuery.data.total_paid_cents) : "—"}
-              icon={<Package className="h-3.5 w-3.5" />}
-              iconClassName="bg-amber-500/10 text-amber-600"
-              subtitle={t("pages.dashboard.card.depositExcluded")}
-            />
+            <Link to={ledgerLink}>
+              <MetricCard
+                title={t("pages.dashboard.card.receipts")}
+                value={cards ? formatNumber(cards.totals.receipt_count) : "—"}
+                icon={<ReceiptText className="h-3.5 w-3.5" />}
+                iconClassName="bg-muted text-muted-foreground"
+              />
+            </Link>
           </div>
         )}
+        {!loading && hasDepositActivity ? (
+          <div className="border-t border-border/40 px-4 py-3 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{t("pages.dashboard.depositSummary")}</span>{" "}
+            <span>{formatEurFromCents(depositNetCents)}</span>
+          </div>
+        ) : null}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
@@ -848,7 +903,7 @@ export function DashboardPage() {
                         </span>
                       </div>
                       <div className="h-2 rounded-full bg-muted">
-                        <div className="h-2 rounded-full bg-primary" style={{ width: `${widthPct}%` }} />
+                        <div className={`h-2 rounded-full ${DASHBOARD_BAR_CLASS}`} style={{ width: `${widthPct}%` }} />
                       </div>
                     </li>
                   );
@@ -880,13 +935,16 @@ export function DashboardPage() {
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-medium">{labelFromTrendPoint(point)}</span>
                         <span className="text-muted-foreground">
-                          {spendView === "gross" ? t("pages.dashboard.trendGross") : t("pages.dashboard.trendNet")}{" "}
-                          {formatEurFromCents(spendCents)} | {t("pages.dashboard.trendNet")} {formatEurFromCents(netCents)} | {t("pages.dashboard.trendGross")}{" "}
-                          {formatEurFromCents(grossCents)} | {t("pages.dashboard.trendSavings")} {formatEurFromCents(pointSavingsCents)}
+                          {formatEurFromCents(spendCents)}
+                          {pointSavingsCents > 0
+                            ? ` · ${t("pages.dashboard.trendSavedAmount", {
+                                amount: formatEurFromCents(pointSavingsCents)
+                              })}`
+                            : ""}
                         </span>
                       </div>
                       <div className="h-2 rounded-full bg-muted">
-                        <div className="h-2 rounded-full bg-primary" style={{ width: `${width}%` }} />
+                        <div className={`h-2 rounded-full ${DASHBOARD_BAR_CLASS}`} style={{ width: `${width}%` }} />
                       </div>
                     </li>
                   );
@@ -936,7 +994,7 @@ export function DashboardPage() {
                         </span>
                       </div>
                       <div className="h-2 rounded-full bg-muted">
-                        <div className="h-2 rounded-full bg-primary" style={{ width: `${width}%` }} />
+                        <div className={`h-2 rounded-full ${DASHBOARD_BAR_CLASS}`} style={{ width: `${width}%` }} />
                       </div>
                     </li>
                   );

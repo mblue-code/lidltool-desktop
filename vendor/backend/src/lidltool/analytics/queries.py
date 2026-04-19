@@ -79,6 +79,36 @@ def _normalize_discount_type(kind: str | None) -> str:
     return _NORMALIZED_DISCOUNT_TYPE_MAP.get(value, "other")
 
 
+def dashboard_available_years(
+    session: Session,
+    *,
+    source_ids: list[str] | None = None,
+    visibility: VisibilityContext | None = None,
+) -> dict[str, Any]:
+    normalized_source_ids = _normalize_source_ids(source_ids)
+    year_expr = func.strftime("%Y", Transaction.purchased_at)
+    stmt = (
+        select(year_expr)
+        .where(Transaction.purchased_at.is_not(None))
+        .group_by(year_expr)
+        .order_by(year_expr.asc())
+    )
+    stmt = _apply_source_filter(stmt, normalized_source_ids)
+    stmt = _apply_transaction_visibility(stmt, visibility)
+
+    years = [
+        int(raw_year)
+        for (raw_year,) in session.execute(stmt).all()
+        if raw_year is not None and str(raw_year).isdigit()
+    ]
+    return {
+        "years": years,
+        "min_year": years[0] if years else None,
+        "max_year": years[-1] if years else None,
+        "latest_year": years[-1] if years else None,
+    }
+
+
 def _apply_transaction_visibility(stmt: Any, visibility: VisibilityContext | None) -> Any:
     if visibility is None:
         return stmt

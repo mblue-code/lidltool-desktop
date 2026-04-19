@@ -78,6 +78,7 @@ from lidltool.analytics.item_categorizer import resolve_item_categorizer_runtime
 from lidltool.analytics.recategorization import recategorize_transactions
 from lidltool.amazon.profiles import is_amazon_source_id
 from lidltool.analytics.queries import (
+    dashboard_available_years,
     dashboard_retailer_composition,
     dashboard_savings_breakdown,
     dashboard_totals,
@@ -6842,6 +6843,31 @@ def create_app(
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
+    @app.get("/api/v1/dashboard/years")
+    def get_dashboard_years(
+        request: Request,
+        source_ids: str | None = None,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                result = dashboard_available_years(
+                    session,
+                    source_ids=_parse_source_ids(source_ids),
+                    visibility=visibility,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
     @app.get("/api/v1/dashboard/summary")
     def get_dashboard_summary(
         request: Request,
@@ -8310,6 +8336,7 @@ def create_app(
         request: Request,
         from_date: str | None = None,
         to_date: str | None = None,
+        source_ids: str | None = None,
         scope: str = "personal",
     ) -> Any:
         try:
@@ -8326,6 +8353,7 @@ def create_app(
                     session,
                     date_from=_parse_optional_iso_date(from_date),
                     date_to=_parse_optional_iso_date(to_date),
+                    source_ids=_parse_source_ids(source_ids),
                     visibility=visibility,
                 )
             return _response(True, result=result, warnings=warnings, error=None)
