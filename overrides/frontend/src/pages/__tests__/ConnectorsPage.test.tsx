@@ -9,6 +9,8 @@ import { ConnectorsPage } from "../ConnectorsPage";
 const mocks = vi.hoisted(() => ({
   fetchConnectorsMock: vi.fn(),
   fetchConnectorConfigMock: vi.fn(),
+  fetchConnectorBootstrapStatusMock: vi.fn(),
+  fetchConnectorAuthStatusMock: vi.fn(),
   reloadConnectorsMock: vi.fn(),
   startConnectorBootstrapMock: vi.fn(),
   startConnectorSyncMock: vi.fn(),
@@ -18,6 +20,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/api/connectors", () => ({
   fetchConnectors: mocks.fetchConnectorsMock,
   fetchConnectorConfig: mocks.fetchConnectorConfigMock,
+  fetchConnectorBootstrapStatus: mocks.fetchConnectorBootstrapStatusMock,
+  fetchConnectorAuthStatus: mocks.fetchConnectorAuthStatusMock,
   reloadConnectors: mocks.reloadConnectorsMock,
   startConnectorBootstrap: mocks.startConnectorBootstrapMock,
   startConnectorSync: mocks.startConnectorSyncMock,
@@ -43,6 +47,316 @@ function renderPage(): void {
   );
 }
 
+function defaultBootstrapStatus(sourceId: string): any {
+  return {
+    source_id: sourceId,
+    status: "idle" as const,
+    command: null,
+    pid: null,
+    started_at: null,
+    finished_at: null,
+    return_code: null,
+    output_tail: [],
+    can_cancel: false
+  };
+}
+
+function makeDefaultConnectorsPayload(): any {
+  return {
+    generated_at: "2026-04-01T09:00:00Z",
+    viewer: { is_admin: true },
+    operator_actions: { can_reload: true, can_rescan: true },
+    summary: { total_connectors: 3, by_status: { ready: 1, setup_required: 2 } },
+    connectors: [
+      {
+        source_id: "amazon_de",
+        plugin_id: "community.amazon_de",
+        display_name: "Amazon",
+        origin: "local_path",
+        origin_label: "External",
+        runtime_kind: "python",
+        install_origin: "local_path",
+        install_state: "installed",
+        enable_state: "enabled",
+        config_state: "complete",
+        maturity: "preview",
+        maturity_label: "Preview",
+        supports_bootstrap: true,
+        supports_sync: true,
+        supports_live_session: true,
+        supports_live_session_bootstrap: true,
+        trust_class: "community_verified",
+        status_detail: "Stored from a desktop receipt pack.",
+        last_sync_summary: null,
+        last_synced_at: null,
+        ui: {
+          status: "connected",
+          visibility: "default",
+          description: "Occasional local Amazon sync.",
+          actions: {
+            primary: { kind: "reconnect", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: true,
+              manual_commands: {}
+            }
+          }
+        },
+        actions: {
+          primary: { kind: "reconnect", enabled: true },
+          secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+          operator: {
+            full_sync: true,
+            rescan: true,
+            reload: true,
+            install: false,
+            enable: false,
+            disable: false,
+            uninstall: false,
+            configure: true,
+            manual_commands: {}
+          }
+        },
+        advanced: {
+          source_exists: true,
+          stale: false,
+          stale_reason: null,
+          auth_state: "connected",
+          latest_sync_output: [],
+          latest_bootstrap_output: [],
+          latest_sync_status: "idle",
+          latest_bootstrap_status: "idle",
+          block_reason: null,
+          policy: {
+            blocked: false,
+            block_reason: null,
+            status: "enabled",
+            status_detail: null,
+            trust_class: "community_verified",
+            external_runtime_enabled: true,
+            external_receipt_plugins_enabled: true,
+            allowed_trust_classes: ["community_verified"]
+          },
+          release: {
+            maturity: "preview",
+            label: "Preview",
+            support_posture: "Preview",
+            description: "Desktop-managed pack.",
+            default_visibility: "default",
+            graduation_requirements: []
+          },
+          origin: {
+            kind: "local_path",
+            runtime_kind: "python",
+            search_path: "/tmp/plugins",
+            origin_path: "/tmp/plugins/amazon",
+            origin_directory: "/tmp/plugins"
+          },
+          diagnostics: [],
+          manual_commands: {}
+        }
+      },
+      {
+        source_id: "kaufland_de",
+        plugin_id: "local.kaufland_de",
+        display_name: "Kaufland",
+        origin: "local_path",
+        origin_label: "Local plugin",
+        runtime_kind: "subprocess_python",
+        install_origin: "local_path",
+        install_state: "installed",
+        enable_state: "enabled",
+        config_state: "complete",
+        maturity: "preview",
+        maturity_label: "Preview",
+        supports_bootstrap: true,
+        supports_sync: true,
+        supports_live_session: true,
+        supports_live_session_bootstrap: true,
+        trust_class: "official",
+        status_detail: null,
+        last_sync_summary: null,
+        last_synced_at: null,
+        ui: {
+          status: "setup_required",
+          visibility: "default",
+          description: "Kaufland setup",
+          actions: {
+            primary: { kind: "set_up", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: false,
+              manual_commands: {}
+            }
+          }
+        },
+        actions: {
+          primary: { kind: "set_up", enabled: true },
+          secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+          operator: {
+            full_sync: true,
+            rescan: true,
+            reload: true,
+            install: false,
+            enable: false,
+            disable: false,
+            uninstall: false,
+            configure: false,
+            manual_commands: {}
+          }
+        },
+        advanced: {
+          source_exists: true,
+          stale: false,
+          stale_reason: null,
+          auth_state: "not_connected",
+          latest_sync_output: [],
+          latest_bootstrap_output: [],
+          latest_sync_status: "idle",
+          latest_bootstrap_status: "idle",
+          block_reason: null,
+          policy: {
+            blocked: false,
+            block_reason: null,
+            status: "enabled",
+            status_detail: null,
+            trust_class: "official",
+            external_runtime_enabled: true,
+            external_receipt_plugins_enabled: true,
+            allowed_trust_classes: ["official"]
+          },
+          release: {
+            maturity: "preview",
+            label: "Preview",
+            support_posture: "Preview",
+            description: "Desktop-managed pack.",
+            default_visibility: "default",
+            graduation_requirements: []
+          },
+          origin: {
+            kind: "local_path",
+            runtime_kind: "subprocess_python",
+            search_path: "/tmp/plugins",
+            origin_path: "/tmp/plugins/kaufland_de/manifest.json",
+            origin_directory: "/tmp/plugins/kaufland_de"
+          },
+          diagnostics: [],
+          manual_commands: {}
+        }
+      },
+      {
+        source_id: "rossmann_de",
+        plugin_id: "builtin.rossmann_de",
+        display_name: "Rossmann",
+        origin: "builtin",
+        origin_label: "Built-in",
+        runtime_kind: "builtin",
+        install_origin: "builtin",
+        install_state: "installed",
+        enable_state: "enabled",
+        config_state: "complete",
+        maturity: "preview",
+        maturity_label: "Preview",
+        supports_bootstrap: true,
+        supports_sync: true,
+        supports_live_session: true,
+        supports_live_session_bootstrap: true,
+        trust_class: "official",
+        status_detail: null,
+        last_sync_summary: null,
+        last_synced_at: null,
+        ui: {
+          status: "setup_required",
+          visibility: "default",
+          description: "Rossmann setup",
+          actions: {
+            primary: { kind: "set_up", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: false,
+              manual_commands: {}
+            }
+          }
+        },
+        actions: {
+          primary: { kind: "set_up", enabled: true },
+          secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+          operator: {
+            full_sync: true,
+            rescan: true,
+            reload: true,
+            install: false,
+            enable: false,
+            disable: false,
+            uninstall: false,
+            configure: false,
+            manual_commands: {}
+          }
+        },
+        advanced: {
+          source_exists: true,
+          stale: false,
+          stale_reason: null,
+          auth_state: "not_connected",
+          latest_sync_output: [],
+          latest_bootstrap_output: [],
+          latest_sync_status: "idle",
+          latest_bootstrap_status: "idle",
+          block_reason: null,
+          policy: {
+            blocked: false,
+            block_reason: null,
+            status: "enabled",
+            status_detail: null,
+            trust_class: "official",
+            external_runtime_enabled: true,
+            external_receipt_plugins_enabled: true,
+            allowed_trust_classes: ["official"]
+          },
+          release: {
+            maturity: "preview",
+            label: "Preview",
+            support_posture: "Preview",
+            description: "Desktop-managed pack.",
+            default_visibility: "default",
+            graduation_requirements: []
+          },
+          origin: {
+            kind: "builtin",
+            runtime_kind: "builtin",
+            search_path: null,
+            origin_path: null,
+            origin_directory: null
+          },
+          diagnostics: [],
+          manual_commands: {}
+        }
+      }
+    ]
+  };
+}
+
 describe("ConnectorsPage", () => {
   beforeEach(() => {
     const storage = new Map<string, string>();
@@ -60,299 +374,7 @@ describe("ConnectorsPage", () => {
     });
     window.localStorage.setItem("app.locale", "en");
 
-    mocks.fetchConnectorsMock.mockResolvedValue({
-      generated_at: "2026-04-01T09:00:00Z",
-      viewer: { is_admin: true },
-      operator_actions: { can_reload: true, can_rescan: true },
-      summary: { total_connectors: 3, by_status: { ready: 1, setup_required: 2 } },
-      connectors: [
-        {
-          source_id: "amazon_de",
-          plugin_id: "community.amazon_de",
-          display_name: "Amazon",
-          origin: "local_path",
-          origin_label: "External",
-          runtime_kind: "python",
-          install_origin: "local_path",
-          install_state: "installed",
-          enable_state: "enabled",
-          config_state: "complete",
-          maturity: "preview",
-          maturity_label: "Preview",
-          supports_bootstrap: true,
-          supports_sync: true,
-          supports_live_session: true,
-          supports_live_session_bootstrap: true,
-          trust_class: "community_verified",
-          status_detail: "Stored from a desktop receipt pack.",
-          last_sync_summary: null,
-          last_synced_at: null,
-          ui: {
-            status: "connected",
-            visibility: "default",
-            description: "Occasional local Amazon sync.",
-            actions: {
-              primary: { kind: "reconnect", enabled: true },
-              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
-              operator: {
-                full_sync: true,
-                rescan: true,
-                reload: true,
-                install: false,
-                enable: false,
-                disable: false,
-                uninstall: false,
-                configure: true,
-                manual_commands: {}
-              }
-            }
-          },
-          actions: {
-            primary: { kind: "reconnect", enabled: true },
-            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
-            operator: {
-              full_sync: true,
-              rescan: true,
-              reload: true,
-              install: false,
-              enable: false,
-              disable: false,
-              uninstall: false,
-              configure: true,
-              manual_commands: {}
-            }
-          },
-          advanced: {
-            source_exists: true,
-            stale: false,
-            stale_reason: null,
-            auth_state: "connected",
-            latest_sync_output: [],
-            latest_bootstrap_output: [],
-            latest_sync_status: "idle",
-            latest_bootstrap_status: "idle",
-            block_reason: null,
-            policy: {
-              blocked: false,
-              block_reason: null,
-              status: "enabled",
-              status_detail: null,
-              trust_class: "community_verified",
-              external_runtime_enabled: true,
-              external_receipt_plugins_enabled: true,
-              allowed_trust_classes: ["community_verified"]
-            },
-            release: {
-              maturity: "preview",
-              label: "Preview",
-              support_posture: "Preview",
-              description: "Desktop-managed pack.",
-              default_visibility: "default",
-              graduation_requirements: []
-            },
-            origin: {
-              kind: "local_path",
-              runtime_kind: "python",
-              search_path: "/tmp/plugins",
-              origin_path: "/tmp/plugins/amazon",
-              origin_directory: "/tmp/plugins"
-            },
-            diagnostics: [],
-            manual_commands: {}
-          }
-        },
-        {
-          source_id: "kaufland_de",
-          plugin_id: "local.kaufland_de",
-          display_name: "Kaufland",
-          origin: "local_path",
-          origin_label: "Local plugin",
-          runtime_kind: "subprocess_python",
-          install_origin: "local_path",
-          install_state: "installed",
-          enable_state: "enabled",
-          config_state: "complete",
-          maturity: "preview",
-          maturity_label: "Preview",
-          supports_bootstrap: true,
-          supports_sync: true,
-          supports_live_session: true,
-          supports_live_session_bootstrap: true,
-          trust_class: "official",
-          status_detail: null,
-          last_sync_summary: null,
-          last_synced_at: null,
-          ui: {
-            status: "setup_required",
-            visibility: "default",
-            description: "Kaufland setup",
-            actions: {
-              primary: { kind: "set_up", enabled: true },
-              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
-              operator: {
-                full_sync: true,
-                rescan: true,
-                reload: true,
-                install: false,
-                enable: false,
-                disable: false,
-                uninstall: false,
-                configure: false,
-                manual_commands: {}
-              }
-            }
-          },
-          actions: {
-            primary: { kind: "set_up", enabled: true },
-            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
-            operator: {
-              full_sync: true,
-              rescan: true,
-              reload: true,
-              install: false,
-              enable: false,
-              disable: false,
-              uninstall: false,
-              configure: false,
-              manual_commands: {}
-            }
-          },
-          advanced: {
-            source_exists: true,
-            stale: false,
-            stale_reason: null,
-            auth_state: "not_connected",
-            latest_sync_output: [],
-            latest_bootstrap_output: [],
-            latest_sync_status: "idle",
-            latest_bootstrap_status: "idle",
-            block_reason: null,
-            policy: {
-              blocked: false,
-              block_reason: null,
-              status: "enabled",
-              status_detail: null,
-              trust_class: "official",
-              external_runtime_enabled: true,
-              external_receipt_plugins_enabled: true,
-              allowed_trust_classes: ["official"]
-            },
-            release: {
-              maturity: "preview",
-              label: "Preview",
-              support_posture: "Preview",
-              description: "Desktop-managed pack.",
-              default_visibility: "default",
-              graduation_requirements: []
-            },
-            origin: {
-              kind: "local_path",
-              runtime_kind: "subprocess_python",
-              search_path: "/tmp/plugins",
-              origin_path: "/tmp/plugins/kaufland_de/manifest.json",
-              origin_directory: "/tmp/plugins/kaufland_de"
-            },
-            diagnostics: [],
-            manual_commands: {}
-          }
-        },
-        {
-          source_id: "rossmann_de",
-          plugin_id: "builtin.rossmann_de",
-          display_name: "Rossmann",
-          origin: "builtin",
-          origin_label: "Built-in",
-          runtime_kind: "builtin",
-          install_origin: "builtin",
-          install_state: "installed",
-          enable_state: "enabled",
-          config_state: "complete",
-          maturity: "preview",
-          maturity_label: "Preview",
-          supports_bootstrap: true,
-          supports_sync: true,
-          supports_live_session: true,
-          supports_live_session_bootstrap: true,
-          trust_class: "official",
-          status_detail: null,
-          last_sync_summary: null,
-          last_synced_at: null,
-          ui: {
-            status: "setup_required",
-            visibility: "default",
-            description: "Rossmann setup",
-            actions: {
-              primary: { kind: "set_up", enabled: true },
-              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
-              operator: {
-                full_sync: true,
-                rescan: true,
-                reload: true,
-                install: false,
-                enable: false,
-                disable: false,
-                uninstall: false,
-                configure: false,
-                manual_commands: {}
-              }
-            }
-          },
-          actions: {
-            primary: { kind: "set_up", enabled: true },
-            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
-            operator: {
-              full_sync: true,
-              rescan: true,
-              reload: true,
-              install: false,
-              enable: false,
-              disable: false,
-              uninstall: false,
-              configure: false,
-              manual_commands: {}
-            }
-          },
-          advanced: {
-            source_exists: true,
-            stale: false,
-            stale_reason: null,
-            auth_state: "not_connected",
-            latest_sync_output: [],
-            latest_bootstrap_output: [],
-            latest_sync_status: "idle",
-            latest_bootstrap_status: "idle",
-            block_reason: null,
-            policy: {
-              blocked: false,
-              block_reason: null,
-              status: "enabled",
-              status_detail: null,
-              trust_class: "official",
-              external_runtime_enabled: true,
-              external_receipt_plugins_enabled: true,
-              allowed_trust_classes: ["official"]
-            },
-            release: {
-              maturity: "preview",
-              label: "Preview",
-              support_posture: "Preview",
-              description: "Desktop-managed pack.",
-              default_visibility: "default",
-              graduation_requirements: []
-            },
-            origin: {
-              kind: "builtin",
-              runtime_kind: "builtin",
-              search_path: null,
-              origin_path: null,
-              origin_directory: null
-            },
-            diagnostics: [],
-            manual_commands: {}
-          }
-        }
-      ]
-    });
+    mocks.fetchConnectorsMock.mockResolvedValue(makeDefaultConnectorsPayload());
 
     mocks.fetchConnectorConfigMock.mockResolvedValue({
       source_id: "amazon_de",
@@ -371,6 +393,15 @@ describe("ConnectorsPage", () => {
           value: "amazon.de"
         }
       ]
+    });
+    mocks.fetchConnectorBootstrapStatusMock.mockImplementation(async (sourceId: string) =>
+      defaultBootstrapStatus(sourceId)
+    );
+    mocks.fetchConnectorAuthStatusMock.mockResolvedValue({
+      source_id: "kaufland_de",
+      state: "connected",
+      detail: null,
+      available_actions: ["sync"]
     });
 
     mocks.reloadConnectorsMock.mockResolvedValue({});
@@ -659,6 +690,7 @@ describe("ConnectorsPage", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
   });
 
@@ -679,6 +711,152 @@ describe("ConnectorsPage", () => {
     expect(await screen.findByRole("button", { name: "Add connector file" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Sign in again" })).toBeInTheDocument();
     expect((await screen.findAllByText("More options")).length).toBeGreaterThan(0);
+  });
+
+  it("promotes import actions right after successful setup and does not stay stuck on Set up", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const initialPayload = makeDefaultConnectorsPayload();
+    const updatedPayload = makeDefaultConnectorsPayload();
+    updatedPayload.connectors[1] = {
+      ...updatedPayload.connectors[1],
+      ui: {
+        ...updatedPayload.connectors[1].ui,
+        status: "ready",
+        description: "Kaufland ready"
+      },
+      actions: {
+        ...updatedPayload.connectors[1].actions,
+        primary: { kind: "sync_now", enabled: true }
+      },
+      advanced: {
+        ...updatedPayload.connectors[1].advanced,
+        auth_state: "connected"
+      }
+    };
+    let kauflandBootstrapCalls = 0;
+    mocks.fetchConnectorsMock
+      .mockImplementationOnce(async () => initialPayload)
+      .mockImplementation(async () => updatedPayload);
+    mocks.fetchConnectorBootstrapStatusMock.mockImplementation(async (sourceId: string) => {
+      if (sourceId !== "kaufland_de") {
+        return defaultBootstrapStatus(sourceId);
+      }
+      kauflandBootstrapCalls += 1;
+      if (kauflandBootstrapCalls === 1) {
+        return defaultBootstrapStatus(sourceId);
+      }
+      if (kauflandBootstrapCalls === 2) {
+        return {
+          ...defaultBootstrapStatus(sourceId),
+          status: "running",
+          can_cancel: true
+        };
+      }
+      return {
+        ...defaultBootstrapStatus(sourceId),
+        status: "succeeded",
+        finished_at: "2026-04-01T09:05:00Z"
+      };
+    });
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Set up" }));
+
+    await waitFor(() => {
+      expect(mocks.startConnectorBootstrapMock).toHaveBeenCalledWith("kaufland_de");
+    });
+
+    await vi.advanceTimersByTimeAsync(3_100);
+
+    await waitFor(() => {
+      expect(kauflandBootstrapCalls).toBeGreaterThanOrEqual(3);
+    });
+
+    expect((await screen.findAllByText("Sign-in complete")).length).toBeGreaterThan(0);
+    expect(
+      screen.getByText("Your sign-in was saved. Next, either import new receipts or run the one-time full history import.")
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Import full history" }).length).toBeGreaterThan(0);
+  });
+
+  it("shows a short-lived success banner after sync completion and auto-dismisses it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const runningPayload = makeDefaultConnectorsPayload();
+    runningPayload.summary = { total_connectors: 3, by_status: { ready: 1, syncing: 1, setup_required: 1 } };
+    runningPayload.connectors[1] = {
+      ...runningPayload.connectors[1],
+      ui: {
+        ...runningPayload.connectors[1].ui,
+        status: "syncing",
+        description: "Kaufland sync"
+      },
+      actions: {
+        ...runningPayload.connectors[1].actions,
+        primary: { kind: "sync_now", enabled: true }
+      },
+      advanced: {
+        ...runningPayload.connectors[1].advanced,
+        auth_state: "connected",
+        latest_sync_status: "running",
+        latest_sync_output: ["stage=processing seen=2 new=1"]
+      }
+    };
+    const finishedPayload = makeDefaultConnectorsPayload();
+    finishedPayload.connectors[1] = {
+      ...finishedPayload.connectors[1],
+      ui: {
+        ...finishedPayload.connectors[1].ui,
+        status: "ready",
+        description: "Kaufland ready"
+      },
+      actions: {
+        ...finishedPayload.connectors[1].actions,
+        primary: { kind: "sync_now", enabled: true }
+      },
+      last_synced_at: "2026-04-01T09:10:00Z",
+      last_sync_summary: "1 new receipt(s), 0 new item(s), 1 checked",
+      advanced: {
+        ...finishedPayload.connectors[1].advanced,
+        auth_state: "connected",
+        latest_sync_status: "succeeded",
+        latest_sync_output: []
+      }
+    };
+    mocks.fetchConnectorsMock
+      .mockImplementationOnce(async () => runningPayload)
+      .mockImplementation(async () => finishedPayload);
+
+    renderPage();
+
+    expect(await screen.findByText("Import running")).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(2_100);
+
+    expect(await screen.findByText("Import finished")).toBeInTheDocument();
+    expect(screen.queryByText("Import running")).not.toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(60_100);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Import finished")).not.toBeInTheDocument();
+    });
+  });
+
+  it("localizes the DM onboarding modal fully in German", async () => {
+    window.localStorage.setItem("app.locale", "de");
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Zuerst prüfen" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Bevor Sie DM aktivieren")).toBeInTheDocument();
+    expect(within(dialog).getByText("dm beim ersten Lauf bewusst langsam angehen")).toBeInTheDocument();
+    expect(within(dialog).getByText("Erwartete Dauer")).toBeInTheDocument();
+    expect(within(dialog).getByText("Ersten Import starten")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Jetzt nicht" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Anbindung aktivieren" })).toBeInTheDocument();
   });
 
   it("saves connector settings before continuing setup", async () => {
@@ -738,9 +916,11 @@ describe("ConnectorsPage", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Before you turn on DM")).toBeInTheDocument();
-    expect(within(dialog).getByText("Slow and careful by design")).toBeInTheDocument();
+    expect(within(dialog).getByText("Take dm slowly on the first run")).toBeInTheDocument();
     expect(
-      within(dialog).getByText("This slower pace helps reduce the chance that the retailer blocks the session.")
+      within(dialog).getByText(
+        "If dm rejects the first sign-in attempt, start setup once more. A second attempt can still succeed without changing your credentials."
+      )
     ).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Enable connector" }));

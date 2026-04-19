@@ -71,6 +71,25 @@ type ConnectorGuide = {
 
 type ConnectorTaskState = "setup_required" | "ready" | "syncing" | "needs_attention";
 
+type FeedbackState = {
+  variant: "default" | "destructive";
+  title: string;
+  message: string;
+  dismissAfterMs?: number;
+};
+
+type ConnectorPrimaryActionKind = "set_up" | "reconnect" | "sync_now" | "open_source" | null;
+
+type FirstRunPromptState = Record<
+  string,
+  {
+    activatedAt: number;
+    expiresAt: number;
+  }
+>;
+
+const SHORT_SUCCESS_DISMISS_MS = 60_000;
+
 function byLocale(locale: SupportedLocale, en: string, de: string): string {
   return locale === "de" ? de : en;
 }
@@ -415,6 +434,53 @@ function localizedKauflandGuide(locale: SupportedLocale): ConnectorGuide {
   };
 }
 
+function localizedDmGuide(locale: SupportedLocale): ConnectorGuide {
+  return {
+    headline: byLocale(locale, "Take dm slowly on the first run", "dm beim ersten Lauf bewusst langsam angehen"),
+    summary: byLocale(
+      locale,
+      "dm works best when the first sign-in and import are allowed to run without rushing between screens.",
+      "dm funktioniert am zuverlässigsten, wenn die erste Anmeldung und der erste Import ohne Hektik durchlaufen dürfen."
+    ),
+    speedDescription: byLocale(
+      locale,
+      "Usually slower than other connectors. The first import can take a while even when everything is working correctly.",
+      "Meist langsamer als andere Anbindungen. Der erste Import kann etwas dauern, auch wenn alles korrekt funktioniert."
+    ),
+    caution: byLocale(
+      locale,
+      "If dm rejects the first sign-in attempt, start setup once more. A second attempt can still succeed without changing your credentials.",
+      "Wenn dm den ersten Anmeldeversuch ablehnt, starten Sie die Einrichtung noch einmal. Ein zweiter Versuch kann trotz gleicher Zugangsdaten erfolgreich sein."
+    ),
+    steps: [
+      {
+        title: byLocale(locale, "Enable the connector", "Anbindung aktivieren"),
+        description: byLocale(
+          locale,
+          "Turn dm on first so the desktop app can load the plugin locally.",
+          "Aktivieren Sie dm zuerst, damit die Desktop-App das Plugin lokal laden kann."
+        )
+      },
+      {
+        title: byLocale(locale, "Finish sign-in", "Anmeldung abschließen"),
+        description: byLocale(
+          locale,
+          "Use Set up and complete the login in the browser window opened by the app.",
+          "Nutzen Sie Einrichten und schließen Sie die Anmeldung im von der App geöffneten Browserfenster ab."
+        )
+      },
+      {
+        title: byLocale(locale, "Start the first import", "Ersten Import starten"),
+        description: byLocale(
+          locale,
+          "Right after sign-in, use Import receipts for the normal run or Import full history for the one-time catch-up.",
+          "Nutzen Sie direkt nach der Anmeldung Belege importieren für den normalen Lauf oder Gesamte Historie laden für den einmaligen Nachimport."
+        )
+      }
+    ]
+  };
+}
+
 function pluginGuideOverride(
   pack: DesktopReceiptPluginPackInfo | null,
   locale: SupportedLocale
@@ -425,7 +491,38 @@ function pluginGuideOverride(
   if (pack.sourceId === "kaufland_de") {
     return localizedKauflandGuide(locale);
   }
+  if (pack.sourceId === "dm_de") {
+    return localizedDmGuide(locale);
+  }
   return null;
+}
+
+function primaryActionKind(
+  connector: ConnectorDiscoveryRow,
+  taskState: ConnectorTaskState,
+  bootstrapStatus: ConnectorBootstrapStatus | null,
+  firstRunPromptActive: boolean
+): ConnectorPrimaryActionKind {
+  if (
+    connector.enable_state === "enabled" &&
+    connector.supports_sync &&
+    (firstRunPromptActive || bootstrapStatus?.status === "succeeded")
+  ) {
+    return "sync_now";
+  }
+  if (taskState === "setup_required") {
+    return "set_up";
+  }
+  if (connector.actions.primary.kind === "reconnect") {
+    return "reconnect";
+  }
+  if (connector.actions.primary.kind === "sync_now") {
+    return "sync_now";
+  }
+  if (connector.actions.primary.kind === "open_source") {
+    return "open_source";
+  }
+  return connector.actions.primary.kind as ConnectorPrimaryActionKind;
 }
 
 function connectorGuideForPack(
@@ -497,18 +594,18 @@ function connectorStatusSummary(
 }
 
 function primaryActionLabel(
-  connector: ConnectorDiscoveryRow,
-  taskState: ConnectorTaskState,
+  actionKind: ConnectorPrimaryActionKind,
+  _taskState: ConnectorTaskState,
   locale: SupportedLocale
 ): string {
-  if (taskState === "setup_required") {
-    return byLocale(locale, "Set up", "Einrichten");
+  if (actionKind === "sync_now") {
+    return byLocale(locale, "Import receipts", "Belege importieren");
   }
-  if (connector.actions.primary.kind === "reconnect") {
+  if (actionKind === "reconnect") {
     return byLocale(locale, "Sign in again", "Erneut anmelden");
   }
-  if (connector.actions.primary.kind === "sync_now") {
-    return byLocale(locale, "Import receipts", "Belege importieren");
+  if (actionKind === "open_source") {
+    return byLocale(locale, "Open receipts", "Belege öffnen");
   }
   return byLocale(locale, "Set up", "Einrichten");
 }
@@ -542,6 +639,7 @@ function parseStageValue(line: string, key: string): string | null {
 function summarizeBootstrapStatus(
   status: ConnectorBootstrapStatus | null,
   latestLine: string | null,
+  connector: ConnectorDiscoveryRow,
   locale: SupportedLocale
 ): string | null {
   if (latestLine?.startsWith("Waiting for auth step:")) {
@@ -569,10 +667,17 @@ function summarizeBootstrapStatus(
     );
   }
   if (status?.status === "failed") {
+    if (connector.source_id === "dm_de") {
+      return byLocale(
+        locale,
+        "The sign-in was not saved. If dm rejects the first attempt, start setup once more before assuming the connector is broken.",
+        "Die Anmeldung wurde nicht gespeichert. Wenn dm den ersten Versuch ablehnt, starten Sie die Einrichtung bitte noch einmal, bevor Sie von einem Defekt ausgehen."
+      );
+    }
     return byLocale(
       locale,
-      "The sign-in did not complete successfully.",
-      "Die Anmeldung wurde nicht erfolgreich abgeschlossen."
+      "The sign-in did not complete successfully. Start setup again to retry.",
+      "Die Anmeldung wurde nicht erfolgreich abgeschlossen. Starten Sie die Einrichtung erneut, um es noch einmal zu versuchen."
     );
   }
   return latestLine;
@@ -622,11 +727,12 @@ export function ConnectorsPage() {
   const [setupState, setSetupState] = useState<SetupState | null>(null);
   const [setupValues, setSetupValues] = useState<SetupValues>({});
   const [clearSecretKeys, setClearSecretKeys] = useState<string[]>([]);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [packGuideState, setPackGuideState] = useState<PackGuideState | null>(null);
   const [highlightedPackId, setHighlightedPackId] = useState<string | null>(null);
   const [selectedLidlSourceId, setSelectedLidlSourceId] = useState<string>("lidl_plus_de");
   const [selectedAmazonSourceId, setSelectedAmazonSourceId] = useState<string>("amazon_de");
+  const [firstRunPrompts, setFirstRunPrompts] = useState<FirstRunPromptState>({});
 
   const connectorsQuery = useQuery({
     queryKey: ["connectors"],
@@ -676,14 +782,51 @@ export function ConnectorsPage() {
     setClearSecretKeys([]);
   }, [setupConfigQuery.data]);
 
+  useEffect(() => {
+    if (!feedback?.dismissAfterMs) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setFeedback((current) => (current === feedback ? null : current));
+    }, feedback.dismissAfterMs);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
+
+  useEffect(() => {
+    const activePrompts = Object.entries(firstRunPrompts);
+    if (activePrompts.length === 0) {
+      return;
+    }
+    const now = Date.now();
+    const nextExpiry = Math.min(...activePrompts.map(([, prompt]) => prompt.expiresAt));
+    const delay = Math.max(nextExpiry - now, 0);
+    const timer = window.setTimeout(() => {
+      setFirstRunPrompts((current) =>
+        Object.fromEntries(Object.entries(current).filter(([, prompt]) => prompt.expiresAt > Date.now()))
+      );
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [firstRunPrompts]);
+
   const bootstrapMutation = useMutation({
     mutationFn: (sourceId: string) => startConnectorBootstrap(sourceId),
-    onSuccess: async (_result, sourceId) => {
-      setFeedback(t("pages.connectors.feedback.setupStarted", { name: sourceId }));
+    onSuccess: async (result, sourceId) => {
+      setFeedback({
+        variant: "default",
+        title: byLocale(locale, "Sign-in started", "Anmeldung gestartet"),
+        message: t("pages.connectors.feedback.setupStarted", { name: sourceId }),
+        dismissAfterMs: 15_000
+      });
+      queryClient.setQueryData(["connectors", "bootstrap-status", sourceId], result.bootstrap);
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      await queryClient.invalidateQueries({ queryKey: ["connectors", "bootstrap-status", sourceId] });
     },
     onError: (error) => {
-      setFeedback(resolveApiErrorMessage(error, t, t("pages.connectors.startBootstrapErrorTitle")));
+      setFeedback({
+        variant: "destructive",
+        title: byLocale(locale, "Sign-in failed", "Anmeldung fehlgeschlagen"),
+        message: resolveApiErrorMessage(error, t, t("pages.connectors.startBootstrapErrorTitle"))
+      });
     }
   });
 
@@ -691,27 +834,53 @@ export function ConnectorsPage() {
     mutationFn: ({ sourceId, full }: { sourceId: string; full: boolean }) =>
       startConnectorSync(sourceId, full),
     onSuccess: async (_result, { sourceId, full }) => {
-      setFeedback(
-        full
+      setFeedback({
+        variant: "default",
+        title: full
+          ? byLocale(locale, "Full import started", "Vollimport gestartet")
+          : byLocale(locale, "Import started", "Import gestartet"),
+        message: full
           ? t("pages.connectors.feedback.fullSyncStarted", { name: sourceId })
-          : t("pages.connectors.feedback.syncStarted", { name: sourceId })
-      );
+          : t("pages.connectors.feedback.syncStarted", { name: sourceId }),
+        dismissAfterMs: 15_000
+      });
+      setFirstRunPrompts((current) => {
+        if (!current[sourceId]) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[sourceId];
+        return next;
+      });
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
     },
     onError: (error) => {
-      setFeedback(resolveApiErrorMessage(error, t, t("pages.connectors.startSyncErrorTitle")));
+      setFeedback({
+        variant: "destructive",
+        title: byLocale(locale, "Import failed to start", "Import konnte nicht gestartet werden"),
+        message: resolveApiErrorMessage(error, t, t("pages.connectors.startSyncErrorTitle"))
+      });
     }
   });
 
   const reloadMutation = useMutation({
     mutationFn: reloadConnectors,
     onSuccess: async () => {
-      setFeedback(t("pages.connectors.feedback.registryReloaded"));
+      setFeedback({
+        variant: "default",
+        title: byLocale(locale, "Connector list refreshed", "Anbindungsliste aktualisiert"),
+        message: t("pages.connectors.feedback.registryReloaded"),
+        dismissAfterMs: 15_000
+      });
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
     onError: (error) => {
-      setFeedback(resolveApiErrorMessage(error, t, t("pages.connectors.loadSourceErrorTitle")));
+      setFeedback({
+        variant: "destructive",
+        title: byLocale(locale, "Refresh failed", "Aktualisierung fehlgeschlagen"),
+        message: resolveApiErrorMessage(error, t, t("pages.connectors.loadSourceErrorTitle"))
+      });
     }
   });
 
@@ -728,19 +897,23 @@ export function ConnectorsPage() {
         return;
       }
       setHighlightedPackId(result.pack.pluginId);
-      setFeedback(
-        result.pack.status === "disabled"
-          ? byLocale(
-              locale,
-              `Imported ${result.pack.displayName}. Use the Enable connector button below to finish adding it.`,
-              `${result.pack.displayName} wurde importiert. Aktivieren Sie die Anbindung unten, um sie fertig hinzuzufügen.`
-            )
-          : byLocale(
-              locale,
-              `Imported ${result.pack.displayName}. It is already active on this desktop.`,
-              `${result.pack.displayName} wurde importiert und ist auf diesem Gerät bereits aktiv.`
-            )
-      );
+      setFeedback({
+        variant: "default",
+        title: byLocale(locale, "Connector imported", "Anbindung importiert"),
+        message:
+          result.pack.status === "disabled"
+            ? byLocale(
+                locale,
+                `Imported ${result.pack.displayName}. Use the Enable connector button below to finish adding it.`,
+                `${result.pack.displayName} wurde importiert. Aktivieren Sie die Anbindung unten, um sie fertig hinzuzufügen.`
+              )
+            : byLocale(
+                locale,
+                `Imported ${result.pack.displayName}. It is already active on this desktop.`,
+                `${result.pack.displayName} wurde importiert und ist auf diesem Gerät bereits aktiv.`
+              ),
+        dismissAfterMs: 15_000
+      });
       if (result.pack.status === "disabled") {
         setPackGuideState({
           pack: result.pack,
@@ -752,13 +925,15 @@ export function ConnectorsPage() {
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
     onError: (error) => {
-      setFeedback(
-        byLocale(
+      setFeedback({
+        variant: "destructive",
+        title: byLocale(locale, "Import failed", "Import fehlgeschlagen"),
+        message: byLocale(
           locale,
           `Could not import the local receipt pack. ${String(error)}`,
           `Das lokale Belegpaket konnte nicht importiert werden. ${String(error)}`
         )
-      );
+      });
     }
   });
 
@@ -772,19 +947,23 @@ export function ConnectorsPage() {
     },
     onSuccess: async (result) => {
       setHighlightedPackId(result.pack.pluginId);
-      setFeedback(
-        result.pack.status === "disabled"
-          ? byLocale(
-              locale,
-              `Installed ${result.pack.displayName}. Use the Enable connector button below to finish adding it.`,
-              `${result.pack.displayName} wurde installiert. Aktivieren Sie die Anbindung unten, um sie fertig hinzuzufügen.`
-            )
-          : byLocale(
-              locale,
-              `Installed ${result.pack.displayName} from the trusted catalog.`,
-              `${result.pack.displayName} wurde aus dem vertrauenswürdigen Katalog installiert.`
-            )
-      );
+      setFeedback({
+        variant: "default",
+        title: byLocale(locale, "Connector installed", "Anbindung installiert"),
+        message:
+          result.pack.status === "disabled"
+            ? byLocale(
+                locale,
+                `Installed ${result.pack.displayName}. Use the Enable connector button below to finish adding it.`,
+                `${result.pack.displayName} wurde installiert. Aktivieren Sie die Anbindung unten, um sie fertig hinzuzufügen.`
+              )
+            : byLocale(
+                locale,
+                `Installed ${result.pack.displayName} from the trusted catalog.`,
+                `${result.pack.displayName} wurde aus dem vertrauenswürdigen Katalog installiert.`
+              ),
+        dismissAfterMs: 15_000
+      });
       if (result.pack.status === "disabled") {
         setPackGuideState({
           pack: result.pack,
@@ -796,13 +975,15 @@ export function ConnectorsPage() {
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
     onError: (error) => {
-      setFeedback(
-        byLocale(
+      setFeedback({
+        variant: "destructive",
+        title: byLocale(locale, "Installation failed", "Installation fehlgeschlagen"),
+        message: byLocale(
           locale,
           `Could not install the trusted receipt pack. ${String(error)}`,
           `Das vertrauenswürdige Belegpaket konnte nicht installiert werden. ${String(error)}`
         )
-      );
+      });
     }
   });
 
@@ -815,8 +996,12 @@ export function ConnectorsPage() {
       return enabled ? await bridge.enableReceiptPlugin(pluginId) : await bridge.disableReceiptPlugin(pluginId);
     },
     onSuccess: async (result, variables) => {
-      setFeedback(
-        variables.enabled
+      setFeedback({
+        variant: "default",
+        title: variables.enabled
+          ? byLocale(locale, "Connector enabled", "Anbindung aktiviert")
+          : byLocale(locale, "Connector disabled", "Anbindung deaktiviert"),
+        message: variables.enabled
           ? byLocale(
               locale,
               `${result.pack.displayName} is turned on. Next, use Set up to sign in if the connector asks for it.`,
@@ -826,8 +1011,9 @@ export function ConnectorsPage() {
               locale,
               `${result.pack.displayName} is turned off on this computer.`,
               `${result.pack.displayName} ist auf diesem Gerät jetzt deaktiviert.`
-            )
-      );
+            ),
+        dismissAfterMs: 15_000
+      });
       if (variables.enabled) {
         setHighlightedPackId(result.pack.pluginId);
       }
@@ -836,13 +1022,15 @@ export function ConnectorsPage() {
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
     onError: (error) => {
-      setFeedback(
-        byLocale(
+      setFeedback({
+        variant: "destructive",
+        title: byLocale(locale, "Update failed", "Aktualisierung fehlgeschlagen"),
+        message: byLocale(
           locale,
           `Could not update the receipt pack state. ${String(error)}`,
           `Der Status des Belegpakets konnte nicht aktualisiert werden. ${String(error)}`
         )
-      );
+      });
     }
   });
 
@@ -855,26 +1043,31 @@ export function ConnectorsPage() {
       return await bridge.uninstallReceiptPlugin(pluginId);
     },
     onSuccess: async (_result, pluginId) => {
-      setFeedback(
-        byLocale(
+      setFeedback({
+        variant: "default",
+        title: byLocale(locale, "Connector removed", "Anbindung entfernt"),
+        message: byLocale(
           locale,
           `Removed ${pluginId} from desktop storage.`,
           `${pluginId} wurde aus dem Desktop-Speicher entfernt.`
-        )
-      );
+        ),
+        dismissAfterMs: 15_000
+      });
       setHighlightedPackId((current) => (current === pluginId ? null : current));
       setPackGuideState((current) => (current?.pack.pluginId === pluginId ? null : current));
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
     },
     onError: (error) => {
-      setFeedback(
-        byLocale(
+      setFeedback({
+        variant: "destructive",
+        title: byLocale(locale, "Removal failed", "Entfernen fehlgeschlagen"),
+        message: byLocale(
           locale,
           `Could not remove the receipt pack. ${String(error)}`,
           `Das Belegpaket konnte nicht entfernt werden. ${String(error)}`
         )
-      );
+      });
     }
   });
 
@@ -894,18 +1087,31 @@ export function ConnectorsPage() {
       await queryClient.invalidateQueries({ queryKey: ["connectors", "config", variables.sourceId] });
     },
     onError: (error) => {
-      setFeedback(resolveApiErrorMessage(error, t, t("pages.connectors.loadSourceErrorTitle")));
+      setFeedback({
+        variant: "destructive",
+        title: byLocale(locale, "Settings failed", "Einstellungen fehlgeschlagen"),
+        message: resolveApiErrorMessage(error, t, t("pages.connectors.loadSourceErrorTitle"))
+      });
     }
   });
   const cancelBootstrapMutation = useMutation({
     mutationFn: (sourceId: string) => cancelConnectorBootstrap(sourceId),
     onSuccess: async (_result, sourceId) => {
-      setFeedback(t("pages.connectors.action.bootstrapCanceled", { sourceId }));
+      setFeedback({
+        variant: "default",
+        title: byLocale(locale, "Sign-in canceled", "Anmeldung abgebrochen"),
+        message: t("pages.connectors.action.bootstrapCanceled", { sourceId }),
+        dismissAfterMs: 15_000
+      });
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["connectors", "bootstrap-status", sourceId] });
     },
     onError: (error) => {
-      setFeedback(resolveApiErrorMessage(error, t, "Failed to cancel connector bootstrap"));
+      setFeedback({
+        variant: "destructive",
+        title: byLocale(locale, "Cancel failed", "Abbrechen fehlgeschlagen"),
+        message: resolveApiErrorMessage(error, t, "Failed to cancel connector bootstrap")
+      });
     }
   });
 
@@ -1097,20 +1303,94 @@ export function ConnectorsPage() {
   const connectorsError = connectorsQuery.error
     ? resolveApiErrorMessage(connectorsQuery.error, t, t("pages.connectors.loadSourceErrorTitle"))
     : null;
-  const latestBootstrapRefreshKeyRef = useRef<string>("");
+  const handledBootstrapCompletionsRef = useRef<Set<string>>(new Set());
+  const previousSyncStatusRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
-    const completionKey = Array.from(bootstrapStatusBySourceId.entries())
-      .filter(([, status]) => status.status === "succeeded" || status.status === "failed")
-      .map(([sourceId, status]) => `${sourceId}:${status.status}:${status.finished_at ?? "pending"}`)
-      .sort()
-      .join("|");
-    if (!completionKey || completionKey === latestBootstrapRefreshKeyRef.current) {
-      return;
+    for (const [sourceId, status] of bootstrapStatusBySourceId.entries()) {
+      if ((status.status !== "succeeded" && status.status !== "failed") || !status.finished_at) {
+        continue;
+      }
+      const completionKey = `${sourceId}:${status.status}:${status.finished_at}`;
+      if (handledBootstrapCompletionsRef.current.has(completionKey)) {
+        continue;
+      }
+      handledBootstrapCompletionsRef.current.add(completionKey);
+      if (status.status === "succeeded") {
+        const connector = connectors.find((item) => item.source_id === sourceId) ?? null;
+        if (connector && connector.supports_sync && !connector.last_synced_at) {
+          const now = Date.now();
+          setFirstRunPrompts((current) => ({
+            ...current,
+            [sourceId]: {
+              activatedAt: now,
+              expiresAt: now + SHORT_SUCCESS_DISMISS_MS
+            }
+          }));
+          setFeedback({
+            variant: "default",
+            title: byLocale(locale, "Sign-in complete", "Anmeldung abgeschlossen"),
+            message: byLocale(
+              locale,
+              "Your sign-in was saved. Next, either import new receipts or run the one-time full history import.",
+              "Ihre Anmeldung wurde gespeichert. Als Nächstes können Sie entweder neue Belege importieren oder einmalig die gesamte Historie laden."
+            ),
+            dismissAfterMs: SHORT_SUCCESS_DISMISS_MS
+          });
+        }
+      }
+      if (status.status === "succeeded" || status.status === "failed") {
+        void queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      }
     }
-    latestBootstrapRefreshKeyRef.current = completionKey;
-    void queryClient.invalidateQueries({ queryKey: ["connectors"] });
-  }, [bootstrapStatusBySourceId, queryClient]);
+  }, [bootstrapStatusBySourceId, connectors, locale, queryClient]);
+
+  useEffect(() => {
+    for (const connector of connectors) {
+      const currentStatus = connector.advanced.latest_sync_status;
+      const previousStatus = previousSyncStatusRef.current.get(connector.source_id);
+      previousSyncStatusRef.current.set(connector.source_id, currentStatus);
+      if (previousStatus !== "running") {
+        continue;
+      }
+      if (currentStatus === "succeeded") {
+        setFirstRunPrompts((current) => {
+          if (!current[connector.source_id]) {
+            return current;
+          }
+          const next = { ...current };
+          delete next[connector.source_id];
+          return next;
+        });
+        setFeedback({
+          variant: "default",
+          title: byLocale(locale, "Import finished", "Import abgeschlossen"),
+          message: byLocale(
+            locale,
+            `${connectorDisplayName(connector)} finished importing successfully. This message will disappear automatically.`,
+            `${connectorDisplayName(connector)} hat den Import erfolgreich abgeschlossen. Diese Meldung verschwindet automatisch.`
+          ),
+          dismissAfterMs: SHORT_SUCCESS_DISMISS_MS
+        });
+      } else if (currentStatus === "failed" || currentStatus === "canceled") {
+        setFeedback({
+          variant: "destructive",
+          title:
+            currentStatus === "canceled"
+              ? byLocale(locale, "Import canceled", "Import abgebrochen")
+              : byLocale(locale, "Import failed", "Import fehlgeschlagen"),
+          message:
+            connector.last_sync_summary ||
+            connector.status_detail ||
+            byLocale(
+              locale,
+              "The import did not finish successfully.",
+              "Der Import wurde nicht erfolgreich abgeschlossen."
+            )
+        });
+      }
+    }
+  }, [connectors, locale]);
 
   async function openSetup(connector: ConnectorDiscoveryRow, mode: SetupState["mode"]): Promise<void> {
     setFeedback(null);
@@ -1135,9 +1415,12 @@ export function ConnectorsPage() {
     });
   }
 
-  async function handlePrimaryAction(connector: ConnectorDiscoveryRow): Promise<void> {
-    const kind = connector.actions.primary.kind;
-    if (!kind || !connector.actions.primary.enabled) {
+  async function handlePrimaryAction(
+    connector: ConnectorDiscoveryRow,
+    kind: ConnectorPrimaryActionKind,
+    enabled: boolean
+  ): Promise<void> {
+    if (!kind || !enabled) {
       return;
     }
     if (kind === "set_up") {
@@ -1156,23 +1439,31 @@ export function ConnectorsPage() {
         authStatus.state === "auth_failed"
       ) {
         await queryClient.invalidateQueries({ queryKey: ["connectors"] });
-        setFeedback(
-          authStatus.state === "reauth_required" || authStatus.state === "auth_failed"
-            ? byLocale(
-                locale,
-                "Saved sign-in expired. Please sign in again.",
-                "Die gespeicherte Anmeldung ist abgelaufen. Bitte erneut anmelden."
-              )
-            : byLocale(
-                locale,
-                "Please sign in before the first import.",
-                "Bitte melden Sie sich vor dem ersten Import an."
-              )
-        );
+        setFeedback({
+          variant: "default",
+          title: byLocale(locale, "Sign-in required", "Anmeldung erforderlich"),
+          message:
+            authStatus.state === "reauth_required" || authStatus.state === "auth_failed"
+              ? byLocale(
+                  locale,
+                  "Saved sign-in expired. Please sign in again.",
+                  "Die gespeicherte Anmeldung ist abgelaufen. Bitte erneut anmelden."
+                )
+              : byLocale(
+                  locale,
+                  "Please sign in before the first import.",
+                  "Bitte melden Sie sich vor dem ersten Import an."
+                ),
+          dismissAfterMs: 15_000
+        });
         await bootstrapMutation.mutateAsync(connector.source_id);
         return;
       }
       await syncMutation.mutateAsync({ sourceId: connector.source_id, full: false });
+      return;
+    }
+    if (kind === "open_source" && connector.actions.secondary.href) {
+      return;
     }
   }
 
@@ -1193,7 +1484,12 @@ export function ConnectorsPage() {
     if (setupState.mode !== "configure") {
       await bootstrapMutation.mutateAsync(connector.source_id);
     } else {
-      setFeedback(t("pages.connectors.feedback.settingsSaved", { name: connector.display_name }));
+      setFeedback({
+        variant: "default",
+        title: byLocale(locale, "Settings saved", "Einstellungen gespeichert"),
+        message: t("pages.connectors.feedback.settingsSaved", { name: connector.display_name }),
+        dismissAfterMs: 15_000
+      });
     }
     closeSetup();
   }
@@ -1227,8 +1523,24 @@ export function ConnectorsPage() {
       catalogEntry?.current_version &&
       compareVersions(pack.version, catalogEntry.current_version) < 0;
     const displayName = options?.title ?? connectorDisplayName(connector);
-    const taskState = connectorTaskState(connector);
     const bootstrapStatus = bootstrapStatusBySourceId.get(connector.source_id) ?? null;
+    const firstRunPrompt = firstRunPrompts[connector.source_id];
+    const firstRunPromptActive = Boolean(firstRunPrompt && firstRunPrompt.expiresAt > Date.now());
+    const rawTaskState = connectorTaskState(connector);
+    const taskState =
+      rawTaskState === "setup_required" &&
+      connector.enable_state === "enabled" &&
+      connector.supports_sync &&
+      (firstRunPromptActive || bootstrapStatus?.status === "succeeded")
+        ? "ready"
+        : rawTaskState;
+    const primaryKind = primaryActionKind(connector, taskState, bootstrapStatus, firstRunPromptActive);
+    const primaryEnabled =
+      primaryKind === "sync_now"
+        ? connector.enable_state === "enabled"
+        : primaryKind === "set_up" && bootstrapStatus?.status === "running"
+          ? false
+          : connector.actions.primary.enabled || primaryKind === "set_up";
     const bootstrapLines = bootstrapStatus?.output_tail ?? [];
     const bootstrapLatestLine =
       bootstrapLines.length > 0 ? bootstrapLines[bootstrapLines.length - 1] ?? null : null;
@@ -1237,6 +1549,19 @@ export function ConnectorsPage() {
     const latestSyncLine = syncLines.length > 0 ? syncLines[syncLines.length - 1] ?? null : null;
     const showSyncStatus = connector.ui.status === "syncing";
     const secondarySummary = connectorSecondarySummary(connector, pack, locale);
+    const showFirstRunActions =
+      firstRunPromptActive &&
+      connector.supports_sync &&
+      connector.enable_state === "enabled";
+    const effectivePrimaryKind: ConnectorPrimaryActionKind = showFirstRunActions ? "sync_now" : primaryKind;
+    const effectivePrimaryEnabled = showFirstRunActions ? true : primaryEnabled;
+    const statusSummary = showFirstRunActions
+      ? byLocale(
+          locale,
+          "Your sign-in is saved. Choose the normal import or the one-time full history import next.",
+          "Ihre Anmeldung ist gespeichert. Wählen Sie jetzt entweder den normalen Import oder einmalig die gesamte Historie."
+        )
+      : connectorStatusSummary(connector, pack, displayName, locale);
     const bootstrapTitle =
       bootstrapStatus?.status === "running"
         ? byLocale(locale, "Sign-in in progress", "Anmeldung läuft")
@@ -1245,7 +1570,12 @@ export function ConnectorsPage() {
           : bootstrapStatus?.status === "succeeded"
             ? byLocale(locale, "Sign-in complete", "Anmeldung abgeschlossen")
             : byLocale(locale, "Sign-in", "Anmeldung");
-    const bootstrapSummary = summarizeBootstrapStatus(bootstrapStatus, bootstrapLatestLine, locale);
+    const bootstrapSummary = summarizeBootstrapStatus(
+      bootstrapStatus,
+      bootstrapLatestLine,
+      connector,
+      locale
+    );
 
     return (
       <Card key={options?.key ?? connector.source_id} className="border-border/60 bg-card/85 shadow-sm">
@@ -1253,7 +1583,7 @@ export function ConnectorsPage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="space-y-1">
               <CardTitle className="text-lg">{displayName}</CardTitle>
-              <CardDescription>{connectorStatusSummary(connector, pack, displayName, locale)}</CardDescription>
+              <CardDescription>{statusSummary}</CardDescription>
               {options?.headerExtra ? <div className="pt-2">{options.headerExtra}</div> : null}
             </div>
             <Badge>{connectorStatusLabel(taskState, locale)}</Badge>
@@ -1268,14 +1598,27 @@ export function ConnectorsPage() {
             </p>
           ) : null}
 
+          {showFirstRunActions ? (
+            <Alert>
+              <AlertTitle>{byLocale(locale, "Next step after sign-in", "Nächster Schritt nach der Anmeldung")}</AlertTitle>
+              <AlertDescription>
+                {byLocale(
+                  locale,
+                  "Your sign-in is saved. Start the normal import now, or run the one-time full history import while everything is still fresh.",
+                  "Ihre Anmeldung ist gespeichert. Starten Sie jetzt den normalen Import oder laden Sie einmalig die gesamte Historie, solange alles noch frisch verbunden ist."
+                )}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           <div className="flex flex-wrap gap-2">
             <Button
-              onClick={() => void handlePrimaryAction(connector)}
+              onClick={() => void handlePrimaryAction(connector, effectivePrimaryKind, effectivePrimaryEnabled)}
               disabled={
                 bootstrapMutation.isPending ||
                 syncMutation.isPending ||
-                !connector.actions.primary.enabled ||
-                connector.actions.primary.kind === null
+                !effectivePrimaryEnabled ||
+                effectivePrimaryKind === null
               }
             >
               {(bootstrapMutation.isPending || syncMutation.isPending) &&
@@ -1283,8 +1626,20 @@ export function ConnectorsPage() {
                 syncMutation.variables?.sourceId === connector.source_id) ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
-              {primaryActionLabel(connector, taskState, locale)}
+              {primaryActionLabel(effectivePrimaryKind, taskState, locale)}
             </Button>
+            {showFirstRunActions ? (
+              <Button
+                variant="outline"
+                onClick={() => void syncMutation.mutateAsync({ sourceId: connector.source_id, full: true })}
+                disabled={syncMutation.isPending}
+              >
+                {syncMutation.isPending && syncMutation.variables?.sourceId === connector.source_id && syncMutation.variables.full ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {byLocale(locale, "Import full history", "Gesamte Historie laden")}
+              </Button>
+            ) : null}
           </div>
 
           {showBootstrapStatus ? (
@@ -1360,12 +1715,15 @@ export function ConnectorsPage() {
                   </Button>
                 ) : null}
 
-                {connector.supports_sync ? (
+                {connector.supports_sync && !showFirstRunActions ? (
                   <Button
                     variant="outline"
                     onClick={() => void syncMutation.mutateAsync({ sourceId: connector.source_id, full: true })}
                     disabled={syncMutation.isPending || connector.enable_state !== "enabled"}
                   >
+                    {syncMutation.isPending && syncMutation.variables?.sourceId === connector.source_id && syncMutation.variables.full ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
                     {byLocale(locale, "Import full history", "Gesamte Historie laden")}
                   </Button>
                 ) : null}
@@ -1479,15 +1837,15 @@ export function ConnectorsPage() {
       </p>
 
       {feedback ? (
-        <Alert>
-          <AlertTitle>Connector status</AlertTitle>
-          <AlertDescription>{feedback}</AlertDescription>
+        <Alert variant={feedback.variant}>
+          <AlertTitle>{feedback.title}</AlertTitle>
+          <AlertDescription>{feedback.message}</AlertDescription>
         </Alert>
       ) : null}
 
       {connectorsError ? (
         <Alert variant="destructive">
-          <AlertTitle>Failed to load connectors</AlertTitle>
+          <AlertTitle>{byLocale(locale, "Failed to load connectors", "Anbindungen konnten nicht geladen werden")}</AlertTitle>
           <AlertDescription>{connectorsError}</AlertDescription>
         </Alert>
       ) : null}
@@ -1863,7 +2221,9 @@ export function ConnectorsPage() {
 
               <DialogFooter>
                 <Button variant="outline" onClick={() => setPackGuideState(null)}>
-                  {packGuideState.showEnableAction ? "Not now" : "Close"}
+                  {packGuideState.showEnableAction
+                    ? byLocale(locale, "Not now", "Jetzt nicht")
+                    : byLocale(locale, "Close", "Schließen")}
                 </Button>
                 {packGuideState.showEnableAction ? (
                   <Button
@@ -1875,7 +2235,7 @@ export function ConnectorsPage() {
                     togglePackMutation.variables.enabled ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : null}
-                    Enable connector
+                    {byLocale(locale, "Enable connector", "Anbindung aktivieren")}
                   </Button>
                 ) : null}
               </DialogFooter>
