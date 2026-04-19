@@ -73,8 +73,8 @@ Residual debt after Sprint 6:
   without reintroducing OCR/runtime assumptions.
 - The authenticated system-backup endpoint still lands through a narrow backend patch because it is desktop packaging
   behavior, not self-hosted server behavior.
-- Deferred parity remains deferred on purpose: OCR runtime parity, offers parity, automations parity, reliability/ops
-  parity, and self-hosted operator workflows.
+- Deferred parity remains deferred on purpose: offers parity, automations parity, reliability/ops parity, and
+  self-hosted operator workflows.
 
 ## User journey
 
@@ -92,6 +92,9 @@ Typical desktop flow:
 - Desktop launches into the Electron control center first.
 - The Python backend stays off at idle until the user explicitly chooses **Open main app** or **Start local service**.
 - Full-app startup runs the backend in desktop-minimal mode, which disables server-style background work such as the automation scheduler and connector live-sync thread.
+- OCR processing is handled by a second Python worker process, separate from the Electron main process and the HTTP server process.
+- The OCR worker is started on demand when the user triggers document OCR, not during normal backend startup.
+- The desktop OCR worker exits after an idle timeout so the bundled OCR runtime does not stay resident in RAM between imports.
 - One-off control-center tasks such as export, backup, restore, and most shell-managed workflows remain short-lived subprocesses instead of depending on a resident backend.
 - Preferred backend executable order:
   1. `LIDLTOOL_EXECUTABLE` env override
@@ -112,6 +115,31 @@ Typical desktop flow:
   - `PLAYWRIGHT_BROWSERS_PATH=0` for bundled or managed venv backends
 - Desktop defaults `config.toml`/`token.json` and document storage to the app profile instead of shared
   `~/.config/lidltool` or `~/.local/share/lidltool` paths, so packaged runs stay isolated from self-hosted state.
+
+## Desktop OCR
+
+Desktop OCR now ships as a local packaged workflow instead of depending on an external OCR service.
+
+- The bundled backend venv includes `rapidocr_onnxruntime` and its ONNX model assets on disk.
+- Electron keeps OCR out of the main app process by spawning a dedicated Python worker when OCR work is actually queued.
+- The HTTP backend only enqueues OCR jobs. The durable worker consumes the queue and updates document/job state.
+- The bundled desktop OCR provider is `desktop_local`.
+- Image uploads and scanned PDFs are OCRed locally in the worker process. PDFs that already contain a text layer still use direct text extraction first.
+- The renderer wakes the worker after `POST /api/v1/documents/{document_id}/process` so the user does not get stuck in `queued`.
+
+User-visible OCR states:
+
+- `queued`
+- `starting_engine`
+- `processing`
+- `completed`
+- `failed`
+
+Idle lifecycle:
+
+- The OCR worker stays warm briefly after work completes, then exits automatically.
+- Tune the idle timeout with `LIDLTOOL_DESKTOP_OCR_IDLE_TIMEOUT_S`.
+- Default idle timeout is `600` seconds.
 
 Control-center states:
 - full-app-ready: bundled frontend pages are present and the main app can open normally
@@ -373,7 +401,7 @@ After every sync/build, desktop applies a local vendored frontend compatibility 
 
 - Node.js 20+
 - npm
-- Python 3.11+
+- Python 3.11 to 3.12 for desktop backend preparation and release builds
 
 ## Local development
 
@@ -398,6 +426,14 @@ npm run backend:prepare
 npm run frontend:build
 npm run dev
 ```
+
+`npm run backend:prepare` now builds a standalone desktop backend venv instead of an editable checkout-linked install.
+That venv is what later gets copied into `build/backend-venv` for packaged desktop runs.
+
+Desktop intentionally prefers Python `3.12`, then `3.11` for backend preparation because the bundled
+desktop OCR runtime is only treated as production-ready on that range today.
+If you intentionally need to bypass that guard, set `LIDLTOOL_DESKTOP_ALLOW_UNSUPPORTED_PYTHON=1`, but that is not
+the recommended release path.
 
 Run the real desktop Electron E2E smoke suite:
 
@@ -448,6 +484,7 @@ npm run vendor:sync
 npm run frontend:install
 npm run frontend:build
 npm run backend:prepare
+npm run test:ocr-packaged
 npm run test:e2e
 npm run test:plugin-packs
 npm run test:release-metadata
@@ -459,6 +496,9 @@ npm run dist:full
 Expected high-level outcomes:
 - `frontend:build` succeeds and writes `vendor/frontend/dist`
 - `backend:prepare` succeeds and reports Chromium under `.../site-packages/playwright/.../.local-browsers/chromium-*`
+- `test:ocr-packaged` proves the built `build/backend-venv` + `build/backend-src` payload can upload a scanned PDF,
+  start the separate OCR worker, reach `queued -> starting_engine -> processing -> completed`, create a receipt, and
+  let the worker exit after idle timeout
 - `build` syncs `build/frontend-dist`, `build/backend-src`, `build/backend-venv`
 - `dist:full` produces packaged artifacts in `dist_electron/`
 

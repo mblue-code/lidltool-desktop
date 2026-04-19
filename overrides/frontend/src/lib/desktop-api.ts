@@ -138,6 +138,10 @@ type DesktopCapabilityBridge = {
   getCapabilities: () => Promise<DesktopCapabilities>;
 };
 
+type DesktopOcrBridge = {
+  wakeOcrWorker: () => Promise<{ running: boolean; started: boolean; idleTimeoutSeconds: number }>;
+};
+
 type DesktopConnectorBridge = {
   getReleaseMetadata: () => Promise<DesktopReleaseMetadata>;
   listReceiptPlugins: () => Promise<DesktopReceiptPluginPackListResult>;
@@ -148,7 +152,11 @@ type DesktopConnectorBridge = {
   uninstallReceiptPlugin: (pluginId: string) => Promise<DesktopReceiptPluginPackUninstallResult>;
 };
 
-export type DesktopApiBridge = (DesktopImportBridge & Partial<DesktopCapabilityBridge>) | null;
+export type DesktopApiBridge = (
+  DesktopImportBridge &
+  Partial<DesktopCapabilityBridge> &
+  Partial<DesktopOcrBridge>
+) | null;
 
 export function getDesktopApiBridge(): DesktopApiBridge {
   const desktopApi = (window as unknown as { desktopApi?: DesktopApiBridge }).desktopApi;

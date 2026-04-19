@@ -10,6 +10,10 @@ const desktopDir = resolve(__dirname, "..");
 const backendSource = resolve(desktopDir, "vendor", "backend");
 const venvDir = resolve(desktopDir, ".backend", "venv");
 const playwrightBrowsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH?.trim() || "0";
+const allowUnsupportedPython = process.env.LIDLTOOL_DESKTOP_ALLOW_UNSUPPORTED_PYTHON?.trim() === "1";
+
+const MIN_SUPPORTED_PYTHON_MINOR = 11;
+const MAX_RECOMMENDED_PYTHON_MINOR = 12;
 
 const venvPython =
   process.platform === "win32"
@@ -32,7 +36,16 @@ function isSupportedPythonVersion(version) {
   if (!version) {
     return false;
   }
-  return version.major > 3 || (version.major === 3 && version.minor >= 11);
+  if (version.major !== 3) {
+    return false;
+  }
+  if (version.minor < MIN_SUPPORTED_PYTHON_MINOR) {
+    return false;
+  }
+  if (version.minor > MAX_RECOMMENDED_PYTHON_MINOR) {
+    return allowUnsupportedPython;
+  }
+  return true;
 }
 
 function readPythonVersion(command, args = []) {
@@ -57,22 +70,41 @@ function run(command, args, opts = {}) {
 
 function resolveHostPython() {
   if (process.platform === "win32") {
-    for (const pythonSelector of ["-3.14", "-3.13", "-3.12", "-3.11", "-3"]) {
+    for (const pythonSelector of ["-3.13", "-3.12", "-3.11"]) {
       const version = readPythonVersion("py", [pythonSelector]);
       if (isSupportedPythonVersion(version)) {
         return { command: "py", args: [pythonSelector] };
       }
     }
+    if (allowUnsupportedPython) {
+      for (const pythonSelector of ["-3.14", "-3"]) {
+        const version = readPythonVersion("py", [pythonSelector]);
+        if (isSupportedPythonVersion(version)) {
+          return { command: "py", args: [pythonSelector] };
+        }
+      }
+    }
   }
 
-  for (const candidate of ["python3.14", "python3.13", "python3.12", "python3.11", "python3", "python"]) {
+  for (const candidate of ["python3.13", "python3.12", "python3.11"]) {
     const version = readPythonVersion(candidate);
     if (isSupportedPythonVersion(version)) {
       return { command: candidate, args: [] };
     }
   }
+  if (allowUnsupportedPython) {
+    for (const candidate of ["python3.14", "python3", "python"]) {
+      const version = readPythonVersion(candidate);
+      if (isSupportedPythonVersion(version)) {
+        return { command: candidate, args: [] };
+      }
+    }
+  }
 
-  throw new Error("No suitable Python interpreter found. Install Python 3.11+ first.");
+  throw new Error(
+    "No suitable Python interpreter found. Install Python 3.11-3.12 for desktop backend preparation. " +
+      "Set LIDLTOOL_DESKTOP_ALLOW_UNSUPPORTED_PYTHON=1 only if you intentionally want to bypass the stable OCR runtime constraint."
+  );
 }
 
 function ensureCompatibleVirtualenv() {
@@ -99,7 +131,16 @@ if (!ensureCompatibleVirtualenv()) {
 }
 
 run(venvPython, ["-m", "pip", "install", "--upgrade", "pip"], { cwd: desktopDir });
-run(venvPython, ["-m", "pip", "install", "-e", backendSource], { cwd: desktopDir });
+run(
+  venvPython,
+  ["-m", "pip", "install", "--upgrade", "--force-reinstall", backendSource],
+  { cwd: desktopDir }
+);
+const rapidocrInstallArgs = ["-m", "pip", "install", "rapidocr_onnxruntime==1.4.4"];
+if (allowUnsupportedPython) {
+  rapidocrInstallArgs.splice(3, 0, "--ignore-requires-python");
+}
+run(venvPython, rapidocrInstallArgs, { cwd: desktopDir });
 run(venvPython, ["-m", "playwright", "install", "chromium"], {
   cwd: desktopDir,
   env: {

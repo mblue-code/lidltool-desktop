@@ -19,6 +19,22 @@ const DocumentProcessResponseSchema = z.object({
   reused: z.boolean()
 });
 
+const DocumentJobTimelineEventSchema = z.object({
+  timestamp: z.string(),
+  event: z.string(),
+  status: z.string(),
+  message: z.string(),
+});
+
+const DocumentJobSchema = z.object({
+  job_id: z.string(),
+  status: z.string(),
+  started_at: z.string().nullable(),
+  finished_at: z.string().nullable(),
+  timeline: z.array(DocumentJobTimelineEventSchema).default([]),
+  error: z.string().nullable(),
+}).passthrough();
+
 const DocumentStatusResponseSchema = z.object({
   document_id: z.string(),
   transaction_id: z.string().nullable(),
@@ -30,7 +46,7 @@ const DocumentStatusResponseSchema = z.object({
   ocr_fallback_used: z.boolean().nullable(),
   ocr_latency_ms: z.number().nullable(),
   processed_at: z.string().nullable(),
-  job: z.record(z.string(), z.unknown()).optional()
+  job: DocumentJobSchema.optional()
 });
 
 export type DocumentUploadResponse = z.infer<typeof DocumentUploadResponseSchema>;

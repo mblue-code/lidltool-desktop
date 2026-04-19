@@ -15,26 +15,16 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from lidltool.ai.mediation import PluginAiMediationService
-from lidltool.amazon.client_playwright import AmazonPlaywrightClient
 from lidltool.auth.users import ensure_service_user
 from lidltool.config import AppConfig, build_config, database_url
-from lidltool.connectors.base import Connector
-from lidltool.connectors.registry import source_display_name
-from lidltool.connectors.runtime import (
-    ConnectorRuntimeHost,
-    RuntimeHostedReceiptConnector,
-)
-from lidltool.connectors.runtime import execution as connector_execution_module
-from lidltool.connectors.runtime.errors import ConnectorRuntimeError
-from lidltool.connectors.runtime.execution import ConnectorExecutionService
+from lidltool.connectors.runtime import ConnectorRuntimeHost
 from lidltool.connectors.runtime.logging import log_runtime_invocation
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
 from lidltool.db.models import Document, IngestionJob, Source, SourceAccount
 from lidltool.ingest.sync import SyncProgress, SyncResult, SyncService
-from lidltool.lidl.client import create_lidl_client
-from lidltool.rossmann.client_playwright import RossmannPlaywrightClient
 
 if TYPE_CHECKING:
+    from lidltool.connectors.base import Connector
     from lidltool.ingest.ocr_ingest import OcrIngestService
 
 LOGGER = logging.getLogger(__name__)
@@ -322,15 +312,27 @@ class JobService:
         poll_interval_s: float = 1.0,
         max_jobs: int | None = None,
         idle_exit: bool = False,
+        idle_exit_after_s: float | None = None,
     ) -> int:
         processed = 0
+        idle_started_at: float | None = None
         while max_jobs is None or processed < max_jobs:
             claimed = self.run_worker_once()
             if claimed:
                 processed += 1
+                idle_started_at = None
                 continue
             if idle_exit:
                 break
+            if idle_exit_after_s is not None:
+                idle_started_at = idle_started_at or time.monotonic()
+                if (time.monotonic() - idle_started_at) >= max(idle_exit_after_s, 0.1):
+                    LOGGER.info(
+                        "job.worker.idle_exit processed=%s idle_for_s=%.3f",
+                        processed,
+                        time.monotonic() - idle_started_at,
+                    )
+                    break
             time.sleep(max(poll_interval_s, 0.1))
         return processed
 
@@ -444,7 +446,7 @@ class JobService:
             result = sync_service.sync(full=full, progress_cb=progress_cb)
             self._store_runtime_diagnostics(job_id=job_id, connector=connector)
             self._finalize_success(job_id=job_id, result=result)
-        except ConnectorRuntimeError as exc:
+        except _connector_runtime_error_type() as exc:
             self._store_runtime_diagnostics(job_id=job_id, connector=connector)
             failure_kind = (
                 "protocol_failure"
@@ -465,7 +467,7 @@ class JobService:
             self._store_runtime_diagnostics(job_id=job_id, connector=connector)
             failure_kind = "ingest_failure"
             details: dict[str, Any] | None = None
-            if isinstance(connector, RuntimeHostedReceiptConnector):
+            if _is_runtime_hosted_receipt_connector(connector):
                 diagnostics = connector.latest_runtime_diagnostics()
                 if diagnostics and diagnostics[-1].response_ok is False:
                     failure_kind = "runtime_failure"
@@ -536,7 +538,19 @@ class JobService:
         try:
             from lidltool.ingest.ocr_ingest import OcrIngestService
 
+            self._mark_document_ocr_status(
+                job_id=job_id,
+                document_id=document_id,
+                status="starting_engine",
+                message="starting OCR engine",
+            )
             service = OcrIngestService(session_factory=self._session_factory, config=self._config)
+            self._mark_document_ocr_status(
+                job_id=job_id,
+                document_id=document_id,
+                status="processing",
+                message="processing OCR document",
+            )
             result = self._run_ocr_with_timeout_retry(
                 service=service,
                 job_id=job_id,
@@ -544,10 +558,12 @@ class JobService:
             )
             self._finalize_ocr_success(job_id=job_id, result=result)
         except Exception as exc:  # noqa: BLE001
-            with session_scope(self._session_factory) as session:
-                document = session.get(Document, document_id)
-                if document is not None:
-                    document.ocr_status = "failed"
+            self._mark_document_ocr_status(
+                job_id=job_id,
+                document_id=document_id,
+                status="failed",
+                message="OCR processing failed",
+            )
             self._finalize_failure(job_id=job_id, error=str(exc))
 
     def _run_ocr_with_timeout_retry(
@@ -590,6 +606,12 @@ class JobService:
         raise RuntimeError("ocr retry loop exited without result")
 
     def _build_source_connector(self, *, source_config: AppConfig) -> tuple[Any | None, Connector]:
+        from lidltool.amazon.client_playwright import AmazonPlaywrightClient
+        from lidltool.connectors.runtime import execution as connector_execution_module
+        from lidltool.connectors.runtime.execution import ConnectorExecutionService
+        from lidltool.lidl.client import create_lidl_client
+        from lidltool.rossmann.client_playwright import RossmannPlaywrightClient
+
         connector_execution_module.create_lidl_client = create_lidl_client
         connector_execution_module.AmazonPlaywrightClient = AmazonPlaywrightClient
         connector_execution_module.RossmannPlaywrightClient = RossmannPlaywrightClient
@@ -626,7 +648,7 @@ class JobService:
             )
 
     def _store_runtime_diagnostics(self, *, job_id: str, connector: Connector | None) -> None:
-        if not isinstance(connector, RuntimeHostedReceiptConnector):
+        if not _is_runtime_hosted_receipt_connector(connector):
             return
         diagnostics = connector.latest_runtime_diagnostics()
         if not diagnostics:
@@ -868,6 +890,8 @@ class JobService:
             )
 
     def _ensure_source(self, session: Session, *, source_id: str) -> tuple[Source, SourceAccount]:
+        from lidltool.connectors.registry import source_display_name
+
         service_user = ensure_service_user(session)
         source = session.get(Source, source_id)
         if source is None:
@@ -891,6 +915,30 @@ class JobService:
             session.add(account)
             session.flush()
         return source, account
+
+    def _mark_document_ocr_status(
+        self,
+        *,
+        job_id: str,
+        document_id: str,
+        status: str,
+        message: str,
+    ) -> None:
+        with session_scope(self._session_factory) as session:
+            document = session.get(Document, document_id)
+            if document is not None:
+                document.ocr_status = status
+            job = session.get(IngestionJob, job_id)
+            if job is None:
+                return
+            summary = dict(job.summary or {})
+            _append_timeline_event(
+                summary,
+                event=status,
+                status=job.status,
+                message=message,
+            )
+            job.summary = summary
 
 
 def derive_idempotency_key(
@@ -1053,6 +1101,18 @@ def _worker_config(*, db: str | None, config_path: str | None) -> AppConfig:
     )
 
 
+def _connector_runtime_error_type() -> type[Exception]:
+    from lidltool.connectors.runtime.errors import ConnectorRuntimeError
+
+    return ConnectorRuntimeError
+
+
+def _is_runtime_hosted_receipt_connector(connector: object) -> bool:
+    from lidltool.connectors.runtime import RuntimeHostedReceiptConnector
+
+    return isinstance(connector, RuntimeHostedReceiptConnector)
+
+
 def run_worker(
     *,
     db: str | None = None,
@@ -1061,6 +1121,7 @@ def run_worker(
     max_jobs: int | None = None,
     once: bool = False,
     stale_after_minutes: int = 30,
+    idle_exit_after_s: float | None = None,
 ) -> int:
     config = _worker_config(db=db, config_path=config_path)
     db_url = database_url(config)
@@ -1076,6 +1137,7 @@ def run_worker(
         poll_interval_s=poll_interval_s,
         max_jobs=max_jobs,
         idle_exit=once,
+        idle_exit_after_s=idle_exit_after_s,
     )
 
 
@@ -1087,6 +1149,12 @@ def main() -> None:
     parser.add_argument("--max-jobs", type=int, default=None)
     parser.add_argument("--once", action="store_true", help="Exit when queue is empty")
     parser.add_argument("--stale-after-minutes", type=int, default=30)
+    parser.add_argument(
+        "--idle-exit-after-s",
+        type=float,
+        default=None,
+        help="Exit after the worker stays idle for this many seconds",
+    )
     args = parser.parse_args()
     processed = run_worker(
         db=args.db,
@@ -1095,6 +1163,7 @@ def main() -> None:
         max_jobs=args.max_jobs,
         once=args.once,
         stale_after_minutes=args.stale_after_minutes,
+        idle_exit_after_s=args.idle_exit_after_s,
     )
     LOGGER.info("job.worker.exited processed=%s", processed)
 

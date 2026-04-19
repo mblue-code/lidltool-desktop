@@ -462,6 +462,7 @@ export const EN_MESSAGES = {
   "pages.documentsUpload.uploadFailed": "Upload failed",
   "pages.documentsUpload.processingStarted": "OCR processing triggered. Status will update automatically.",
   "pages.documentsUpload.processFailed": "Failed to start processing",
+  "pages.documentsUpload.ocrWakeFailed": "Failed to start the desktop OCR worker",
   "pages.documentsUpload.timeline.status": "Status {status}",
   "pages.documentsUpload.timeline.review":
     "Review: {reviewStatus}{confidenceSuffix}",
@@ -472,6 +473,8 @@ export const EN_MESSAGES = {
   "pages.documentsUpload.timeline.processDetail": "Job {jobId} status: {status}{reusedSuffix}.",
   "pages.documentsUpload.state.idle": "Ready",
   "pages.documentsUpload.state.uploading": "Uploading…",
+  "pages.documentsUpload.state.queued": "Queued",
+  "pages.documentsUpload.state.startingEngine": "Starting OCR engine…",
   "pages.documentsUpload.state.processing": "Processing OCR…",
   "pages.documentsUpload.state.done": "Complete",
   "pages.documentsUpload.state.error": "Failed",
@@ -1519,6 +1522,7 @@ export const DE_MESSAGES: Record<TranslationKey, string> = {
   "pages.documentsUpload.uploadFailed": "Upload fehlgeschlagen",
   "pages.documentsUpload.processingStarted": "OCR-Verarbeitung ausgelöst. Der Status wird automatisch aktualisiert.",
   "pages.documentsUpload.processFailed": "Verarbeitung konnte nicht gestartet werden",
+  "pages.documentsUpload.ocrWakeFailed": "Der Desktop-OCR-Worker konnte nicht gestartet werden",
   "pages.documentsUpload.timeline.status": "Status {status}",
   "pages.documentsUpload.timeline.review": "Review: {reviewStatus}{confidenceSuffix}",
   "pages.documentsUpload.timeline.uploadComplete":
@@ -1528,6 +1532,8 @@ export const DE_MESSAGES: Record<TranslationKey, string> = {
   "pages.documentsUpload.timeline.processDetail": "Job {jobId} Status: {status}{reusedSuffix}.",
   "pages.documentsUpload.state.idle": "Bereit",
   "pages.documentsUpload.state.uploading": "Wird hochgeladen…",
+  "pages.documentsUpload.state.queued": "In Warteschlange",
+  "pages.documentsUpload.state.startingEngine": "OCR-Engine startet…",
   "pages.documentsUpload.state.processing": "OCR wird verarbeitet…",
   "pages.documentsUpload.state.done": "Abgeschlossen",
   "pages.documentsUpload.state.error": "Fehlgeschlagen",

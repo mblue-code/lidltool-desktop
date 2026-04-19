@@ -24,6 +24,7 @@ declare global {
     desktopApi?: DesktopApiBridge & {
       getCapabilities?: () => Promise<import("@/lib/desktop-api").DesktopCapabilities>;
       getReleaseMetadata?: () => Promise<DesktopReleaseMetadata>;
+      wakeOcrWorker?: () => Promise<{ running: boolean; started: boolean; idleTimeoutSeconds: number }>;
       listReceiptPlugins?: () => Promise<DesktopReceiptPluginPackListResult>;
       installReceiptPluginFromDialog?: () => Promise<DesktopReceiptPluginPackInstallResult | null>;
       installReceiptPluginFromCatalogEntry?: (payload: { entryId: string }) => Promise<DesktopReceiptPluginPackInstallResult>;

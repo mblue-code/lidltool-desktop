@@ -112,7 +112,13 @@ export interface CommandLogEvent {
   timestamp: string;
   stream: "stdout" | "stderr";
   line: string;
-  source: "backend" | "sync" | "export" | "backup" | "restore";
+  source: "backend" | "sync" | "export" | "backup" | "restore" | "ocr";
+}
+
+export interface OcrWorkerWakeResult {
+  running: boolean;
+  started: boolean;
+  idleTimeoutSeconds: number;
 }
 
 export type ReceiptPluginPackStatus = "enabled" | "disabled" | "invalid" | "incompatible" | "revoked";

@@ -18,6 +18,8 @@
     "dev:full": "npm run vendor:sync && npm run frontend:install && npm run backend:prepare && npm run frontend:build && electron-vite dev",
     "build": "npm run vendor:patch-backend && npm run frontend:build && npm run i18n:sync-shell && npm run assets:sync && electron-vite build",
     "build:full-ui": "npm run frontend:install && npm run build",
+    "verify:ocr-packaged": "node ./scripts/run-packaged-ocr-smoke.mjs",
+    "test:ocr-packaged": "npm run build && npm run verify:ocr-packaged",
     "test:e2e:prepare": "npm run backend:prepare && npm run frontend:build && npm run build",
     "test:e2e": "playwright test --config=playwright.config.ts",
     "test:e2e:headed": "playwright test --headed --config=playwright.config.ts",
@@ -32,7 +34,7 @@
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win",
     "dist:with-backend": "npm run backend:prepare && npm run build && electron-builder",
-    "dist:full": "npm run vendor:sync && npm run backend:prepare && npm run build:full-ui && electron-builder"
+    "dist:full": "npm run vendor:sync && npm run backend:prepare && npm run build:full-ui && npm run verify:ocr-packaged && electron-builder"
   },
   "build": {
     "appId": "com.lidltool.desktop",

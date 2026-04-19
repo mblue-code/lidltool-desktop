@@ -16,6 +16,7 @@ import type {
   DesktopReleaseMetadata,
   ExportRequest,
   ImportRequest,
+  OcrWorkerWakeResult,
   ReceiptPluginCatalogInstallRequest,
   ReceiptPluginPackInfo,
   ReceiptPluginPackInstallResult,
@@ -24,6 +25,7 @@ import type {
   ReceiptPluginPackUninstallResult,
   SyncRequest
 } from "@shared/contracts";
+import { OcrWorkerSupervisor } from "./ocr-worker-supervisor";
 import {
   ReceiptPluginPackManager,
   type ValidatedManifestSnapshot,
@@ -78,6 +80,7 @@ export class DesktopRuntime {
   private backendProcess: ChildProcessWithoutNullStreams | null = null;
   private backendStartedAt: string | null = null;
   private readonly apiPort: number;
+  private readonly ocrWorkerSupervisor: OcrWorkerSupervisor;
   private readonly receiptPluginPackManager = new ReceiptPluginPackManager({
     rootDir: this.receiptPluginStorageDir(),
     validateManifest: async (manifestPath) => await this.validateReceiptPluginManifest(manifestPath)
@@ -85,6 +88,31 @@ export class DesktopRuntime {
 
   constructor(port = resolveApiPort()) {
     this.apiPort = port;
+    this.ocrWorkerSupervisor = new OcrWorkerSupervisor({
+      buildLaunchSpec: async () => {
+        const cfg = this.getConfig();
+        const command = this.resolvePythonExecutable();
+        const idleTimeoutSeconds = this.resolveOcrIdleTimeoutSeconds();
+        return {
+          command,
+          args: [
+            "-m",
+            "lidltool.ingest.jobs",
+            "--db",
+            cfg.dbPath,
+            "--config",
+            this.resolveConfigFilePath(),
+            "--poll-interval-s",
+            "1.0",
+            "--idle-exit-after-s",
+            String(idleTimeoutSeconds),
+          ],
+          env: await this.backendProcessEnv(command),
+          idleTimeoutSeconds,
+        };
+      },
+      emitLog: (payload) => this.emitLog(payload),
+    });
   }
 
   getConfig(): BackendConfig {
@@ -234,6 +262,7 @@ export class DesktopRuntime {
   }
 
   async stopBackend(): Promise<BackendStatus> {
+    await this.ocrWorkerSupervisor.stop();
     if (this.backendProcess === null) {
       return this.getBackendStatus();
     }
@@ -248,6 +277,10 @@ export class DesktopRuntime {
     }
 
     return this.getBackendStatus();
+  }
+
+  async wakeOcrWorker(): Promise<OcrWorkerWakeResult> {
+    return await this.ocrWorkerSupervisor.ensureRunning();
   }
 
   async runSyncJob(payload: SyncRequest): Promise<CommandResult> {
@@ -565,6 +598,7 @@ export class DesktopRuntime {
   }
 
   async shutdown(): Promise<void> {
+    await this.ocrWorkerSupervisor.stop();
     await this.stopBackend();
   }
 
@@ -622,6 +656,10 @@ export class DesktopRuntime {
       return this.resolveUserPath(configDirRaw);
     }
     return this.resolveDesktopConfigDir();
+  }
+
+  private resolveConfigFilePath(): string {
+    return join(this.resolveConfigDirPath(), "config.toml");
   }
 
   private resolveTokenFilePath(): string {
@@ -907,6 +945,8 @@ export class DesktopRuntime {
     env.LIDLTOOL_DOCUMENT_STORAGE_PATH = documentsPath;
     env.LIDLTOOL_DESKTOP_MODE = "true";
     env.LIDLTOOL_CONNECTOR_HOST_KIND = "electron";
+    env.LIDLTOOL_OCR_DEFAULT_PROVIDER = env.LIDLTOOL_OCR_DEFAULT_PROVIDER || "desktop_local";
+    env.LIDLTOOL_OCR_FALLBACK_ENABLED = env.LIDLTOOL_OCR_FALLBACK_ENABLED || "false";
     env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY =
       env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY || this.resolveCredentialEncryptionKey(cfg.userDataDir);
     if (app.isPackaged) {
@@ -1288,5 +1328,17 @@ print(json.dumps({
       }
     }
     return null;
+  }
+
+  private resolveOcrIdleTimeoutSeconds(): number {
+    const raw = process.env.LIDLTOOL_DESKTOP_OCR_IDLE_TIMEOUT_S?.trim();
+    if (!raw) {
+      return 600;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < 60) {
+      return 600;
+    }
+    return parsed;
   }
 }

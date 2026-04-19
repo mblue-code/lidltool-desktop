@@ -67,8 +67,12 @@ describe("documents API transport", () => {
                 ocr_latency_ms: 250,
                 processed_at: null,
                 job: {
-                  id: "job-1",
-                  status: "queued"
+                  job_id: "job-1",
+                  status: "queued",
+                  started_at: null,
+                  finished_at: null,
+                  timeline: [],
+                  error: null
                 }
               })
           };

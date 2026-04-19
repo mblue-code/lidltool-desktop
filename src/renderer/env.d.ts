@@ -12,6 +12,7 @@ import type {
   DesktopLocale,
   ExportRequest,
   ImportRequest,
+  OcrWorkerWakeResult,
   ReceiptPluginCatalogInstallRequest,
   ReceiptPluginPackInstallResult,
   ReceiptPluginPackListResult,
@@ -33,6 +34,7 @@ declare global {
       setLocale: (locale: DesktopLocale) => Promise<DesktopLocale>;
       startBackend: () => Promise<BackendStatus>;
       stopBackend: () => Promise<BackendStatus>;
+      wakeOcrWorker: () => Promise<OcrWorkerWakeResult>;
       openFullApp: () => Promise<string>;
       openControlCenter: () => Promise<void>;
       runSync: (payload: SyncRequest) => Promise<CommandResult>;

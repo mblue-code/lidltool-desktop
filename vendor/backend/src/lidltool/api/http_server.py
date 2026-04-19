@@ -3149,9 +3149,9 @@ class AICategorizationSettingsUpdateRequest(BaseModel):
 
 
 class OCRSettingsUpdateRequest(BaseModel):
-    default_provider: Literal["glm_ocr_local", "openai_compatible", "external_api"]
+    default_provider: Literal["desktop_local", "glm_ocr_local", "openai_compatible", "external_api"]
     fallback_enabled: bool = False
-    fallback_provider: Literal["glm_ocr_local", "openai_compatible", "external_api"] | None = None
+    fallback_provider: Literal["desktop_local", "glm_ocr_local", "openai_compatible", "external_api"] | None = None
     glm_local_base_url: str | None = None
     glm_local_api_mode: Literal["ollama_generate", "openai_chat_completion"] | None = None
     glm_local_model: str | None = None

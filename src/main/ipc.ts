@@ -27,6 +27,7 @@ export function registerIpc(
   ipcMain.handle("desktop:locale:set", (_event, locale: DesktopLocale) => setLocale(locale));
   ipcMain.handle("desktop:backend:start", async () => await runtime.startBackend());
   ipcMain.handle("desktop:backend:stop", async () => await runtime.stopBackend());
+  ipcMain.handle("desktop:ocr:wake", async () => await runtime.wakeOcrWorker());
   ipcMain.handle("desktop:app:url", async () => {
     await runtime.startBackend();
     return runtime.getFullAppUrl();

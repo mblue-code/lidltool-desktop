@@ -54,6 +54,7 @@ const SUPPORTED_OAUTH_PROVIDERS = new Set<"openai-codex" | "github-copilot" | "g
 ]);
 
 const OCR_PROVIDER_OPTIONS = [
+  { id: "desktop_local", label: "Desktop bundled OCR" },
   { id: "glm_ocr_local", label: "GLM-OCR Local" },
   { id: "openai_compatible", label: "OpenAI-compatible API" }
 ] as const;
@@ -143,7 +144,7 @@ export function AISettingsPage() {
   const [initialized, setInitialized] = useState(false);
   const [ocrInitialized, setOcrInitialized] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
-  const [ocrDefaultProvider, setOcrDefaultProvider] = useState<string>("glm_ocr_local");
+  const [ocrDefaultProvider, setOcrDefaultProvider] = useState<string>("desktop_local");
   const [ocrFallbackEnabled, setOcrFallbackEnabled] = useState(false);
   const [ocrFallbackProvider, setOcrFallbackProvider] = useState<string>("openai_compatible");
   const [glmBaseUrl, setGlmBaseUrl] = useState("");
@@ -367,10 +368,10 @@ export function AISettingsPage() {
   const saveOCRMutation = useMutation({
     mutationFn: () =>
       saveOCRSettings({
-        default_provider: ocrDefaultProvider as "glm_ocr_local" | "openai_compatible",
+        default_provider: ocrDefaultProvider as "desktop_local" | "glm_ocr_local" | "openai_compatible" | "external_api",
         fallback_enabled: ocrFallbackEnabled,
         fallback_provider: ocrFallbackEnabled
-          ? (ocrFallbackProvider as "glm_ocr_local" | "openai_compatible")
+          ? (ocrFallbackProvider as "desktop_local" | "glm_ocr_local" | "openai_compatible" | "external_api")
           : undefined,
         glm_local_base_url: glmBaseUrl.trim(),
         glm_local_api_mode: glmApiMode,

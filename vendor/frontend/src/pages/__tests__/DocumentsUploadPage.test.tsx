@@ -62,6 +62,12 @@ function stubDocumentApi(statusTimeline: string[]): void {
         const index = Math.min(statusRequests, Math.max(statusTimeline.length - 1, 0));
         const status = statusTimeline[index] ?? "queued";
         statusRequests += 1;
+        const timeline = statusTimeline.slice(0, index + 1).map((entryStatus, entryIndex) => ({
+          timestamp: `2026-02-19T12:00:0${entryIndex}Z`,
+          event: entryStatus,
+          status: entryStatus === "failed" ? "failed" : entryStatus === "completed" ? "success" : "running",
+          message: `OCR state ${entryStatus}`
+        }));
         return {
           ok: true,
           json: async () => ({
@@ -77,7 +83,14 @@ function stubDocumentApi(statusTimeline: string[]): void {
               ocr_fallback_used: false,
               ocr_latency_ms: 420,
               processed_at: "2026-02-19T12:00:00Z",
-              job: { status }
+              job: {
+                job_id: "job-1",
+                status,
+                started_at: "2026-02-19T12:00:00Z",
+                finished_at: status === "completed" || status === "failed" ? "2026-02-19T12:00:04Z" : null,
+                timeline,
+                error: status === "failed" ? "OCR failed" : null
+              }
             },
             warnings: [],
             error: null
