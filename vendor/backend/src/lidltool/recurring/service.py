@@ -89,6 +89,137 @@ def _default_status_for_due_date(*, due_date: date, today: date) -> str:
     return "overdue"
 
 
+def _sync_bill_occurrences(
+    *,
+    session: Session,
+    bill: RecurringBill,
+    start_date: date,
+    end_date: date,
+    today: date | None = None,
+) -> dict[str, int]:
+    if start_date > end_date:
+        raise RuntimeError("from_date must be <= to_date")
+
+    effective_today = today or date.today()
+    occurrence_dates = generate_occurrence_dates(
+        anchor_date=date.fromisoformat(bill.anchor_date),
+        frequency=bill.frequency,
+        interval_value=bill.interval_value,
+        from_date=start_date,
+        to_date=end_date,
+    )
+    existing_rows = (
+        session.execute(
+            select(RecurringBillOccurrence).where(
+                RecurringBillOccurrence.bill_id == bill.id,
+                RecurringBillOccurrence.due_date >= start_date,
+                RecurringBillOccurrence.due_date <= end_date,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_due_date = {occurrence.due_date: occurrence for occurrence in existing_rows}
+
+    created = 0
+    updated = 0
+    for due_date in occurrence_dates:
+        existing = by_due_date.get(due_date)
+        if existing is None:
+            session.add(
+                RecurringBillOccurrence(
+                    bill_id=bill.id,
+                    due_date=due_date,
+                    status=_default_status_for_due_date(due_date=due_date, today=effective_today),
+                    expected_amount_cents=bill.amount_cents,
+                )
+            )
+            created += 1
+            continue
+
+        changed = False
+        if existing.expected_amount_cents != bill.amount_cents:
+            existing.expected_amount_cents = bill.amount_cents
+            changed = True
+        if existing.status in {"upcoming", "due", "overdue"}:
+            recomputed = _default_status_for_due_date(due_date=existing.due_date, today=effective_today)
+            if recomputed != existing.status:
+                existing.status = recomputed
+                changed = True
+        if changed:
+            existing.updated_at = _utcnow()
+            updated += 1
+
+    return {"created": created, "updated": updated}
+
+
+def _default_sync_window_for_bill(
+    *,
+    session: Session,
+    bill: RecurringBill,
+    today: date | None = None,
+    horizon_months: int = 12,
+) -> tuple[date, date]:
+    effective_today = today or date.today()
+    horizon_start = _month_start(effective_today) - relativedelta(months=1)
+    horizon_end = _month_end(
+        _month_start(effective_today) + relativedelta(months=max(horizon_months - 1, 0))
+    )
+    anchor_date = date.fromisoformat(bill.anchor_date)
+    min_due_date, max_due_date = session.execute(
+        select(
+            func.min(RecurringBillOccurrence.due_date),
+            func.max(RecurringBillOccurrence.due_date),
+        ).where(RecurringBillOccurrence.bill_id == bill.id)
+    ).one()
+
+    start_candidates = [horizon_start, _month_start(anchor_date)]
+    end_candidates = [horizon_end, _month_end(anchor_date)]
+    if min_due_date is not None:
+        start_candidates.append(_month_start(min_due_date))
+    if max_due_date is not None:
+        end_candidates.append(_month_end(max_due_date))
+
+    return min(start_candidates), max(end_candidates)
+
+
+def sync_recurring_occurrences_for_window(
+    *,
+    session: Session,
+    user_id: str,
+    start_date: date,
+    end_date: date,
+    bill_id: str | None = None,
+    include_inactive_bills: bool = False,
+) -> dict[str, int]:
+    if start_date > end_date:
+        raise RuntimeError("from_date must be <= to_date")
+
+    stmt = select(RecurringBill).where(RecurringBill.user_id == user_id)
+    if bill_id is not None:
+        stmt = stmt.where(RecurringBill.id == bill_id)
+    if not include_inactive_bills:
+        stmt = stmt.where(RecurringBill.active.is_(True))
+
+    bills = session.execute(stmt).scalars().all()
+    created = 0
+    updated = 0
+    for bill in bills:
+        counts = _sync_bill_occurrences(
+            session=session,
+            bill=bill,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        created += counts["created"]
+        updated += counts["updated"]
+
+    if created > 0 or updated > 0:
+        session.flush()
+
+    return {"bill_count": len(bills), "created": created, "updated": updated}
+
+
 class RecurringBillsService:
     def __init__(self, *, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
@@ -180,6 +311,15 @@ class RecurringBillsService:
             )
             session.add(bill)
             session.flush()
+            if bill.active:
+                start_date, end_date = _default_sync_window_for_bill(session=session, bill=bill)
+                _sync_bill_occurrences(
+                    session=session,
+                    bill=bill,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                session.flush()
             return self._serialize_bill(bill)
 
     def update_bill(
@@ -191,6 +331,7 @@ class RecurringBillsService:
     ) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
             bill = self._require_scoped_bill(session=session, user_id=user_id, bill_id=bill_id)
+            should_sync_occurrences = False
             if "name" in payload and payload["name"] is not None:
                 next_name = str(payload["name"]).strip()
                 if not next_name:
@@ -211,14 +352,19 @@ class RecurringBillsService:
                 bill.category = category if category else "uncategorized"
             if "frequency" in payload and payload["frequency"] is not None:
                 bill.frequency = self._normalize_frequency(str(payload["frequency"]))
+                should_sync_occurrences = True
             if "interval_value" in payload and payload["interval_value"] is not None:
                 interval_value = int(payload["interval_value"])
                 if interval_value < 1:
                     raise RuntimeError("interval_value must be >= 1")
                 bill.interval_value = interval_value
+                should_sync_occurrences = True
             if "amount_cents" in payload:
                 amount_raw = payload.get("amount_cents")
+                if amount_raw is not None and int(amount_raw) < 0:
+                    raise RuntimeError("amount_cents must be >= 0")
                 bill.amount_cents = int(amount_raw) if amount_raw is not None else None
+                should_sync_occurrences = True
             if "amount_tolerance_pct" in payload and payload["amount_tolerance_pct"] is not None:
                 tolerance_pct = float(payload["amount_tolerance_pct"])
                 if tolerance_pct < 0:
@@ -232,13 +378,24 @@ class RecurringBillsService:
                     bill.anchor_date = parsed_anchor.isoformat()
                 else:
                     bill.anchor_date = date.fromisoformat(str(parsed_anchor).strip()).isoformat()
+                should_sync_occurrences = True
             if "active" in payload and payload["active"] is not None:
                 bill.active = bool(payload["active"])
+                should_sync_occurrences = True
             if "notes" in payload:
                 notes_raw = payload.get("notes")
                 bill.notes = str(notes_raw).strip() if notes_raw else None
             bill.updated_at = _utcnow()
             session.flush()
+            if bill.active and should_sync_occurrences:
+                start_date, end_date = _default_sync_window_for_bill(session=session, bill=bill)
+                _sync_bill_occurrences(
+                    session=session,
+                    bill=bill,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                session.flush()
             return self._serialize_bill(bill)
 
     def delete_bill(self, *, user_id: str, bill_id: str) -> dict[str, Any]:
@@ -262,18 +419,18 @@ class RecurringBillsService:
             bill = self._require_scoped_bill(session=session, user_id=user_id, bill_id=bill_id)
             today = date.today()
             start_date = from_date or (_month_start(today) - relativedelta(months=1))
-            end_date = to_date or (_month_end(_month_start(today) + relativedelta(months=max(horizon_months - 1, 0))))
-            if start_date > end_date:
-                raise RuntimeError("from_date must be <= to_date")
-
-            occurrence_dates = generate_occurrence_dates(
-                anchor_date=date.fromisoformat(bill.anchor_date),
-                frequency=bill.frequency,
-                interval_value=bill.interval_value,
-                from_date=start_date,
-                to_date=end_date,
+            end_date = to_date or _month_end(
+                _month_start(today) + relativedelta(months=max(horizon_months - 1, 0))
             )
-            existing_rows = (
+            counts = _sync_bill_occurrences(
+                session=session,
+                bill=bill,
+                start_date=start_date,
+                end_date=end_date,
+                today=today,
+            )
+            session.flush()
+            touched = (
                 session.execute(
                     select(RecurringBillOccurrence).where(
                         RecurringBillOccurrence.bill_id == bill.id,
@@ -284,44 +441,11 @@ class RecurringBillsService:
                 .scalars()
                 .all()
             )
-            by_due_date = {occurrence.due_date: occurrence for occurrence in existing_rows}
-
-            created = 0
-            updated = 0
-            touched: list[RecurringBillOccurrence] = []
-            for due_date in occurrence_dates:
-                existing = by_due_date.get(due_date)
-                if existing is None:
-                    occurrence = RecurringBillOccurrence(
-                        bill_id=bill.id,
-                        due_date=due_date,
-                        status=_default_status_for_due_date(due_date=due_date, today=today),
-                        expected_amount_cents=bill.amount_cents,
-                    )
-                    session.add(occurrence)
-                    touched.append(occurrence)
-                    created += 1
-                    continue
-                changed = False
-                if existing.expected_amount_cents != bill.amount_cents:
-                    existing.expected_amount_cents = bill.amount_cents
-                    changed = True
-                if existing.status in {"upcoming", "due", "overdue"}:
-                    recomputed = _default_status_for_due_date(due_date=existing.due_date, today=today)
-                    if recomputed != existing.status:
-                        existing.status = recomputed
-                        changed = True
-                if changed:
-                    existing.updated_at = _utcnow()
-                    updated += 1
-                touched.append(existing)
-
-            session.flush()
             touched.sort(key=lambda occurrence: (occurrence.due_date, occurrence.id))
             return {
                 "bill_id": bill.id,
-                "created": created,
-                "updated": updated,
+                "created": counts["created"],
+                "updated": counts["updated"],
                 "count": len(touched),
                 "items": [self._serialize_occurrence(occurrence) for occurrence in touched],
             }
@@ -343,6 +467,17 @@ class RecurringBillsService:
         clamped_offset = max(offset, 0)
 
         with session_scope(self._session_factory) as session:
+            today = date.today()
+            sync_start = from_date or (_month_start(today) - relativedelta(months=1))
+            sync_end = to_date or _month_end(_month_start(today) + relativedelta(months=11))
+            sync_recurring_occurrences_for_window(
+                session=session,
+                user_id=user_id,
+                start_date=sync_start,
+                end_date=sync_end,
+                bill_id=bill_id,
+                include_inactive_bills=include_inactive_bills,
+            )
             self._roll_occurrence_statuses(session=session, user_id=user_id)
             stmt = select(RecurringBillOccurrence).join(
                 RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id
@@ -390,6 +525,14 @@ class RecurringBillsService:
         review_threshold: float = 0.7,
     ) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
+            today = date.today()
+            sync_recurring_occurrences_for_window(
+                session=session,
+                user_id=user_id,
+                start_date=_month_start(today) - relativedelta(months=1),
+                end_date=_month_end(_month_start(today) + relativedelta(months=5)),
+                bill_id=bill_id,
+            )
             self._roll_occurrence_statuses(session=session, user_id=user_id)
 
             occ_stmt = (
@@ -607,6 +750,12 @@ class RecurringBillsService:
     def get_overview(self, *, user_id: str) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
             today = date.today()
+            sync_recurring_occurrences_for_window(
+                session=session,
+                user_id=user_id,
+                start_date=_month_start(today) - relativedelta(months=1),
+                end_date=_month_end(_month_start(today) + relativedelta(months=11)),
+            )
             self._roll_occurrence_statuses(session=session, user_id=user_id)
 
             active_bills = int(
@@ -702,6 +851,13 @@ class RecurringBillsService:
         last_day = _month_end(first_day)
 
         with session_scope(self._session_factory) as session:
+            sync_recurring_occurrences_for_window(
+                session=session,
+                user_id=user_id,
+                start_date=first_day,
+                end_date=last_day,
+                include_inactive_bills=include_inactive_bills,
+            )
             self._roll_occurrence_statuses(session=session, user_id=user_id)
             stmt = (
                 select(RecurringBillOccurrence, RecurringBill)
@@ -814,6 +970,13 @@ class RecurringBillsService:
         user_id: str,
     ) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
+            today = date.today()
+            sync_recurring_occurrences_for_window(
+                session=session,
+                user_id=user_id,
+                start_date=_month_start(today) - relativedelta(months=6),
+                end_date=today,
+            )
             self._roll_occurrence_statuses(session=session, user_id=user_id)
             rows = (
                 session.execute(

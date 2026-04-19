@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarCheck, CalendarClock, CircleAlert, PiggyBank, ReceiptText, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { CalendarCheck, CircleAlert, PiggyBank, ReceiptText, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import {
   createBudgetRule,
@@ -30,6 +31,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { type TranslationKey, useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import { formatDate, formatEurFromCents, formatMonthYear, formatPercent } from "@/utils/format";
 
@@ -159,49 +162,43 @@ function emptyCashflowFilterState(): CashflowFilterState {
   };
 }
 
-function summaryBasisLabel(summary: BudgetSummary): string {
-  const { income_basis, income_basis_cents } = summary.totals;
-  return income_basis_cents > 0 ? `${income_basis} (${formatEurFromCents(income_basis_cents)})` : income_basis;
-}
-
-const passthroughTranslate = (key: string) => key;
-
 const CASHFLOW_PRESETS: Array<{
   key: string;
-  label: string;
-  hint: string;
-  values: Pick<CashflowFormState, "direction" | "category" | "description" | "sourceType">;
+  labelKey: TranslationKey;
+  hintKey: TranslationKey;
+  descriptionKey: TranslationKey;
+  values: Pick<CashflowFormState, "direction" | "category" | "sourceType">;
 }> = [
   {
     key: "cash-expense",
-    label: "Cash expense",
-    hint: "Missed purchase or small cash charge",
+    labelKey: "pages.budget.cashflow.preset.cashExpense.label",
+    hintKey: "pages.budget.cashflow.preset.cashExpense.hint",
+    descriptionKey: "pages.budget.cashflow.preset.cashExpense.label",
     values: {
       direction: "outflow",
       category: "cash",
-      description: "Cash expense",
       sourceType: "manual_cash"
     }
   },
   {
     key: "income",
-    label: "Income",
-    hint: "Salary, transfer, or side income",
+    labelKey: "pages.budget.cashflow.preset.income.label",
+    hintKey: "pages.budget.cashflow.preset.income.hint",
+    descriptionKey: "pages.budget.cashflow.preset.income.label",
     values: {
       direction: "inflow",
       category: "salary",
-      description: "Income",
       sourceType: "manual_income"
     }
   },
   {
     key: "refund",
-    label: "Refund",
-    hint: "Refund, reimbursement, or returned item",
+    labelKey: "pages.budget.cashflow.preset.refund.label",
+    hintKey: "pages.budget.cashflow.preset.refund.hint",
+    descriptionKey: "pages.budget.cashflow.preset.refund.label",
     values: {
       direction: "inflow",
       category: "refund",
-      description: "Refund",
       sourceType: "manual_refund"
     }
   }
@@ -220,8 +217,21 @@ const COMMON_CASHFLOW_CATEGORIES = [
   "groceries"
 ];
 
+const COMMON_CASHFLOW_SOURCE_TYPES = [
+  { value: "manual", labelKey: "pages.budget.cashflow.sourceTypeOption.manual" },
+  { value: "manual_cash", labelKey: "pages.budget.cashflow.sourceTypeOption.manualCash" },
+  { value: "manual_income", labelKey: "pages.budget.cashflow.sourceTypeOption.manualIncome" },
+  { value: "manual_refund", labelKey: "pages.budget.cashflow.sourceTypeOption.manualRefund" },
+  { value: "manual_transfer", labelKey: "pages.budget.cashflow.sourceTypeOption.manualTransfer" }
+] as const satisfies ReadonlyArray<{ value: string; labelKey: TranslationKey }>;
+
+function buildBillLinkTarget(billId: string, dueDate: string): string {
+  return `/bills?bill=${encodeURIComponent(billId)}&month=${encodeURIComponent(dueDate.slice(0, 7))}`;
+}
+
 export function BudgetPage() {
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const [monthValue, setMonthValue] = useState(currentMonthValue());
   const { year, month } = monthDisplayValue(monthValue);
   const defaultDate = monthStartDateValue(year, month);
@@ -340,13 +350,21 @@ export function BudgetPage() {
         notes: payload.notes.trim() || null
       }),
     onSuccess: (result) => {
-      setFeedback({ kind: "success", message: `Saved budget for ${formatMonthYear(`${year}-${String(month).padStart(2, "0")}-01T00:00:00`)}` });
+      setFeedback({
+        kind: "success",
+        message: t("pages.budget.feedback.monthSaved", {
+          month: formatMonthYear(`${year}-${String(month).padStart(2, "0")}-01T00:00:00`)
+        })
+      });
       setMonthForm(budgetMonthToFormState(result));
       void queryClient.invalidateQueries({ queryKey: ["budget-month", year, month] });
       void queryClient.invalidateQueries({ queryKey: ["budget-summary", year, month] });
     },
     onError: (error) => {
-      setFeedback({ kind: "error", message: resolveApiErrorMessage(error, passthroughTranslate, "Failed to save month budget") });
+      setFeedback({
+        kind: "error",
+        message: resolveApiErrorMessage(error, t, t("pages.budget.feedback.monthSaveFailed"))
+      });
     }
   });
 
@@ -374,7 +392,9 @@ export function BudgetPage() {
     onSuccess: () => {
       setFeedback({
         kind: "success",
-        message: editingCashflowId ? "Updated cash-flow entry." : "Created cash-flow entry."
+        message: editingCashflowId
+          ? t("pages.budget.feedback.cashflowUpdated")
+          : t("pages.budget.feedback.cashflowCreated")
       });
       setEditingCashflowId(null);
       setCashflowForm(emptyCashflowFormState(defaultDate));
@@ -382,19 +402,25 @@ export function BudgetPage() {
       void queryClient.invalidateQueries({ queryKey: ["budget-summary", year, month] });
     },
     onError: (error) => {
-      setFeedback({ kind: "error", message: resolveApiErrorMessage(error, passthroughTranslate, "Failed to save cash-flow entry") });
+      setFeedback({
+        kind: "error",
+        message: resolveApiErrorMessage(error, t, t("pages.budget.feedback.cashflowSaveFailed"))
+      });
     }
   });
 
   const deleteCashflowMutation = useMutation({
     mutationFn: deleteCashflowEntry,
     onSuccess: () => {
-      setFeedback({ kind: "success", message: "Deleted cash-flow entry." });
+      setFeedback({ kind: "success", message: t("pages.budget.feedback.cashflowDeleted") });
       void queryClient.invalidateQueries({ queryKey: ["cashflow-entries", year, month] });
       void queryClient.invalidateQueries({ queryKey: ["budget-summary", year, month] });
     },
     onError: (error) => {
-      setFeedback({ kind: "error", message: resolveApiErrorMessage(error, passthroughTranslate, "Failed to delete cash-flow entry") });
+      setFeedback({
+        kind: "error",
+        message: resolveApiErrorMessage(error, t, t("pages.budget.feedback.cashflowDeleteFailed"))
+      });
     }
   });
 
@@ -404,7 +430,9 @@ export function BudgetPage() {
     onSuccess: (_, variables) => {
       setFeedback({
         kind: "success",
-        message: variables.linkedTransactionId ? "Linked cash-flow entry to receipt." : "Removed receipt link."
+        message: variables.linkedTransactionId
+          ? t("pages.budget.feedback.cashflowLinked")
+          : t("pages.budget.feedback.cashflowUnlinked")
       });
       setReconcileEntryId(null);
       setReceiptSearch("");
@@ -414,7 +442,7 @@ export function BudgetPage() {
     onError: (error) => {
       setFeedback({
         kind: "error",
-        message: resolveApiErrorMessage(error, passthroughTranslate, "Failed to reconcile cash-flow entry")
+        message: resolveApiErrorMessage(error, t, t("pages.budget.feedback.cashflowReconcileFailed"))
       });
     }
   });
@@ -441,7 +469,10 @@ export function BudgetPage() {
       void queryClient.invalidateQueries({ queryKey: ["budget-summary", year, month] });
     },
     onError: (error) => {
-      setFeedback({ kind: "error", message: resolveApiErrorMessage(error, passthroughTranslate, "Failed to create budget rule") });
+      setFeedback({
+        kind: "error",
+        message: resolveApiErrorMessage(error, t, t("pages.budget.feedback.ruleCreateFailed"))
+      });
     }
   });
 
@@ -452,20 +483,29 @@ export function BudgetPage() {
   const utilizationRows = budgetUtilizationQuery.data?.rows ?? [];
   const reconcileEntry = cashflowEntries.find((entry) => entry.id === reconcileEntryId) ?? null;
 
-  const displayBudgetMonth = summary?.month ?? budgetMonthQuery.data;
-  const currency = displayBudgetMonth?.currency ?? "EUR";
-  const plannedIncome = summary?.totals.planned_income_cents ?? displayBudgetMonth?.planned_income_cents ?? null;
+  const persistedBudgetMonth = budgetMonthQuery.data;
+  const displayBudgetMonth = {
+    ...(summary?.month ?? {}),
+    ...(persistedBudgetMonth ?? {})
+  };
+  const currency = displayBudgetMonth.currency ?? "EUR";
+  const plannedIncome = displayBudgetMonth.planned_income_cents ?? summary?.totals.planned_income_cents ?? null;
+  const targetSavings = displayBudgetMonth.target_savings_cents ?? summary?.totals.target_savings_cents ?? null;
+  const openingBalance = displayBudgetMonth.opening_balance_cents ?? summary?.totals.opening_balance_cents ?? null;
   const actualIncome = summary?.totals.actual_income_cents ?? 0;
-  const remaining = summary?.totals.remaining_cents ?? 0;
-  const available = summary?.totals.available_cents ?? 0;
   const recurringExpected = summary?.totals.recurring_expected_cents ?? 0;
   const recurringPaid = summary?.totals.recurring_paid_cents ?? 0;
   const receiptSpend = summary?.totals.receipt_spend_cents ?? 0;
   const manualOutflow = summary?.totals.manual_outflow_cents ?? 0;
   const totalOutflow = summary?.totals.total_outflow_cents ?? 0;
-  const saved = summary?.totals.saved_cents ?? 0;
   const reconciledCount = summary?.cashflow.reconciled_count ?? 0;
   const openAdjustmentCount = Math.max((summary?.cashflow.count ?? 0) - reconciledCount, 0);
+  const incomeBasis = actualIncome > 0 ? "actual" : "planned";
+  const incomeBasisCents = actualIncome > 0 ? actualIncome : (plannedIncome ?? 0);
+  const available = (openingBalance ?? 0) + incomeBasisCents;
+  const remaining = available - totalOutflow;
+  const saved = incomeBasisCents - totalOutflow;
+  const savingsDelta = saved - (targetSavings ?? 0);
 
   function handleMonthSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -475,7 +515,7 @@ export function BudgetPage() {
   function handleCashflowSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     if (!cashflowForm.description.trim()) {
-      setFeedback({ kind: "error", message: "Cash-flow description is required." });
+      setFeedback({ kind: "error", message: t("pages.budget.cashflow.validation.descriptionRequired") });
       return;
     }
     void saveCashflowMutation.mutateAsync(cashflowForm);
@@ -494,23 +534,47 @@ export function BudgetPage() {
   }
 
   function applyCashflowPreset(
-    preset: Pick<CashflowFormState, "direction" | "category" | "description" | "sourceType">
+    preset: Pick<CashflowFormState, "direction" | "category" | "sourceType"> & { descriptionKey: TranslationKey }
   ): void {
     setEditingCashflowId(null);
     setCashflowForm({
       ...emptyCashflowFormState(defaultDate),
       effectiveDate: cashflowForm.effectiveDate || defaultDate,
-      ...preset
+      ...preset,
+      description: t(preset.descriptionKey)
     });
   }
 
   function formatReceiptCandidateLabel(transaction: TransactionListItem): string {
-    return transaction.store_name?.trim() || "Unknown merchant";
+    return transaction.store_name?.trim() || t("pages.budget.cashflow.receiptCandidateUnknownMerchant");
+  }
+
+  function recurringStatusLabel(status: string): string {
+    if (status === "paid") {
+      return t("pages.budget.recurring.status.paid");
+    }
+    if (status === "due") {
+      return t("pages.budget.recurring.status.due");
+    }
+    if (status === "overdue") {
+      return t("pages.budget.recurring.status.overdue");
+    }
+    if (status === "skipped") {
+      return t("pages.budget.recurring.status.skipped");
+    }
+    if (status === "unmatched") {
+      return t("pages.budget.recurring.status.unmatched");
+    }
+    return t("pages.budget.recurring.status.upcoming");
   }
 
   return (
     <section className="space-y-6">
-      <PageHeader title="Budget" description="Track monthly income, recurring bills, receipt spend, and savings." />
+      <PageHeader title={t("pages.budget.title")} description={t("pages.budget.description")}>
+        <Button asChild variant="outline">
+          <Link to="/bills">{t("pages.budget.openBills")}</Link>
+        </Button>
+      </PageHeader>
 
       {feedback ? (
         <p className={feedback.kind === "error" ? "text-sm text-destructive" : "text-sm text-success"}>
@@ -520,7 +584,7 @@ export function BudgetPage() {
 
       <div className="flex flex-col gap-3 md:flex-row md:items-end">
         <div className="space-y-2">
-          <Label htmlFor="budget-month">Month</Label>
+          <Label htmlFor="budget-month">{t("pages.budget.month")}</Label>
           <Input
             id="budget-month"
             type="month"
@@ -529,52 +593,96 @@ export function BudgetPage() {
           />
         </div>
         <div className="flex-1 space-y-1">
+          <p className="text-sm font-medium">{t("pages.budget.planTitle", { month: formatMonthYear(`${year}-${String(month).padStart(2, "0")}-01T00:00:00`) })}</p>
           <p className="text-xs text-muted-foreground">
-            {displayBudgetMonth?.notes?.trim() ? displayBudgetMonth.notes : "No notes set for this month yet."}
+            {displayBudgetMonth.notes?.trim() ? displayBudgetMonth.notes : t("pages.budget.noNotes")}
           </p>
         </div>
       </div>
 
+      <Card className="app-soft-surface border-border/60">
+        <CardContent className="grid gap-3 p-4 md:grid-cols-3">
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">1</p>
+            <p className="font-medium">{t("pages.budget.guide.stepOne.title")}</p>
+            <p className="text-sm text-muted-foreground">{t("pages.budget.guide.stepOne.body")}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">2</p>
+            <p className="font-medium">{t("pages.budget.guide.stepTwo.title")}</p>
+            <p className="text-sm text-muted-foreground">{t("pages.budget.guide.stepTwo.body")}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">3</p>
+            <p className="font-medium">{t("pages.budget.guide.stepThree.title")}</p>
+            <p className="text-sm text-muted-foreground">{t("pages.budget.guide.stepThree.body")}</p>
+          </div>
+        </CardContent>
+      </Card>
+
       <section className="rounded-xl border border-border/60 app-dashboard-surface grid divide-y lg:divide-y-0 lg:divide-x divide-border/40 lg:grid-cols-3">
         <MetricCard
-          title="Income"
+          title={t("pages.budget.metrics.income")}
           value={formatEurFromCents(actualIncome)}
-          subtitle={plannedIncome !== null ? `Planned ${formatEurFromCents(plannedIncome)}` : "No planned income yet"}
+          subtitle={
+            plannedIncome !== null
+              ? t("pages.budget.metrics.incomeSubtitle", { amount: formatEurFromCents(plannedIncome) })
+              : t("pages.budget.metrics.incomeEmpty")
+          }
           icon={<Wallet className="h-3.5 w-3.5" />}
           iconClassName="bg-primary/10 text-primary"
         />
         <MetricCard
-          title="Outflow"
+          title={t("pages.budget.metrics.outflow")}
           value={formatEurFromCents(totalOutflow)}
-          subtitle={`Receipts ${formatEurFromCents(receiptSpend)} · manual ${formatEurFromCents(manualOutflow)} · ${reconciledCount} reconciled`}
+          subtitle={t("pages.budget.metrics.outflowSubtitle", {
+            receipts: formatEurFromCents(receiptSpend),
+            manual: formatEurFromCents(manualOutflow),
+            reconciled: reconciledCount
+          })}
           icon={<TrendingDown className="h-3.5 w-3.5" />}
           iconClassName="bg-destructive/10 text-destructive"
         />
         <MetricCard
-          title="Remaining"
+          title={t("pages.budget.metrics.remaining")}
           value={formatEurFromCents(remaining)}
-          subtitle={`Available ${formatEurFromCents(available)} · saved ${formatEurFromCents(saved)}`}
+          subtitle={t("pages.budget.metrics.remainingSubtitle", {
+            available: formatEurFromCents(available),
+            saved: formatEurFromCents(saved)
+          })}
           icon={<PiggyBank className="h-3.5 w-3.5" />}
           iconClassName="bg-success/10 text-success"
         />
         <MetricCard
-          title="Recurring"
+          title={t("pages.budget.metrics.recurring")}
           value={formatEurFromCents(recurringExpected)}
-          subtitle={`${summary?.recurring.paid_count ?? 0} paid / ${summary?.recurring.unpaid_count ?? 0} unpaid`}
+          subtitle={t("pages.budget.metrics.recurringSubtitle", {
+            paid: summary?.recurring.paid_count ?? 0,
+            unpaid: summary?.recurring.unpaid_count ?? 0
+          })}
           icon={<CalendarCheck className="h-3.5 w-3.5" />}
           iconClassName="bg-chart-2/10 text-chart-2"
         />
         <MetricCard
-          title="Income basis"
-          value={summary ? summaryBasisLabel(summary) : "—"}
-          subtitle={`Savings delta ${summary ? formatEurFromCents(summary.totals.savings_delta_cents) : "—"}`}
+          title={t("pages.budget.metrics.incomeBasis")}
+          value={t(
+            incomeBasis === "actual"
+              ? "pages.budget.metrics.incomeBasisActual"
+              : "pages.budget.metrics.incomeBasisPlanned",
+            { amount: formatEurFromCents(incomeBasisCents) }
+          )}
+          subtitle={t("pages.budget.metrics.savingsDelta", {
+            amount: formatEurFromCents(savingsDelta)
+          })}
           icon={<TrendingUp className="h-3.5 w-3.5" />}
           iconClassName="bg-amber-500/10 text-amber-600"
         />
         <MetricCard
-          title="Recurring bills"
+          title={t("pages.budget.metrics.recurringPaid")}
           value={formatEurFromCents(recurringPaid)}
-          subtitle={`Forecast ${formatEurFromCents(recurringExpected)}`}
+          subtitle={t("pages.budget.metrics.recurringPaidSubtitle", {
+            amount: formatEurFromCents(recurringExpected)
+          })}
           icon={<ReceiptText className="h-3.5 w-3.5" />}
           iconClassName="bg-muted text-muted-foreground"
         />
@@ -583,52 +691,53 @@ export function BudgetPage() {
       <section className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Monthly Budget Settings</CardTitle>
+            <CardTitle className="text-base">{t("pages.budget.monthSettings.title")}</CardTitle>
+            <p className="text-sm text-muted-foreground">{t("pages.budget.monthSettings.description")}</p>
           </CardHeader>
           <CardContent>
             <form className="grid gap-4 md:grid-cols-2" onSubmit={handleMonthSubmit}>
               <div className="space-y-2">
-                <Label htmlFor="planned-income">Planned income (EUR)</Label>
+                <Label htmlFor="planned-income">{t("pages.budget.monthSettings.plannedIncome")}</Label>
                 <Input
                   id="planned-income"
                   value={monthForm.plannedIncome}
                   onChange={(event) => setMonthForm((previous) => ({ ...previous, plannedIncome: event.target.value }))}
-                  placeholder="3200.00"
+                  placeholder={t("pages.budget.monthSettings.plannedIncomePlaceholder")}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="target-savings">Target savings (EUR)</Label>
+                <Label htmlFor="target-savings">{t("pages.budget.monthSettings.targetSavings")}</Label>
                 <Input
                   id="target-savings"
                   value={monthForm.targetSavings}
                   onChange={(event) => setMonthForm((previous) => ({ ...previous, targetSavings: event.target.value }))}
-                  placeholder="300.00"
+                  placeholder={t("pages.budget.monthSettings.targetSavingsPlaceholder")}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="opening-balance">Opening balance (EUR)</Label>
+                <Label htmlFor="opening-balance">{t("pages.budget.monthSettings.openingBalance")}</Label>
                 <Input
                   id="opening-balance"
                   value={monthForm.openingBalance}
                   onChange={(event) => setMonthForm((previous) => ({ ...previous, openingBalance: event.target.value }))}
-                  placeholder="1250.00"
+                  placeholder={t("pages.budget.monthSettings.openingBalancePlaceholder")}
                 />
               </div>
               <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="month-notes">Notes</Label>
+                <Label htmlFor="month-notes">{t("pages.budget.monthSettings.notes")}</Label>
                 <Textarea
                   id="month-notes"
                   value={monthForm.notes}
                   onChange={(event) => setMonthForm((previous) => ({ ...previous, notes: event.target.value }))}
-                  placeholder="Monthly priorities, one-off expenses, savings goals..."
+                  placeholder={t("pages.budget.monthSettings.notesPlaceholder")}
                 />
               </div>
               <div className="md:col-span-2 flex items-center gap-3">
                 <Button type="submit" disabled={saveMonthMutation.isPending}>
-                  Save month settings
+                  {t("pages.budget.monthSettings.save")}
                 </Button>
                 <span className="text-sm text-muted-foreground">
-                  Current currency: {currency}
+                  {t("pages.budget.monthSettings.currency", { currency })}
                 </span>
               </div>
             </form>
@@ -637,37 +746,76 @@ export function BudgetPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">Recurring Commitments</CardTitle>
-            <CircleAlert className="h-4 w-4 text-muted-foreground" />
+            <div className="space-y-1">
+              <CardTitle className="text-base">{t("pages.budget.recurring.title")}</CardTitle>
+              <p className="text-sm text-muted-foreground">{t("pages.budget.recurring.description")}</p>
+            </div>
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t("pages.budget.recurring.infoLabel")}
+                    className="h-8 w-8"
+                  >
+                    <CircleAlert className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left" className="max-w-xs">
+                  {t("pages.budget.recurring.infoBody")}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </CardHeader>
           <CardContent>
             {(summary?.recurring.items ?? []).length === 0 ? (
               <EmptyState
-                title="No recurring items"
-                description="Recurring bills will appear here once they are configured and matched."
+                title={t("pages.budget.recurring.emptyTitle")}
+                description={t("pages.budget.recurring.emptyDescription")}
+                action={{ label: t("pages.budget.openBills"), href: "/bills" }}
               />
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Due</TableHead>
-                    <TableHead>Bill</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Expected</TableHead>
-                    <TableHead className="text-right">Actual</TableHead>
+                    <TableHead>{t("pages.budget.recurring.col.due")}</TableHead>
+                    <TableHead>{t("pages.budget.recurring.col.bill")}</TableHead>
+                    <TableHead>{t("pages.budget.recurring.col.status")}</TableHead>
+                    <TableHead className="text-right">{t("pages.budget.recurring.col.expected")}</TableHead>
+                    <TableHead className="text-right">{t("pages.budget.recurring.col.actual")}</TableHead>
+                    <TableHead className="text-right">{t("common.actions")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {(summary?.recurring.items ?? []).map((item) => (
                     <TableRow key={item.occurrence_id}>
-                      <TableCell>{formatDate(item.due_date)}</TableCell>
-                      <TableCell>{item.bill_name}</TableCell>
-                      <TableCell className="capitalize">{item.status}</TableCell>
+                      <TableCell>
+                        <Link className="font-medium text-primary hover:underline" to={buildBillLinkTarget(item.bill_id, item.due_date)}>
+                          {formatDate(item.due_date)}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <Link className="font-medium text-primary hover:underline" to={buildBillLinkTarget(item.bill_id, item.due_date)}>
+                          {item.bill_name}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{recurringStatusLabel(item.status)}</TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {item.expected_amount_cents === null ? "Variable" : formatEurFromCents(item.expected_amount_cents)}
+                        {item.expected_amount_cents === null
+                          ? t("pages.budget.recurring.variableAmount")
+                          : formatEurFromCents(item.expected_amount_cents)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {item.actual_amount_cents === null ? "—" : formatEurFromCents(item.actual_amount_cents)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button asChild size="sm" variant="ghost">
+                          <Link to={buildBillLinkTarget(item.bill_id, item.due_date)}>
+                            {t("pages.budget.recurring.openBill")}
+                          </Link>
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -680,7 +828,8 @@ export function BudgetPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Cash-Flow Entries</CardTitle>
+          <CardTitle className="text-base">{t("pages.budget.cashflow.title")}</CardTitle>
+          <p className="text-sm text-muted-foreground">{t("pages.budget.cashflow.description")}</p>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid gap-3 lg:grid-cols-3">
@@ -690,11 +839,11 @@ export function BudgetPage() {
                 type="button"
                 variant="outline"
                 className="h-auto justify-start px-4 py-3 text-left"
-                onClick={() => applyCashflowPreset(preset.values)}
+                onClick={() => applyCashflowPreset({ ...preset.values, descriptionKey: preset.descriptionKey })}
               >
                 <span className="block">
-                  <span className="block font-medium">{preset.label}</span>
-                  <span className="block text-xs text-muted-foreground">{preset.hint}</span>
+                  <span className="block font-medium">{t(preset.labelKey)}</span>
+                  <span className="block text-xs text-muted-foreground">{t(preset.hintKey)}</span>
                 </span>
               </Button>
             ))}
@@ -702,7 +851,7 @@ export function BudgetPage() {
 
           <form className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={handleCashflowSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-date">Date</Label>
+              <Label htmlFor="cashflow-date">{t("pages.budget.cashflow.date")}</Label>
               <Input
                 id="cashflow-date"
                 type="date"
@@ -711,7 +860,7 @@ export function BudgetPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-direction">Direction</Label>
+              <Label htmlFor="cashflow-direction">{t("pages.budget.cashflow.direction")}</Label>
               <Select
                 value={cashflowForm.direction}
                 onValueChange={(value) => setCashflowForm((previous) => ({ ...previous, direction: value as "inflow" | "outflow" }))}
@@ -720,19 +869,19 @@ export function BudgetPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="inflow">Inflow</SelectItem>
-                  <SelectItem value="outflow">Outflow</SelectItem>
+                  <SelectItem value="inflow">{t("pages.budget.cashflow.directionInflow")}</SelectItem>
+                  <SelectItem value="outflow">{t("pages.budget.cashflow.directionOutflow")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-category">Category</Label>
+              <Label htmlFor="cashflow-category">{t("pages.budget.cashflow.category")}</Label>
               <Input
                 id="cashflow-category"
                 list="cashflow-category-options"
                 value={cashflowForm.category}
                 onChange={(event) => setCashflowForm((previous) => ({ ...previous, category: event.target.value }))}
-                placeholder="salary, groceries, rent, refund"
+                placeholder={t("pages.budget.cashflow.categoryPlaceholder")}
               />
               <datalist id="cashflow-category-options">
                 {COMMON_CASHFLOW_CATEGORIES.map((category) => (
@@ -741,59 +890,71 @@ export function BudgetPage() {
               </datalist>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-amount">Amount (EUR)</Label>
+              <Label htmlFor="cashflow-amount">{t("pages.budget.cashflow.amount")}</Label>
               <Input
                 id="cashflow-amount"
                 value={cashflowForm.amount}
                 onChange={(event) => setCashflowForm((previous) => ({ ...previous, amount: event.target.value }))}
-                placeholder="1200.00"
+                placeholder={t("pages.budget.cashflow.amountPlaceholder")}
               />
             </div>
             <div className="space-y-2 md:col-span-2 xl:col-span-2">
-              <Label htmlFor="cashflow-description">Description</Label>
+              <Label htmlFor="cashflow-description">{t("pages.budget.cashflow.entryDescription")}</Label>
               <Input
                 id="cashflow-description"
                 value={cashflowForm.description}
                 onChange={(event) => setCashflowForm((previous) => ({ ...previous, description: event.target.value }))}
-                placeholder="Salary payout, supermarket cash spend, refund"
+                placeholder={t("pages.budget.cashflow.entryDescriptionPlaceholder")}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-source-type">Source type</Label>
-              <Input
-                id="cashflow-source-type"
+              <Label htmlFor="cashflow-source-type">{t("pages.budget.cashflow.sourceType")}</Label>
+              <Select
                 value={cashflowForm.sourceType}
-                onChange={(event) => setCashflowForm((previous) => ({ ...previous, sourceType: event.target.value }))}
-                placeholder="manual"
-              />
+                onValueChange={(value) => setCashflowForm((previous) => ({ ...previous, sourceType: value }))}
+              >
+                <SelectTrigger id="cashflow-source-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {COMMON_CASHFLOW_SOURCE_TYPES.map((sourceType) => (
+                    <SelectItem key={sourceType.value} value={sourceType.value}>
+                      {t(sourceType.labelKey)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2 md:col-span-2 xl:col-span-2">
-              <Label htmlFor="cashflow-notes">Notes</Label>
+              <Label htmlFor="cashflow-notes">{t("pages.budget.cashflow.notes")}</Label>
               <Textarea
                 id="cashflow-notes"
                 value={cashflowForm.notes}
                 onChange={(event) => setCashflowForm((previous) => ({ ...previous, notes: event.target.value }))}
-                placeholder="Optional context"
+                placeholder={t("pages.budget.cashflow.notesPlaceholder")}
               />
             </div>
             <div className="flex flex-wrap items-center gap-3 md:col-span-2 xl:col-span-4">
               <Button type="submit" disabled={saveCashflowMutation.isPending}>
-                {editingCashflowId ? "Update entry" : "Add entry"}
+                {editingCashflowId ? t("pages.budget.cashflow.update") : t("pages.budget.cashflow.add")}
               </Button>
               {editingCashflowId ? (
                 <Button type="button" variant="outline" onClick={cancelCashflowEdit}>
-                  Cancel edit
+                  {t("pages.budget.cashflow.cancelEdit")}
                 </Button>
               ) : null}
               <span className="text-sm text-muted-foreground">
-                Open adjustments {openAdjustmentCount} · reconciled {reconciledCount}
+                {t("pages.budget.cashflow.summary", {
+                  open: openAdjustmentCount,
+                  reconciled: reconciledCount
+                })}
               </span>
             </div>
           </form>
 
           <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">
-              <Label htmlFor="cashflow-filter-direction">Direction</Label>
+              <Label htmlFor="cashflow-filter-direction">{t("pages.budget.cashflow.filterDirection")}</Label>
               <Select
                 value={cashflowFilters.direction}
                 onValueChange={(value) =>
@@ -807,14 +968,14 @@ export function BudgetPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All directions</SelectItem>
-                  <SelectItem value="inflow">Inflow</SelectItem>
-                  <SelectItem value="outflow">Outflow</SelectItem>
+                  <SelectItem value="all">{t("pages.budget.cashflow.filterDirectionAll")}</SelectItem>
+                  <SelectItem value="inflow">{t("pages.budget.cashflow.directionInflow")}</SelectItem>
+                  <SelectItem value="outflow">{t("pages.budget.cashflow.directionOutflow")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-filter-status">Status</Label>
+              <Label htmlFor="cashflow-filter-status">{t("pages.budget.cashflow.filterStatus")}</Label>
               <Select
                 value={cashflowFilters.status}
                 onValueChange={(value) =>
@@ -828,14 +989,14 @@ export function BudgetPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="open">Open corrections</SelectItem>
-                  <SelectItem value="reconciled">Reconciled to receipt</SelectItem>
+                  <SelectItem value="all">{t("pages.budget.cashflow.filterStatusAll")}</SelectItem>
+                  <SelectItem value="open">{t("pages.budget.cashflow.filterStatusOpen")}</SelectItem>
+                  <SelectItem value="reconciled">{t("pages.budget.cashflow.filterStatusReconciled")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-filter-category">Category filter</Label>
+              <Label htmlFor="cashflow-filter-category">{t("pages.budget.cashflow.filterCategory")}</Label>
               <Input
                 id="cashflow-filter-category"
                 list="cashflow-category-options"
@@ -843,30 +1004,30 @@ export function BudgetPage() {
                 onChange={(event) =>
                   setCashflowFilters((previous) => ({ ...previous, category: event.target.value }))
                 }
-                placeholder="Filter by category"
+                placeholder={t("pages.budget.cashflow.filterCategoryPlaceholder")}
               />
             </div>
           </div>
 
           <p className="text-sm text-muted-foreground">
-            Manual outflows linked to a real receipt stay visible here, but they stop counting as extra spend in the month summary.
+            {t("pages.budget.cashflow.helper")}
           </p>
 
           {cashflowEntries.length === 0 ? (
             <EmptyState
-              title="No cash-flow entries"
-              description="Add salary, refunds, and manual expenses to round out the monthly budget."
+              title={t("pages.budget.cashflow.emptyTitle")}
+              description={t("pages.budget.cashflow.emptyDescription")}
             />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Direction</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>{t("pages.budget.cashflow.col.date")}</TableHead>
+                  <TableHead>{t("pages.budget.cashflow.col.direction")}</TableHead>
+                  <TableHead>{t("pages.budget.cashflow.col.category")}</TableHead>
+                  <TableHead>{t("pages.budget.cashflow.col.description")}</TableHead>
+                  <TableHead>{t("pages.budget.cashflow.col.status")}</TableHead>
+                  <TableHead className="text-right">{t("pages.budget.cashflow.col.amount")}</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -874,7 +1035,7 @@ export function BudgetPage() {
                 {cashflowEntries.map((entry) => (
                   <TableRow key={entry.id}>
                     <TableCell>{formatDate(entry.effective_date)}</TableCell>
-                    <TableCell className="capitalize">{entry.direction}</TableCell>
+                    <TableCell>{t(entry.direction === "inflow" ? "pages.budget.cashflow.directionInflow" : "pages.budget.cashflow.directionOutflow")}</TableCell>
                     <TableCell>{entry.category}</TableCell>
                     <TableCell className="max-w-[280px]">
                       <div className="truncate">{entry.description ?? "—"}</div>
@@ -884,11 +1045,11 @@ export function BudgetPage() {
                     </TableCell>
                     <TableCell>
                       <div className="space-y-1 text-sm">
-                        <div>{entry.is_reconciled ? "Reconciled" : "Open"}</div>
+                        <div>{entry.is_reconciled ? t("pages.budget.cashflow.statusReconciled") : t("pages.budget.cashflow.statusOpen")}</div>
                         <div className="text-xs text-muted-foreground">{entry.source_type}</div>
                         {entry.linked_transaction ? (
                           <div className="text-xs text-muted-foreground">
-                            {entry.linked_transaction.merchant_name ?? "Receipt"} · {formatDate(entry.linked_transaction.purchased_at)}
+                            {entry.linked_transaction.merchant_name ?? t("pages.budget.cashflow.receiptLabel")} · {formatDate(entry.linked_transaction.purchased_at)}
                           </div>
                         ) : null}
                       </div>
@@ -900,7 +1061,7 @@ export function BudgetPage() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         <Button type="button" variant="ghost" size="sm" onClick={() => startCashflowEdit(entry)}>
-                          Edit
+                          {t("common.edit")}
                         </Button>
                         {entry.direction === "outflow" ? (
                           <Button
@@ -921,7 +1082,7 @@ export function BudgetPage() {
                             }}
                             disabled={reconcileCashflowMutation.isPending}
                           >
-                            {entry.is_reconciled ? "Unlink receipt" : "Link receipt"}
+                            {entry.is_reconciled ? t("pages.budget.cashflow.unlinkReceipt") : t("pages.budget.cashflow.linkReceipt")}
                           </Button>
                         ) : null}
                         <Button
@@ -931,7 +1092,7 @@ export function BudgetPage() {
                           onClick={() => deleteCashflowMutation.mutate(entry.id)}
                           disabled={deleteCashflowMutation.isPending}
                         >
-                          Delete
+                          {t("common.delete")}
                         </Button>
                       </div>
                     </TableCell>
@@ -945,30 +1106,34 @@ export function BudgetPage() {
             <div className="space-y-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
               <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h3 className="text-sm font-medium">Link receipt to {reconcileEntry.description ?? "manual entry"}</h3>
+                  <h3 className="text-sm font-medium">
+                    {t("pages.budget.cashflow.reconcileTitle", {
+                      entry: reconcileEntry.description ?? t("pages.budget.cashflow.manualEntry")
+                    })}
+                  </h3>
                   <p className="text-sm text-muted-foreground">
-                    Match this manual expense to a scraped receipt so it no longer counts twice.
+                    {t("pages.budget.cashflow.reconcileDescription")}
                   </p>
                 </div>
                 <Button type="button" variant="outline" onClick={() => setReconcileEntryId(null)}>
-                  Close
+                  {t("common.close")}
                 </Button>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="receipt-search">Receipt search</Label>
+                <Label htmlFor="receipt-search">{t("pages.budget.cashflow.receiptSearch")}</Label>
                 <Input
                   id="receipt-search"
                   value={receiptSearch}
                   onChange={(event) => setReceiptSearch(event.target.value)}
-                  placeholder="Search merchant or receipt text"
+                  placeholder={t("pages.budget.cashflow.receiptSearchPlaceholder")}
                 />
               </div>
               {receiptCandidatesQuery.isPending ? (
-                <p className="text-sm text-muted-foreground">Searching receipts…</p>
+                <p className="text-sm text-muted-foreground">{t("pages.budget.cashflow.searchingReceipts")}</p>
               ) : null}
               {receiptCandidates.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No receipts found for this month. Try another search term or keep the manual entry open for now.
+                  {t("pages.budget.cashflow.noReceiptMatches")}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -993,7 +1158,7 @@ export function BudgetPage() {
                         }
                         disabled={reconcileCashflowMutation.isPending}
                       >
-                        Use receipt
+                        {t("pages.budget.cashflow.useReceipt")}
                       </Button>
                     </div>
                   ))}
@@ -1006,19 +1171,20 @@ export function BudgetPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Budget Rules</CardTitle>
+          <CardTitle className="text-base">{t("pages.budget.rules.title")}</CardTitle>
+          <p className="text-sm text-muted-foreground">{t("pages.budget.rules.description")}</p>
         </CardHeader>
         <CardContent className="space-y-6">
           <form className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={(event) => {
             event.preventDefault();
             if (!budgetRuleForm.scopeValue.trim()) {
-              setFeedback({ kind: "error", message: "Scope value is required for budget rules." });
+              setFeedback({ kind: "error", message: t("pages.budget.rules.validation.scopeRequired") });
               return;
             }
             void budgetRuleMutation.mutateAsync(budgetRuleForm);
           }}>
             <div className="space-y-2">
-              <Label htmlFor="budget-rule-scope-type">Scope type</Label>
+              <Label htmlFor="budget-rule-scope-type">{t("pages.budget.rules.scopeType")}</Label>
               <Select
                 value={budgetRuleForm.scopeType}
                 onValueChange={(value) => setBudgetRuleForm((previous) => ({ ...previous, scopeType: value as "category" | "source_kind" }))}
@@ -1027,22 +1193,22 @@ export function BudgetPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="category">Category</SelectItem>
-                  <SelectItem value="source_kind">Source kind</SelectItem>
+                  <SelectItem value="category">{t("pages.budget.rules.scopeTypeCategory")}</SelectItem>
+                  <SelectItem value="source_kind">{t("pages.budget.rules.scopeTypeSourceKind")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="budget-rule-scope-value">Scope value</Label>
+              <Label htmlFor="budget-rule-scope-value">{t("pages.budget.rules.scopeValue")}</Label>
               <Input
                 id="budget-rule-scope-value"
                 value={budgetRuleForm.scopeValue}
                 onChange={(event) => setBudgetRuleForm((previous) => ({ ...previous, scopeValue: event.target.value }))}
-                placeholder="groceries"
+                placeholder={t("pages.budget.rules.scopeValuePlaceholder")}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="budget-rule-period">Period</Label>
+              <Label htmlFor="budget-rule-period">{t("pages.budget.rules.period")}</Label>
               <Select
                 value={budgetRuleForm.period}
                 onValueChange={(value) => setBudgetRuleForm((previous) => ({ ...previous, period: value as "monthly" | "annual" }))}
@@ -1051,43 +1217,43 @@ export function BudgetPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="annual">Annual</SelectItem>
+                  <SelectItem value="monthly">{t("pages.budget.rules.periodMonthly")}</SelectItem>
+                  <SelectItem value="annual">{t("pages.budget.rules.periodAnnual")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="budget-rule-amount">Amount (EUR)</Label>
+              <Label htmlFor="budget-rule-amount">{t("pages.budget.rules.amount")}</Label>
               <Input
                 id="budget-rule-amount"
                 value={budgetRuleForm.amount}
                 onChange={(event) => setBudgetRuleForm((previous) => ({ ...previous, amount: event.target.value }))}
-                placeholder="450.00"
+                placeholder={t("pages.budget.rules.amountPlaceholder")}
               />
             </div>
             <div className="md:col-span-2 xl:col-span-4">
               <Button type="submit" disabled={budgetRuleMutation.isPending}>
-                Add budget rule
+                {t("pages.budget.rules.add")}
               </Button>
             </div>
           </form>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div>
-              <h3 className="mb-3 text-sm font-medium">Rules</h3>
+              <h3 className="mb-3 text-sm font-medium">{t("pages.budget.rules.rulesList")}</h3>
               {budgetRules.length === 0 ? (
                 <EmptyState
-                  title="No budget rules configured"
-                  description="Create category or source limits to track overages."
+                  title={t("pages.budget.rules.emptyTitle")}
+                  description={t("pages.budget.rules.emptyDescription")}
                 />
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Scope</TableHead>
-                      <TableHead>Value</TableHead>
-                      <TableHead>Period</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>{t("pages.budget.rules.col.scope")}</TableHead>
+                      <TableHead>{t("pages.budget.rules.col.value")}</TableHead>
+                      <TableHead>{t("pages.budget.rules.col.period")}</TableHead>
+                      <TableHead className="text-right">{t("pages.budget.rules.col.amount")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1104,21 +1270,21 @@ export function BudgetPage() {
               )}
             </div>
             <div>
-              <h3 className="mb-3 text-sm font-medium">Utilization</h3>
+              <h3 className="mb-3 text-sm font-medium">{t("pages.budget.rules.utilizationTitle")}</h3>
               {utilizationRows.length === 0 ? (
                 <EmptyState
-                  title="No utilization data"
-                  description="Budget utilization will appear after transactions match the configured rules."
+                  title={t("pages.budget.rules.utilizationEmptyTitle")}
+                  description={t("pages.budget.rules.utilizationEmptyDescription")}
                 />
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Scope</TableHead>
-                      <TableHead className="text-right">Budget</TableHead>
-                      <TableHead className="text-right">Spent</TableHead>
-                      <TableHead className="text-right">Remaining</TableHead>
-                      <TableHead className="text-right">Utilization</TableHead>
+                      <TableHead>{t("pages.budget.rules.utilization.col.scope")}</TableHead>
+                      <TableHead className="text-right">{t("pages.budget.rules.utilization.col.budget")}</TableHead>
+                      <TableHead className="text-right">{t("pages.budget.rules.utilization.col.spent")}</TableHead>
+                      <TableHead className="text-right">{t("pages.budget.rules.utilization.col.remaining")}</TableHead>
+                      <TableHead className="text-right">{t("pages.budget.rules.utilization.col.utilization")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1137,7 +1303,7 @@ export function BudgetPage() {
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            Budget rules remain a secondary control surface. The month summary above is the main planning view.
+            {t("pages.budget.rules.footer")}
           </p>
         </CardContent>
       </Card>

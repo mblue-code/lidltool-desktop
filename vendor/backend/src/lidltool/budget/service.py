@@ -16,6 +16,7 @@ from lidltool.db.models import (
     RecurringBillOccurrence,
     Transaction,
 )
+from lidltool.recurring.service import sync_recurring_occurrences_for_window
 
 _VALID_DIRECTIONS = {"inflow", "outflow"}
 
@@ -428,6 +429,12 @@ def monthly_budget_summary(
     saved_cents = income_basis_cents - total_outflow_cents
     savings_delta_cents = saved_cents - target_savings_cents
 
+    sync_recurring_occurrences_for_window(
+        session=session,
+        user_id=user_id,
+        start_date=start,
+        end_date=end - date.resolution,
+    )
     recurring_rows = session.execute(
         select(RecurringBillOccurrence, RecurringBill)
         .join(RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id)

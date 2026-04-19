@@ -1,6 +1,7 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarCheck, CalendarClock, CircleAlert, Wallet } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 
 import {
   createRecurringBill,
@@ -15,7 +16,8 @@ import {
   skipOccurrence,
   updateRecurringBill,
   updateOccurrenceStatus,
-  type RecurringBill
+  type RecurringBill,
+  type RecurringCalendar
 } from "@/api/recurringBills";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { MetricCard } from "@/components/shared/MetricCard";
@@ -27,6 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle
@@ -35,7 +38,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { useI18n } from "@/i18n";
+import { type TranslationKey, useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import { formatDate, formatEurFromCents, formatMonthYear } from "@/utils/format";
 
@@ -47,7 +50,7 @@ type BillFormState = {
   frequency: "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly";
   intervalValue: string;
   amountMode: "fixed" | "variable";
-  amountCents: string;
+  amount: string;
   amountTolerancePct: string;
   anchorDate: string;
   active: boolean;
@@ -62,12 +65,50 @@ const EMPTY_FORM: BillFormState = {
   frequency: "monthly",
   intervalValue: "1",
   amountMode: "fixed",
-  amountCents: "",
+  amount: "",
   amountTolerancePct: "0.10",
   anchorDate: new Date().toISOString().slice(0, 10),
   active: true,
   notes: ""
 };
+
+function parseEuroAmountToCents(raw: string): number | null {
+  const normalized = raw.trim().replace(",", ".");
+  if (!normalized) {
+    return null;
+  }
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return Math.round(parsed * 100);
+}
+
+function centsToInputValue(value: number | null): string {
+  if (value === null) {
+    return "";
+  }
+  return (value / 100).toFixed(2);
+}
+
+function parseMonthParam(raw: string | null): { year: number; month: number } | null {
+  if (!raw || !/^\d{4}-\d{2}$/.test(raw)) {
+    return null;
+  }
+  const [yearRaw, monthRaw] = raw.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return null;
+  }
+  return { year, month };
+}
+
+function shiftMonth(year: number, month: number, delta: number): { year: number; month: number } {
+  const base = new Date(Date.UTC(year, month - 1, 1, 12, 0, 0));
+  base.setUTCMonth(base.getUTCMonth() + delta);
+  return { year: base.getUTCFullYear(), month: base.getUTCMonth() + 1 };
+}
 
 function statusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
   if (status === "paid") {
@@ -82,17 +123,6 @@ function statusBadgeVariant(status: string): "default" | "secondary" | "destruct
   return "outline";
 }
 
-function amountLabel(amountCents: number | null): string {
-  return amountCents === null ? "Variable" : formatEurFromCents(amountCents);
-}
-
-function frequencyLabel(bill: Pick<RecurringBill, "frequency" | "interval_value">): string {
-  if (bill.interval_value <= 1) {
-    return bill.frequency;
-  }
-  return `${bill.frequency} x${bill.interval_value}`;
-}
-
 function toFormState(bill: RecurringBill): BillFormState {
   return {
     name: bill.name,
@@ -102,7 +132,7 @@ function toFormState(bill: RecurringBill): BillFormState {
     frequency: bill.frequency,
     intervalValue: String(bill.interval_value),
     amountMode: bill.amount_cents === null ? "variable" : "fixed",
-    amountCents: bill.amount_cents === null ? "" : String(bill.amount_cents),
+    amount: centsToInputValue(bill.amount_cents),
     amountTolerancePct: String(bill.amount_tolerance_pct),
     anchorDate: bill.anchor_date,
     active: bill.active,
@@ -113,16 +143,32 @@ function toFormState(bill: RecurringBill): BillFormState {
 export function BillsPage() {
   const queryClient = useQueryClient();
   const { t } = useI18n();
+  const [searchParams, setSearchParams] = useSearchParams();
   const today = new Date();
+  const initialCalendarMonth = parseMonthParam(searchParams.get("month")) ?? {
+    year: today.getFullYear(),
+    month: today.getMonth() + 1
+  };
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingBillId, setEditingBillId] = useState<string | null>(null);
   const [formState, setFormState] = useState<BillFormState>(EMPTY_FORM);
-  const [expandedBillId, setExpandedBillId] = useState<string | null>(null);
+  const [expandedBillId, setExpandedBillId] = useState<string | null>(searchParams.get("bill"));
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [archiveConfirmBillId, setArchiveConfirmBillId] = useState<string | null>(null);
   const [billSearch, setBillSearch] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(initialCalendarMonth);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+
+  useEffect(() => {
+    const requestedBillId = searchParams.get("bill");
+    setExpandedBillId((current) => requestedBillId ?? current);
+    const requestedMonth = parseMonthParam(searchParams.get("month"));
+    if (requestedMonth) {
+      setCalendarMonth(requestedMonth);
+    }
+  }, [searchParams]);
 
   const billsQuery = useQuery({
     queryKey: ["recurring-bills"],
@@ -133,8 +179,8 @@ export function BillsPage() {
     queryFn: fetchRecurringOverview
   });
   const calendarQuery = useQuery({
-    queryKey: ["recurring-calendar", today.getFullYear(), today.getMonth() + 1],
-    queryFn: () => fetchRecurringCalendar({ year: today.getFullYear(), month: today.getMonth() + 1 })
+    queryKey: ["recurring-calendar", calendarMonth.year, calendarMonth.month],
+    queryFn: () => fetchRecurringCalendar({ year: calendarMonth.year, month: calendarMonth.month })
   });
   const occurrencesQuery = useQuery({
     queryKey: ["recurring-occurrences", expandedBillId],
@@ -144,7 +190,7 @@ export function BillsPage() {
 
   const saveBillMutation = useMutation({
     mutationFn: async (payload: BillFormState) => {
-      const amountCents = payload.amountMode === "variable" ? null : Number(payload.amountCents);
+      const amountCents = payload.amountMode === "variable" ? null : parseEuroAmountToCents(payload.amount);
       const sharedPayload = {
         name: payload.name.trim(),
         merchant_canonical: payload.merchantCanonical.trim() || null,
@@ -165,15 +211,21 @@ export function BillsPage() {
       }
       return createRecurringBill(sharedPayload);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       setEditorOpen(false);
       setEditingBillId(null);
       setFormState(EMPTY_FORM);
+      setExpandedBillId(result.id);
+      openBillDetails(result.id, result.anchor_date);
       setActionError(null);
       setActionStatus(editingBillId ? t("pages.bills.updated") : t("pages.bills.created"));
       void queryClient.invalidateQueries({ queryKey: ["recurring-bills"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-calendar"] });
+      void queryClient.invalidateQueries({ queryKey: ["recurring-occurrences"] });
+      void queryClient.invalidateQueries({ queryKey: ["budget-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-recurring-calendar"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-recurring-forecast"] });
     },
     onError: (error) => {
       setActionError(resolveApiErrorMessage(error, t, t("pages.bills.saveFailed")));
@@ -187,6 +239,9 @@ export function BillsPage() {
       void queryClient.invalidateQueries({ queryKey: ["recurring-bills"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-calendar"] });
+      void queryClient.invalidateQueries({ queryKey: ["budget-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-recurring-calendar"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-recurring-forecast"] });
     },
     onError: (error) => {
       setActionError(resolveApiErrorMessage(error, t, t("pages.bills.archiveFailed")));
@@ -213,6 +268,9 @@ export function BillsPage() {
       void queryClient.invalidateQueries({ queryKey: ["recurring-occurrences", expandedBillId] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-calendar"] });
+      void queryClient.invalidateQueries({ queryKey: ["budget-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-recurring-calendar"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-recurring-forecast"] });
     },
     onError: (error) => {
       setActionError(resolveApiErrorMessage(error, t, t("pages.bills.occurrenceFailed")));
@@ -226,6 +284,9 @@ export function BillsPage() {
       void queryClient.invalidateQueries({ queryKey: ["recurring-occurrences", expandedBillId] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-calendar"] });
+      void queryClient.invalidateQueries({ queryKey: ["budget-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-recurring-calendar"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-recurring-forecast"] });
     },
     onError: (error) => {
       setActionError(resolveApiErrorMessage(error, t, t("pages.bills.generateFailed")));
@@ -239,6 +300,9 @@ export function BillsPage() {
       void queryClient.invalidateQueries({ queryKey: ["recurring-occurrences", expandedBillId] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["recurring-calendar"] });
+      void queryClient.invalidateQueries({ queryKey: ["budget-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-recurring-calendar"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-recurring-forecast"] });
     },
     onError: (error) => {
       setActionError(resolveApiErrorMessage(error, t, t("pages.bills.matchFailed")));
@@ -255,13 +319,95 @@ export function BillsPage() {
     [bills, expandedBillId]
   );
 
-  const dayCountsByDate = useMemo(() => {
-    const map = new Map<string, number>();
+  const dayDetailsByDate = useMemo(() => {
+    const map = new Map<string, RecurringCalendar["days"][number]>();
     for (const day of calendarQuery.data?.days ?? []) {
-      map.set(day.date, day.count);
+      map.set(day.date, day);
     }
     return map;
   }, [calendarQuery.data?.days]);
+
+  const selectedDayItems = selectedDay ? dayDetailsByDate.get(selectedDay)?.items ?? [] : [];
+
+  useEffect(() => {
+    if ((calendarQuery.data?.days ?? []).length === 0) {
+      setSelectedDay(null);
+      return;
+    }
+
+    setSelectedDay((current) => {
+      if (current && dayDetailsByDate.has(current)) {
+        return current;
+      }
+      return calendarQuery.data?.days[0]?.date ?? null;
+    });
+  }, [calendarQuery.data?.days, dayDetailsByDate]);
+
+  function frequencyLabel(bill: Pick<RecurringBill, "frequency" | "interval_value">): string {
+    const frequencyKeyByValue: Record<RecurringBill["frequency"], string> = {
+      weekly: t("pages.bills.form.frequency.weekly"),
+      biweekly: t("pages.bills.form.frequency.biweekly"),
+      monthly: t("pages.bills.form.frequency.monthly"),
+      quarterly: t("pages.bills.form.frequency.quarterly"),
+      yearly: t("pages.bills.form.frequency.yearly")
+    };
+    const base = frequencyKeyByValue[bill.frequency];
+    if (bill.interval_value <= 1) {
+      return base;
+    }
+    return `${base} × ${bill.interval_value}`;
+  }
+
+  function amountLabel(amountCents: number | null): string {
+    return amountCents === null ? t("pages.bills.variableAmount") : formatEurFromCents(amountCents);
+  }
+
+  function occurrenceStatusLabel(status: string): string {
+    const keyByStatus: Record<string, string> = {
+      upcoming: "pages.bills.status.upcoming",
+      due: "pages.bills.status.due",
+      paid: "pages.bills.status.paid",
+      overdue: "pages.bills.status.overdue",
+      skipped: "pages.bills.status.skipped",
+      unmatched: "pages.bills.status.unmatched"
+    };
+    return t((keyByStatus[status] ?? "pages.bills.status.upcoming") as TranslationKey);
+  }
+
+  function updateRouteState(next: { billId?: string | null; month?: { year: number; month: number } | null }): void {
+    const merged = new URLSearchParams(searchParams);
+    if (next.billId === undefined) {
+      // keep the current bill query parameter
+    } else if (next.billId) {
+      merged.set("bill", next.billId);
+    } else {
+      merged.delete("bill");
+    }
+
+    if (next.month === undefined) {
+      // keep current month query parameter
+    } else if (next.month) {
+      merged.set("month", `${next.month.year}-${String(next.month.month).padStart(2, "0")}`);
+    } else {
+      merged.delete("month");
+    }
+
+    setSearchParams(merged, { replace: true });
+  }
+
+  function openBillDetails(billId: string, dueDate?: string): void {
+    setExpandedBillId(billId);
+    if (dueDate) {
+      const requestedMonth = parseMonthParam(dueDate.slice(0, 7));
+      if (requestedMonth) {
+        setCalendarMonth(requestedMonth);
+        setSelectedDay(dueDate);
+        updateRouteState({ billId, month: requestedMonth });
+        return;
+      }
+    }
+    updateRouteState({ billId, month: calendarMonth });
+  }
 
   function openCreateDialog(): void {
     setEditingBillId(null);
@@ -290,8 +436,8 @@ export function BillsPage() {
       return;
     }
     if (formState.amountMode === "fixed") {
-      const amount = Number(formState.amountCents);
-      if (!Number.isFinite(amount) || amount <= 0) {
+      const amount = parseEuroAmountToCents(formState.amount);
+      if (amount === null || amount <= 0) {
         setActionError(t("pages.bills.validation.amountRequired"));
         return;
       }
@@ -300,14 +446,18 @@ export function BillsPage() {
   }
 
   function toggleOccurrencesForBill(billId: string): void {
-    setExpandedBillId((current) => (current === billId ? null : billId));
+    setExpandedBillId((current) => {
+      const nextBillId = current === billId ? null : billId;
+      updateRouteState({ billId: nextBillId, month: calendarMonth });
+      return nextBillId;
+    });
   }
 
   function monthGridCells(): Array<
     { kind: "blank"; key: string } | { kind: "day"; isoDate: string; day: number; count: number }
   > {
-    const year = today.getFullYear();
-    const monthIndex = today.getMonth();
+    const year = calendarMonth.year;
+    const monthIndex = calendarMonth.month - 1;
     const firstWeekday = new Date(year, monthIndex, 1).getDay();
     const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
     const cells: Array<
@@ -322,7 +472,7 @@ export function BillsPage() {
         kind: "day",
         isoDate,
         day,
-        count: dayCountsByDate.get(isoDate) ?? 0
+        count: dayDetailsByDate.get(isoDate)?.count ?? 0
       });
     }
     while (cells.length % 7 !== 0) {
@@ -345,7 +495,7 @@ export function BillsPage() {
     });
   }
 
-  const monthName = formatMonthYear(today);
+  const monthName = formatMonthYear(`${calendarMonth.year}-${String(calendarMonth.month).padStart(2, "0")}-01T00:00:00`);
 
   return (
     <section className="space-y-4">
@@ -422,7 +572,7 @@ export function BillsPage() {
                     <TableCell>
                       <Badge variant={bill.active ? "default" : "secondary"}>{bill.active ? t("pages.bills.active") : t("pages.bills.paused")}</Badge>
                     </TableCell>
-                    <TableCell className="capitalize">{frequencyLabel(bill)}</TableCell>
+                    <TableCell>{frequencyLabel(bill)}</TableCell>
                     <TableCell>{amountLabel(bill.amount_cents)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {bill.merchant_canonical ?? bill.merchant_alias_pattern ?? "-"}
@@ -498,7 +648,7 @@ export function BillsPage() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium">{formatDate(occurrence.due_date)}</span>
-                        <Badge variant={statusBadgeVariant(occurrence.status)}>{occurrence.status}</Badge>
+                        <Badge variant={statusBadgeVariant(occurrence.status)}>{occurrenceStatusLabel(occurrence.status)}</Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
                         {t("pages.bills.expectedAmount", {
@@ -565,10 +715,38 @@ export function BillsPage() {
 
       <Card>
         <CardHeader>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <CardTitle className="flex items-center gap-2">
               <CalendarCheck className="h-4 w-4" />
               {t("pages.bills.calendarTitle", { month: monthName })}
             </CardTitle>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const nextMonth = shiftMonth(calendarMonth.year, calendarMonth.month, -1);
+                  setCalendarMonth(nextMonth);
+                  updateRouteState({ month: nextMonth });
+                }}
+              >
+                {t("common.previous")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const nextMonth = shiftMonth(calendarMonth.year, calendarMonth.month, 1);
+                  setCalendarMonth(nextMonth);
+                  updateRouteState({ month: nextMonth });
+                }}
+              >
+                {t("common.next")}
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="hidden md:block">
@@ -586,7 +764,12 @@ export function BillsPage() {
                 cell.kind === "blank" ? (
                   <div key={cell.key} className="rounded-md border border-dashed bg-muted/10 p-2" />
                 ) : (
-                  <div key={cell.isoDate} className="app-soft-surface rounded-md border p-2 text-center">
+                  <button
+                    key={cell.isoDate}
+                    type="button"
+                    className={`app-soft-surface rounded-md border p-2 text-center ${selectedDay === cell.isoDate ? "border-primary bg-primary/5" : ""}`}
+                    onClick={() => setSelectedDay(cell.isoDate)}
+                  >
                     <p className="text-sm font-medium">{cell.day}</p>
                     {cell.count > 0 ? (
                       <Badge variant={cell.count > 2 ? "destructive" : "secondary"} className="mt-2">
@@ -595,7 +778,7 @@ export function BillsPage() {
                     ) : (
                       <p className="mt-2 text-xs text-muted-foreground">-</p>
                     )}
-                  </div>
+                  </button>
                 )
               )}
             </div>
@@ -604,14 +787,51 @@ export function BillsPage() {
             {monthGridCells()
               .filter((cell): cell is Extract<typeof cell, { kind: "day" }> => cell.kind === "day" && cell.count > 0)
               .map((cell) => (
-                <div key={cell.isoDate} className="flex items-center justify-between rounded-md border px-3 py-2">
+                <button
+                  key={cell.isoDate}
+                  type="button"
+                  className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left ${selectedDay === cell.isoDate ? "border-primary bg-primary/5" : ""}`}
+                  onClick={() => setSelectedDay(cell.isoDate)}
+                >
                   <span className="text-sm font-medium">{cell.isoDate}</span>
                   <Badge variant={cell.count > 2 ? "destructive" : "secondary"}>
                     {t("pages.bills.dayDue", { count: cell.count })}
                   </Badge>
-                </div>
+                </button>
               ))}
           </div>
+          {selectedDay ? (
+            <div className="mt-4 space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">
+                  {t("pages.bills.selectedDayTitle", { day: formatDate(selectedDay) })}
+                </p>
+                <p className="text-sm text-muted-foreground">{t("pages.bills.selectedDayDescription")}</p>
+              </div>
+              {selectedDayItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t("pages.bills.selectedDayEmpty")}</p>
+              ) : (
+                <div className="space-y-2">
+                  {selectedDayItems.map((item) => (
+                    <button
+                      key={item.occurrence_id}
+                      type="button"
+                      className="flex w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-left"
+                      onClick={() => openBillDetails(item.bill_id, selectedDay)}
+                    >
+                      <span>
+                        <span className="block font-medium">{item.bill_name}</span>
+                        <span className="block text-xs text-muted-foreground">{occurrenceStatusLabel(item.status)}</span>
+                      </span>
+                      <span className="text-sm tabular-nums text-muted-foreground">
+                        {amountLabel(item.actual_amount_cents ?? item.expected_amount_cents)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -635,6 +855,9 @@ export function BillsPage() {
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editingBillId ? t("pages.bills.dialog.editTitle") : t("pages.bills.dialog.createTitle")}</DialogTitle>
+            <DialogDescription>
+              {editingBillId ? t("pages.bills.dialog.editDescription") : t("pages.bills.dialog.createDescription")}
+            </DialogDescription>
           </DialogHeader>
 
           <form className="grid gap-3" onSubmit={submitEditor}>
@@ -720,15 +943,15 @@ export function BillsPage() {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="bill-amount-cents">{t("pages.bills.form.amountCents")}</Label>
+                <Label htmlFor="bill-amount-cents">{t("pages.bills.form.amount")}</Label>
                 <Input
                   id="bill-amount-cents"
-                  type="number"
-                  value={formState.amountCents}
+                  value={formState.amount}
                   disabled={formState.amountMode === "variable"}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, amountCents: event.target.value }))}
-                  placeholder="1299"
+                  onChange={(event) => setFormState((prev) => ({ ...prev, amount: event.target.value }))}
+                  placeholder="12.99"
                 />
+                <p className="text-xs text-muted-foreground">{t("pages.bills.form.amountHint")}</p>
               </div>
 
               <div className="space-y-1">

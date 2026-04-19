@@ -1,7 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { I18nProvider } from "@/i18n";
 import { BudgetPage } from "../BudgetPage";
 
 function jsonResponse(result: unknown): { ok: true; json: () => Promise<unknown> } {
@@ -16,7 +18,7 @@ function jsonResponse(result: unknown): { ok: true; json: () => Promise<unknown>
   };
 }
 
-function renderPage(): void {
+function renderPage(options?: { withI18n?: boolean }): void {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -24,11 +26,21 @@ function renderPage(): void {
     }
   });
 
-  render(
+  const ui = (
     <QueryClientProvider client={queryClient}>
-      <BudgetPage />
+      <MemoryRouter>
+        {options?.withI18n ? (
+          <I18nProvider>
+            <BudgetPage />
+          </I18nProvider>
+        ) : (
+          <BudgetPage />
+        )}
+      </MemoryRouter>
     </QueryClientProvider>
   );
+
+  render(ui);
 }
 
 type MockCashflowItem = {
@@ -57,8 +69,22 @@ type MockCashflowItem = {
 };
 
 describe("BudgetPage", () => {
+  let preferredLocale: "en" | "de" | null;
+  let summaryPlannedIncomeCents: number;
+
   beforeEach(() => {
     vi.restoreAllMocks();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: vi.fn((key: string) => (key === "app.locale" ? preferredLocale : null)),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn()
+      }
+    });
+    preferredLocale = null;
+    summaryPlannedIncomeCents = 320000;
     let cashflowItems: MockCashflowItem[] = [
       {
         id: "cf-1",
@@ -131,6 +157,16 @@ describe("BudgetPage", () => {
         const year = monthMatch ? Number(monthMatch[1]) : 2026;
         const monthNumber = monthMatch ? Number(monthMatch[2]) : 2;
 
+        if (url.pathname === "/api/v1/auth/me" && method === "GET") {
+          return jsonResponse({
+            user_id: "u1",
+            username: "tester",
+            display_name: "Tester",
+            is_admin: true,
+            preferred_locale: preferredLocale
+          });
+        }
+
         if (/^\/api\/v1\/budget\/months\/\d{4}\/\d{1,2}$/.test(url.pathname) && method === "GET") {
           return jsonResponse({
             year,
@@ -177,7 +213,7 @@ describe("BudgetPage", () => {
               notes: "Focus on savings"
             },
             totals: {
-              planned_income_cents: 320000,
+              planned_income_cents: summaryPlannedIncomeCents,
               actual_income_cents: actualIncomeCents,
               income_basis_cents: 320000,
               income_basis: "planned_income",
@@ -424,9 +460,10 @@ describe("BudgetPage", () => {
     renderPage();
 
     expect(await screen.findByText("Budget")).toBeInTheDocument();
-    expect(screen.getByText("Monthly Budget Settings")).toBeInTheDocument();
+    expect(screen.getByText("Monthly budget settings")).toBeInTheDocument();
     expect(await screen.findByText("Netflix")).toBeInTheDocument();
     expect(screen.getAllByText("Focus on savings").length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Netflix" })).toHaveAttribute("href", "/bills?bill=bill-1&month=2026-02");
   });
 
   it("saves the month settings and cash-flow entries", async () => {
@@ -479,7 +516,7 @@ describe("BudgetPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Cash expense/i }));
 
     expect(screen.getByDisplayValue("cash")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("manual_cash")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Source type" })).toHaveTextContent("Manual cash");
     expect(screen.getByDisplayValue("Cash expense")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Category filter"), { target: { value: "groceries" } });
@@ -537,5 +574,40 @@ describe("BudgetPage", () => {
         })
       ).toBe(true);
     });
+  });
+
+  it("uses the saved month settings in summary cards without requiring another save", async () => {
+    summaryPlannedIncomeCents = 200000;
+
+    renderPage();
+
+    expect(await screen.findByText(/Planned .*€3,200\.00/)).toBeInTheDocument();
+    expect(screen.queryByText(/Planned .*€2,000\.00/)).not.toBeInTheDocument();
+  });
+
+  it("localizes the budget surface in German and exposes the recurring info affordance", async () => {
+    preferredLocale = "de";
+
+    renderPage({ withI18n: true });
+
+    await waitFor(() => {
+      expect(screen.getByText("Monatseinstellungen")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Was wiederkehrende Verpflichtungen enthalten" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Rechnungen öffnen" })).toBeInTheDocument();
+    });
+
+    const recurringInfoButton = screen.getByRole("button", { name: "Was wiederkehrende Verpflichtungen enthalten" });
+    fireEvent.pointerOver(recurringInfoButton);
+    fireEvent.mouseOver(recurringInfoButton);
+    fireEvent.focus(recurringInfoButton);
+
+    expect(
+      await screen.findAllByText(/Wiederkehrende Verpflichtungen zeigen Rechnung, Fälligkeit/)
+    ).toHaveLength(2);
+    expect(
+      screen
+        .getAllByRole("link", { name: "Rechnung öffnen" })
+        .some((link) => link.getAttribute("href") === "/bills?bill=bill-1&month=2026-02")
+    ).toBe(true);
   });
 });

@@ -484,7 +484,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     if (typeof document !== "undefined") {
       document.documentElement.lang = locale;
     }
-    if (typeof window !== "undefined" && window.localStorage) {
+    if (
+      typeof window !== "undefined" &&
+      window.localStorage &&
+      typeof window.localStorage.setItem === "function"
+    ) {
       window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
     }
   }, [locale]);
