@@ -209,6 +209,37 @@ function isLidlConnector(sourceId: string): boolean {
   return sourceId === "lidl_plus_de" || sourceId === "lidl_plus_fr" || sourceId === "lidl_plus_gb";
 }
 
+function isReweConnector(sourceId: string): boolean {
+  return sourceId === "rewe_de";
+}
+
+function reweConnectorHasUsableSession(connector: ConnectorDiscoveryRow): boolean {
+  if (!isReweConnector(connector.source_id)) {
+    return false;
+  }
+  return (
+    connector.last_synced_at !== null ||
+    connector.actions.primary.kind === "sync_now" ||
+    connector.ui.status === "connected" ||
+    connector.ui.status === "ready" ||
+    connector.ui.status === "syncing" ||
+    connector.advanced.auth_state === "connected"
+  );
+}
+
+function shouldShowBootstrapStatus(
+  connector: ConnectorDiscoveryRow,
+  bootstrapStatus: ConnectorBootstrapStatus | null
+): boolean {
+  if (bootstrapStatus === null || bootstrapStatus.status === "idle") {
+    return false;
+  }
+  if (reweConnectorHasUsableSession(connector)) {
+    return false;
+  }
+  return true;
+}
+
 function isDesktopBundledBuiltinConnector(sourceId: string): boolean {
   return isAmazonConnector(sourceId) || isLidlConnector(sourceId);
 }
@@ -481,6 +512,61 @@ function localizedDmGuide(locale: SupportedLocale): ConnectorGuide {
   };
 }
 
+function localizedReweGuide(locale: SupportedLocale): ConnectorGuide {
+  return {
+    headline: byLocale(locale, "Log into REWE in Chrome first", "Melden Sie sich zuerst in Chrome bei REWE an"),
+    summary: byLocale(
+      locale,
+      "REWE works best when you first open the REWE website in your normal Chrome profile, sign in there, and leave the logged-in tab open before pressing Set up.",
+      "REWE funktioniert am besten, wenn Sie zuerst die REWE-Website in Ihrem normalen Chrome-Profil öffnen, sich dort anmelden und den eingeloggten Tab offen lassen, bevor Sie auf Einrichten klicken."
+    ),
+    speedDescription: byLocale(
+      locale,
+      "Usually quick once the REWE tab is already logged in in Chrome.",
+      "Normalerweise schnell, sobald der REWE-Tab in Chrome bereits angemeldet ist."
+    ),
+    caution: byLocale(
+      locale,
+      "If REWE expires the saved session later, repeat the same flow: open Chrome, sign into REWE again, leave the tab open, then run Set up again.",
+      "Wenn REWE die gespeicherte Sitzung später beendet, wiederholen Sie einfach denselben Ablauf: Chrome öffnen, erneut bei REWE anmelden, den Tab offen lassen und dann Einrichten erneut starten."
+    ),
+    steps: [
+      {
+        title: byLocale(locale, "Open Chrome and sign into REWE", "Chrome öffnen und bei REWE anmelden"),
+        description: byLocale(
+          locale,
+          "Use your everyday Chrome profile and finish the REWE login there, including the emailed code if REWE asks for it.",
+          "Nutzen Sie Ihr normales Chrome-Profil und schließen Sie den REWE-Login dort vollständig ab, inklusive E-Mail-Code, falls REWE danach fragt."
+        )
+      },
+      {
+        title: byLocale(locale, "Leave the REWE tab open", "REWE-Tab offen lassen"),
+        description: byLocale(
+          locale,
+          "Keep the logged-in REWE tab open so the connector can import that authenticated session.",
+          "Lassen Sie den eingeloggten REWE-Tab offen, damit die Anbindung diese authentifizierte Sitzung importieren kann."
+        )
+      },
+      {
+        title: byLocale(locale, "Run Set up here", "Hier Einrichten starten"),
+        description: byLocale(
+          locale,
+          "Return to the REWE connector card and press Set up. The connector will try to reuse the logged-in Chrome session first.",
+          "Kehren Sie zur REWE-Anbindung zurück und klicken Sie auf Einrichten. Die Anbindung versucht zuerst, die eingeloggte Chrome-Sitzung wiederzuverwenden."
+        )
+      },
+      {
+        title: byLocale(locale, "If it stops working later, rerun setup", "Wenn es später nicht mehr funktioniert, erneut einrichten"),
+        description: byLocale(
+          locale,
+          "When REWE expires the session after some days, sign into REWE in Chrome again and press Set up again.",
+          "Wenn REWE die Sitzung nach einigen Tagen beendet, melden Sie sich in Chrome erneut bei REWE an und klicken Sie dann wieder auf Einrichten."
+        )
+      }
+    ]
+  };
+}
+
 function pluginGuideOverride(
   pack: DesktopReceiptPluginPackInfo | null,
   locale: SupportedLocale
@@ -493,6 +579,9 @@ function pluginGuideOverride(
   }
   if (pack.sourceId === "dm_de") {
     return localizedDmGuide(locale);
+  }
+  if (pack.sourceId === "rewe_de") {
+    return localizedReweGuide(locale);
   }
   return null;
 }
@@ -570,6 +659,13 @@ function connectorStatusSummary(
     );
   }
   if (taskState === "setup_required") {
+    if (isReweConnector(connector.source_id)) {
+      return byLocale(
+        locale,
+        "Open REWE in normal Chrome, sign in there, leave the tab open, then press Set up.",
+        "Öffnen Sie REWE in normalem Chrome, melden Sie sich dort an, lassen Sie den Tab offen und klicken Sie dann auf Einrichten."
+      );
+    }
     return byLocale(
       locale,
       `Sign in once to import receipts from ${displayName}.`,
@@ -577,6 +673,13 @@ function connectorStatusSummary(
     );
   }
   if (taskState === "needs_attention") {
+    if (isReweConnector(connector.source_id)) {
+      return byLocale(
+        locale,
+        "REWE needs a quick Chrome reauth before the next import.",
+        "REWE braucht vor dem nächsten Import eine kurze erneute Anmeldung in Chrome."
+      );
+    }
     return byLocale(
       locale,
       "Your sign-in needs a quick refresh before the next import.",
@@ -622,11 +725,35 @@ function connectorSecondarySummary(
       `Letzter Import: ${formatDateTime(connector.last_synced_at)}`
     );
   }
+  if (reweConnectorHasUsableSession(connector)) {
+    return byLocale(
+      locale,
+      "The saved Chrome-backed REWE sign-in is ready for the next import.",
+      "Die gespeicherte, Chrome-basierte REWE-Anmeldung ist für den nächsten Import bereit."
+    );
+  }
   if (pack?.status === "disabled") {
     return byLocale(locale, "Saved on this computer, but still turned off.", "Auf diesem Gerät gespeichert, aber noch ausgeschaltet.");
   }
   if (connector.advanced.auth_state === "bootstrap_running") {
+    if (isReweConnector(connector.source_id)) {
+      return byLocale(
+        locale,
+        "If Chrome is not already logged into REWE, open Chrome, sign in there, leave the tab open, and then retry setup.",
+        "Falls Chrome noch nicht bei REWE angemeldet ist, öffnen Sie Chrome, melden Sie sich dort an, lassen Sie den Tab offen und starten Sie die Einrichtung dann erneut."
+      );
+    }
     return byLocale(locale, "Finish sign-in in the browser window the app opened.", "Schließen Sie die Anmeldung im geöffneten Browserfenster ab.");
+  }
+  if (
+    isReweConnector(connector.source_id) &&
+    (connector.advanced.auth_state === "reauth_required" || connector.advanced.auth_state === "auth_failed")
+  ) {
+    return byLocale(
+      locale,
+      "Open Chrome, sign into REWE again, leave the tab open, then press Sign in again.",
+      "Öffnen Sie Chrome, melden Sie sich erneut bei REWE an, lassen Sie den Tab offen und klicken Sie dann auf Erneut anmelden."
+    );
   }
   return null;
 }
@@ -637,22 +764,45 @@ function parseStageValue(line: string, key: string): string | null {
 }
 
 function summarizeBootstrapStatus(
+  sourceId: string,
   status: ConnectorBootstrapStatus | null,
   latestLine: string | null,
   connector: ConnectorDiscoveryRow,
   locale: SupportedLocale
 ): string | null {
+  const rewe = isReweConnector(sourceId);
   if (latestLine?.startsWith("Waiting for auth step:")) {
     const step = latestLine.split(":").pop()?.trim();
     if (step === "login_required") {
+      if (rewe) {
+        return byLocale(
+          locale,
+          "Open normal Chrome, sign into REWE there, leave the tab open, then run setup again.",
+          "Öffnen Sie normales Chrome, melden Sie sich dort bei REWE an, lassen Sie den Tab offen und starten Sie die Einrichtung dann erneut."
+        );
+      }
       return byLocale(locale, "Please finish sign-in in the browser window.", "Bitte schließen Sie die Anmeldung im Browserfenster ab.");
     }
     if (step === "mfa_required") {
+      if (rewe) {
+        return byLocale(
+          locale,
+          "Finish the REWE sign-in in normal Chrome, including the emailed code, then rerun setup.",
+          "Schließen Sie die REWE-Anmeldung in normalem Chrome ab, inklusive des Codes aus der E-Mail, und starten Sie die Einrichtung dann erneut."
+        );
+      }
       return byLocale(locale, "Please enter the verification code in the browser window.", "Bitte geben Sie den Bestätigungscode im Browserfenster ein.");
     }
     return byLocale(locale, "Please finish the required step in the browser window.", "Bitte schließen Sie den angezeigten Schritt im Browserfenster ab.");
   }
   if (status?.status === "running") {
+    if (rewe) {
+      return byLocale(
+        locale,
+        "REWE is trying to reuse the logged-in normal Chrome session. If it does not complete, open Chrome, sign into REWE there, leave the tab open, and retry setup.",
+        "REWE versucht, die angemeldete normale Chrome-Sitzung zu übernehmen. Falls das nicht abgeschlossen wird, öffnen Sie Chrome, melden Sie sich dort bei REWE an, lassen Sie den Tab offen und starten Sie die Einrichtung erneut."
+      );
+    }
     return byLocale(
       locale,
       "Finish sign-in in the browser window opened by the desktop app.",
@@ -1002,11 +1152,17 @@ export function ConnectorsPage() {
           ? byLocale(locale, "Connector enabled", "Anbindung aktiviert")
           : byLocale(locale, "Connector disabled", "Anbindung deaktiviert"),
         message: variables.enabled
-          ? byLocale(
-              locale,
-              `${result.pack.displayName} is turned on. Next, use Set up to sign in if the connector asks for it.`,
-              `${result.pack.displayName} ist jetzt aktiv. Nutzen Sie als Nächstes Einrichten, falls die Anbindung eine Anmeldung benötigt.`
-            )
+          ? result.pack.sourceId === "rewe_de"
+            ? byLocale(
+                locale,
+                `${result.pack.displayName} is turned on. Next, open Chrome, sign into REWE there, leave the REWE tab open, and use Set up.`,
+                `${result.pack.displayName} ist jetzt aktiv. Öffnen Sie als Nächstes Chrome, melden Sie sich dort bei REWE an, lassen Sie den REWE-Tab offen und nutzen Sie dann Einrichten.`
+              )
+            : byLocale(
+                locale,
+                `${result.pack.displayName} is turned on. Next, use Set up to sign in if the connector asks for it.`,
+                `${result.pack.displayName} ist jetzt aktiv. Nutzen Sie als Nächstes Einrichten, falls die Anbindung eine Anmeldung benötigt.`
+              )
           : byLocale(
               locale,
               `${result.pack.displayName} is turned off on this computer.`,
@@ -1020,6 +1176,7 @@ export function ConnectorsPage() {
       setPackGuideState((current) => (current?.pack.pluginId === result.pack.pluginId ? null : current));
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["desktop", "connectors", "context"] });
+      await Promise.all([connectorsQuery.refetch(), desktopContextQuery.refetch()]);
     },
     onError: (error) => {
       setFeedback({
@@ -1176,9 +1333,22 @@ export function ConnectorsPage() {
     [catalogEntries, packBySourceId, visibleConnectors]
   );
 
+  const enabledConnectorSourceIds = useMemo(
+    () =>
+      new Set(
+        visibleConnectors
+          .filter((connector) => connector.enable_state === "enabled")
+          .map((connector) => connector.source_id)
+      ),
+    [visibleConnectors]
+  );
+
   const pendingActivationPacks = useMemo(
-    () => receiptPlugins.filter((pack) => pack.status === "disabled"),
-    [receiptPlugins]
+    () =>
+      receiptPlugins.filter(
+        (pack) => pack.status === "disabled" && !enabledConnectorSourceIds.has(pack.sourceId)
+      ),
+    [enabledConnectorSourceIds, receiptPlugins]
   );
 
   const pendingActivationPluginIds = useMemo(
@@ -1424,11 +1594,11 @@ export function ConnectorsPage() {
       return;
     }
     if (kind === "set_up") {
-      await bootstrapMutation.mutateAsync(connector.source_id);
+      await openSetup(connector, "setup");
       return;
     }
     if (kind === "reconnect") {
-      await bootstrapMutation.mutateAsync(connector.source_id);
+      await openSetup(connector, "reconnect");
       return;
     }
     if (kind === "sync_now") {
@@ -1443,7 +1613,19 @@ export function ConnectorsPage() {
           variant: "default",
           title: byLocale(locale, "Sign-in required", "Anmeldung erforderlich"),
           message:
-            authStatus.state === "reauth_required" || authStatus.state === "auth_failed"
+            isReweConnector(connector.source_id)
+              ? authStatus.state === "reauth_required" || authStatus.state === "auth_failed"
+                ? byLocale(
+                    locale,
+                    "REWE needs a fresh Chrome session. Open Chrome, sign into REWE again, leave the tab open, then retry setup.",
+                    "REWE braucht eine frische Chrome-Sitzung. Öffnen Sie Chrome, melden Sie sich erneut bei REWE an, lassen Sie den Tab offen und starten Sie dann die Einrichtung erneut."
+                  )
+                : byLocale(
+                    locale,
+                    "Before the first REWE import, open Chrome, sign into REWE there, leave the tab open, and then continue setup.",
+                    "Vor dem ersten REWE-Import öffnen Sie Chrome, melden sich dort bei REWE an, lassen den Tab offen und fahren dann mit der Einrichtung fort."
+                  )
+              : authStatus.state === "reauth_required" || authStatus.state === "auth_failed"
               ? byLocale(
                   locale,
                   "Saved sign-in expired. Please sign in again.",
@@ -1456,7 +1638,10 @@ export function ConnectorsPage() {
                 ),
           dismissAfterMs: 15_000
         });
-        await bootstrapMutation.mutateAsync(connector.source_id);
+        await openSetup(
+          connector,
+          authStatus.state === "not_connected" ? "setup" : "reconnect"
+        );
         return;
       }
       await syncMutation.mutateAsync({ sourceId: connector.source_id, full: false });
@@ -1544,7 +1729,7 @@ export function ConnectorsPage() {
     const bootstrapLines = bootstrapStatus?.output_tail ?? [];
     const bootstrapLatestLine =
       bootstrapLines.length > 0 ? bootstrapLines[bootstrapLines.length - 1] ?? null : null;
-    const showBootstrapStatus = bootstrapStatus !== null && bootstrapStatus.status !== "idle";
+    const showBootstrapStatus = shouldShowBootstrapStatus(connector, bootstrapStatus);
     const syncLines = viewerIsAdmin ? connector.advanced.latest_sync_output : [];
     const latestSyncLine = syncLines.length > 0 ? syncLines[syncLines.length - 1] ?? null : null;
     const showSyncStatus = connector.ui.status === "syncing";
@@ -1571,6 +1756,7 @@ export function ConnectorsPage() {
             ? byLocale(locale, "Sign-in complete", "Anmeldung abgeschlossen")
             : byLocale(locale, "Sign-in", "Anmeldung");
     const bootstrapSummary = summarizeBootstrapStatus(
+      connector.source_id,
       bootstrapStatus,
       bootstrapLatestLine,
       connector,

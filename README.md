@@ -100,6 +100,7 @@ Typical desktop flow:
   4. system PATH (`lidltool` / `lidltool.exe`)
 - Frontend assets for packaged builds are copied to `resources/frontend-dist`.
 - Vendored backend source is copied to `resources/backend-src`.
+- Desktop shell brand assets and packaged app icons live entirely inside `apps/desktop` (`src/renderer/assets`, `vendor/frontend/src/assets`, and `build/icon.*`).
 - Backend receives:
   - `LIDLTOOL_FRONTEND_DIST`
   - `LIDLTOOL_REPO_ROOT`
@@ -133,6 +134,7 @@ Scope:
 - offer/deal plugins remain out of desktop scope
 - recurring offer scraping and alerts remain out of desktop scope
 - `dm_de` is now one of these optional receipt plugins rather than a built-in desktop connector
+- `rewe_de` is an imported receipt pack in desktop rather than a built-in connector, so the desktop auth flow can reuse a normal Chrome session instead of depending on packaged CAPTCHA automation
 
 Management surface:
 - use the connectors page inside the desktop app for local pack import, trusted pack install, enable/disable, and removal
@@ -159,7 +161,8 @@ Desktop workflow:
 3. Review the status, trust, support, and market-profile messaging.
 4. Enable the pack explicitly if you want desktop to load it into the next backend run.
 5. For built-in browser connectors such as Amazon, use `Connector settings` to tune saved defaults like scan depth, headless mode, and optional HTML debug dumps before running a real-account test.
-6. Use the same connectors page to install a trusted update, disable a pack, or remove it from local storage.
+6. For imported REWE packs, log into the REWE website in normal Chrome first, then use the connector auth/setup flow so the pack can import that authenticated Chrome session into its own saved state.
+7. Use the same connectors page to install a trusted update, disable a pack, or remove it from local storage.
 
 ### Amazon multicountry
 

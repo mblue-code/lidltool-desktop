@@ -335,4 +335,40 @@ describe("AppShell", () => {
     expect(screen.queryByText(/pages=0/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/seen=0/i)).not.toBeInTheDocument();
   });
+
+  it("surfaces partial sync completion instead of a hard failure when receipts were already processed", async () => {
+    vi.spyOn(connectorsApi, "fetchConnectors").mockResolvedValue({
+      generated_at: "2026-04-18T17:10:00Z",
+      viewer: { is_admin: true },
+      operator_actions: { can_reload: true, can_rescan: true },
+      summary: { total_connectors: 1, by_status: { ready: 1 } },
+      connectors: [
+        {
+          source_id: "rewe_de",
+          display_name: "REWE",
+          supports_sync: true,
+          install_state: "installed"
+        } as unknown as connectorsApi.ConnectorDiscoveryRow
+      ]
+    });
+    vi.spyOn(connectorsApi, "fetchConnectorSyncStatus").mockImplementation(async (sourceId: string) => ({
+      source_id: sourceId,
+      status: "failed",
+      command: "python -m lidltool.cli connectors sync --source-id rewe_de",
+      pid: null,
+      started_at: "2026-04-18T17:08:00Z",
+      finished_at: "2026-04-18T17:08:15Z",
+      return_code: 1,
+      output_tail: ["stage=processing seen=2/? new=2 detail=preparing_import"],
+      can_cancel: false
+    }));
+
+    renderShell();
+
+    expect(await screen.findByText("REWE sync")).toBeInTheDocument();
+    expect(screen.getByText("With issues")).toBeInTheDocument();
+    expect(screen.getByText("2 processed")).toBeInTheDocument();
+    expect(screen.getByText("The import already saved receipts, but a later follow-up step still needs attention.")).toBeInTheDocument();
+    expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+  });
 });
