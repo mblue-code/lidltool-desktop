@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -12,6 +13,8 @@ from lidltool.auth.sessions import SESSION_MODE_COOKIE, SessionClientMetadata, c
 from lidltool.auth.users import create_local_user
 from lidltool.config import AppConfig
 from lidltool.connectors.auth.auth_status import AuthBootstrapSnapshot
+from lidltool.connectors.manifest import ConnectorManifest
+from lidltool.connectors.release_policy import release_policy_payload
 from lidltool.db.engine import session_scope
 
 
@@ -39,6 +42,10 @@ def _issue_admin_session(app) -> str:
             session_id=session_record.session_id,
             config=context.config,
         )
+
+
+def _preview_test_manifest(*, source_id: str, maturity: str) -> SimpleNamespace:
+    return SimpleNamespace(source_id=source_id, metadata={"maturity": maturity})
 
 
 def test_start_connector_bootstrap_resolves_runtime_options(tmp_path, monkeypatch) -> None:
@@ -187,6 +194,155 @@ def test_start_connector_bootstrap_prefers_local_browser_for_loopback_requests(t
     assert payload["result"]["source_id"] == "amazon_de"
     assert payload["result"]["remote_login_url"] is None
     assert captured["env"] is None
+
+
+def test_kaufland_manifest_is_not_classified_as_preview() -> None:
+    manifest_path = Path(__file__).resolve().parents[5] / "plugins" / "kaufland_de" / "manifest.json"
+    manifest = ConnectorManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
+
+    release = release_policy_payload(source_id=manifest.source_id, manifest=manifest)
+
+    assert release["maturity"] == "working"
+    assert release["label"] == "Working"
+
+
+def test_start_connector_bootstrap_omits_preview_warning_for_working_kaufland(
+    tmp_path, monkeypatch
+) -> None:
+    config = AppConfig(
+        db_path=tmp_path / "lidltool.sqlite",
+        config_dir=tmp_path / "config",
+        credential_encryption_key="test-secret-key-with-sufficient-entropy-123456",
+        connector_live_sync_enabled=False,
+    )
+    config.config_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(config=config)
+
+    with TestClient(app) as client:
+        token = _issue_admin_session(app)
+
+        bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
+        manifest = _preview_test_manifest(source_id="kaufland_de", maturity="working")
+
+        class FakeService:
+            def get_auth_status(self, *, source_id: str, validate_session: bool = True):
+                return SimpleNamespace(manifest=manifest)
+
+            def start_bootstrap(
+                self,
+                *,
+                source_id: str,
+                env=None,
+                connector_options=None,
+                extra_args=(),
+            ):
+                bootstrap_sessions[source_id] = object()
+                return SimpleNamespace(status="started", bootstrap=object())
+
+        monkeypatch.setattr(http_server, "assert_connector_operation_allowed", lambda *args, **kwargs: None)
+        monkeypatch.setattr(http_server, "is_loopback_request", lambda request: True)
+        monkeypatch.setattr(
+            http_server,
+            "_connector_auth_service",
+            lambda app, config: FakeService(),
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_serialize_connector_bootstrap",
+            lambda _session: {
+                "source_id": "kaufland_de",
+                "status": "running",
+                "command": "python -m lidltool.cli connectors auth bootstrap --source-id kaufland_de",
+                "pid": 1234,
+                "started_at": None,
+                "finished_at": None,
+                "return_code": None,
+                "output_tail": [],
+                "can_cancel": True,
+            },
+        )
+
+        client.cookies.set("lidltool_session", token)
+        response = client.post("/api/v1/connectors/kaufland_de/bootstrap/start")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["warnings"] == []
+    assert payload["warning_details"] == []
+
+
+def test_start_connector_bootstrap_keeps_preview_warning_for_preview_connectors(
+    tmp_path, monkeypatch
+) -> None:
+    config = AppConfig(
+        db_path=tmp_path / "lidltool.sqlite",
+        config_dir=tmp_path / "config",
+        credential_encryption_key="test-secret-key-with-sufficient-entropy-123456",
+        connector_live_sync_enabled=False,
+    )
+    config.config_dir.mkdir(parents=True, exist_ok=True)
+    app = create_app(config=config)
+
+    with TestClient(app) as client:
+        token = _issue_admin_session(app)
+
+        bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
+        manifest = _preview_test_manifest(source_id="preview_fixture_de", maturity="preview")
+
+        class FakeService:
+            def get_auth_status(self, *, source_id: str, validate_session: bool = True):
+                return SimpleNamespace(manifest=manifest)
+
+            def start_bootstrap(
+                self,
+                *,
+                source_id: str,
+                env=None,
+                connector_options=None,
+                extra_args=(),
+            ):
+                bootstrap_sessions[source_id] = object()
+                return SimpleNamespace(status="started", bootstrap=object())
+
+        monkeypatch.setattr(http_server, "assert_connector_operation_allowed", lambda *args, **kwargs: None)
+        monkeypatch.setattr(http_server, "is_loopback_request", lambda request: True)
+        monkeypatch.setattr(
+            http_server,
+            "_connector_auth_service",
+            lambda app, config: FakeService(),
+        )
+        monkeypatch.setattr(
+            http_server,
+            "_serialize_connector_bootstrap",
+            lambda _session: {
+                "source_id": "preview_fixture_de",
+                "status": "running",
+                "command": "python -m lidltool.cli connectors auth bootstrap --source-id preview_fixture_de",
+                "pid": 1234,
+                "started_at": None,
+                "finished_at": None,
+                "return_code": None,
+                "output_tail": [],
+                "can_cancel": True,
+            },
+        )
+
+        client.cookies.set("lidltool_session", token)
+        response = client.post("/api/v1/connectors/preview_fixture_de/bootstrap/start")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["warning_details"] == [
+        {
+            "message": "preview connector bootstrap started; this connector is not live-validated yet",
+            "code": "connector_preview_bootstrap_started",
+        }
+    ]
+    assert payload["warnings"] == [
+        "preview connector bootstrap started; this connector is not live-validated yet"
+    ]
 
 
 def test_start_connector_bootstrap_accepts_immediate_plugin_bootstrap_without_session(tmp_path, monkeypatch) -> None:
