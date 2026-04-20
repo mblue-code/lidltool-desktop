@@ -87,7 +87,7 @@ function patchAuthBrowserRuntime(current) {
     );
   }
 
-  if (!next.includes('context.on("requestfailed", lambda req: capture(req.url))')) {
+  if (!next.includes('"requestfailed"')) {
     next = replaceOnce(
       next,
       '            context.on("request", lambda req: capture(req.url))\n            context.on("response", lambda res: capture(res.headers.get("location")))\n',
@@ -110,6 +110,81 @@ function patchAuthBrowserRuntime(current) {
       next,
       "        if interactive:\n            return \"headless_capture_only\"\n        return \"headless_capture_only\"\n\n\ndef _launch_auth_browser(\n",
       "        if interactive:\n            return \"headless_capture_only\"\n        return \"headless_capture_only\"\n\n\ndef _discover_callback_candidate(\n    *,\n    context: Any,\n    callback_prefixes: tuple[str, ...],\n) -> str | None:\n    for page in list(getattr(context, \"pages\", ())):\n        candidate = _discover_callback_candidate_from_page(\n            page=page,\n            callback_prefixes=callback_prefixes,\n        )\n        if candidate is not None:\n            return candidate\n    return None\n\n\ndef _discover_callback_candidate_from_page(\n    *,\n    page: Any,\n    callback_prefixes: tuple[str, ...],\n) -> str | None:\n    try:\n        snapshot = page.evaluate(\n            \"\"\"(prefixes) => {\n                const candidates = [];\n                const push = (value) => {\n                    if (typeof value === \\\"string\\\" && value.trim()) {\n                        candidates.push(value.trim());\n                    }\n                };\n\n                push(window.location?.href ?? \\\"\\\");\n\n                for (const element of document.querySelectorAll(\\\"a[href], area[href]\\\")) {\n                    push(element.getAttribute(\\\"href\\\"));\n                }\n                for (const element of document.querySelectorAll(\\\"form[action]\\\")) {\n                    push(element.getAttribute(\\\"action\\\"));\n                }\n                for (const element of document.querySelectorAll(\\\"iframe[src]\\\")) {\n                    push(element.getAttribute(\\\"src\\\"));\n                }\n                for (const element of document.querySelectorAll(\\\"meta[http-equiv]\\\")) {\n                    const httpEquiv = (element.getAttribute(\\\"http-equiv\\\") || \\\"\\\").toLowerCase();\n                    if (httpEquiv === \\\"refresh\\\") {\n                        push(element.getAttribute(\\\"content\\\"));\n                    }\n                }\n\n                const matches = [];\n                for (const value of candidates) {\n                    for (const prefix of prefixes) {\n                        const index = value.indexOf(prefix);\n                        if (index >= 0) {\n                            matches.push(value.slice(index));\n                        }\n                    }\n                }\n\n                return {\n                    matches,\n                    text: document.body?.innerText ?? \\\"\\\",\n                };\n            }\"\"\",\n            list(callback_prefixes),\n        )\n    except PlaywrightError:\n        return None\n\n    if not isinstance(snapshot, dict):\n        return None\n\n    for raw_value in snapshot.get(\"matches\", ()):\n        matched = _match_callback_candidate(str(raw_value or \"\").strip(), callback_prefixes)\n        if matched is not None:\n            return matched\n\n    body_text = str(snapshot.get(\"text\") or \"\")\n    return _match_callback_candidate(body_text, callback_prefixes)\n\n\ndef _match_callback_candidate(candidate: str, callback_prefixes: tuple[str, ...]) -> str | None:\n    raw = candidate.strip()\n    if not raw:\n        return None\n\n    for prefix in callback_prefixes:\n        index = raw.find(prefix)\n        if index < 0:\n            continue\n        matched = raw[index:]\n        for delimiter in ('\\\"', \"'\", \" \", \"\\\\n\", \"\\\\r\", \"\\\\t\", \"<\", \">\", \")\", \"]\"):\n            delimiter_index = matched.find(delimiter)\n            if delimiter_index > 0:\n                matched = matched[:delimiter_index]\n        return matched.rstrip(\".,;\")\n    return None\n\n\ndef _launch_auth_browser(\n",
+      authBrowserRuntimePath
+    );
+  }
+
+  if (
+    next.includes("def capture(url: str | None) -> None:\n                    nonlocal captured_url\n") &&
+    !next.includes("nonlocal captured_url, saw_navigation_away\n")
+  ) {
+    next = replaceOnce(
+      next,
+      "                def capture(url: str | None) -> None:\n                    nonlocal captured_url\n                    matched = _match_callback_candidate(\n                        str(url or \"\").strip(),\n                        callback_prefixes,\n                    )\n",
+      "                def capture(url: str | None) -> None:\n                    nonlocal captured_url, saw_navigation_away\n                    saw_navigation_away = _record_navigation_away(\n                        candidate=url,\n                        start_url=normalized_start_url,\n                        saw_navigation_away=saw_navigation_away,\n                    )\n                    matched = _match_callback_candidate(\n                        str(url or \"\").strip(),\n                        callback_prefixes,\n                    )\n",
+      authBrowserRuntimePath
+    );
+  }
+
+  if (next.includes("def capture(url: str | None) -> None:\n                    nonlocal captured_url, saw_navigation_away\n")) {
+    next = replaceOnce(
+      next,
+      "                def capture(url: str | None) -> None:\n                    nonlocal captured_url, saw_navigation_away\n                    saw_navigation_away = _record_navigation_away(\n                        candidate=url,\n                        start_url=normalized_start_url,\n                        saw_navigation_away=saw_navigation_away,\n                    )\n                    matched = _match_callback_candidate(\n                        str(url or \"\").strip(),\n                        callback_prefixes,\n                    )\n",
+      "                def capture(url: str | None, *, track_navigation_away: bool = False) -> None:\n                    nonlocal captured_url, saw_navigation_away\n                    if track_navigation_away:\n                        saw_navigation_away = _record_navigation_away(\n                            candidate=url,\n                            start_url=normalized_start_url,\n                            saw_navigation_away=saw_navigation_away,\n                        )\n                    matched = _match_callback_candidate(\n                        str(url or \"\").strip(),\n                        callback_prefixes,\n                    )\n",
+      authBrowserRuntimePath
+    );
+  }
+
+  if (!next.includes("saw_navigation_away = _record_navigation_away(")) {
+    next = replaceOnce(
+      next,
+      "                        if is_main_frame:\n                            normalized_url = _normalize_browser_url(getattr(frame, \"url\", \"\"))\n                            if normalized_url and normalized_url != normalized_start_url:\n                                saw_navigation_away = True\n",
+      "                        if is_main_frame:\n                            saw_navigation_away = _record_navigation_away(\n                                candidate=getattr(frame, \"url\", \"\"),\n                                start_url=normalized_start_url,\n                                saw_navigation_away=saw_navigation_away,\n                            )\n",
+      authBrowserRuntimePath
+    );
+  }
+
+  if (next.includes("                        capture(getattr(frame, \"url\", \"\"))\n")) {
+    next = replaceOnce(
+      next,
+      "                        capture(getattr(frame, \"url\", \"\"))\n",
+      "                        capture(getattr(frame, \"url\", \"\"), track_navigation_away=is_main_frame)\n",
+      authBrowserRuntimePath
+    );
+  }
+
+  if (next.includes('                context.on("request", lambda req: capture(req.url))\n')) {
+    next = replaceOnce(
+      next,
+      '                context.on("request", lambda req: capture(req.url))\n                context.on("requestfailed", lambda req: capture(req.url))\n                context.on("response", lambda res: capture(res.headers.get("location")))\n',
+      '                context.on(\n                    "request",\n                    lambda req: capture(req.url),\n                )\n                context.on(\n                    "requestfailed",\n                    lambda req: capture(req.url),\n                )\n                context.on(\n                    "response",\n                    lambda res: capture(res.headers.get("location")),\n                )\n',
+      authBrowserRuntimePath
+    );
+  }
+
+  if (next.includes("page = context.pages[0] if getattr(context, \"pages\", None) else context.new_page()\n")) {
+    next = replaceOnce(
+      next,
+      "                page = context.pages[0] if getattr(context, \"pages\", None) else context.new_page()\n",
+      "                page = context.new_page()\n",
+      authBrowserRuntimePath
+    );
+  }
+
+  if (!next.includes("def _record_navigation_away(")) {
+    next = replaceOnce(
+      next,
+      "def _normalize_browser_url(url: str | None) -> str:\n    return str(url or \"\").strip()\n\n\n",
+      "def _normalize_browser_url(url: str | None) -> str:\n    return str(url or \"\").strip()\n\n\ndef _record_navigation_away(\n    *,\n    candidate: str | None,\n    start_url: str,\n    saw_navigation_away: bool,\n) -> bool:\n    if saw_navigation_away:\n        return True\n    normalized_candidate = _normalize_browser_url(candidate)\n    if not normalized_candidate or normalized_candidate == start_url:\n        return False\n    parsed = urllib.parse.urlparse(normalized_candidate)\n    return parsed.scheme in {\"http\", \"https\"} and bool(parsed.netloc)\n\n\n",
+      authBrowserRuntimePath
+    );
+  }
+
+  if (next.includes("return bool(normalized_candidate) and normalized_candidate != start_url\n")) {
+    next = replaceOnce(
+      next,
+      "    return bool(normalized_candidate) and normalized_candidate != start_url\n",
+      "    if not normalized_candidate or normalized_candidate == start_url:\n        return False\n    parsed = urllib.parse.urlparse(normalized_candidate)\n    return parsed.scheme in {\"http\", \"https\"} and bool(parsed.netloc)\n",
       authBrowserRuntimePath
     );
   }

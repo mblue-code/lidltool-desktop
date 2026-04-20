@@ -80,6 +80,15 @@ type FeedbackState = {
 
 type ConnectorPrimaryActionKind = "set_up" | "reconnect" | "sync_now" | "open_source" | null;
 
+type PendingSyncStartState = Record<
+  string,
+  {
+    full: boolean;
+    startedAt: number;
+    expiresAt: number;
+  }
+>;
+
 type FirstRunPromptState = Record<
   string,
   {
@@ -89,6 +98,7 @@ type FirstRunPromptState = Record<
 >;
 
 const SHORT_SUCCESS_DISMISS_MS = 60_000;
+const OPTIMISTIC_SYNC_START_MS = 20_000;
 
 function byLocale(locale: SupportedLocale, en: string, de: string): string {
   return locale === "de" ? de : en;
@@ -1040,6 +1050,7 @@ export function ConnectorsPage() {
   const [highlightedPackId, setHighlightedPackId] = useState<string | null>(null);
   const [selectedLidlSourceId, setSelectedLidlSourceId] = useState<string>("lidl_plus_de");
   const [selectedAmazonSourceId, setSelectedAmazonSourceId] = useState<string>("amazon_de");
+  const [pendingSyncStarts, setPendingSyncStarts] = useState<PendingSyncStartState>({});
   const [firstRunPrompts, setFirstRunPrompts] = useState<FirstRunPromptState>({});
 
   const connectorsQuery = useQuery({
@@ -1101,6 +1112,48 @@ export function ConnectorsPage() {
   }, [feedback]);
 
   useEffect(() => {
+    const activeStarts = Object.entries(pendingSyncStarts);
+    if (activeStarts.length === 0) {
+      return;
+    }
+    const now = Date.now();
+    const nextExpiry = Math.min(...activeStarts.map(([, start]) => start.expiresAt));
+    const delay = Math.max(nextExpiry - now, 0);
+    const timer = window.setTimeout(() => {
+      setPendingSyncStarts((current) =>
+        Object.fromEntries(Object.entries(current).filter(([, start]) => start.expiresAt > Date.now()))
+      );
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [pendingSyncStarts]);
+
+  useEffect(() => {
+    if (!connectorsQuery.data || Object.keys(pendingSyncStarts).length === 0) {
+      return;
+    }
+    setPendingSyncStarts((current) => {
+      let changed = false;
+      const nextEntries = Object.entries(current).filter(([sourceId, pendingStart]) => {
+        const connector = connectorsQuery.data?.connectors.find((item) => item.source_id === sourceId);
+        if (!connector) {
+          changed = true;
+          return false;
+        }
+        const lastSyncedAtMs = connector.last_synced_at ? Date.parse(connector.last_synced_at) : Number.NaN;
+        const shouldKeep =
+          connector.ui.status !== "syncing" &&
+          connector.advanced.latest_sync_status !== "running" &&
+          !(Number.isFinite(lastSyncedAtMs) && lastSyncedAtMs >= pendingStart.startedAt - 1000);
+        if (!shouldKeep) {
+          changed = true;
+        }
+        return shouldKeep;
+      });
+      return changed ? Object.fromEntries(nextEntries) : current;
+    });
+  }, [connectorsQuery.data, pendingSyncStarts]);
+
+  useEffect(() => {
     const activePrompts = Object.entries(firstRunPrompts);
     if (activePrompts.length === 0) {
       return;
@@ -1158,7 +1211,19 @@ export function ConnectorsPage() {
   const syncMutation = useMutation({
     mutationFn: ({ sourceId, full }: { sourceId: string; full: boolean }) =>
       startConnectorSync(sourceId, full),
-    onSuccess: async (_result, { sourceId, full }) => {
+    onMutate: async ({ sourceId, full }) => {
+      const now = Date.now();
+      setPendingSyncStarts((current) => ({
+        ...current,
+        [sourceId]: {
+          full,
+          startedAt: now,
+          expiresAt: now + OPTIMISTIC_SYNC_START_MS
+        }
+      }));
+    },
+    onSuccess: async (result, { sourceId, full }) => {
+      queryClient.setQueryData(["global-connector-sync-status", sourceId], result.sync);
       setFeedback({
         variant: "default",
         title: full
@@ -1177,9 +1242,18 @@ export function ConnectorsPage() {
         delete next[sourceId];
         return next;
       });
+      await queryClient.invalidateQueries({ queryKey: ["global-connector-sync-status", sourceId] });
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
     },
-    onError: (error) => {
+    onError: (error, { sourceId }) => {
+      setPendingSyncStarts((current) => {
+        if (!current[sourceId]) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[sourceId];
+        return next;
+      });
       setFeedback({
         variant: "destructive",
         title: byLocale(locale, "Import failed to start", "Import konnte nicht gestartet werden"),
@@ -1889,16 +1963,22 @@ export function ConnectorsPage() {
       compareVersions(pack.version, catalogEntry.current_version) < 0;
     const displayName = options?.title ?? connectorDisplayName(connector);
     const bootstrapStatus = bootstrapStatusBySourceId.get(connector.source_id) ?? null;
+    const pendingSyncStart = pendingSyncStarts[connector.source_id] ?? null;
+    const optimisticSyncStarting =
+      pendingSyncStart !== null &&
+      connector.ui.status !== "syncing" &&
+      connector.advanced.latest_sync_status !== "running";
     const firstRunPrompt = firstRunPrompts[connector.source_id];
     const firstRunPromptActive = Boolean(firstRunPrompt && firstRunPrompt.expiresAt > Date.now());
     const rawTaskState = connectorTaskState(connector);
-    const taskState =
+    const normalizedTaskState =
       rawTaskState === "setup_required" &&
       connector.enable_state === "enabled" &&
       connector.supports_sync &&
       (firstRunPromptActive || bootstrapStatus?.status === "succeeded")
         ? "ready"
         : rawTaskState;
+    const taskState = optimisticSyncStarting ? "syncing" : normalizedTaskState;
     const primaryKind = primaryActionKind(connector, taskState, bootstrapStatus, firstRunPromptActive);
     const otherRunningBootstrap = Array.from(bootstrapStatusBySourceId.entries()).find(
       ([otherSourceId, status]) =>
@@ -1926,7 +2006,7 @@ export function ConnectorsPage() {
     const showBootstrapStatus = shouldShowBootstrapStatus(connector, bootstrapStatus);
     const syncLines = viewerIsAdmin ? connector.advanced.latest_sync_output : [];
     const latestSyncLine = syncLines.length > 0 ? syncLines[syncLines.length - 1] ?? null : null;
-    const showSyncStatus = connector.ui.status === "syncing";
+    const showSyncStatus = connector.ui.status === "syncing" || optimisticSyncStarting;
     const secondarySummary = connectorSecondarySummary(connector, pack, locale);
     const showFirstRunActions =
       firstRunPromptActive &&
@@ -1940,6 +2020,12 @@ export function ConnectorsPage() {
           "Your sign-in is saved. Choose the normal import or the one-time full history import next.",
           "Ihre Anmeldung ist gespeichert. Wählen Sie jetzt entweder den normalen Import oder einmalig die gesamte Historie."
         )
+      : optimisticSyncStarting
+        ? byLocale(
+            locale,
+            "The import is starting. Live progress should appear here in a moment.",
+            "Der Import wird gestartet. Gleich sollte hier der Live-Fortschritt erscheinen."
+          )
       : blockedByOtherBootstrap
         ? byLocale(
             locale,
@@ -1962,6 +2048,21 @@ export function ConnectorsPage() {
       connector,
       locale
     );
+    const syncSummary = optimisticSyncStarting
+      ? byLocale(
+          locale,
+          "The import was accepted and is being prepared in the background. The first live update can take a few seconds.",
+          "Der Import wurde angenommen und wird im Hintergrund vorbereitet. Das erste Live-Update kann ein paar Sekunden dauern."
+        )
+      : summarizeSyncStatus(latestSyncLine, locale);
+    const primaryButtonBusy =
+      (bootstrapMutation.isPending && bootstrapMutation.variables === connector.source_id) ||
+      (syncMutation.isPending && syncMutation.variables?.sourceId === connector.source_id) ||
+      optimisticSyncStarting;
+    const primaryButtonLabel =
+      optimisticSyncStarting && effectivePrimaryKind === "sync_now"
+        ? byLocale(locale, "Starting import…", "Import wird gestartet…")
+        : primaryActionLabel(effectivePrimaryKind, taskState, locale);
 
     return (
       <Card key={options?.key ?? connector.source_id} className="border-border/60 bg-card/85 shadow-sm">
@@ -2016,16 +2117,15 @@ export function ConnectorsPage() {
               disabled={
                 bootstrapMutation.isPending ||
                 syncMutation.isPending ||
+                optimisticSyncStarting ||
                 !effectivePrimaryEnabled ||
                 effectivePrimaryKind === null
               }
             >
-              {(bootstrapMutation.isPending || syncMutation.isPending) &&
-              (bootstrapMutation.variables === connector.source_id ||
-                syncMutation.variables?.sourceId === connector.source_id) ? (
+              {primaryButtonBusy ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
-              {primaryActionLabel(effectivePrimaryKind, taskState, locale)}
+              {primaryButtonLabel}
             </Button>
             {showFirstRunActions ? (
               <Button
@@ -2062,9 +2162,13 @@ export function ConnectorsPage() {
 
           {showSyncStatus ? (
             <Alert>
-              <AlertTitle>{byLocale(locale, "Import running", "Import läuft")}</AlertTitle>
+              <AlertTitle>
+                {optimisticSyncStarting
+                  ? byLocale(locale, "Import starting", "Import wird gestartet")
+                  : byLocale(locale, "Import running", "Import läuft")}
+              </AlertTitle>
               <AlertDescription className="space-y-2">
-                <p>{summarizeSyncStatus(latestSyncLine, locale)}</p>
+                <p>{syncSummary}</p>
                 {viewerIsAdmin && syncLines.length > 0 ? (
                   <details className="rounded-md border border-border/50 bg-background/60 p-3">
                     <summary className="cursor-pointer text-xs font-medium text-foreground">

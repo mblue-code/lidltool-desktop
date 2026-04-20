@@ -4,7 +4,6 @@ import html
 import os
 import secrets
 import shutil
-import subprocess
 import sys
 import urllib.parse
 from tempfile import TemporaryDirectory
@@ -117,8 +116,14 @@ class AuthBrowserRuntimeService:
                 captured_error: str | None = None
                 saw_navigation_away = False
 
-                def capture(url: str | None) -> None:
-                    nonlocal captured_url
+                def capture(url: str | None, *, track_navigation_away: bool = False) -> None:
+                    nonlocal captured_url, saw_navigation_away
+                    if track_navigation_away:
+                        saw_navigation_away = _record_navigation_away(
+                            candidate=url,
+                            start_url=normalized_start_url,
+                            saw_navigation_away=saw_navigation_away,
+                        )
                     matched = _match_callback_candidate(
                         str(url or "").strip(),
                         callback_prefixes,
@@ -140,19 +145,30 @@ class AuthBrowserRuntimeService:
                         except Exception:
                             is_main_frame = True
                         if is_main_frame:
-                            normalized_url = _normalize_browser_url(getattr(frame, "url", ""))
-                            if normalized_url and normalized_url != normalized_start_url:
-                                saw_navigation_away = True
-                        capture(getattr(frame, "url", ""))
+                            saw_navigation_away = _record_navigation_away(
+                                candidate=getattr(frame, "url", ""),
+                                start_url=normalized_start_url,
+                                saw_navigation_away=saw_navigation_away,
+                            )
+                        capture(getattr(frame, "url", ""), track_navigation_away=is_main_frame)
 
                     page.on("framenavigated", handle_frame_navigation)
 
-                context.on("request", lambda req: capture(req.url))
-                context.on("requestfailed", lambda req: capture(req.url))
-                context.on("response", lambda res: capture(res.headers.get("location")))
+                context.on(
+                    "request",
+                    lambda req: capture(req.url),
+                )
+                context.on(
+                    "requestfailed",
+                    lambda req: capture(req.url),
+                )
+                context.on(
+                    "response",
+                    lambda res: capture(res.headers.get("location")),
+                )
                 context.on("page", attach_page)
 
-                page = context.pages[0] if getattr(context, "pages", None) else context.new_page()
+                page = context.new_page()
                 attach_page(page)
 
                 try:
@@ -160,8 +176,6 @@ class AuthBrowserRuntimeService:
                 except PlaywrightError as exc:
                     context.close()
                     raise RuntimeError(f"browser auth session failed to open login page: {exc}") from exc
-
-                _foreground_auth_browser(page=page, environment=environment)
 
                 print("Browser open: complete login in the shared auth session window.", flush=True)
                 deadline = datetime.now(tz=UTC).timestamp() + request.plan.timeout_seconds
@@ -209,6 +223,11 @@ class AuthBrowserRuntimeService:
             )
         if request.plan.capture_storage_state and not isinstance(storage_state, dict):
             raise RuntimeError("browser auth storage-state capture returned no data")
+        if request.plan.capture_storage_state:
+            cookies = storage_state.get("cookies") if isinstance(storage_state, dict) else None
+            origins = storage_state.get("origins") if isinstance(storage_state, dict) else None
+            if not cookies and not origins:
+                raise RuntimeError("browser auth storage-state capture was empty")
         return captured_url, storage_state
 
     def _resolve_mode(
@@ -337,7 +356,7 @@ def _match_callback_candidate(candidate: str, callback_prefixes: tuple[str, ...]
             if index < 0:
                 continue
             matched = variant[index:]
-            for delimiter in ('"', "'", " ", "\n", "\r", "\t", "<", ">", ")", "]", "}", "\\"):
+            for delimiter in ('"', "'", " ", "\n", "\r", "\t", "<", ">", ")", "]", "}", "\\", ";"):
                 delimiter_index = matched.find(delimiter)
                 if delimiter_index > 0:
                     matched = matched[:delimiter_index]
@@ -381,6 +400,21 @@ def _normalize_browser_url(url: str | None) -> str:
     return str(url or "").strip()
 
 
+def _record_navigation_away(
+    *,
+    candidate: str | None,
+    start_url: str,
+    saw_navigation_away: bool,
+) -> bool:
+    if saw_navigation_away:
+        return True
+    normalized_candidate = _normalize_browser_url(candidate)
+    if not normalized_candidate or normalized_candidate == start_url:
+        return False
+    parsed = urllib.parse.urlparse(normalized_candidate)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
 def _should_accept_callback_candidate(
     *,
     candidate: str | None,
@@ -406,17 +440,6 @@ def _should_accept_callback_candidate(
     parsed = urllib.parse.urlparse(candidate)
     actual_state = urllib.parse.parse_qs(parsed.query).get("state", [None])[0]
     return actual_state == expected_callback_state
-
-
-def wait_for_page_network_idle(page: Any, *, timeout_ms: int = 1000) -> None:
-    wait_for_load_state = getattr(page, "wait_for_load_state", None)
-    if not callable(wait_for_load_state):
-        return
-    try:
-        wait_for_load_state("networkidle", timeout=timeout_ms)
-    except PlaywrightError as exc:
-        if "timeout" not in str(exc).lower():
-            raise
 
 
 def _launch_auth_browser(
@@ -489,50 +512,6 @@ def _browser_launch_override(environment: Mapping[str, str]) -> dict[str, str] |
     browser_channel = str(environment.get(AUTH_BROWSER_CHANNEL_ENV) or "").strip()
     if browser_channel:
         return {"channel": browser_channel}
-    return None
-
-
-def _foreground_auth_browser(*, page: Any, environment: Mapping[str, str]) -> None:
-    try:
-        page.bring_to_front()
-    except Exception:
-        pass
-    if sys.platform != "darwin":
-        return
-    app_name = _browser_app_name(environment)
-    if not app_name:
-        return
-    try:
-        subprocess.run(
-            ["osascript", "-e", f'tell application "{app_name}" to activate'],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
-        return
-
-
-def _browser_app_name(environment: Mapping[str, str]) -> str | None:
-    executable_path = str(environment.get(AUTH_BROWSER_EXECUTABLE_ENV) or "").strip()
-    lowered_path = executable_path.lower()
-    if "google chrome.app" in lowered_path:
-        return "Google Chrome"
-    if "chromium.app" in lowered_path:
-        return "Chromium"
-
-    browser_channel = str(environment.get(AUTH_BROWSER_CHANNEL_ENV) or "").strip().lower()
-    if browser_channel == "chrome":
-        return "Google Chrome"
-
-    detected = _detect_system_chromium_executable()
-    if detected is None:
-        return None
-    lowered_detected = str(detected).lower()
-    if "google chrome.app" in lowered_detected:
-        return "Google Chrome"
-    if "chromium.app" in lowered_detected:
-        return "Chromium"
     return None
 
 

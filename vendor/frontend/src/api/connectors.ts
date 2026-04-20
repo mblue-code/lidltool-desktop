@@ -140,7 +140,7 @@ const ConnectorsDiscoverySchema = z.object({
 
 const ConnectorBootstrapStatusSchema = z.object({
   source_id: z.string(),
-  status: z.enum(["idle", "running", "succeeded", "failed"]),
+  status: z.enum(["idle", "running", "succeeded", "failed", "canceled"]),
   command: z.string().nullable(),
   pid: z.number().nullable(),
   started_at: z.string().nullable(),

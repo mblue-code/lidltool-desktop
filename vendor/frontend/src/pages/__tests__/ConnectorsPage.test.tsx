@@ -975,6 +975,54 @@ describe("ConnectorsPage", () => {
     });
   });
 
+  it("shows immediate import-start feedback before the connector list catches up", async () => {
+    const payload = makeDefaultConnectorsPayload();
+    payload.connectors[1] = {
+      ...payload.connectors[1],
+      ui: {
+        ...payload.connectors[1].ui,
+        status: "ready",
+        description: "Kaufland ready"
+      },
+      actions: {
+        ...payload.connectors[1].actions,
+        primary: { kind: "sync_now", enabled: true }
+      },
+      advanced: {
+        ...payload.connectors[1].advanced,
+        auth_state: "connected",
+        latest_sync_status: "idle",
+        latest_sync_output: []
+      }
+    };
+    mocks.fetchConnectorsMock.mockResolvedValue(payload);
+    mocks.startConnectorSyncMock.mockResolvedValue({
+      source_id: "kaufland_de",
+      reused: false,
+      sync: {
+        source_id: "kaufland_de",
+        status: "running",
+        command: null,
+        pid: null,
+        started_at: null,
+        finished_at: null,
+        return_code: null,
+        output_tail: [],
+        can_cancel: true
+      }
+    });
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Import receipts" }));
+
+    expect(await screen.findByText("Import starting")).toBeInTheDocument();
+    expect(
+      screen.getByText("The import was accepted and is being prepared in the background. The first live update can take a few seconds.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Starting import…" })).toBeDisabled();
+  });
+
   it("localizes the DM onboarding modal fully in German", async () => {
     window.localStorage.setItem("app.locale", "de");
 

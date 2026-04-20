@@ -940,6 +940,9 @@ export class DesktopRuntime {
     env.LIDLTOOL_OCR_FALLBACK_ENABLED = env.LIDLTOOL_OCR_FALLBACK_ENABLED || "false";
     env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY =
       env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY || this.resolveCredentialEncryptionKey(cfg.userDataDir);
+    if (!env.LIDLTOOL_AUTH_BROWSER_MODE && app.isPackaged && (process.platform === "darwin" || process.platform === "win32")) {
+      env.LIDLTOOL_AUTH_BROWSER_MODE = "local_display";
+    }
     if (app.isPackaged) {
       const packagedSrc = join(repoRootHint, "src");
       env.PYTHONPATH = env.PYTHONPATH?.trim() ? `${packagedSrc}:${env.PYTHONPATH}` : packagedSrc;
@@ -965,12 +968,6 @@ export class DesktopRuntime {
     }
     if (!env.PLAYWRIGHT_BROWSERS_PATH && this.shouldUseInVenvPlaywrightBrowsers(command)) {
       env.PLAYWRIGHT_BROWSERS_PATH = "0";
-    }
-    if (!env.LIDLTOOL_PLAYWRIGHT_BROWSER_EXECUTABLE_PATH) {
-      const systemChrome = this.resolveSystemChromeExecutable();
-      if (systemChrome) {
-        env.LIDLTOOL_PLAYWRIGHT_BROWSER_EXECUTABLE_PATH = systemChrome;
-      }
     }
     return env;
   }
@@ -1295,30 +1292,6 @@ print(json.dumps({
         : join(app.getAppPath(), ".backend", "venv", "bin", "lidltool");
 
     return existsSync(candidate) ? candidate : null;
-  }
-
-  private resolveSystemChromeExecutable(): string | null {
-    const override = process.env.LIDLTOOL_PLAYWRIGHT_BROWSER_EXECUTABLE_PATH?.trim();
-    if (override) {
-      return override;
-    }
-
-    const candidates =
-      process.platform === "darwin"
-        ? [
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-            "/Applications/Chromium.app/Contents/MacOS/Chromium",
-            join(homedir(), "Applications", "Google Chrome.app", "Contents", "MacOS", "Google Chrome"),
-            join(homedir(), "Applications", "Chromium.app", "Contents", "MacOS", "Chromium")
-          ]
-        : [];
-
-    for (const candidate of candidates) {
-      if (existsSync(candidate)) {
-        return candidate;
-      }
-    }
-    return null;
   }
 
   private resolveOcrIdleTimeoutSeconds(): number {
