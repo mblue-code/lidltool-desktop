@@ -16,6 +16,10 @@ const electronBinary = require("electron") as string;
 export type DesktopLaunchOptions = {
   frontendDistMode?: "default" | "missing";
   envOverrides?: Record<string, string>;
+  executablePath?: string;
+  homeDir?: string;
+  userDataDir?: string;
+  tmpPath?: string;
 };
 
 export type DesktopAppSession = {
@@ -67,10 +71,16 @@ async function allocateApiPort(): Promise<number> {
 }
 
 export async function launchDesktopApp(options: DesktopLaunchOptions = {}): Promise<DesktopAppSession> {
-  const profileRoot = mkdtempSync(join(tmpdir(), "lidltool-desktop-e2e-"));
-  const homeDir = join(profileRoot, "home");
-  const tmpPath = join(profileRoot, "tmp");
-  const userDataDir = join(profileRoot, "electron-user-data");
+  const explicitUserDataDir = options.userDataDir ?? process.env.LIDLTOOL_DESKTOP_TEST_USER_DATA_DIR?.trim();
+  const explicitHomeDir = options.homeDir ?? process.env.LIDLTOOL_DESKTOP_TEST_HOME_DIR?.trim();
+  const explicitTmpPath = options.tmpPath ?? process.env.LIDLTOOL_DESKTOP_TEST_TMP_DIR?.trim();
+  const profileRoot = explicitUserDataDir
+    ? dirname(explicitUserDataDir)
+    : mkdtempSync(join(tmpdir(), "lidltool-desktop-e2e-"));
+  const homeDir = explicitHomeDir || join(profileRoot, "home");
+  const tmpPath = explicitTmpPath || join(profileRoot, "tmp");
+  const userDataDir = explicitUserDataDir || join(profileRoot, "electron-user-data");
+  const shouldCleanupProfileRoot = !explicitUserDataDir && !explicitHomeDir && !explicitTmpPath;
   const configDir = join(homeDir, ".config", "lidltool");
   const documentsDir = join(homeDir, ".local", "share", "lidltool", "documents");
   mkdirSync(homeDir, { recursive: true });
@@ -106,10 +116,14 @@ export async function launchDesktopApp(options: DesktopLaunchOptions = {}): Prom
     env.LIDLTOOL_FRONTEND_DIST = missingFrontendDist;
   }
 
+  const requestedExecutablePath =
+    options.executablePath ?? (process.env.LIDLTOOL_DESKTOP_EXECUTABLE?.trim() || electronBinary);
+  const isPackagedLaunch = requestedExecutablePath !== electronBinary;
+
   const electronApp = await electron.launch({
-    executablePath: electronBinary,
-    args: [DESKTOP_APP_DIR],
-    cwd: DESKTOP_APP_DIR,
+    executablePath: requestedExecutablePath,
+    args: isPackagedLaunch ? [] : [DESKTOP_APP_DIR],
+    cwd: isPackagedLaunch ? dirname(requestedExecutablePath) : DESKTOP_APP_DIR,
     env
   });
 
@@ -132,7 +146,9 @@ export async function launchDesktopApp(options: DesktopLaunchOptions = {}): Prom
     homeDir,
     close: async () => {
       await electronApp.close();
-      rmSync(profileRoot, { recursive: true, force: true });
+      if (shouldCleanupProfileRoot) {
+        rmSync(profileRoot, { recursive: true, force: true });
+      }
     }
   };
 }
@@ -271,4 +287,18 @@ export async function clickNavLink(page: Page, name: string, expectedPath: strin
   if (headingName) {
     await expect(page.locator("#main-content").getByRole("heading", { name: headingName }).first()).toBeVisible();
   }
+}
+
+export async function ensureVisibleWindowCount(
+  electronApp: ElectronApplication,
+  minimumVisibleWindows = 1
+): Promise<void> {
+  await expect
+    .poll(async () => {
+      const visibleWindowCount = await electronApp.evaluate(({ BrowserWindow }) => {
+        return BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed() && window.isVisible()).length;
+      });
+      return visibleWindowCount >= minimumVisibleWindows;
+    })
+    .toBe(true);
 }

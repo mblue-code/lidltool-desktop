@@ -31,6 +31,7 @@ import {
   type ValidatedManifestSnapshot,
 } from "./plugins/receipt-plugin-packs";
 import { resolveDesktopReleaseContext, resolveDesktopReleaseMetadata } from "./release-metadata";
+import { buildBackendServeArgs, normalizeDesktopOcrProvider } from "./runtime-contract";
 
 const DEFAULT_PORT = 18765;
 
@@ -183,17 +184,7 @@ export class DesktopRuntime {
     const cfg = this.getConfig();
     const invocation = this.resolveBackendInvocation(options.strictOverride ?? false);
     const command = invocation.command;
-    const args = [
-      ...invocation.argsPrefix,
-      "--db",
-      cfg.dbPath,
-      "serve",
-      "--desktop-mode",
-      "--host",
-      "127.0.0.1",
-      "--port",
-      String(this.apiPort)
-    ];
+    const args = [...invocation.argsPrefix, ...buildBackendServeArgs(cfg.dbPath, this.apiPort)];
     const env = await this.backendProcessEnv(command);
 
     this.backendProcess = spawn(command, args, {
@@ -945,7 +936,7 @@ export class DesktopRuntime {
     env.LIDLTOOL_DOCUMENT_STORAGE_PATH = documentsPath;
     env.LIDLTOOL_DESKTOP_MODE = "true";
     env.LIDLTOOL_CONNECTOR_HOST_KIND = "electron";
-    env.LIDLTOOL_OCR_DEFAULT_PROVIDER = env.LIDLTOOL_OCR_DEFAULT_PROVIDER || "desktop_local";
+    env.LIDLTOOL_OCR_DEFAULT_PROVIDER = normalizeDesktopOcrProvider(env.LIDLTOOL_OCR_DEFAULT_PROVIDER);
     env.LIDLTOOL_OCR_FALLBACK_ENABLED = env.LIDLTOOL_OCR_FALLBACK_ENABLED || "false";
     env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY =
       env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY || this.resolveCredentialEncryptionKey(cfg.userDataDir);

@@ -133,7 +133,7 @@ Desktop OCR now ships as a local packaged workflow instead of depending on an ex
 - The bundled backend venv includes `rapidocr_onnxruntime` and its ONNX model assets on disk.
 - Electron keeps OCR out of the main app process by spawning a dedicated Python worker when OCR work is actually queued.
 - The HTTP backend only enqueues OCR jobs. The durable worker consumes the queue and updates document/job state.
-- The bundled desktop OCR provider is `desktop_local`.
+- The bundled desktop OCR provider is `glm_ocr_local`.
 - Image uploads and scanned PDFs are OCRed locally in the worker process. PDFs that already contain a text layer still use direct text extraction first.
 - The renderer wakes the worker after `POST /api/v1/documents/{document_id}/process` so the user does not get stuck in `queued`.
 

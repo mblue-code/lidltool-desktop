@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, shell } from "electron";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { DesktopLocale } from "@shared/contracts";
 import { registerIpc } from "./ipc";
@@ -10,13 +11,124 @@ if (userDataOverride) {
   app.setPath("userData", userDataOverride);
 }
 
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
 let mainWindow: BrowserWindow | null = null;
 const runtime = new DesktopRuntime();
 let latestBootError: string | null = null;
 let currentLocale: DesktopLocale = "en";
+let lastRequestedSurface: "control_center" | "main_app" = "control_center";
+let appIsQuitting = false;
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function logWindowLifecycle(
+  event: string,
+  details: Record<string, unknown> = {}
+): void {
+  const payload = {
+    timestamp: nowIso(),
+    event,
+    pid: process.pid,
+    windowCount: BrowserWindow.getAllWindows().length,
+    ...details
+  };
+
+  try {
+    const logPath = join(app.getPath("userData"), "window-lifecycle.log");
+    mkdirSync(app.getPath("userData"), { recursive: true });
+    appendFileSync(logPath, `${JSON.stringify(payload)}\n`, "utf-8");
+  } catch {
+    // Best-effort instrumentation only.
+  }
+
+  console.log(`[desktop-window] ${JSON.stringify(payload)}`);
+}
+
+function describeWindow(window: BrowserWindow | null): Record<string, unknown> {
+  if (!window || window.isDestroyed()) {
+    return {
+      destroyed: true
+    };
+  }
+
+  const bounds = window.getBounds();
+  return {
+    destroyed: false,
+    visible: window.isVisible(),
+    minimized: window.isMinimized(),
+    focused: window.isFocused(),
+    title: window.getTitle(),
+    url: window.webContents.getURL(),
+    bounds
+  };
+}
+
+function inferSurfaceFromUrl(url: string): "control_center" | "main_app" | null {
+  if (!url) {
+    return null;
+  }
+  if (url.startsWith("http://127.0.0.1:") || url.startsWith("http://localhost:")) {
+    return "main_app";
+  }
+  if (url.startsWith("file://")) {
+    return "control_center";
+  }
+  return null;
+}
+
+function syncSurfaceFromWindow(window: BrowserWindow): void {
+  if (window.isDestroyed()) {
+    return;
+  }
+  const inferredSurface = inferSurfaceFromUrl(window.webContents.getURL());
+  if (inferredSurface) {
+    lastRequestedSurface = inferredSurface;
+  }
+}
+
+function restoreWindowVisibility(window: BrowserWindow, reason: string): void {
+  if (window.isDestroyed()) {
+    return;
+  }
+  if (window.isMinimized()) {
+    window.restore();
+  }
+  if (!window.isVisible()) {
+    window.show();
+  }
+  window.focus();
+  logWindowLifecycle("window.visibility_restored", {
+    reason,
+    ...describeWindow(window)
+  });
+}
+
+function scheduleVisibilityRecovery(window: BrowserWindow, reason: string): void {
+  for (const delayMs of [200, 1_000, 3_000]) {
+    setTimeout(() => {
+      if (window !== mainWindow || window.isDestroyed() || appIsQuitting) {
+        return;
+      }
+      if (!window.isVisible() || window.isMinimized()) {
+        restoreWindowVisibility(window, `${reason}:${delayMs}ms`);
+      }
+    }, delayMs);
+  }
+}
 
 async function loadControlCenter(window: BrowserWindow, bootError?: string): Promise<void> {
+  lastRequestedSurface = "control_center";
   latestBootError = bootError ?? null;
+  logWindowLifecycle("surface.load_control_center.start", {
+    bootError: latestBootError,
+    ...describeWindow(window)
+  });
 
   if (process.env.ELECTRON_RENDERER_URL) {
     await window.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -27,9 +139,17 @@ async function loadControlCenter(window: BrowserWindow, bootError?: string): Pro
   if (bootError) {
     window.webContents.send("desktop:boot-error", bootError);
   }
+  restoreWindowVisibility(window, "control-center-loaded");
+  scheduleVisibilityRecovery(window, "control-center-loaded");
+  logWindowLifecycle("surface.load_control_center.success", {
+    bootError: latestBootError,
+    ...describeWindow(window)
+  });
 }
 
 async function openMainApp(window: BrowserWindow): Promise<void> {
+  lastRequestedSurface = "main_app";
+  logWindowLifecycle("surface.open_main_app.start", describeWindow(window));
   try {
     const diagnostics = runtime.getRuntimeDiagnostics();
     if (!diagnostics.fullAppReady) {
@@ -43,8 +163,15 @@ async function openMainApp(window: BrowserWindow): Promise<void> {
     await runtime.startBackend({ strictOverride: true });
     latestBootError = null;
     await window.loadURL(runtime.getFullAppUrl());
+    restoreWindowVisibility(window, "main-app-loaded");
+    scheduleVisibilityRecovery(window, "main-app-loaded");
+    logWindowLifecycle("surface.open_main_app.success", describeWindow(window));
   } catch (err) {
     const message = String(err);
+    logWindowLifecycle("surface.open_main_app.failure", {
+      error: message,
+      ...describeWindow(window)
+    });
     await loadControlCenter(window, message);
   }
 }
@@ -70,6 +197,38 @@ async function openControlCenter(window: BrowserWindow): Promise<void> {
   await runtime.stopBackend();
   await loadControlCenter(window, latestBootError ?? undefined);
 }
+
+async function recoverMainWindow(reason: string): Promise<void> {
+  if (appIsQuitting) {
+    return;
+  }
+
+  const activeWindow =
+    mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getAllWindows()[0] ?? null;
+
+  if (activeWindow) {
+    if (mainWindow !== activeWindow) {
+      mainWindow = activeWindow;
+    }
+    restoreWindowVisibility(activeWindow, reason);
+    scheduleVisibilityRecovery(activeWindow, reason);
+    return;
+  }
+
+  logWindowLifecycle("window.recreate", {
+    reason,
+    surface: lastRequestedSurface
+  });
+  mainWindow = createWindow();
+  updateDesktopLocale(currentLocale);
+}
+
+app.on("second-instance", () => {
+  logWindowLifecycle("app.second_instance", {
+    surface: lastRequestedSurface
+  });
+  void recoverMainWindow("second-instance");
+});
 
 function broadcastLocaleChanged(locale: DesktopLocale): void {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -119,7 +278,34 @@ function createWindow(): BrowserWindow {
   });
 
   window.on("ready-to-show", () => {
-    window.show();
+    restoreWindowVisibility(window, "ready-to-show");
+  });
+
+  window.on("show", () => {
+    logWindowLifecycle("window.show", describeWindow(window));
+  });
+
+  window.on("hide", () => {
+    logWindowLifecycle("window.hide", describeWindow(window));
+  });
+
+  window.on("minimize", () => {
+    logWindowLifecycle("window.minimize", describeWindow(window));
+  });
+
+  window.on("restore", () => {
+    logWindowLifecycle("window.restore", describeWindow(window));
+  });
+
+  window.on("close", () => {
+    logWindowLifecycle("window.close", describeWindow(window));
+  });
+
+  window.on("closed", () => {
+    logWindowLifecycle("window.closed", describeWindow(window));
+    if (mainWindow === window) {
+      mainWindow = null;
+    }
   });
 
   window.webContents.setWindowOpenHandler((details) => {
@@ -194,7 +380,51 @@ function createWindow(): BrowserWindow {
     }
   });
 
+  window.webContents.on("did-start-loading", () => {
+    logWindowLifecycle("web.did_start_loading", describeWindow(window));
+  });
+
+  window.webContents.on("did-finish-load", () => {
+    syncSurfaceFromWindow(window);
+    logWindowLifecycle("web.did_finish_load", describeWindow(window));
+    scheduleVisibilityRecovery(window, "did-finish-load");
+  });
+
+  window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    logWindowLifecycle("web.did_fail_load", {
+      errorCode,
+      errorDescription,
+      validatedURL,
+      isMainFrame,
+      ...describeWindow(window)
+    });
+    if (isMainFrame && errorCode !== -3) {
+      scheduleVisibilityRecovery(window, "did-fail-load");
+    }
+  });
+
+  window.webContents.on("render-process-gone", (_event, details) => {
+    logWindowLifecycle("web.render_process_gone", {
+      reason: details.reason,
+      exitCode: details.exitCode,
+      ...describeWindow(window)
+    });
+    if (window === mainWindow) {
+      mainWindow = null;
+    }
+    void recoverMainWindow(`render-process-gone:${details.reason}`);
+  });
+
+  window.webContents.on("unresponsive", () => {
+    logWindowLifecycle("web.unresponsive", describeWindow(window));
+  });
+
+  window.webContents.on("responsive", () => {
+    logWindowLifecycle("web.responsive", describeWindow(window));
+  });
+
   void loadStartupSurface(window);
+  logWindowLifecycle("window.created", describeWindow(window));
 
   return window;
 }
@@ -219,13 +449,16 @@ app.whenReady().then(() => {
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createWindow();
-      updateDesktopLocale(currentLocale);
+      void recoverMainWindow("activate");
     }
   });
+
 });
 
 app.on("window-all-closed", async () => {
+  logWindowLifecycle("app.window_all_closed", {
+    surface: lastRequestedSurface
+  });
   await runtime.shutdown();
   if (process.platform !== "darwin") {
     app.quit();
@@ -233,5 +466,9 @@ app.on("window-all-closed", async () => {
 });
 
 app.on("before-quit", async () => {
+  appIsQuitting = true;
+  logWindowLifecycle("app.before_quit", {
+    surface: lastRequestedSurface
+  });
   await runtime.shutdown();
 });

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const desktopDir = resolve(__dirname, "..");
+const desktopDir = resolve(process.env.LIDLTOOL_DESKTOP_DIR?.trim() || resolve(__dirname, ".."));
 const backendDir = resolve(desktopDir, "vendor", "backend");
 const httpServerPath = resolve(backendDir, "src", "lidltool", "api", "http_server.py");
 const routeAuthPath = resolve(backendDir, "src", "lidltool", "api", "route_auth.py");
@@ -237,12 +237,21 @@ function patchHttpServer(current) {
     /    @app\.post\("\/api\/v1\/system\/backup"\)\n[\s\S]*?\n\n(?=    @app\.post\("\/api\/v1\/documents\/upload"\)\n)/;
 
   if (!next.includes("        scheduler: AutomationScheduler | None = None\n")) {
-    next = replaceOnce(
-      next,
-      "        app.state.desktop_mode = config.desktop_mode\n",
-      "        app.state.desktop_mode = config.desktop_mode\n        scheduler: AutomationScheduler | None = None\n",
-      httpServerPath
-    );
+    if (next.includes("        app.state.desktop_mode = config.desktop_mode\n")) {
+      next = replaceOnce(
+        next,
+        "        app.state.desktop_mode = config.desktop_mode\n",
+        "        app.state.desktop_mode = config.desktop_mode\n        scheduler: AutomationScheduler | None = None\n",
+        httpServerPath
+      );
+    } else {
+      next = replaceOnce(
+        next,
+        "        scheduler = AutomationScheduler(session_factory=sessions, config=config)\n",
+        "        scheduler: AutomationScheduler | None = None\n        scheduler = AutomationScheduler(session_factory=sessions, config=config)\n",
+        httpServerPath
+      );
+    }
   }
 
   if (!next.includes("            if scheduler is not None:\n                scheduler.stop()\n")) {
@@ -377,7 +386,7 @@ function patchRuntimeExecution(current) {
     );
   }
 
-  if (!next.includes("decision = evaluate_plugin_policy(manifest, config=self._config, host_kind=_plugin_host_kind())")) {
+  if (!next.includes("host_kind=_plugin_host_kind()")) {
     next = replaceOnce(
       next,
       "        decision = evaluate_plugin_policy(manifest, config=self._config)\n",

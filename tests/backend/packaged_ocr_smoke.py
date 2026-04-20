@@ -116,7 +116,7 @@ def main() -> None:
         )
         os.environ["LIDLTOOL_DESKTOP_MODE"] = "true"
         os.environ["LIDLTOOL_CONNECTOR_HOST_KIND"] = "electron"
-        os.environ["LIDLTOOL_OCR_DEFAULT_PROVIDER"] = "desktop_local"
+        os.environ["LIDLTOOL_OCR_DEFAULT_PROVIDER"] = "glm_ocr_local"
         os.environ["LIDLTOOL_OCR_FALLBACK_ENABLED"] = "false"
         os.environ["LIDLTOOL_ITEM_CATEGORIZER_ENABLED"] = "false"
 
