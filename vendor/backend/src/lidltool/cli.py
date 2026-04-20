@@ -10,13 +10,18 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+import uvicorn
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from lidltool.amazon.profiles import is_amazon_source_id
+from lidltool.amazon.client_playwright import AmazonClientError, AmazonPlaywrightClient
+from lidltool.amazon.importer import AmazonImportService
+from lidltool.amazon.profiles import get_country_profile
+from lidltool.amazon.session import default_amazon_state_file
+from lidltool.analytics.queries import export_receipts, month_stats
 from lidltool.auth.users import (
     SERVICE_USERNAME,
     create_local_user,
@@ -31,8 +36,13 @@ from lidltool.config import (
     default_config_file,
     validate_config,
 )
+from lidltool.connectors.auth.auth_orchestration import ConnectorAuthOrchestrationService
+from lidltool.connectors.runtime.errors import ConnectorRuntimeError
+from lidltool.connectors.runtime.execution import ConnectorExecutionService
+from lidltool.deployment_policy import evaluate_deployment_policy
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
 from lidltool.db.models import Source, Transaction, User
+from lidltool.ingest.sync import SyncProgress, SyncService
 from lidltool.logging import configure_logging
 
 app = typer.Typer(help="Lidl Plus receipts CLI")
@@ -117,21 +127,19 @@ def _resolve_amazon_state_file(
     *,
     source_id: str = "amazon_de",
 ) -> Path:
-    from lidltool.amazon.session import default_amazon_state_file
-
     target = path or default_amazon_state_file(config, source_id=source_id)
     return target.expanduser().resolve()
 
 
-def _connector_execution_service(config: AppConfig) -> ConnectorExecutionService:
-    from lidltool.connectors.runtime.execution import ConnectorExecutionService
+def _is_amazon_source_id(source_id: str) -> bool:
+    return source_id.startswith("amazon_")
 
+
+def _connector_execution_service(config: AppConfig) -> ConnectorExecutionService:
     return ConnectorExecutionService(config=config)
 
 
 def _connector_auth_service(config: AppConfig) -> ConnectorAuthOrchestrationService:
-    from lidltool.connectors.auth.auth_orchestration import ConnectorAuthOrchestrationService
-
     execution = _connector_execution_service(config)
     return ConnectorAuthOrchestrationService(
         config=config,
@@ -146,8 +154,6 @@ def _connector_error_exit_code(exc: Exception) -> int:
 
 
 def _json_error_payload(exc: Exception) -> dict[str, Any]:
-    from lidltool.connectors.runtime.errors import ConnectorRuntimeError
-
     payload: dict[str, Any] = {
         "ok": False,
         "error": str(exc),
@@ -214,7 +220,7 @@ def _sync_result_payload(
         "validation": result.validation,
         "runtime": runtime_identity,
     }
-    if is_amazon_source_id(source_id):
+    if _is_amazon_source_id(source_id):
         payload["records_seen"] = result.receipts_seen
         payload["orders_fetched"] = result.receipts_seen
     payload.update(metadata)
@@ -230,7 +236,7 @@ def _render_sync_result_table(
     table.add_column("Metric")
     table.add_column("Value")
     table.add_row("Pages", str(payload["pages"]))
-    if is_amazon_source_id(str(payload["source_id"])):
+    if _is_amazon_source_id(str(payload["source_id"])):
         table.add_row("Orders fetched", str(payload["receipts_seen"]))
         table.add_row("Records seen", str(payload["receipts_seen"]))
     else:
@@ -252,8 +258,6 @@ def _render_sync_result_table(
 
 
 def _sync_progress_description(state: SyncProgress) -> str:
-    year = f" year={state.current_year}" if state.current_year is not None else ""
-    page = f" page={state.current_page}" if state.current_page is not None else ""
     if state.stage == "authenticating":
         return "stage=authenticating detail=checking_saved_session"
     if state.stage == "refreshing_auth":
@@ -266,16 +270,14 @@ def _sync_progress_description(state: SyncProgress) -> str:
         pages = str(state.pages)
         if state.pages_total:
             pages = f"{pages}/{state.pages_total}"
-        return f"stage=discovering{year}{page} pages={pages} queued={state.discovered_receipts}"
+        return f"stage=discovering pages={pages} queued={state.discovered_receipts}"
     if state.stage == "processing":
         if state.receipts_seen == 0 and state.discovered_receipts > 0:
             return f"stage=processing detail=preparing_import total={state.discovered_receipts}"
         current = f" current={state.current_record_ref}" if state.current_record_ref else ""
-        total = "?" if state.detail == "streaming_import" else str(state.discovered_receipts or "?")
         return (
-            f"stage=processing{year}{page} seen={state.receipts_seen}/{total} "
-            f"queued={state.discovered_receipts} new={state.new_receipts} "
-            f"items={state.new_items} skipped={state.skipped_existing}{current}"
+            f"stage=processing seen={state.receipts_seen}/{state.discovered_receipts or '?'} "
+            f"new={state.new_receipts} items={state.new_items} skipped={state.skipped_existing}{current}"
         )
     if state.stage == "finalizing":
         return (
@@ -283,7 +285,7 @@ def _sync_progress_description(state: SyncProgress) -> str:
             f"skipped={state.skipped_existing}"
         )
     return (
-        f"stage={state.stage}{year}{page} pages={state.pages} queued={state.discovered_receipts} "
+        f"stage={state.stage} pages={state.pages} queued={state.discovered_receipts} "
         f"seen={state.receipts_seen} new={state.new_receipts}"
     )
 
@@ -296,8 +298,6 @@ def _run_connector_sync_command(
     connector_options: dict[str, Any] | None = None,
     tracking_source_id: str | None = None,
 ) -> None:
-    from lidltool.ingest.sync import SyncService
-
     runtime = _ctx(ctx)
     service = _connector_execution_service(runtime.config)
     sync_options = dict(connector_options or {})
@@ -412,9 +412,10 @@ def _run_connector_bootstrap_command(
         _emit(payload, json_output=True)
         raise typer.Exit(code=0 if resolved.ok else 1)
     if not resolved.ok:
-        detail = resolved.detail or f"{resolved.manifest.display_name} login/session capture failed."
-        console.print(detail)
-        raise typer.Exit(code=1)
+        raise typer.BadParameter(
+            f"{resolved.manifest.display_name} login/session capture failed. "
+            "Re-run and complete login before pressing Enter."
+        )
     state_file = resolved.metadata.get("state_file")
     if state_file:
         console.print(f"{resolved.manifest.display_name} session stored at {state_file}")
@@ -797,23 +798,11 @@ def serve_command(
     host: Annotated[str, typer.Option("--host", help="HTTP bind host")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", help="HTTP bind port")] = 8000,
     workers: Annotated[int, typer.Option("--workers", help="Uvicorn worker processes")] = 1,
-    desktop_mode: Annotated[
-        bool,
-        typer.Option(
-            "--desktop-mode/--no-desktop-mode",
-            help="Run the HTTP server in desktop-minimal mode",
-        ),
-    ] = False,
 ) -> None:
     runtime = _ctx(ctx)
     if workers < 1:
         raise typer.BadParameter("--workers must be >= 1")
-    import uvicorn
-    from lidltool.deployment_policy import evaluate_deployment_policy
-
     os.environ["LIDLTOOL_HTTP_BIND_HOST"] = host
-    if desktop_mode:
-        os.environ["LIDLTOOL_DESKTOP_MODE"] = "true"
     os.environ["LIDLTOOL_CONFIG"] = str(
         runtime.config_path or default_config_file(runtime.config.config_dir)
     )
@@ -843,8 +832,6 @@ def stats_month(
     year: Annotated[int, typer.Option("--year", help="Calendar year, e.g. 2026")],
     month: Annotated[int | None, typer.Option("--month", help="Optional month 1..12")] = None,
 ) -> None:
-    from lidltool.analytics.queries import month_stats
-
     runtime = _ctx(ctx)
     db_sessions = _create_session_factory(runtime.config)
 
@@ -881,8 +868,6 @@ def export_command(
     out: Annotated[Path, typer.Option("--out", help="Output file path")],
     format_name: Annotated[str, typer.Option("--format", help="Export format: json")] = "json",
 ) -> None:
-    from lidltool.analytics.queries import export_receipts
-
     runtime = _ctx(ctx)
     if format_name.lower() != "json":
         raise typer.BadParameter("Only --format json is currently supported")
@@ -916,8 +901,6 @@ def amazon_import_command(
         typer.Option("--store-name", help="Store name to persist for imported orders"),
     ] = "Amazon",
 ) -> None:
-    from lidltool.amazon.importer import AmazonImportService
-
     runtime = _ctx(ctx)
     db_sessions = _create_session_factory(runtime.config)
     service = AmazonImportService(
@@ -954,10 +937,6 @@ def amazon_import_command(
 @amazon_app.command("scrape")
 def amazon_scrape_command(
     ctx: typer.Context,
-    source_id: Annotated[
-        str,
-        typer.Option("--source-id", help="Amazon source id, e.g. amazon_de, amazon_fr, or amazon_gb"),
-    ] = "amazon_de",
     years: Annotated[
         int,
         typer.Option("--years", help="How many recent years to scan"),
@@ -971,9 +950,9 @@ def amazon_scrape_command(
         typer.Option("--state-file", help="Playwright storage-state file for Amazon session"),
     ] = None,
     domain: Annotated[
-        str,
-        typer.Option("--domain", help="Amazon domain override, e.g. amazon.fr"),
-    ] = "",
+        str | None,
+        typer.Option("--domain", help="Amazon domain, e.g. amazon.de"),
+    ] = None,
     headless: Annotated[
         bool,
         typer.Option("--headless/--no-headless", help="Run browser headless while scraping"),
@@ -987,16 +966,14 @@ def amazon_scrape_command(
         typer.Option("--out", help="Write scraped orders JSON to this file"),
     ] = None,
 ) -> None:
-    from lidltool.amazon.client_playwright import AmazonClientError, AmazonPlaywrightClient
-    from lidltool.amazon.profiles import get_country_profile
-
     runtime = _ctx(ctx)
-    profile = get_country_profile(source_id=source_id, domain=domain or None)
-    target_state = _resolve_amazon_state_file(state_file, runtime.config, source_id=profile.source_id)
+    amazon_source_id = runtime.config.source if _is_amazon_source_id(runtime.config.source) else "amazon_de"
+    profile = get_country_profile(source_id=amazon_source_id)
+    target_state = _resolve_amazon_state_file(state_file, runtime.config, source_id=amazon_source_id)
     client = AmazonPlaywrightClient(
         state_file=target_state,
-        source_id=profile.source_id,
-        domain=domain or None,
+        source_id=amazon_source_id,
+        domain=domain or profile.domain,
         headless=headless,
         dump_html_dir=dump_html,
     )
@@ -1065,10 +1042,11 @@ def amazon_cron_example_command(
     ] = None,
 ) -> None:
     runtime = _ctx(ctx)
-    target = _resolve_amazon_state_file(state_file, runtime.config, source_id="amazon_de")
+    amazon_source_id = runtime.config.source if _is_amazon_source_id(runtime.config.source) else "amazon_de"
+    target = _resolve_amazon_state_file(state_file, runtime.config, source_id=amazon_source_id)
     command = (
         "0 7 * * * /usr/bin/env lidltool connectors sync "
-        f"--source-id amazon_de --full --option state_file={target} --db {runtime.config.db_path}"
+        f"--source-id {amazon_source_id} --full --option state_file={target} --db {runtime.config.db_path}"
         " >> ~/.local/share/lidltool/cron.log 2>&1"
     )
     if runtime.json_output:

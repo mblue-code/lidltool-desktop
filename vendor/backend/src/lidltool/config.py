@@ -20,7 +20,6 @@ DEFAULT_SOURCE = "lidl_plus_de"
 DEFAULT_CONFIG_DIR = "~/.config/lidltool"
 DEFAULT_CONFIG_FILE_NAME = "config.toml"
 DEFAULT_TOKEN_FILE_NAME = "token.json"
-_DESKTOP_HOST_KIND = "electron"
 MIN_SECRET_LENGTH = 32
 MIN_SECRET_UNIQUE_CHARACTERS = 8
 _KNOWN_PLACEHOLDER_SECRET_VALUES = {
@@ -54,16 +53,6 @@ def _expand_path(value: str | Path) -> Path:
 
 def _normalize_secret_marker(value: str) -> str:
     return "".join(ch for ch in value.strip().lower() if ch.isalnum())
-
-
-def _env_flag(name: str) -> bool:
-    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _detect_desktop_mode() -> bool:
-    if os.getenv("LIDLTOOL_CONNECTOR_HOST_KIND", "").strip().lower() == _DESKTOP_HOST_KIND:
-        return True
-    return _env_flag("LIDLTOOL_DESKTOP_MODE")
 
 
 def _validate_secret_value(
@@ -180,7 +169,6 @@ class AppConfig(BaseModel):
     http_exposure_mode: str = HttpExposureMode.LOCALHOST.value
     http_trusted_proxy_cidrs: list[str] = Field(default_factory=list)
     http_tools_exec_enabled: bool = False
-    desktop_mode: bool = False
     openclaw_scope_mode: str = "off"
     openclaw_scope_allow_param_scopes: bool = False
     openclaw_scope_default_read_scopes: list[str] = Field(default_factory=lambda: ["read.core"])
@@ -201,7 +189,7 @@ class AppConfig(BaseModel):
     allowed_upload_mime_types: list[str] = Field(
         default_factory=lambda: ["image/jpeg", "image/png", "application/pdf"]
     )
-    ocr_default_provider: str = "desktop_local"
+    ocr_default_provider: str = "glm_ocr_local"
     ocr_fallback_enabled: bool = False
     ocr_fallback_provider: str | None = "openai_compatible"
     ocr_request_timeout_s: float = 120.0
@@ -332,16 +320,14 @@ class AppConfig(BaseModel):
     @field_validator("ocr_default_provider", mode="before")
     @classmethod
     def _validate_ocr_default_provider(cls, value: Any) -> str:
-        normalized = str(value or "desktop_local").strip().lower()
+        normalized = str(value or "glm_ocr_local").strip().lower()
         if normalized == "tesseract":
             raise ValueError(
-                "tesseract OCR has been removed; use 'desktop_local', 'glm_ocr_local', "
-                "'openai_compatible', or 'external_api'"
+                "tesseract OCR has been removed; use 'glm_ocr_local', 'openai_compatible', or 'external_api'"
             )
-        if normalized not in {"desktop_local", "glm_ocr_local", "external_api", "openai_compatible"}:
+        if normalized not in {"glm_ocr_local", "external_api", "openai_compatible"}:
             raise ValueError(
-                "ocr_default_provider must be 'desktop_local', 'glm_ocr_local', "
-                "'openai_compatible', or 'external_api'"
+                "ocr_default_provider must be 'glm_ocr_local', 'openai_compatible', or 'external_api'"
             )
         return normalized
 
@@ -355,10 +341,9 @@ class AppConfig(BaseModel):
             return None
         if normalized == "tesseract":
             raise ValueError("tesseract OCR has been removed")
-        if normalized not in {"desktop_local", "glm_ocr_local", "openai_compatible", "external_api"}:
+        if normalized not in {"glm_ocr_local", "openai_compatible", "external_api"}:
             raise ValueError(
-                "ocr_fallback_provider must be 'desktop_local', 'glm_ocr_local', "
-                "'openai_compatible', or 'external_api'"
+                "ocr_fallback_provider must be 'glm_ocr_local', 'openai_compatible', or 'external_api'"
             )
         return normalized
 
@@ -445,22 +430,6 @@ class AppConfig(BaseModel):
             self.ocr_default_provider = "openai_compatible"
         if self.ocr_fallback_provider == self.ocr_default_provider:
             self.ocr_fallback_provider = None
-        return self
-
-    @model_validator(mode="after")
-    def _apply_desktop_mode_defaults(self) -> AppConfig:
-        if self.desktop_mode:
-            self.automations_scheduler_enabled = False
-            self.connector_live_sync_enabled = False
-            if (
-                self.ocr_default_provider in {"desktop_local", "glm_ocr_local"}
-                and not self.ocr_glm_local_base_url
-                and not self.ocr_openai_base_url
-                and not self.ocr_external_api_url
-            ):
-                self.ocr_default_provider = "desktop_local"
-                if self.ocr_fallback_provider == self.ocr_default_provider:
-                    self.ocr_fallback_provider = None
         return self
 
 
@@ -607,8 +576,6 @@ def build_config(config_path: Path | None = None, db_override: Path | None = Non
         env_overrides["http_tools_exec_enabled"] = (
             os.getenv("LIDLTOOL_HTTP_TOOLS_EXEC_ENABLED", "false").lower() == "true"
         )
-    if _detect_desktop_mode():
-        env_overrides["desktop_mode"] = True
     if os.getenv("LIDLTOOL_OPENCLAW_SCOPE_MODE"):
         env_overrides["openclaw_scope_mode"] = os.getenv("LIDLTOOL_OPENCLAW_SCOPE_MODE")
     if os.getenv("LIDLTOOL_OPENCLAW_SCOPE_ALLOW_PARAM_SCOPES"):

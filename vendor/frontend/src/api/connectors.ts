@@ -151,6 +151,28 @@ const ConnectorBootstrapStatusSchema = z.object({
   remote_login_url: z.string().nullable().optional()
 });
 
+const ConnectorAuthStatusSchema = z.object({
+  source_id: z.string(),
+  state: z.string(),
+  detail: z.string().nullable(),
+  reauth_required: z.boolean(),
+  needs_connection: z.boolean(),
+  available_actions: z.array(z.string()),
+  implemented_actions: z.array(z.string()),
+  metadata: z.record(z.string(), z.unknown()),
+  diagnostics: z.record(z.string(), z.unknown()),
+  bootstrap: z
+    .object({
+      source_id: z.string(),
+      status: z.string(),
+      started_at: z.string().nullable(),
+      finished_at: z.string().nullable(),
+      return_code: z.number().nullable(),
+      can_cancel: z.boolean()
+    })
+    .nullable()
+});
+
 const ConnectorBootstrapStartSchema = z.object({
   source_id: z.string(),
   reused: z.boolean(),
@@ -180,13 +202,6 @@ const ConnectorSyncStartSchema = z.object({
   source_id: z.string(),
   reused: z.boolean(),
   sync: ConnectorSyncStatusSchema
-});
-
-const ConnectorAuthStatusSchema = z.object({
-  source_id: z.string(),
-  state: z.string(),
-  detail: z.string().nullable(),
-  available_actions: z.array(z.string()).optional().default([])
 });
 
 const ConnectorLifecycleActionResultSchema = z.object({
@@ -282,9 +297,9 @@ const ConnectorCascadeRetrySchema = z.object({
 export type ConnectorBootstrapStatus = z.infer<typeof ConnectorBootstrapStatusSchema>;
 export type ConnectorBootstrapStartResult = z.infer<typeof ConnectorBootstrapStartSchema>;
 export type ConnectorBootstrapCancelResult = z.infer<typeof ConnectorBootstrapCancelSchema>;
+export type ConnectorAuthStatus = z.infer<typeof ConnectorAuthStatusSchema>;
 export type ConnectorSyncStatus = z.infer<typeof ConnectorSyncStatusSchema>;
 export type ConnectorSyncStartResult = z.infer<typeof ConnectorSyncStartSchema>;
-export type ConnectorAuthStatus = z.infer<typeof ConnectorAuthStatusSchema>;
 export type ConnectorLifecycleActionResult = z.infer<typeof ConnectorLifecycleActionResultSchema>;
 export type ConnectorConfigField = z.infer<typeof ConnectorConfigFieldSchema>;
 export type ConnectorConfig = z.infer<typeof ConnectorConfigSchema>;
@@ -354,12 +369,12 @@ export async function fetchConnectorBootstrapStatus(sourceId: string): Promise<C
   );
 }
 
-export async function cancelConnectorBootstrap(sourceId: string): Promise<ConnectorBootstrapCancelResult> {
-  return apiClient.post(`/api/v1/connectors/${sourceId}/bootstrap/cancel`, ConnectorBootstrapCancelSchema);
+export async function fetchConnectorAuthStatus(sourceId: string): Promise<ConnectorAuthStatus> {
+  return apiClient.get(`/api/v1/sources/${sourceId}/auth`, ConnectorAuthStatusSchema);
 }
 
-export async function fetchConnectorAuthStatus(sourceId: string): Promise<ConnectorAuthStatus> {
-  return apiClient.get(`/api/v1/connectors/${sourceId}/auth/status`, ConnectorAuthStatusSchema);
+export async function cancelConnectorBootstrap(sourceId: string): Promise<ConnectorBootstrapCancelResult> {
+  return apiClient.post(`/api/v1/connectors/${sourceId}/bootstrap/cancel`, ConnectorBootstrapCancelSchema);
 }
 
 export async function startConnectorSync(sourceId: string, full = false): Promise<ConnectorSyncStartResult> {
