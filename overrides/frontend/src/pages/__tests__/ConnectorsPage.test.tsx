@@ -1305,6 +1305,163 @@ describe("ConnectorsPage", () => {
     });
   });
 
+  it("localizes setup field labels and helper text for German connector dialogs", async () => {
+    window.localStorage.setItem("app.locale", "de");
+    mocks.fetchConnectorsMock.mockResolvedValueOnce({
+      generated_at: "2026-04-01T09:00:00Z",
+      viewer: { is_admin: true },
+      operator_actions: { can_reload: true, can_rescan: true },
+      summary: { total_connectors: 1, by_status: { setup_required: 1 } },
+      connectors: [
+        {
+          source_id: "rossmann_de",
+          plugin_id: "local.rossmann_de",
+          display_name: "Rossmann",
+          origin: "local_path",
+          origin_label: "External",
+          runtime_kind: "subprocess_python",
+          install_origin: "local_path",
+          install_state: "installed",
+          enable_state: "enabled",
+          config_state: "required",
+          maturity: "preview",
+          maturity_label: "Preview",
+          supports_bootstrap: true,
+          supports_sync: true,
+          supports_live_session: false,
+          supports_live_session_bootstrap: false,
+          trust_class: "official",
+          status_detail: null,
+          last_sync_summary: null,
+          last_synced_at: null,
+          ui: {
+            status: "setup_required",
+            visibility: "default",
+            description: "Rossmann setup",
+            actions: {
+              primary: { kind: "set_up", enabled: true },
+              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+              operator: {
+                full_sync: true,
+                rescan: true,
+                reload: true,
+                install: false,
+                enable: false,
+                disable: false,
+                uninstall: false,
+                configure: false,
+                manual_commands: {}
+              }
+            }
+          },
+          actions: {
+            primary: { kind: "set_up", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: false,
+              manual_commands: {}
+            }
+          },
+          advanced: {
+            source_exists: true,
+            stale: false,
+            stale_reason: null,
+            auth_state: "not_connected",
+            latest_sync_output: [],
+            latest_bootstrap_output: [],
+            latest_sync_status: "idle",
+            latest_bootstrap_status: "idle",
+            block_reason: null,
+            policy: {
+              blocked: false,
+              block_reason: null,
+              status: "enabled",
+              status_detail: null,
+              trust_class: "official",
+              external_runtime_enabled: true,
+              external_receipt_plugins_enabled: true,
+              allowed_trust_classes: ["official"]
+            },
+            release: {
+              maturity: "preview",
+              label: "Preview",
+              support_posture: "Preview",
+              description: "Desktop-managed pack.",
+              default_visibility: "default",
+              graduation_requirements: []
+            },
+            origin: {
+              kind: "local_path",
+              runtime_kind: "subprocess_python",
+              search_path: "/tmp/plugins",
+              origin_path: "/tmp/plugins/rossmann_de/manifest.json",
+              origin_directory: "/tmp/plugins/rossmann_de"
+            },
+            diagnostics: [],
+            manual_commands: {}
+          }
+        }
+      ]
+    });
+    mocks.fetchConnectorConfigMock.mockResolvedValueOnce({
+      source_id: "rossmann_de",
+      plugin_id: "local.rossmann_de",
+      display_name: "Rossmann",
+      install_origin: "local_path",
+      config_state: "required",
+      fields: [
+        {
+          key: "email",
+          label: "Rossmann email",
+          description: "Rossmann account email address used once during Set up.",
+          input_kind: "text",
+          required: false,
+          sensitive: false,
+          operator_only: false,
+          value: ""
+        },
+        {
+          key: "password",
+          label: "Rossmann password",
+          description: "Rossmann account password used during Set up or reauth only.",
+          input_kind: "password",
+          required: false,
+          sensitive: true,
+          operator_only: false,
+          value: ""
+        }
+      ]
+    });
+
+    renderPage();
+
+    const rossmannCard = (await screen.findByText("Rossmann")).closest('[class*="rounded-xl"]');
+    expect(rossmannCard).not.toBeNull();
+    fireEvent.click(within(rossmannCard as HTMLElement).getByRole("button", { name: "Einrichten" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByLabelText("Rossmann E-Mail")).toBeInTheDocument();
+    expect(
+      await within(dialog).findByText(
+        "Die E-Mail-Adresse des Rossmann-Kontos wird nur einmal während der Einrichtung verwendet."
+      )
+    ).toBeInTheDocument();
+    expect(await within(dialog).findByLabelText("Rossmann Passwort")).toBeInTheDocument();
+    expect(
+      await within(dialog).findByText(
+        "Das Passwort des Rossmann-Kontos wird nur während der Einrichtung oder erneuten Anmeldung verwendet."
+      )
+    ).toBeInTheDocument();
+    expect(await within(dialog).findByRole("button", { name: "Abbrechen" })).toBeInTheDocument();
+  });
+
   it("hides stale REWE bootstrap browser messaging once the saved Chrome-backed session is already usable", async () => {
     mocks.fetchConnectorsMock.mockResolvedValueOnce({
       generated_at: "2026-04-18T17:05:00Z",
