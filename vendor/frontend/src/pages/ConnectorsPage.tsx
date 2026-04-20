@@ -94,6 +94,76 @@ function byLocale(locale: SupportedLocale, en: string, de: string): string {
   return locale === "de" ? de : en;
 }
 
+const CONNECTOR_FIELD_LOCALIZATION_OVERRIDES: Record<
+  string,
+  Record<string, { label?: string; description?: string; placeholder?: string }>
+> = {
+  dm_de: {
+    store_name: {
+      label: "Filialbezeichnung",
+      description: "Optionaler Anzeigename für importierte dm-Belege."
+    },
+    domain: {
+      label: "dm-Domain",
+      description: "Optionaler Host-Override für Einrichtung und Synchronisierung."
+    },
+    headless: {
+      label: "Headless-Synchronisierung",
+      description: "Synchronisierung nach der Einrichtung ohne sichtbares Browserfenster ausführen."
+    },
+    max_pages: {
+      label: "Limit für Belegseiten",
+      description: "Optionales Maximum an Bestellverlaufsseiten, die pro Lauf geprüft werden."
+    }
+  },
+  rossmann_de: {
+    email: {
+      label: "Rossmann E-Mail",
+      description: "Die E-Mail-Adresse des Rossmann-Kontos wird nur einmal während der Einrichtung verwendet."
+    },
+    password: {
+      label: "Rossmann Passwort",
+      description: "Das Passwort des Rossmann-Kontos wird nur während der Einrichtung oder erneuten Anmeldung verwendet."
+    },
+    discovery_limit: {
+      label: "Seitengröße für Belege",
+      description: "Optionales Limit pro Lauf, das nach der hostseitigen Belegerkennung angewendet wird."
+    },
+    timeout_seconds: {
+      label: "HTTP-Timeout",
+      description: "Optionales Timeout für Rossmann- und Anybill-API-Aufrufe."
+    },
+    state_file: {
+      label: "Plugin-Statusdatei",
+      description: "Optionaler Override für den persistenten Pfad der Rossmann-Plugindaten."
+    },
+    account_api_base_url: {
+      label: "Rossmann Konto-API",
+      description: "Optionaler Override der Rossmann-App-Konto-API für Operator-Debugging."
+    },
+    anybill_base_url: {
+      label: "Anybill-Basis-URL",
+      description: "Optionaler Override der Anybill-API-Basis-URL für Operator-Debugging."
+    }
+  }
+};
+
+function localizeConnectorConfigField(field: ConnectorConfigField, sourceId: string, locale: SupportedLocale): ConnectorConfigField {
+  if (locale !== "de") {
+    return field;
+  }
+  const overrides = CONNECTOR_FIELD_LOCALIZATION_OVERRIDES[sourceId]?.[field.key];
+  if (!overrides) {
+    return field;
+  }
+  return {
+    ...field,
+    label: overrides.label ?? field.label,
+    description: overrides.description ?? field.description,
+    placeholder: overrides.placeholder ?? field.placeholder
+  };
+}
+
 function compareVersions(left: string, right: string): number {
   const leftParts = left.split(/[\.-]/);
   const rightParts = right.split(/[\.-]/);
@@ -1470,8 +1540,10 @@ export function ConnectorsPage() {
     if (!setupConfigQuery.data || !setupState) {
       return [];
     }
-    return fieldsForSetupMode(setupConfigQuery.data.fields, setupState.mode);
-  }, [setupConfigQuery.data, setupState]);
+    return fieldsForSetupMode(setupConfigQuery.data.fields, setupState.mode).map((field) =>
+      localizeConnectorConfigField(field, setupState.connector.source_id, locale)
+    );
+  }, [locale, setupConfigQuery.data, setupState]);
 
   const connectorsError = connectorsQuery.error
     ? resolveApiErrorMessage(connectorsQuery.error, t, t("pages.connectors.loadSourceErrorTitle"))
@@ -2516,7 +2588,7 @@ export function ConnectorsPage() {
 
           <DialogFooter>
             <Button variant="outline" onClick={closeSetup}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={() => void handleSaveSetup()}

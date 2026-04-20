@@ -76,6 +76,16 @@ Residual debt after Sprint 6:
 - Deferred parity remains deferred on purpose: offers parity, automations parity, reliability/ops parity, and
   self-hosted operator workflows.
 
+Future backlog note:
+
+- A future desktop PR may add broader non-EUR currency support such as `USD` and `GBP`, but this is not a small
+  symbol-only change.
+- Current desktop budgeting, dashboard, recurring, and analytics flows still contain EUR-centric parsing/formatting and
+  often sum raw cents across records, which is only safe for effectively single-currency views.
+- If mixed-currency overviews are ever supported, the product will need an explicit policy such as base-currency
+  conversion with stored FX-rate snapshots, separate per-currency totals, or hard limits on combining currencies in the
+  same overview.
+
 ## User journey
 
 Typical desktop flow:

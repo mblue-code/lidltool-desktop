@@ -26,6 +26,7 @@ import { SearchInput } from "@/components/shared/SearchInput";
 import { useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import { cn } from "@/lib/utils";
+import { formatEuroInputFromCents, parseOptionalEuroAmountToCents } from "@/utils/currency";
 import { formatDateTime, formatEurFromCents } from "../utils/format";
 
 const PAGE_SIZE = 25;
@@ -45,9 +46,11 @@ const FILTER_KEYS = [
   "month",
   "purchased_from",
   "purchased_to",
-  "min_total_cents",
-  "max_total_cents"
+  "min_total",
+  "max_total"
 ] as const;
+
+const LEGACY_AMOUNT_FILTER_KEYS = ["min_total_cents", "max_total_cents"] as const;
 
 type SortField =
   | "purchased_at"
@@ -88,6 +91,52 @@ function readNumberParam(value: string | null): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function readAmountFormValue(
+  searchParams: URLSearchParams,
+  key: "min_total" | "max_total",
+  legacyKey: "min_total_cents" | "max_total_cents"
+): string {
+  const rawValue = searchParams.get(key);
+  if (rawValue !== null) {
+    return rawValue;
+  }
+
+  const legacyValue = readNumberParam(searchParams.get(legacyKey));
+  return legacyValue === undefined ? "" : formatEuroInputFromCents(legacyValue);
+}
+
+function readAmountParamAsCents(
+  searchParams: URLSearchParams,
+  key: "min_total" | "max_total",
+  legacyKey: "min_total_cents" | "max_total_cents"
+): number | undefined {
+  const rawValue = searchParams.get(key);
+  if (rawValue !== null) {
+    const parsed = parseOptionalEuroAmountToCents(rawValue);
+    return parsed.valid ? parsed.cents ?? undefined : undefined;
+  }
+
+  return readNumberParam(searchParams.get(legacyKey));
+}
+
+function formatAmountFilterValue(
+  searchParams: URLSearchParams,
+  key: "min_total" | "max_total",
+  legacyKey: "min_total_cents" | "max_total_cents"
+): string | null {
+  const rawValue = searchParams.get(key);
+  if (rawValue !== null) {
+    const parsed = parseOptionalEuroAmountToCents(rawValue);
+    if (parsed.valid && parsed.cents !== null) {
+      return formatEurFromCents(parsed.cents);
+    }
+    return rawValue;
+  }
+
+  const legacyValue = readNumberParam(searchParams.get(legacyKey));
+  return legacyValue === undefined ? null : formatEurFromCents(legacyValue);
+}
+
 function readFilterFormValues(searchParams: URLSearchParams): FilterFormValues {
   return {
     query: searchParams.get("query") || "",
@@ -101,13 +150,22 @@ function readFilterFormValues(searchParams: URLSearchParams): FilterFormValues {
     month: searchParams.get("month") || "",
     purchasedFrom: searchParams.get("purchased_from") || "",
     purchasedTo: searchParams.get("purchased_to") || "",
-    minTotal: searchParams.get("min_total_cents") || "",
-    maxTotal: searchParams.get("max_total_cents") || ""
+    minTotal: readAmountFormValue(searchParams, "min_total", "min_total_cents"),
+    maxTotal: readAmountFormValue(searchParams, "max_total", "max_total_cents")
   };
 }
 
 function hasExpandedFilterParams(searchParams: URLSearchParams): boolean {
-  return FILTER_KEYS.filter((key) => key !== "query").some((key) => {
+  const hasVisibleFilters = FILTER_KEYS.filter((key) => key !== "query").some((key) => {
+    const value = searchParams.get(key);
+    return value !== null && value.trim() !== "";
+  });
+
+  if (hasVisibleFilters) {
+    return true;
+  }
+
+  return LEGACY_AMOUNT_FILTER_KEYS.some((key) => {
     const value = searchParams.get(key);
     return value !== null && value.trim() !== "";
   });
@@ -140,6 +198,12 @@ function formatFilterValue(key: (typeof FILTER_KEYS)[number], value: string): st
       return formatDateTime(parsed.toISOString());
     }
   }
+  if (key === "min_total" || key === "max_total") {
+    const parsed = parseOptionalEuroAmountToCents(value);
+    if (parsed.valid && parsed.cents !== null) {
+      return formatEurFromCents(parsed.cents);
+    }
+  }
   return value;
 }
 
@@ -150,6 +214,7 @@ export function TransactionsPage() {
     readFilterFormValues(searchParams)
   );
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [filterError, setFilterError] = useState<string | null>(null);
 
   const searchKey = searchParams.toString();
   const sortField = readSortField(searchParams.get("sort"));
@@ -159,6 +224,7 @@ export function TransactionsPage() {
   useEffect(() => {
     setFormValues(readFilterFormValues(searchParams));
     setShowAdvancedFilters((current) => current || hasExpandedFilterParams(searchParams));
+    setFilterError(null);
   }, [searchKey]);
 
   const queryValues = useMemo<TransactionsFilters>(
@@ -176,8 +242,8 @@ export function TransactionsPage() {
       purchasedTo: searchParams.get("purchased_to") || undefined,
       sortBy: sortField,
       sortDir: sortDirection,
-      minTotalCents: readNumberParam(searchParams.get("min_total_cents")),
-      maxTotalCents: readNumberParam(searchParams.get("max_total_cents")),
+      minTotalCents: readAmountParamAsCents(searchParams, "min_total", "min_total_cents"),
+      maxTotalCents: readAmountParamAsCents(searchParams, "max_total", "max_total_cents"),
       limit: PAGE_SIZE,
       offset
     }),
@@ -197,12 +263,17 @@ export function TransactionsPage() {
       month: t("pages.transactions.filter.month"),
       purchased_from: t("pages.transactions.filter.purchasedFrom"),
       purchased_to: t("pages.transactions.filter.purchasedTo"),
-      min_total_cents: t("pages.transactions.chip.minTotal"),
-      max_total_cents: t("pages.transactions.chip.maxTotal")
+      min_total: t("pages.transactions.chip.minTotal"),
+      max_total: t("pages.transactions.chip.maxTotal")
     };
     const chips: FilterChip[] = [];
     for (const key of FILTER_KEYS) {
-      const value = searchParams.get(key);
+      const value =
+        key === "min_total"
+          ? formatAmountFilterValue(searchParams, "min_total", "min_total_cents")
+          : key === "max_total"
+            ? formatAmountFilterValue(searchParams, "max_total", "max_total_cents")
+            : searchParams.get(key);
       if (!value) {
         continue;
       }
@@ -228,6 +299,27 @@ export function TransactionsPage() {
 
   function submitFilters(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
+    const minTotal = parseOptionalEuroAmountToCents(formValues.minTotal);
+    const maxTotal = parseOptionalEuroAmountToCents(formValues.maxTotal);
+
+    if (!minTotal.valid) {
+      setFilterError(t("pages.transactions.validation.minTotal"));
+      return;
+    }
+    if (!maxTotal.valid) {
+      setFilterError(t("pages.transactions.validation.maxTotal"));
+      return;
+    }
+    if (
+      minTotal.cents !== null &&
+      maxTotal.cents !== null &&
+      minTotal.cents > maxTotal.cents
+    ) {
+      setFilterError(t("pages.transactions.validation.totalRange"));
+      return;
+    }
+
+    setFilterError(null);
     const next = new URLSearchParams();
     const purchasedFrom = formValues.purchasedFrom.trim();
     const purchasedTo = formValues.purchasedTo.trim();
@@ -270,11 +362,11 @@ export function TransactionsPage() {
         next.set("month", month);
       }
     }
-    if (formValues.minTotal.trim()) {
-      next.set("min_total_cents", formValues.minTotal.trim());
+    if (minTotal.cents !== null) {
+      next.set("min_total", minTotal.normalized);
     }
-    if (formValues.maxTotal.trim()) {
-      next.set("max_total_cents", formValues.maxTotal.trim());
+    if (maxTotal.cents !== null) {
+      next.set("max_total", maxTotal.normalized);
     }
     next.set("offset", "0");
     applySortIfNeeded(next);
@@ -309,6 +401,12 @@ export function TransactionsPage() {
   function removeFilter(key: (typeof FILTER_KEYS)[number]): void {
     const next = new URLSearchParams(searchParams);
     next.delete(key);
+    if (key === "min_total") {
+      next.delete("min_total_cents");
+    }
+    if (key === "max_total") {
+      next.delete("max_total_cents");
+    }
     next.set("offset", "0");
     setSearchParams(next);
   }
@@ -368,7 +466,7 @@ export function TransactionsPage() {
       const localFrom = new Date(from.getTime() - from.getTimezoneOffset() * 60_000);
       next.set("purchased_from", localFrom.toISOString().slice(0, 16));
     } else if (preset === "highValue") {
-      next.set("min_total_cents", "5000");
+      next.set("min_total", "50");
     }
     next.set("offset", "0");
     applySortIfNeeded(next);
@@ -539,23 +637,31 @@ export function TransactionsPage() {
               <Label htmlFor="min-total">{t("pages.transactions.filter.minTotal")}</Label>
               <Input
                 id="min-total"
-                type="number"
+                type="text"
+                inputMode="decimal"
                 value={formValues.minTotal}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, minTotal: event.target.value }))
-                }
+                placeholder={t("pages.transactions.filter.totalPlaceholder")}
+                onChange={(event) => {
+                  setFilterError(null);
+                  setFormValues((previous) => ({ ...previous, minTotal: event.target.value }));
+                }}
               />
+              <p className="text-xs text-muted-foreground">{t("pages.transactions.filter.totalHint")}</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="max-total">{t("pages.transactions.filter.maxTotal")}</Label>
               <Input
                 id="max-total"
-                type="number"
+                type="text"
+                inputMode="decimal"
                 value={formValues.maxTotal}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, maxTotal: event.target.value }))
-                }
+                placeholder={t("pages.transactions.filter.totalPlaceholder")}
+                onChange={(event) => {
+                  setFilterError(null);
+                  setFormValues((previous) => ({ ...previous, maxTotal: event.target.value }));
+                }}
               />
+              <p className="text-xs text-muted-foreground">{t("pages.transactions.filter.totalHint")}</p>
             </div>
           </>
         ) : null}
@@ -588,6 +694,13 @@ export function TransactionsPage() {
         <Alert variant="destructive">
           <AlertTitle>{t("pages.transactions.loadError")}</AlertTitle>
           <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {filterError ? (
+        <Alert variant="destructive">
+          <AlertTitle>{t("pages.transactions.filterErrorTitle")}</AlertTitle>
+          <AlertDescription>{filterError}</AlertDescription>
         </Alert>
       ) : null}
 

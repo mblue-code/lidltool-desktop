@@ -9,6 +9,7 @@ const __dirname = dirname(__filename);
 const desktopDir = resolve(__dirname, "..");
 const backendSource = resolve(desktopDir, "vendor", "backend");
 const venvDir = resolve(desktopDir, ".backend", "venv");
+const vendoredBackendVenvDir = resolve(backendSource, ".venv");
 const playwrightBrowsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH?.trim() || "0";
 const allowUnsupportedPython = process.env.LIDLTOOL_DESKTOP_ALLOW_UNSUPPORTED_PYTHON?.trim() === "1";
 
@@ -19,6 +20,10 @@ const venvPython =
   process.platform === "win32"
     ? resolve(venvDir, "Scripts", "python.exe")
     : resolve(venvDir, "bin", "python");
+const vendoredBackendPython =
+  process.platform === "win32"
+    ? resolve(vendoredBackendVenvDir, "Scripts", "python.exe")
+    : resolve(vendoredBackendVenvDir, "bin", "python");
 
 function parsePythonVersion(text) {
   const match = /Python\s+(\d+)\.(\d+)\.(\d+)/i.exec(text);
@@ -69,6 +74,14 @@ function run(command, args, opts = {}) {
 }
 
 function resolveHostPython() {
+  const bundledCandidates = [vendoredBackendPython];
+  for (const candidate of bundledCandidates) {
+    const version = readPythonVersion(candidate);
+    if (isSupportedPythonVersion(version)) {
+      return { command: candidate, args: [] };
+    }
+  }
+
   if (process.platform === "win32") {
     for (const pythonSelector of ["-3.13", "-3.12", "-3.11"]) {
       const version = readPythonVersion("py", [pythonSelector]);
