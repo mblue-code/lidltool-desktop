@@ -63,6 +63,27 @@ def human_user_count(session: Session) -> int:
     return int(session.execute(stmt).scalar_one() or 0)
 
 
+def ensure_human_users_are_admin(session: Session) -> int:
+    users = (
+        session.execute(
+            select(User).where(
+                User.username != SERVICE_USERNAME,
+                User.is_admin.is_(False),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not users:
+        return 0
+    now = datetime.now(tz=UTC)
+    for user in users:
+        user.is_admin = True
+        user.updated_at = now
+    session.flush()
+    return len(users)
+
+
 def create_local_user(
     session: Session,
     *,
@@ -79,7 +100,8 @@ def create_local_user(
         username=normalized,
         display_name=(display_name.strip() if display_name else None) or None,
         password_hash=hash_password(password),
-        is_admin=is_admin,
+        # Desktop keeps every human account as an admin account.
+        is_admin=True,
         created_at=datetime.now(tz=UTC),
         updated_at=datetime.now(tz=UTC),
     )

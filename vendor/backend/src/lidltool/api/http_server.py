@@ -76,9 +76,7 @@ from lidltool.analytics.advanced import (
 )
 from lidltool.analytics.item_categorizer import resolve_item_categorizer_runtime_client
 from lidltool.analytics.recategorization import recategorize_transactions
-from lidltool.amazon.profiles import is_amazon_source_id
 from lidltool.analytics.queries import (
-    dashboard_available_years,
     dashboard_retailer_composition,
     dashboard_savings_breakdown,
     dashboard_totals,
@@ -196,6 +194,7 @@ from lidltool.auth.user_auth import verify_password
 from lidltool.auth.users import (
     SERVICE_USERNAME,
     create_local_user,
+    ensure_human_users_are_admin,
     ensure_service_user,
     get_user_by_username,
     human_user_count,
@@ -228,12 +227,10 @@ from lidltool.connectors.auth.auth_orchestration import (
     start_connector_command_session,
     terminate_connector_bootstrap,
 )
-from lidltool.connectors.auth.auth_status import AuthBootstrapSnapshot
 from lidltool.connectors.discovery import connector_discovery_payload
 from lidltool.connectors.lifecycle import (
     assert_connector_operation_allowed,
     connector_lifecycle_record_payload,
-    connector_runtime_options,
     install_connector,
     set_connector_enabled,
     uninstall_connector,
@@ -249,7 +246,6 @@ from lidltool.db.models import (
     ChatMessage,
     ChatRun,
     ChatThread,
-    ConnectorConfigState,
     Document,
     Source,
     Transaction,
@@ -1792,27 +1788,13 @@ def _connector_command(
     source_id: str,
     operation: Literal["bootstrap", "sync"],
     full: bool = False,
-    connector_options: Mapping[str, Any] | None = None,
     extra_args: tuple[str, ...] = (),
 ) -> list[str] | None:
-    effective_options = dict(connector_options or {})
-    if operation == "sync" and full and is_amazon_source_id(source_id):
-        effective_options["headless"] = False
-    option_args: list[str] = []
-    for key, value in effective_options.items():
-        if value is None:
-            continue
-        if isinstance(value, bool):
-            rendered = "true" if value else "false"
-        else:
-            rendered = str(value)
-        option_args.extend(("--option", f"{key}={rendered}"))
     resolved = ConnectorExecutionService(config=config).build_command(
         source_id=source_id,
         operation=operation,
         extra_args=(
             *(("--full",) if operation == "sync" and full else ()),
-            *option_args,
             *extra_args,
         ),
     )
@@ -1923,6 +1905,10 @@ def _connector_is_preview_source(
         release_policy_payload(source_id=source_id, manifest=resolved_manifest).get("maturity")
         == "preview"
     )
+
+
+def _connector_prefers_local_browser_flow(source_id: str) -> bool:
+    return source_id in {"rewe_de"}
 
 
 def _idle_connector_cascade_status() -> dict[str, Any]:
@@ -2157,11 +2143,6 @@ def _run_connector_cascade(
                 config,
                 source_id=source_id,
                 operation="bootstrap",
-                connector_options=connector_runtime_options(
-                    source_id=source_id,
-                    config=config,
-                    allow_reconcile_writes=False,
-                ),
             )
             if bootstrap_command is None:
                 any_failure = True
@@ -2215,11 +2196,6 @@ def _run_connector_cascade(
                 source_id=source_id,
                 operation="sync",
                 full=cascade.full,
-                connector_options=connector_runtime_options(
-                    source_id=source_id,
-                    config=config,
-                    allow_reconcile_writes=False,
-                ),
             )
             if sync_command is None:
                 any_failure = True
@@ -3150,9 +3126,9 @@ class AICategorizationSettingsUpdateRequest(BaseModel):
 
 
 class OCRSettingsUpdateRequest(BaseModel):
-    default_provider: Literal["desktop_local", "glm_ocr_local", "openai_compatible", "external_api"]
+    default_provider: Literal["glm_ocr_local", "openai_compatible", "external_api"]
     fallback_enabled: bool = False
-    fallback_provider: Literal["desktop_local", "glm_ocr_local", "openai_compatible", "external_api"] | None = None
+    fallback_provider: Literal["glm_ocr_local", "openai_compatible", "external_api"] | None = None
     glm_local_base_url: str | None = None
     glm_local_api_mode: Literal["ollama_generate", "openai_chat_completion"] | None = None
     glm_local_model: str | None = None
@@ -3372,7 +3348,7 @@ class UserCreateRequest(BaseModel):
     username: str
     display_name: str | None = None
     password: str
-    is_admin: bool = False
+    is_admin: bool = True
 
 
 class UserUpdateRequest(BaseModel):
@@ -3622,20 +3598,13 @@ def create_app(
             sessions=sessions,
             bind_host=runtime_context.bind_host,
         )
-        app.state.desktop_mode = config.desktop_mode
         scheduler: AutomationScheduler | None = None
-        if config.desktop_mode:
-            LOGGER.info(
-                "desktop.minimal mode active; skipping automation scheduler and connector live sync"
-            )
-            app.state.automation_scheduler = None
-        else:
-            scheduler = AutomationScheduler(session_factory=sessions, config=config)
-            scheduler.start()
-            app.state.automation_scheduler = scheduler
+        scheduler = AutomationScheduler(session_factory=sessions, config=config)
+        scheduler.start()
+        app.state.automation_scheduler = scheduler
         live_sync_stop = threading.Event()
         app.state.connector_live_sync_stop = live_sync_stop
-        if config.connector_live_sync_enabled and not config.desktop_mode:
+        if config.connector_live_sync_enabled:
             live_sync_thread = threading.Thread(
                 target=_run_periodic_connector_sync,
                 kwargs={
@@ -3884,6 +3853,7 @@ def create_app(
         try:
             context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
+                ensure_human_users_are_admin(session)
                 if human_user_count(session) == 0:
                     raise HTTPException(status_code=503, detail="setup required")
                 user = get_user_by_username(session, username=payload.username)
@@ -4337,7 +4307,7 @@ def create_app(
                     username=payload.username,
                     password=payload.password,
                     display_name=payload.display_name,
-                    is_admin=payload.is_admin,
+                    is_admin=True,
                 )
                 result = _serialize_user(user)
             return _response(True, result=result, warnings=[], error=None)
@@ -4359,7 +4329,6 @@ def create_app(
                     config=context.config,
                     admin_required=True,
                 )
-                current_user = auth_context.user
                 user = session.get(User, user_id)
                 if user is None or user.username == SERVICE_USERNAME:
                     raise RuntimeError("user not found")
@@ -4379,25 +4348,7 @@ def create_app(
                             else None
                         ),
                     )
-                if payload.is_admin is not None:
-                    if (
-                        user.is_admin
-                        and not payload.is_admin
-                        and user.user_id == current_user.user_id
-                    ):
-                        raise RuntimeError("cannot remove admin privileges from current user")
-                    if user.is_admin and not payload.is_admin:
-                        admin_count = int(
-                            session.execute(
-                                select(func.count(User.user_id)).where(
-                                    User.is_admin.is_(True),
-                                    User.username != SERVICE_USERNAME,
-                                )
-                            ).scalar_one()
-                        )
-                        if admin_count <= 1:
-                            raise RuntimeError("at least one admin user is required")
-                    user.is_admin = payload.is_admin
+                user.is_admin = True
                 user.updated_at = datetime.now(tz=UTC)
                 session.flush()
                 result = _serialize_user(user)
@@ -6843,31 +6794,6 @@ def create_app(
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
-    @app.get("/api/v1/dashboard/years")
-    def get_dashboard_years(
-        request: Request,
-        source_ids: str | None = None,
-        scope: str = "personal",
-    ) -> Any:
-        try:
-            context = _resolve_request_context(request)
-            app_config = context.config
-            sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=app_config
-                )
-                visibility = _visibility_for_scope(current_user, scope)
-                result = dashboard_available_years(
-                    session,
-                    source_ids=_parse_source_ids(source_ids),
-                    visibility=visibility,
-                )
-            return _response(True, result=result, warnings=warnings, error=None)
-        except Exception as exc:  # noqa: BLE001
-            return _error_response(exc)
-
     @app.get("/api/v1/dashboard/summary")
     def get_dashboard_summary(
         request: Request,
@@ -7635,12 +7561,12 @@ def create_app(
                     continue
                 if _connector_bootstrap_is_running(existing):
                     raise RuntimeError(
-                        f"connector bootstrap already running for source: {existing_source}"
+                        "connector setup is already running for "
+                        f"{existing_source}; finish or cancel it before starting {source_id}"
                     )
 
-            prefer_local_browser = is_loopback_request(request)
             prev = bootstrap_sessions.get(source_id)
-            existing_remote_url = None if prefer_local_browser else _novnc_login_url(request)
+            existing_remote_url = _novnc_login_url(request)
             if prev is not None and _connector_bootstrap_is_running(prev):
                 result = {
                     "source_id": source_id,
@@ -7659,7 +7585,7 @@ def create_app(
 
             remote_login_url: str | None = None
             env: dict[str, str] | None = None
-            if not prefer_local_browser:
+            if not _connector_prefers_local_browser_flow(source_id):
                 try:
                     _ensure_vnc_runtime(app)
                     remote_login_url = _novnc_login_url(request)
@@ -7680,77 +7606,17 @@ def create_app(
             started = service.start_bootstrap(
                 source_id=source_id,
                 env=env,
-                connector_options=connector_runtime_options(
-                    source_id=source_id,
-                    config=app_config,
-                    allow_reconcile_writes=False,
-                ),
             )
             if started.bootstrap is None:
-                finished_at = datetime.now(tz=UTC)
-                immediate_status = "succeeded" if started.ok and started.state == "connected" else "failed"
-                immediate_bootstrap = AuthBootstrapSnapshot(
-                    source_id=source_id,
-                    state=immediate_status,
-                    started_at=finished_at,
-                    finished_at=finished_at,
-                    return_code=0 if immediate_status == "succeeded" else 1,
-                    output_tail=(started.detail,) if started.detail else (),
-                    can_cancel=False,
-                )
-                result = {
-                    "source_id": source_id,
-                    "reused": False,
-                    "bootstrap": {
-                        "source_id": immediate_bootstrap.source_id,
-                        "status": immediate_bootstrap.state,
-                        "command": None,
-                        "pid": None,
-                        "started_at": immediate_bootstrap.started_at.isoformat(),
-                        "finished_at": immediate_bootstrap.finished_at.isoformat(),
-                        "return_code": immediate_bootstrap.return_code,
-                        "output_tail": list(immediate_bootstrap.output_tail),
-                        "can_cancel": immediate_bootstrap.can_cancel,
-                    },
-                    "remote_login_url": remote_login_url,
-                }
-                if _connector_is_preview_source(source_id, config=app_config):
-                    warnings.append(
-                        _warning(
-                            "preview connector bootstrap started; this connector is not live-validated yet",
-                            code="connector_preview_bootstrap_started",
-                        )
-                    )
-                return _response(True, result=result, warnings=warnings, error=None)
+                raise RuntimeError(f"failed to start connector bootstrap for source: {source_id}")
             bootstrap = bootstrap_sessions.get(source_id)
-            bootstrap_result = (
-                _serialize_connector_bootstrap(bootstrap)
-                if bootstrap is not None
-                else {
-                    "source_id": started.bootstrap.source_id,
-                    "status": started.bootstrap.state,
-                    "command": " ".join(started.bootstrap.command or ()),
-                    "pid": started.bootstrap.pid,
-                    "started_at": (
-                        started.bootstrap.started_at.isoformat()
-                        if started.bootstrap.started_at is not None
-                        else None
-                    ),
-                    "finished_at": (
-                        started.bootstrap.finished_at.isoformat()
-                        if started.bootstrap.finished_at is not None
-                        else None
-                    ),
-                    "return_code": started.bootstrap.return_code,
-                    "output_tail": list(started.bootstrap.output_tail),
-                    "can_cancel": started.bootstrap.can_cancel,
-                }
-            )
+            if bootstrap is None:
+                raise RuntimeError(f"connector bootstrap session missing after start: {source_id}")
 
             result = {
                 "source_id": source_id,
                 "reused": started.status == "reused",
-                "bootstrap": bootstrap_result,
+                "bootstrap": _serialize_connector_bootstrap(bootstrap),
                 "remote_login_url": remote_login_url,
             }
             if _connector_is_preview_source(
@@ -7763,41 +7629,6 @@ def create_app(
                         "preview connector bootstrap started; this connector is not live-validated yet",
                         code="connector_preview_bootstrap_started",
                     )
-                )
-            return _response(True, result=result, warnings=warnings, error=None)
-        except Exception as exc:  # noqa: BLE001
-            return _error_response(exc)
-
-    @app.get("/api/v1/connectors/{source_id}/auth/status")
-    def get_connector_auth_status(
-        request: Request,
-        source_id: str,
-    ) -> Any:
-        try:
-            context = _resolve_request_context(request)
-            app_config = context.config
-            sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                _resolve_request_user(request=request, session=session, config=app_config)
-                assert_connector_operation_allowed(
-                    session,
-                    source_id=source_id,
-                    operation="bootstrap",
-                    config=app_config,
-                )
-
-            service = _connector_auth_service(app, config=app_config)
-            snapshot = service.get_auth_status(source_id=source_id, validate_session=True)
-            result = {
-                "source_id": source_id,
-                "state": snapshot.state,
-                "detail": snapshot.detail,
-                "available_actions": list(snapshot.available_actions),
-            }
-            if _connector_is_preview_source(source_id, config=app_config):
-                warnings.append(
-                    "preview connector auth status only; this connector is not live-validated yet"
                 )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -7891,7 +7722,6 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            explicit_connector_public_config: dict[str, Any] = {}
             with session_scope(sessions) as session:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
@@ -7902,10 +7732,6 @@ def create_app(
                     operation="sync",
                     config=app_config,
                 )
-                config_row = session.get(ConnectorConfigState, source_id)
-                raw_public_config = None if config_row is None else config_row.public_config_json
-                if isinstance(raw_public_config, dict):
-                    explicit_connector_public_config = dict(raw_public_config)
                 current_user_id = current_user.user_id
                 current_username = current_user.username
 
@@ -7922,31 +7748,11 @@ def create_app(
                     f"owner_user_id={current_user_id}",
                 )
 
-            runtime_options = connector_runtime_options(
-                source_id=source_id,
-                config=app_config,
-                allow_reconcile_writes=False,
-            )
-            explicit_years: int | None = None
-            explicit_years_value = explicit_connector_public_config.get("years")
-            if explicit_years_value not in {None, ""}:
-                try:
-                    explicit_years = int(explicit_years_value)
-                except (TypeError, ValueError):
-                    explicit_years = None
-            if (
-                full
-                and is_amazon_source_id(source_id)
-                and (explicit_years is None or explicit_years <= 1)
-            ):
-                runtime_options["years"] = 10
-
             command = _connector_command(
                 app_config,
                 source_id=source_id,
                 operation="sync",
                 full=full,
-                connector_options=runtime_options,
                 extra_args=sync_extra_args,
             )
             if command is None:

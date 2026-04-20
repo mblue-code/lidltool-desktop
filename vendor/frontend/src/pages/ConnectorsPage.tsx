@@ -913,6 +913,14 @@ function parseStageValue(line: string, key: string): string | null {
   return match?.[1] ?? null;
 }
 
+function blockingBootstrapSourceId(message: string | null | undefined): string | null {
+  if (!message) {
+    return null;
+  }
+  const match = message.match(/connector setup is already running for ([^;]+);/i);
+  return match?.[1]?.trim() ?? null;
+}
+
 function summarizeBootstrapStatus(
   sourceId: string,
   status: ConnectorBootstrapStatus | null,
@@ -1121,11 +1129,28 @@ export function ConnectorsPage() {
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["connectors", "bootstrap-status", sourceId] });
     },
-    onError: (error) => {
+    onError: (error, sourceId) => {
+      const resolvedMessage = resolveApiErrorMessage(error, t, t("pages.connectors.startBootstrapErrorTitle"));
+      const blockingSourceId = blockingBootstrapSourceId(resolvedMessage);
+      const blockingConnector =
+        blockingSourceId === null
+          ? null
+          : connectors.find((item) => item.source_id === blockingSourceId) ?? null;
+      const blockingDisplayName =
+        blockingConnector !== null
+          ? connectorDisplayName(blockingConnector)
+          : blockingSourceId;
       setFeedback({
         variant: "destructive",
         title: byLocale(locale, "Sign-in failed", "Anmeldung fehlgeschlagen"),
-        message: resolveApiErrorMessage(error, t, t("pages.connectors.startBootstrapErrorTitle"))
+        message:
+          blockingSourceId !== null
+            ? byLocale(
+                locale,
+                `Finish or stop ${blockingDisplayName} sign-in before starting ${sourceId}.`,
+                `Schließen Sie zuerst die Anmeldung für ${blockingDisplayName} ab oder stoppen Sie sie, bevor Sie ${sourceId} starten.`
+              )
+            : resolvedMessage
       });
     }
   });
@@ -1875,6 +1900,20 @@ export function ConnectorsPage() {
         ? "ready"
         : rawTaskState;
     const primaryKind = primaryActionKind(connector, taskState, bootstrapStatus, firstRunPromptActive);
+    const otherRunningBootstrap = Array.from(bootstrapStatusBySourceId.entries()).find(
+      ([otherSourceId, status]) =>
+        otherSourceId !== connector.source_id && status.status === "running"
+    ) ?? null;
+    const blockingConnector =
+      otherRunningBootstrap === null
+        ? null
+        : connectors.find((item) => item.source_id === otherRunningBootstrap[0]) ?? null;
+    const blockingDisplayName =
+      blockingConnector !== null
+        ? connectorDisplayName(blockingConnector)
+        : otherRunningBootstrap?.[0] ?? null;
+    const blockedByOtherBootstrap =
+      otherRunningBootstrap !== null && (primaryKind === "set_up" || primaryKind === "reconnect");
     const primaryEnabled =
       primaryKind === "sync_now"
         ? connector.enable_state === "enabled"
@@ -1894,13 +1933,19 @@ export function ConnectorsPage() {
       connector.supports_sync &&
       connector.enable_state === "enabled";
     const effectivePrimaryKind: ConnectorPrimaryActionKind = showFirstRunActions ? "sync_now" : primaryKind;
-    const effectivePrimaryEnabled = showFirstRunActions ? true : primaryEnabled;
+    const effectivePrimaryEnabled = showFirstRunActions ? true : primaryEnabled && !blockedByOtherBootstrap;
     const statusSummary = showFirstRunActions
       ? byLocale(
           locale,
           "Your sign-in is saved. Choose the normal import or the one-time full history import next.",
           "Ihre Anmeldung ist gespeichert. Wählen Sie jetzt entweder den normalen Import oder einmalig die gesamte Historie."
         )
+      : blockedByOtherBootstrap
+        ? byLocale(
+            locale,
+            `Finish or stop ${blockingDisplayName} sign-in first.`,
+            `Schließen Sie zuerst die Anmeldung für ${blockingDisplayName} ab oder stoppen Sie sie.`
+          )
       : connectorStatusSummary(connector, pack, displayName, locale);
     const bootstrapTitle =
       bootstrapStatus?.status === "running"
@@ -1947,6 +1992,19 @@ export function ConnectorsPage() {
                   locale,
                   "Your sign-in is saved. Start the normal import now, or run the one-time full history import while everything is still fresh.",
                   "Ihre Anmeldung ist gespeichert. Starten Sie jetzt den normalen Import oder laden Sie einmalig die gesamte Historie, solange alles noch frisch verbunden ist."
+                )}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {blockedByOtherBootstrap ? (
+            <Alert>
+              <AlertTitle>{byLocale(locale, "Another sign-in is active", "Eine andere Anmeldung läuft")}</AlertTitle>
+              <AlertDescription>
+                {byLocale(
+                  locale,
+                  `Finish or stop ${blockingDisplayName} sign-in before starting ${displayName}.`,
+                  `Schließen Sie die Anmeldung für ${blockingDisplayName} ab oder stoppen Sie sie, bevor Sie ${displayName} starten.`
                 )}
               </AlertDescription>
             </Alert>

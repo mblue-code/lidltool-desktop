@@ -39,7 +39,6 @@ type UserEditorState = {
   username: string;
   displayName: string;
   password: string;
-  isAdmin: boolean;
 };
 
 const EMPTY_EDITOR: UserEditorState = {
@@ -47,8 +46,7 @@ const EMPTY_EDITOR: UserEditorState = {
   userId: null,
   username: "",
   displayName: "",
-  password: "",
-  isAdmin: false
+  password: ""
 };
 
 type DesktopImportResult = {
@@ -128,9 +126,8 @@ export function UsersSettingsPage() {
   const usersMutation = useMutation({
     mutationFn: async () => {
       if (editor.userId) {
-        const payload: { display_name?: string | null; password?: string; is_admin?: boolean } = {};
+        const payload: { display_name?: string | null; password?: string } = {};
         payload.display_name = editor.displayName.trim() || null;
-        payload.is_admin = editor.isAdmin;
         if (editor.password.trim()) {
           payload.password = editor.password.trim();
         }
@@ -142,8 +139,7 @@ export function UsersSettingsPage() {
       return createUser({
         username: editor.username.trim(),
         display_name: editor.displayName.trim() || null,
-        password: editor.password.trim(),
-        is_admin: editor.isAdmin
+        password: editor.password.trim()
       });
     }
   });
@@ -207,8 +203,7 @@ export function UsersSettingsPage() {
       userId: null,
       username: "",
       displayName: "",
-      password: "",
-      isAdmin: false
+      password: ""
     });
   }
 
@@ -223,8 +218,7 @@ export function UsersSettingsPage() {
       userId: user.user_id,
       username: user.username,
       displayName: user.display_name || "",
-      password: "",
-      isAdmin: user.is_admin
+      password: ""
     });
   }
 
@@ -371,7 +365,6 @@ export function UsersSettingsPage() {
                     <TableRow>
                       <TableHead>{t("common.username")}</TableHead>
                       <TableHead>{t("common.displayName")}</TableHead>
-                      <TableHead>{t("pages.usersSettings.table.admin")}</TableHead>
                       <TableHead>{t("common.created")}</TableHead>
                       <TableHead>{t("common.actions")}</TableHead>
                     </TableRow>
@@ -381,7 +374,6 @@ export function UsersSettingsPage() {
                       <TableRow key={user.user_id}>
                         <TableCell>{user.username}</TableCell>
                         <TableCell>{user.display_name || t("pages.usersSettings.noDisplayName")}</TableCell>
-                        <TableCell>{user.is_admin ? t("common.yes") : t("common.no")}</TableCell>
                         <TableCell>{formatDateTime(user.created_at)}</TableCell>
                         <TableCell className="space-x-2">
                           <Button type="button" size="sm" variant="outline" onClick={() => openEditUser(user)}>
@@ -395,7 +387,7 @@ export function UsersSettingsPage() {
                     ))}
                     {users.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5}>{t("pages.usersSettings.noUsers")}</TableCell>
+                        <TableCell colSpan={4}>{t("pages.usersSettings.noUsers")}</TableCell>
                       </TableRow>
                     ) : null}
                   </TableBody>
@@ -627,14 +619,6 @@ export function UsersSettingsPage() {
                 onChange={(event) => setEditor((previous) => ({ ...previous, password: event.target.value }))}
               />
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={editor.isAdmin}
-                onChange={(event) => setEditor((previous) => ({ ...previous, isAdmin: event.target.checked }))}
-              />
-              {t("pages.usersSettings.adminUser")}
-            </label>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditor(EMPTY_EDITOR)}>
                 {t("common.cancel")}

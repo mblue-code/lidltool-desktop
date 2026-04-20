@@ -43,6 +43,16 @@ def _ensure_build_backend_src_on_path() -> Path:
 
 PACKAGED_SRC = _ensure_build_backend_src_on_path()
 
+
+def _worker_env() -> dict[str, str]:
+    env = os.environ.copy()
+    packaged_src = str(PACKAGED_SRC)
+    existing_pythonpath = (env.get("PYTHONPATH") or "").strip()
+    env["PYTHONPATH"] = (
+        f"{packaged_src}:{existing_pythonpath}" if existing_pythonpath else packaged_src
+    )
+    return env
+
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw, ImageFont
 
@@ -188,7 +198,7 @@ def main() -> None:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                env=os.environ.copy(),
+                env=_worker_env(),
             )
             try:
                 timeline_events: list[str] = []

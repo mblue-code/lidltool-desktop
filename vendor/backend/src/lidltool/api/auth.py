@@ -17,7 +17,7 @@ from lidltool.auth.sessions import (
     touch_user_session,
 )
 from lidltool.auth.user_auth import UserAuthError, create_token, decode_token
-from lidltool.auth.users import ensure_service_user, human_user_count
+from lidltool.auth.users import ensure_human_users_are_admin, ensure_service_user, human_user_count
 from lidltool.config import AppConfig
 from lidltool.db.models import User, UserSession
 
@@ -197,6 +197,8 @@ def get_current_auth_context(
     cached = getattr(request.state, "auth_context", None)
     if isinstance(cached, AuthenticatedSessionContext):
         return cached
+
+    ensure_human_users_are_admin(session)
 
     expected_api_key = (config.openclaw_api_key or "").strip()
     presented_api_key = _header_api_key_value(request)

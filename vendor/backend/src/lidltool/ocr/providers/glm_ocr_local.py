@@ -21,8 +21,15 @@ class GlmOcrLocalProvider(OcrProvider):
         self._config = config
         self._timeout_s = max(config.ocr_request_timeout_s, 1.0)
         self._retries = max(config.ocr_request_retries, 0)
+        self._rapidocr_engine: Any | None = None
 
     def configuration_error(self) -> str | None:
+        if self._should_use_packaged_engine():
+            try:
+                self._resolve_rapidocr_engine()
+            except Exception as exc:  # noqa: BLE001
+                return f"GLM-OCR local packaged engine is unavailable: {exc}"
+            return None
         if not self._base_url():
             return "GLM-OCR local base URL is not configured"
         if not self._model():
@@ -54,6 +61,12 @@ class GlmOcrLocalProvider(OcrProvider):
                 metadata=prepared.metadata,
             )
 
+        if self._should_use_packaged_engine():
+            return self._extract_with_packaged_engine(
+                prepared_images=prepared.images,
+                prepared_metadata=prepared.metadata,
+            )
+
         base_url = self._base_url()
         model = self._model()
         if base_url is None or model is None:
@@ -75,6 +88,47 @@ class GlmOcrLocalProvider(OcrProvider):
             prepared_metadata=prepared.metadata,
             base_url=base_url,
             model=model,
+        )
+
+    def _extract_with_packaged_engine(
+        self,
+        *,
+        prepared_images: list[PreparedOcrImage],
+        prepared_metadata: dict[str, object],
+    ) -> OcrResult:
+        engine = self._resolve_rapidocr_engine()
+        started = time.perf_counter()
+        text_chunks: list[str] = []
+        confidences: list[float] = []
+        pages_with_text = 0
+        for image in prepared_images:
+            result, _ = engine(image.payload)
+            page_lines = _coerce_rapidocr_lines(result)
+            if not page_lines:
+                continue
+            pages_with_text += 1
+            text_chunks.append("\n".join(page_lines))
+            confidences.extend(_coerce_rapidocr_confidences(result))
+        text = "\n\n".join(chunk for chunk in text_chunks if chunk.strip()).strip()
+        if not text:
+            raise RuntimeError("GLM-OCR local packaged engine did not detect any text")
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        confidence = (
+            sum(confidences) / len(confidences)
+            if confidences
+            else None
+        )
+        return OcrResult(
+            provider=self.name,
+            text=text,
+            confidence=confidence,
+            latency_ms=latency_ms,
+            metadata={
+                "strategy": "glm_ocr_local_rapidocr_onnxruntime",
+                "pages_processed": len(prepared_images),
+                "pages_with_text": pages_with_text,
+                **prepared_metadata,
+            },
         )
 
     def _extract_with_openai(
@@ -177,6 +231,19 @@ class GlmOcrLocalProvider(OcrProvider):
         normalized = (self._config.ocr_glm_local_api_mode or "").strip().lower()
         return normalized or "ollama_generate"
 
+    def _should_use_packaged_engine(self) -> bool:
+        return self._base_url() is None
+
+    def _resolve_rapidocr_engine(self) -> Any:
+        if self._rapidocr_engine is not None:
+            return self._rapidocr_engine
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"rapidocr_onnxruntime import failed: {exc}") from exc
+        self._rapidocr_engine = RapidOCR()
+        return self._rapidocr_engine
+
 
 def _data_url(*, payload: bytes, mime_type: str) -> str:
     encoded = base64.b64encode(payload).decode("ascii")
@@ -248,3 +315,29 @@ def _coerce_ollama_text(data: Any) -> str:
     if not normalized:
         raise RuntimeError("GLM-OCR Ollama response did not include text content")
     return normalized
+
+
+def _coerce_rapidocr_lines(result: Any) -> list[str]:
+    if not isinstance(result, list):
+        return []
+    lines: list[str] = []
+    for item in result:
+        if not isinstance(item, list | tuple) or len(item) < 2:
+            continue
+        text = item[1]
+        if isinstance(text, str) and text.strip():
+            lines.append(text.strip())
+    return lines
+
+
+def _coerce_rapidocr_confidences(result: Any) -> list[float]:
+    if not isinstance(result, list):
+        return []
+    confidences: list[float] = []
+    for item in result:
+        if not isinstance(item, list | tuple) or len(item) < 3:
+            continue
+        raw_confidence = item[2]
+        if isinstance(raw_confidence, int | float):
+            confidences.append(float(raw_confidence))
+    return confidences

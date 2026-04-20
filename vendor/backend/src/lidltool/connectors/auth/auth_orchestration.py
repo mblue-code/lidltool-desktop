@@ -13,8 +13,8 @@ from typing import Any, Protocol
 
 from lidltool.amazon.bootstrap_playwright import run_amazon_headful_bootstrap
 from lidltool.amazon.client_playwright import AmazonClientError
-from lidltool.amazon.profiles import get_country_profile, is_amazon_source_id, list_country_profiles
-from lidltool.amazon.session import default_amazon_profile_dir, default_amazon_state_file
+from lidltool.amazon.profiles import get_country_profile, list_country_profiles
+from lidltool.amazon.session import default_amazon_state_file
 from lidltool.auth.bootstrap_playwright import run_headful_bootstrap
 from lidltool.auth.token_store import TokenStore
 from lidltool.config import AppConfig
@@ -35,10 +35,12 @@ from lidltool.connectors.lifecycle import connector_runtime_options
 from lidltool.connectors.registry import ConnectorRegistry, get_connector_registry
 from lidltool.connectors.sdk.manifest import ConnectorManifest
 from lidltool.lidl.client import LidlClientError
-from lidltool.lidl.market import resolve_lidl_market
 from lidltool.rewe.bootstrap_playwright import run_rewe_headful_bootstrap
 from lidltool.rewe.client_playwright import ReweClientError
 from lidltool.rewe.session import default_rewe_state_file
+from lidltool.rossmann.bootstrap_playwright import run_rossmann_headful_bootstrap
+from lidltool.rossmann.client_playwright import RossmannClientError
+from lidltool.rossmann.session import default_rossmann_state_file
 
 DEFAULT_LIDL_BOOTSTRAP_HAR_OUT = Path("/tmp/lidl_auth_capture.har")
 
@@ -135,11 +137,11 @@ class _BuiltinAuthBridge:
                     normalized.get("har_out"),
                     DEFAULT_LIDL_BOOTSTRAP_HAR_OUT,
                 )
-                market = resolve_lidl_market(manifest.source_id)
+                source_suffix = manifest.source_id.rsplit("_", 1)[-1]
                 token_value = run_headful_bootstrap(
                     har_out,
-                    country=market.country_code,
-                    language=market.language_code,
+                    country=source_suffix.upper(),
+                    language=source_suffix.lower(),
                 )
             if not isinstance(token_value, str) or not token_value.strip():
                 raise RuntimeError("auth token missing; run lidltool auth bootstrap")
@@ -162,21 +164,8 @@ class _BuiltinAuthBridge:
             normalized.get("state_file"),
             self.state_file_resolver(config),
         )
-        profile_dir = None
-        if is_amazon_source_id(manifest.source_id):
-            profile_dir = _resolve_optional_path(
-                normalized.get("profile_dir"),
-            ) or default_amazon_profile_dir(config, source_id=manifest.source_id)
         domain = _string_option(normalized, "domain", self.default_domain or "")
-        debug_html_dir = _resolve_optional_path(normalized.get("dump_html"))
-        bootstrap_kwargs: dict[str, Any] = {
-            "source_id": manifest.source_id,
-            "domain": domain or None,
-            "debug_html_dir": debug_html_dir,
-        }
-        if profile_dir is not None:
-            bootstrap_kwargs["profile_dir"] = profile_dir
-        ok = bool(self.bootstrap_runner(target, **bootstrap_kwargs))
+        ok = bool(self.bootstrap_runner(target, domain=domain))
         return AuthActionResult(
             manifest=manifest,
             source_id=manifest.source_id,
@@ -184,14 +173,28 @@ class _BuiltinAuthBridge:
             status="confirmed" if ok else "no_op",
             ok=ok,
             detail=None if ok else f"{manifest.display_name} session capture failed",
-            metadata={
-                "state_file": str(target),
-                "profile_dir": str(profile_dir) if profile_dir is not None else None,
-                "domain": domain or get_country_profile(source_id=manifest.source_id).domain,
-                "dump_html": str(debug_html_dir) if debug_html_dir is not None else None,
-            },
+            metadata={"state_file": str(target), "domain": domain},
             handled_exceptions=self.handled_exceptions,
         )
+
+
+def _amazon_auth_bridge(source_id: str) -> _BuiltinAuthBridge:
+    profile = get_country_profile(source_id=source_id)
+    return _BuiltinAuthBridge(
+        source_id=profile.source_id,
+        auth_kind="browser_session",
+        handled_exceptions=(AmazonClientError,),
+        state_file_resolver=lambda config, source_id=profile.source_id: default_amazon_state_file(
+            config,
+            source_id=source_id,
+        ),
+        bootstrap_runner=lambda target, domain, source_id=profile.source_id: run_amazon_headful_bootstrap(
+            target,
+            source_id=source_id,
+            domain=domain,
+        ),
+        default_domain=profile.domain,
+    )
 
 
 _BUILTIN_AUTH_BRIDGES: dict[str, _BuiltinAuthBridge] = {
@@ -200,16 +203,7 @@ _BUILTIN_AUTH_BRIDGES: dict[str, _BuiltinAuthBridge] = {
         auth_kind="oauth_pkce",
         handled_exceptions=(LidlClientError,),
     ),
-    "lidl_plus_gb": _BuiltinAuthBridge(
-        source_id="lidl_plus_gb",
-        auth_kind="oauth_pkce",
-        handled_exceptions=(LidlClientError,),
-    ),
-    "lidl_plus_fr": _BuiltinAuthBridge(
-        source_id="lidl_plus_fr",
-        auth_kind="oauth_pkce",
-        handled_exceptions=(LidlClientError,),
-    ),
+    **{profile.source_id: _amazon_auth_bridge(profile.source_id) for profile in list_country_profiles()},
     "rewe_de": _BuiltinAuthBridge(
         source_id="rewe_de",
         auth_kind="browser_session",
@@ -218,28 +212,25 @@ _BUILTIN_AUTH_BRIDGES: dict[str, _BuiltinAuthBridge] = {
         bootstrap_runner=run_rewe_headful_bootstrap,
         default_domain="shop.rewe.de",
     ),
-}
-
-for _amazon_profile in list_country_profiles():
-    _BUILTIN_AUTH_BRIDGES[_amazon_profile.source_id] = _BuiltinAuthBridge(
-        source_id=_amazon_profile.source_id,
+    "rossmann_de": _BuiltinAuthBridge(
+        source_id="rossmann_de",
         auth_kind="browser_session",
-        handled_exceptions=(AmazonClientError,),
-        state_file_resolver=lambda config, source_id=_amazon_profile.source_id: default_amazon_state_file(
-            config,
-            source_id=source_id,
-        ),
-        bootstrap_runner=run_amazon_headful_bootstrap,
-        default_domain=_amazon_profile.domain,
-    )
+        handled_exceptions=(RossmannClientError,),
+        state_file_resolver=default_rossmann_state_file,
+        bootstrap_runner=run_rossmann_headful_bootstrap,
+        default_domain="www.rossmann.de",
+    ),
+}
 
 
 def _builtin_auth_bridge_for_manifest(
+    *,
+    source_id: str,
     manifest: ConnectorManifest,
 ) -> _BuiltinAuthBridge | None:
-    if manifest.runtime_kind != "builtin" or manifest.plugin_origin != "builtin":
+    if manifest.runtime_kind != "builtin":
         return None
-    return _BUILTIN_AUTH_BRIDGES.get(manifest.source_id)
+    return _BUILTIN_AUTH_BRIDGES.get(source_id)
 
 
 def _resolve_optional_path(value: object) -> Path | None:
@@ -440,7 +431,7 @@ class ConnectorAuthOrchestrationService:
         )
         manifest = self._registry.require_manifest(source_id)
         capabilities = self.capabilities_for_source(source_id)
-        bridge = _builtin_auth_bridge_for_manifest(manifest)
+        bridge = _builtin_auth_bridge_for_manifest(source_id=source_id, manifest=manifest)
         bootstrap_session = self._session_registry.sessions.get(source_id)
         bootstrap = (
             serialize_connector_bootstrap(bootstrap_session)
@@ -575,7 +566,7 @@ class ConnectorAuthOrchestrationService:
             connector_options=options,
         )
         manifest = self._registry.require_manifest(source_id)
-        bridge = _builtin_auth_bridge_for_manifest(manifest)
+        bridge = _builtin_auth_bridge_for_manifest(source_id=source_id, manifest=manifest)
         if bridge is None:
             if self._connector_builder is None:
                 raise RuntimeError(f"connector bootstrap bridge is not registered for source: {source_id}")
@@ -591,62 +582,12 @@ class ConnectorAuthOrchestrationService:
         *,
         source_id: str,
         env: Mapping[str, str] | None = None,
-        connector_options: Mapping[str, Any] | None = None,
         extra_args: tuple[str, ...] = (),
     ) -> AuthActionResult:
         manifest = self._registry.require_manifest(source_id)
         capabilities = self.capabilities_for_source(source_id)
-        resolved_options = self._resolve_connector_options(
-            source_id=source_id,
-            connector_options=connector_options,
-        )
-        option_args = self._bootstrap_option_args(
-            manifest=manifest,
-            options=resolved_options,
-        )
-        command = self._build_bootstrap_command(
-            source_id,
-            extra_args=(*option_args, *extra_args),
-        )
+        command = self._build_bootstrap_command(source_id, extra_args=extra_args)
         if command is None:
-            if manifest.plugin_family == "receipt" and manifest.runtime_kind in {
-                "subprocess_python",
-                "subprocess_binary",
-            }:
-                immediate = self._run_plugin_bootstrap(
-                    source_id=source_id,
-                    manifest=manifest,
-                    options=resolved_options,
-                )
-                if immediate.bootstrap is not None:
-                    return immediate
-                now = datetime.now(tz=UTC)
-                bootstrap_state: BootstrapLifecycleState = (
-                    "succeeded" if immediate.ok and immediate.state == "connected" else "failed"
-                )
-                output_tail = (immediate.detail,) if immediate.detail else ()
-                return AuthActionResult(
-                    manifest=immediate.manifest,
-                    source_id=immediate.source_id,
-                    state=immediate.state,
-                    status=immediate.status,
-                    ok=immediate.ok,
-                    detail=immediate.detail,
-                    bootstrap=AuthBootstrapSnapshot(
-                        source_id=immediate.source_id,
-                        state=bootstrap_state,
-                        command=None,
-                        pid=None,
-                        started_at=now,
-                        finished_at=now,
-                        return_code=0 if bootstrap_state == "succeeded" else 1,
-                        output_tail=output_tail,
-                        can_cancel=False,
-                    ),
-                    metadata=dict(immediate.metadata),
-                    diagnostics=dict(immediate.diagnostics),
-                    handled_exceptions=immediate.handled_exceptions,
-                )
             raise RuntimeError(f"connector bootstrap not supported for source: {source_id}")
         existing = self._session_registry.sessions.get(source_id)
         if existing is not None and connector_bootstrap_is_running(existing):
@@ -804,34 +745,6 @@ class ConnectorAuthOrchestrationService:
                 source_id,
                 *extra_args,
             ]
-        return None
-
-    def _bootstrap_option_args(
-        self,
-        *,
-        manifest: ConnectorManifest,
-        options: Mapping[str, Any],
-    ) -> tuple[str, ...]:
-        allowed_keys = self._bootstrap_option_allowlist(manifest)
-        args: list[str] = []
-        for key, value in options.items():
-            if allowed_keys is not None and key not in allowed_keys:
-                continue
-            if value is None:
-                continue
-            if isinstance(value, bool):
-                rendered = "true" if value else "false"
-            else:
-                rendered = str(value)
-            args.extend(("--option", f"{key}={rendered}"))
-        return tuple(args)
-
-    def _bootstrap_option_allowlist(self, manifest: ConnectorManifest) -> set[str] | None:
-        auth_kind = manifest.auth.auth_kind if manifest.auth is not None else None
-        if auth_kind == "oauth_pkce":
-            return {"refresh_token", "headful", "har_out"}
-        if auth_kind == "browser_session":
-            return {"state_file", "profile_dir", "domain", "dump_html"}
         return None
 
     def _plugin_runtime_auth_status(
