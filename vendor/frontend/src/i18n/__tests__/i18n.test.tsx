@@ -27,6 +27,19 @@ function LocaleProbe() {
   );
 }
 
+function DynamicTextProbe() {
+  const [value, setValue] = React.useState("Noch kein geplantes Einkommen gespeichert");
+
+  return (
+    <>
+      <span data-testid="dynamic-text">{value}</span>
+      <button type="button" onClick={() => setValue("Geplant 2.500,00 €")}>
+        update-text
+      </button>
+    </>
+  );
+}
+
 describe("i18n plumbing", () => {
   afterEach(() => {
     cleanup();
@@ -153,6 +166,35 @@ describe("i18n plumbing", () => {
 
     await waitFor(() => {
       expect(document.documentElement.lang).toBe("de");
+    });
+  });
+
+  it("does not overwrite dynamic text updates with stale localized content", async () => {
+    window.localStorage.setItem("app.locale", "de");
+    mocks.fetchCurrentUserMock.mockResolvedValue({
+      user_id: "u1",
+      username: "alice",
+      display_name: "Alice",
+      is_admin: false,
+      preferred_locale: "de"
+    });
+
+    render(
+      <I18nProvider>
+        <DynamicTextProbe />
+      </I18nProvider>
+    );
+
+    await waitFor(() => {
+      expect(document.documentElement.lang).toBe("de");
+    });
+
+    expect(screen.getByTestId("dynamic-text")).toHaveTextContent("Noch kein geplantes Einkommen gespeichert");
+
+    fireEvent.click(screen.getByRole("button", { name: "update-text" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dynamic-text")).toHaveTextContent("Geplant 2.500,00 €");
     });
   });
 });

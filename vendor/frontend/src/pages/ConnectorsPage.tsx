@@ -98,6 +98,22 @@ const CONNECTOR_FIELD_LOCALIZATION_OVERRIDES: Record<
   string,
   Record<string, { label?: string; description?: string; placeholder?: string }>
 > = {
+  amazon_de: {
+    years: {
+      label: "Zu prüfende Jahre",
+      description: "Optional. Für den ersten Desktop-Import wird standardmäßig 1 Jahr geprüft.",
+      placeholder: "1"
+    },
+    headless: {
+      label: "Import im Hintergrund ausführen",
+      description: "Standardmäßig aktiviert. Nur deaktivieren, wenn Sie Amazon-Seiten während der Fehlersuche sichtbar beobachten möchten."
+    },
+    dump_html: {
+      label: "Debug-HTML-Verzeichnis",
+      description: "Optionaler Debug-Ordner für aufgezeichnetes Amazon-Listen- und Detail-HTML während des Connector-Tests.",
+      placeholder: "/absoluter/pfad/zu/amazon-debug-html"
+    }
+  },
   dm_de: {
     store_name: {
       label: "Filialbezeichnung",
@@ -144,6 +160,70 @@ const CONNECTOR_FIELD_LOCALIZATION_OVERRIDES: Record<
     anybill_base_url: {
       label: "Anybill-Basis-URL",
       description: "Optionaler Override der Anybill-API-Basis-URL für Operator-Debugging."
+    }
+  },
+  kaufland_de: {
+    store_name: {
+      label: "Filialbezeichnung",
+      description: "Optionaler Anzeigename für importierte Kaufland-Belege."
+    },
+    country_code: {
+      label: "Belegland",
+      description: "Legt fest, aus welchem Kaufland-Landportal Belege importiert werden."
+    },
+    preferred_store_id: {
+      label: "Bevorzugte Filial-ID",
+      description: "Optional. Priorisiert eine bestimmte Kaufland-Filiale während Einrichtung und Import."
+    },
+    state_file: {
+      label: "Plugin-Statusdatei",
+      description: "Optionaler Override für den persistenten Pfad der Kaufland-Plugindaten."
+    },
+    fixture_file: {
+      label: "Fixture-Datei",
+      description: "Optionaler Fixture-Pfad für Desktop-Debugging und Connector-Tests."
+    }
+  },
+  rewe_de: {
+    store_name: {
+      label: "Filialbezeichnung",
+      description: "Optionaler Anzeigename für importierte REWE-Belege."
+    },
+    headless: {
+      label: "Headless-Synchronisierung",
+      description: "Synchronisierung nach der Einrichtung ohne sichtbares Browserfenster ausführen."
+    },
+    max_records: {
+      label: "Beleglimit",
+      description: "Optionales Limit für die Anzahl importierter REWE-Belege pro Lauf."
+    },
+    detail_fetch_limit: {
+      label: "Limit für Onlinedetails",
+      description: "Optionales Limit dafür, wie viele Detailseiten pro Synchronisierung geladen werden."
+    },
+    import_storage_state_file: {
+      label: "Storage-State-Datei importieren",
+      description: "Importiert eine bereits gespeicherte Browser-Sitzung für REWE."
+    },
+    chrome_live_tab: {
+      label: "Live-Chrome-Tab verwenden",
+      description: "Verwendet einen bereits geöffneten Chrome-Tab für die Einrichtung oder Fehlersuche."
+    },
+    chrome_cookie_export: {
+      label: "Laufende Chrome-Sitzung verwenden",
+      description: "Liest Cookies aus einer laufenden Chrome-Sitzung, statt eine neue Anmeldung zu erzwingen."
+    },
+    chrome_profile_import: {
+      label: "Chrome-Profil importieren",
+      description: "Importiert Sitzungsdaten direkt aus einem vorhandenen Chrome-Profil."
+    },
+    chrome_user_data_dir: {
+      label: "Chrome-Benutzerdatenverzeichnis",
+      description: "Optionaler Pfad zum Chrome-Benutzerdatenverzeichnis für Profilimporte."
+    },
+    chrome_profile_name: {
+      label: "Chrome-Profilname",
+      description: "Optionaler Profilname innerhalb des Chrome-Benutzerdatenverzeichnisses."
     }
   }
 };

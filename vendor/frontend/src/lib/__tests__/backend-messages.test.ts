@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { tForLocale } from "@/i18n";
 import { ApiDomainError } from "@/lib/api-errors";
-import { resolveApiErrorMessage, resolveApiWarningMessage } from "@/lib/backend-messages";
+import {
+  resolveApiErrorMessage,
+  resolveApiWarningMessage,
+  shouldSuppressApiWarning
+} from "@/lib/backend-messages";
 
 describe("backend message localization", () => {
   it("maps known backend codes to translated copy", () => {
@@ -52,5 +56,30 @@ describe("backend message localization", () => {
         "Something went wrong."
       )
     ).toBe("Something went wrong.");
+  });
+
+  it("suppresses noisy preview connector warnings that are not actionable", () => {
+    expect(
+      shouldSuppressApiWarning({
+        code: null,
+        message: "preview connector status only; this connector is not live-validated yet"
+      })
+    ).toBe(true);
+
+    expect(
+      shouldSuppressApiWarning({
+        code: "connector_preview_sync_started",
+        message: "preview connector sync; this connector is not live-validated yet"
+      })
+    ).toBe(true);
+  });
+
+  it("keeps actionable warnings visible", () => {
+    expect(
+      shouldSuppressApiWarning({
+        code: "connector_remote_browser_session_unavailable",
+        message: "Remote browser session unavailable."
+      })
+    ).toBe(false);
   });
 });

@@ -1462,6 +1462,284 @@ describe("ConnectorsPage", () => {
     expect(await within(dialog).findByRole("button", { name: "Abbrechen" })).toBeInTheDocument();
   });
 
+  it("localizes Amazon, Kaufland, and REWE settings fields for German desktop sessions", async () => {
+    window.localStorage.setItem("app.locale", "de");
+
+    const payload = makeDefaultConnectorsPayload();
+    payload.connectors[1] = {
+      ...payload.connectors[1],
+      ui: {
+        ...payload.connectors[1].ui,
+        status: "connected",
+        description: "Kaufland ready",
+        actions: {
+          ...payload.connectors[1].ui.actions,
+          primary: { kind: "sync_now", enabled: true },
+          operator: {
+            ...payload.connectors[1].ui.actions.operator,
+            configure: true
+          }
+        }
+      },
+      actions: {
+        ...payload.connectors[1].actions,
+        primary: { kind: "sync_now", enabled: true },
+        operator: {
+          ...payload.connectors[1].actions.operator,
+          configure: true
+        }
+      }
+    };
+    payload.connectors.push({
+      source_id: "rewe_de",
+      plugin_id: "local.rewe_de",
+      display_name: "REWE",
+      origin: "local_path",
+      origin_label: "External",
+      runtime_kind: "subprocess_python",
+      install_origin: "local_path",
+      install_state: "installed",
+      enable_state: "enabled",
+      config_state: "complete",
+      maturity: "preview",
+      maturity_label: "Preview",
+      supports_bootstrap: true,
+      supports_sync: true,
+      supports_live_session: true,
+      supports_live_session_bootstrap: true,
+      trust_class: "official",
+      status_detail: null,
+      last_sync_summary: null,
+      last_synced_at: null,
+      ui: {
+        status: "connected",
+        visibility: "default",
+        description: "REWE ready",
+        actions: {
+          primary: { kind: "sync_now", enabled: true },
+          secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+          operator: {
+            full_sync: true,
+            rescan: true,
+            reload: true,
+            install: false,
+            enable: false,
+            disable: false,
+            uninstall: false,
+            configure: true,
+            manual_commands: {}
+          }
+        }
+      },
+      actions: {
+        primary: { kind: "sync_now", enabled: true },
+        secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+        operator: {
+          full_sync: true,
+          rescan: true,
+          reload: true,
+          install: false,
+          enable: false,
+          disable: false,
+          uninstall: false,
+          configure: true,
+          manual_commands: {}
+        }
+      },
+      advanced: {
+        source_exists: true,
+        stale: false,
+        stale_reason: null,
+        auth_state: "connected",
+        latest_sync_output: [],
+        latest_bootstrap_output: [],
+        latest_sync_status: "idle",
+        latest_bootstrap_status: "idle",
+        block_reason: null,
+        policy: {
+          blocked: false,
+          block_reason: null,
+          status: "enabled",
+          status_detail: null,
+          trust_class: "official",
+          external_runtime_enabled: true,
+          external_receipt_plugins_enabled: true,
+          allowed_trust_classes: ["official"]
+        },
+        release: {
+          maturity: "preview",
+          label: "Preview",
+          support_posture: "Preview",
+          description: "Desktop-managed pack.",
+          default_visibility: "default",
+          graduation_requirements: []
+        },
+        origin: {
+          kind: "local_path",
+          runtime_kind: "subprocess_python",
+          search_path: "/tmp/plugins",
+          origin_path: "/tmp/plugins/rewe_de/manifest.json",
+          origin_directory: "/tmp/plugins/rewe_de"
+        },
+        diagnostics: [],
+        manual_commands: {}
+      }
+    });
+    payload.summary = {
+      total_connectors: payload.connectors.length,
+      by_status: { ready: 3, setup_required: 1 }
+    };
+
+    mocks.fetchConnectorsMock.mockResolvedValueOnce(payload);
+    mocks.fetchConnectorConfigMock.mockImplementation(async (sourceId: string) => {
+      if (sourceId === "amazon_de") {
+        return {
+          source_id: "amazon_de",
+          plugin_id: "community.amazon_de",
+          display_name: "Amazon",
+          install_origin: "local_path",
+          config_state: "complete",
+          fields: [
+            {
+              key: "years",
+              label: "Years to scan",
+              description: "Optional. Defaults to one year for the first import.",
+              placeholder: "1",
+              input_kind: "text",
+              required: false,
+              sensitive: false,
+              operator_only: false,
+              value: "1"
+            },
+            {
+              key: "headless",
+              label: "Headless sync",
+              description: "Keep Amazon sync hidden in the browser.",
+              input_kind: "boolean",
+              required: false,
+              sensitive: false,
+              operator_only: false,
+              value: true
+            }
+          ]
+        };
+      }
+      if (sourceId === "kaufland_de") {
+        return {
+          source_id: "kaufland_de",
+          plugin_id: "local.kaufland_de",
+          display_name: "Kaufland",
+          install_origin: "local_path",
+          config_state: "complete",
+          fields: [
+            {
+              key: "store_name",
+              label: "Store label",
+              description: "Optional label for Kaufland receipts.",
+              input_kind: "text",
+              required: false,
+              sensitive: false,
+              operator_only: false,
+              value: ""
+            },
+            {
+              key: "country_code",
+              label: "Receipt country",
+              description: "Country used for Kaufland receipt sync.",
+              input_kind: "text",
+              required: false,
+              sensitive: false,
+              operator_only: false,
+              value: "DE"
+            }
+          ]
+        };
+      }
+      return {
+        source_id: "rewe_de",
+        plugin_id: "local.rewe_de",
+        display_name: "REWE",
+        install_origin: "local_path",
+        config_state: "complete",
+        fields: [
+          {
+            key: "store_name",
+            label: "Store label",
+            description: "Optional label for imported REWE receipts.",
+            input_kind: "text",
+            required: false,
+            sensitive: false,
+            operator_only: false,
+            value: ""
+          },
+          {
+            key: "headless",
+            label: "Headless sync",
+            description: "Run REWE sync without a visible browser window.",
+            input_kind: "boolean",
+            required: false,
+            sensitive: false,
+            operator_only: false,
+            value: true
+          },
+          {
+            key: "chrome_profile_name",
+            label: "Chrome profile name",
+            description: "Profile name inside the Chrome user-data directory.",
+            input_kind: "text",
+            required: false,
+            sensitive: false,
+            operator_only: false,
+            value: "Default"
+          }
+        ]
+      };
+    });
+
+    renderPage();
+
+    const amazonCard = (await screen.findByText("Amazon")).closest('[class*="rounded-xl"]');
+    expect(amazonCard).not.toBeNull();
+    fireEvent.click(within(amazonCard as HTMLElement).getByText(/^(More options|Weitere Optionen)$/));
+    fireEvent.click(within(amazonCard as HTMLElement).getByRole("button", { name: /^(Settings|Einstellungen)$/ }));
+
+    let dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByLabelText("Zu prüfende Jahre")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("Optional. Für den ersten Desktop-Import wird standardmäßig 1 Jahr geprüft.")
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("Import im Hintergrund ausführen")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^(Abbrechen|Cancel)$/ }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    const kauflandCard = (await screen.findByText("Kaufland")).closest('[class*="rounded-xl"]');
+    expect(kauflandCard).not.toBeNull();
+    fireEvent.click(within(kauflandCard as HTMLElement).getByText(/^(More options|Weitere Optionen)$/));
+    fireEvent.click(within(kauflandCard as HTMLElement).getByRole("button", { name: /^(Settings|Einstellungen)$/ }));
+
+    dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByLabelText("Filialbezeichnung")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Belegland")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^(Abbrechen|Cancel)$/ }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    const reweCard = (await screen.findByText("REWE")).closest('[class*="rounded-xl"]');
+    expect(reweCard).not.toBeNull();
+    fireEvent.click(within(reweCard as HTMLElement).getByText(/^(More options|Weitere Optionen)$/));
+    fireEvent.click(within(reweCard as HTMLElement).getByRole("button", { name: /^(Settings|Einstellungen)$/ }));
+
+    dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByLabelText("Filialbezeichnung")).toBeInTheDocument();
+    expect(within(dialog).getByText("Headless-Synchronisierung")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Chrome-Profilname")).toBeInTheDocument();
+  });
+
   it("hides stale REWE bootstrap browser messaging once the saved Chrome-backed session is already usable", async () => {
     mocks.fetchConnectorsMock.mockResolvedValueOnce({
       generated_at: "2026-04-18T17:05:00Z",

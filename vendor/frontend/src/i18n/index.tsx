@@ -244,8 +244,13 @@ const MESSAGES: Record<SupportedLocale, Record<TranslationKey, string>> = {
 
 const LOCALIZABLE_ATTRIBUTES = ["placeholder", "title", "aria-label"] as const;
 const NON_LOCALIZABLE_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT"]);
-const originalTextByNode = new WeakMap<Text, string>();
-const originalAttributesByElement = new WeakMap<Element, Map<string, string>>();
+type LocalizedValueState = {
+  original: string;
+  lastLocalized: string;
+};
+
+const textStateByNode = new WeakMap<Text, LocalizedValueState>();
+const attributeStateByElement = new WeakMap<Element, Map<string, LocalizedValueState>>();
 
 let domLocalizationInProgress = false;
 
@@ -292,22 +297,32 @@ function localizeTextNode(node: Text, locale: SupportedLocale): void {
   }
 
   const currentText = node.nodeValue ?? "";
-  const originalText = originalTextByNode.get(node) ?? currentText;
-  if (!originalTextByNode.has(node)) {
-    originalTextByNode.set(node, originalText);
+  const previousState = textStateByNode.get(node);
+  const nextState =
+    previousState &&
+    (currentText === previousState.original || currentText === previousState.lastLocalized)
+      ? previousState
+      : {
+          original: currentText,
+          lastLocalized: currentText
+        };
+
+  if (nextState !== previousState) {
+    textStateByNode.set(node, nextState);
   }
 
-  const localized = localizeStringPreserveWhitespace(originalText, locale);
+  const localized = localizeStringPreserveWhitespace(nextState.original, locale);
+  nextState.lastLocalized = localized;
   if (currentText !== localized) {
     node.nodeValue = localized;
   }
 }
 
 function localizeElementAttributes(element: Element, locale: SupportedLocale): void {
-  let originalAttributes = originalAttributesByElement.get(element);
-  if (!originalAttributes) {
-    originalAttributes = new Map<string, string>();
-    originalAttributesByElement.set(element, originalAttributes);
+  let attributeStates = attributeStateByElement.get(element);
+  if (!attributeStates) {
+    attributeStates = new Map<string, LocalizedValueState>();
+    attributeStateByElement.set(element, attributeStates);
   }
 
   for (const attribute of LOCALIZABLE_ATTRIBUTES) {
@@ -315,11 +330,20 @@ function localizeElementAttributes(element: Element, locale: SupportedLocale): v
     if (current === null) {
       continue;
     }
-    if (!originalAttributes.has(attribute)) {
-      originalAttributes.set(attribute, current);
+    const previousState = attributeStates.get(attribute);
+    const nextState =
+      previousState &&
+      (current === previousState.original || current === previousState.lastLocalized)
+        ? previousState
+        : {
+            original: current,
+            lastLocalized: current
+          };
+    if (nextState !== previousState) {
+      attributeStates.set(attribute, nextState);
     }
-    const original = originalAttributes.get(attribute) ?? current;
-    const localized = localizeStringPreserveWhitespace(original, locale);
+    const localized = localizeStringPreserveWhitespace(nextState.original, locale);
+    nextState.lastLocalized = localized;
     if (localized !== current) {
       element.setAttribute(attribute, localized);
     }
