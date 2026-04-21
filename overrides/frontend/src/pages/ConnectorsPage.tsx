@@ -373,18 +373,15 @@ function isReweConnector(sourceId: string): boolean {
   return sourceId === "rewe_de";
 }
 
+function connectorHasDurableAuthState(connector: ConnectorDiscoveryRow): boolean {
+  return connector.advanced.auth_state === "connected";
+}
+
 function reweConnectorHasUsableSession(connector: ConnectorDiscoveryRow): boolean {
   if (!isReweConnector(connector.source_id)) {
     return false;
   }
-  return (
-    connector.last_synced_at !== null ||
-    connector.actions.primary.kind === "sync_now" ||
-    connector.ui.status === "connected" ||
-    connector.ui.status === "ready" ||
-    connector.ui.status === "syncing" ||
-    connector.advanced.auth_state === "connected"
-  );
+  return connectorHasDurableAuthState(connector);
 }
 
 function shouldShowBootstrapStatus(
@@ -749,14 +746,9 @@ function pluginGuideOverride(
 function primaryActionKind(
   connector: ConnectorDiscoveryRow,
   taskState: ConnectorTaskState,
-  bootstrapStatus: ConnectorBootstrapStatus | null,
   firstRunPromptActive: boolean
 ): ConnectorPrimaryActionKind {
-  if (
-    connector.enable_state === "enabled" &&
-    connector.supports_sync &&
-    (firstRunPromptActive || bootstrapStatus?.status === "succeeded")
-  ) {
+  if (firstRunPromptActive && connector.enable_state === "enabled" && connector.supports_sync && connectorHasDurableAuthState(connector)) {
     return "sync_now";
   }
   if (taskState === "setup_required") {
@@ -1971,15 +1963,9 @@ export function ConnectorsPage() {
     const firstRunPrompt = firstRunPrompts[connector.source_id];
     const firstRunPromptActive = Boolean(firstRunPrompt && firstRunPrompt.expiresAt > Date.now());
     const rawTaskState = connectorTaskState(connector);
-    const normalizedTaskState =
-      rawTaskState === "setup_required" &&
-      connector.enable_state === "enabled" &&
-      connector.supports_sync &&
-      (firstRunPromptActive || bootstrapStatus?.status === "succeeded")
-        ? "ready"
-        : rawTaskState;
+    const normalizedTaskState = rawTaskState;
     const taskState = optimisticSyncStarting ? "syncing" : normalizedTaskState;
-    const primaryKind = primaryActionKind(connector, taskState, bootstrapStatus, firstRunPromptActive);
+    const primaryKind = primaryActionKind(connector, taskState, firstRunPromptActive);
     const otherRunningBootstrap = Array.from(bootstrapStatusBySourceId.entries()).find(
       ([otherSourceId, status]) =>
         otherSourceId !== connector.source_id && status.status === "running"
@@ -2011,7 +1997,8 @@ export function ConnectorsPage() {
     const showFirstRunActions =
       firstRunPromptActive &&
       connector.supports_sync &&
-      connector.enable_state === "enabled";
+      connector.enable_state === "enabled" &&
+      connectorHasDurableAuthState(connector);
     const effectivePrimaryKind: ConnectorPrimaryActionKind = showFirstRunActions ? "sync_now" : primaryKind;
     const effectivePrimaryEnabled = showFirstRunActions ? true : primaryEnabled && !blockedByOtherBootstrap;
     const statusSummary = showFirstRunActions

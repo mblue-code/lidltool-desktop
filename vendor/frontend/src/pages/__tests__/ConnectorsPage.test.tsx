@@ -1788,7 +1788,7 @@ describe("ConnectorsPage", () => {
     expect(within(dialog).getByLabelText("Chrome-Profilname")).toBeInTheDocument();
   });
 
-  it("hides stale REWE bootstrap browser messaging once the saved Chrome-backed session is already usable", async () => {
+  it("hides stale REWE bootstrap browser messaging once durable REWE auth is connected", async () => {
     mocks.fetchConnectorsMock.mockResolvedValueOnce({
       generated_at: "2026-04-18T17:05:00Z",
       viewer: { is_admin: true },
@@ -1913,6 +1913,137 @@ describe("ConnectorsPage", () => {
     expect(screen.getByText("The saved Chrome-backed REWE sign-in is ready for the next import.")).toBeInTheDocument();
     expect(screen.queryByText("Sign-in in progress")).not.toBeInTheDocument();
     expect(screen.queryByText(/Finish sign-in in the browser window opened by the desktop app/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps REWE in setup when bootstrap or sync-looking UI signals exist without durable auth", async () => {
+    mocks.fetchConnectorsMock.mockResolvedValueOnce({
+      generated_at: "2026-04-18T17:05:00Z",
+      viewer: { is_admin: true },
+      operator_actions: { can_reload: true, can_rescan: true },
+      summary: { total_connectors: 1, by_status: { connected: 1 } },
+      connectors: [
+        {
+          source_id: "rewe_de",
+          plugin_id: "local.rewe_de",
+          display_name: "REWE",
+          origin: "local_path",
+          origin_label: "External",
+          runtime_kind: "subprocess_python",
+          install_origin: "local_path",
+          install_state: "installed",
+          enable_state: "enabled",
+          config_state: "complete",
+          maturity: "preview",
+          maturity_label: "Preview",
+          supports_bootstrap: true,
+          supports_sync: true,
+          supports_live_session: true,
+          supports_live_session_bootstrap: true,
+          trust_class: "official",
+          status_detail: null,
+          last_sync_summary: null,
+          last_synced_at: null,
+          ui: {
+            status: "connected",
+            visibility: "default",
+            description: "REWE is ready to import receipts.",
+            actions: {
+              primary: { kind: "sync_now", enabled: true },
+              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+              operator: {
+                full_sync: true,
+                rescan: true,
+                reload: true,
+                install: false,
+                enable: false,
+                disable: false,
+                uninstall: false,
+                configure: true,
+                manual_commands: {}
+              }
+            }
+          },
+          actions: {
+            primary: { kind: "sync_now", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: true,
+              manual_commands: {}
+            }
+          },
+          advanced: {
+            source_exists: true,
+            stale: false,
+            stale_reason: null,
+            auth_state: "not_connected",
+            latest_sync_output: [],
+            latest_bootstrap_output: [],
+            latest_sync_status: "idle",
+            latest_bootstrap_status: "succeeded",
+            block_reason: null,
+            policy: {
+              blocked: false,
+              block_reason: null,
+              status: "enabled",
+              status_detail: null,
+              trust_class: "official",
+              external_runtime_enabled: true,
+              external_receipt_plugins_enabled: true,
+              allowed_trust_classes: ["official"]
+            },
+            release: {
+              maturity: "preview",
+              label: "Preview",
+              support_posture: "Preview",
+              description: "Desktop-managed pack.",
+              default_visibility: "default",
+              graduation_requirements: []
+            },
+            origin: {
+              kind: "local_path",
+              runtime_kind: "subprocess_python",
+              search_path: "/tmp/plugins",
+              origin_path: "/tmp/plugins/rewe_de/manifest.json",
+              origin_directory: "/tmp/plugins/rewe_de"
+            },
+            diagnostics: [],
+            manual_commands: {}
+          }
+        }
+      ]
+    });
+    mocks.fetchConnectorBootstrapStatusMock.mockImplementation(async (sourceId: string) => ({
+      source_id: sourceId,
+      status: sourceId === "rewe_de" ? "succeeded" : "idle",
+      command: "python -m lidltool.cli connectors auth bootstrap --source-id rewe_de",
+      pid: null,
+      started_at: "2026-04-18T17:04:50Z",
+      finished_at: "2026-04-18T17:05:00Z",
+      return_code: 0,
+      output_tail:
+        sourceId === "rewe_de"
+          ? ["rewe.trace event=confirm_auth.captured_storage_state state_file=/tmp/rewe_storage_state.json"]
+          : [],
+      can_cancel: false
+    }));
+
+    renderPage();
+
+    expect(await screen.findByText("REWE")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set up" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Import receipts" })).not.toBeInTheDocument();
+    expect(screen.queryByText("The saved Chrome-backed REWE sign-in is ready for the next import.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Next step after sign-in")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Open REWE in normal Chrome, sign in there, leave the tab open, then press Set up.")
+    ).toBeInTheDocument();
   });
 
   it("opens fast onboarding after import and lets the user enable the connector immediately", async () => {
