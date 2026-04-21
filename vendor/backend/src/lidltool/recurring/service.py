@@ -974,8 +974,8 @@ class RecurringBillsService:
             sync_recurring_occurrences_for_window(
                 session=session,
                 user_id=user_id,
-                start_date=_month_start(today) - relativedelta(months=6),
-                end_date=today,
+                start_date=_month_start(today) - relativedelta(months=1),
+                end_date=_month_end(_month_start(today) + relativedelta(months=11)),
             )
             self._roll_occurrence_statuses(session=session, user_id=user_id)
             rows = (

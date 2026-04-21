@@ -10,7 +10,8 @@ const desktopDir = resolve(__dirname, "..");
 const backendSource = resolve(desktopDir, "vendor", "backend");
 const venvDir = resolve(desktopDir, ".backend", "venv");
 const vendoredBackendVenvDir = resolve(backendSource, ".venv");
-const playwrightBrowsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH?.trim() || "0";
+const playwrightBrowsersPath =
+  process.env.PLAYWRIGHT_BROWSERS_PATH?.trim() || resolve(desktopDir, ".cache", "playwright-browsers");
 const allowUnsupportedPython = process.env.LIDLTOOL_DESKTOP_ALLOW_UNSUPPORTED_PYTHON?.trim() === "1";
 
 const MIN_SUPPORTED_PYTHON_MINOR = 11;
@@ -70,6 +71,18 @@ function run(command, args, opts = {}) {
   });
   if (res.status !== 0) {
     throw new Error(`Command failed (${res.status}): ${command} ${args.join(" ")}`);
+  }
+}
+
+function removeLegacyInVenvPlaywrightBrowsers() {
+  const localBrowserRoots = [
+    resolve(venvDir, "lib", "python3.11", "site-packages", "playwright", "driver", "package", ".local-browsers"),
+    resolve(venvDir, "lib", "python3.12", "site-packages", "playwright", "driver", "package", ".local-browsers"),
+    resolve(venvDir, "Lib", "site-packages", "playwright", "driver", "package", ".local-browsers")
+  ];
+
+  for (const browserRoot of localBrowserRoots) {
+    rmSync(browserRoot, { recursive: true, force: true });
   }
 }
 
@@ -161,5 +174,6 @@ run(venvPython, ["-m", "playwright", "install", "chromium"], {
     PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath
   }
 });
+removeLegacyInVenvPlaywrightBrowsers();
 
 console.log(`Prepared desktop backend runtime at ${venvDir}`);

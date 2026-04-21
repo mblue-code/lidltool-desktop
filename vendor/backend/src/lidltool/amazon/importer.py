@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -8,16 +9,11 @@ from typing import Any
 from sqlalchemy.orm import Session, sessionmaker
 
 from lidltool.analytics.categorization import load_compiled_rules
-from lidltool.amazon.profiles import get_country_profile, is_amazon_source_id
-from lidltool.amazon.order_money import (
-    payment_adjustment_subkind,
-    resolve_discount_total_cents,
-    resolve_total_gross_cents,
-)
 from lidltool.db.engine import session_scope
 from lidltool.db.models import Receipt, ReceiptItem, Store
-from lidltool.ingest.dedupe import receipt_exists
+from lidltool.ingest.dedupe import fingerprint_exists, receipt_exists
 from lidltool.ingest.normalizer import normalize_receipt, to_cents
+from lidltool.amazon.client_playwright import _parse_amazon_de_date
 
 
 @dataclass(slots=True)
@@ -75,6 +71,10 @@ class AmazonImportService:
                 normalized = normalize_receipt(mapped, category_rules=rules)
 
                 if receipt_exists(session, normalized.id):
+                    progress.skipped_existing += 1
+                    continue
+
+                if fingerprint_exists(session, normalized.fingerprint):
                     progress.skipped_existing += 1
                     continue
 
@@ -146,11 +146,22 @@ def _to_negative_discount_cents(value: Any) -> int:
 def _to_positive_discount_total_cents(
     order_total_savings: Any, item_discounts: int, basket_discounts: int
 ) -> int | None:
-    explicit = int(to_cents(order_total_savings, default=0))
-    if explicit > 0:
-        return explicit
     inferred = abs(item_discounts) + abs(basket_discounts)
     return inferred if inferred > 0 else None
+
+
+def _parse_order_purchased_at(order: dict[str, Any]) -> Any:
+    raw_date = order.get("orderDate")
+    source_year = order.get("sourceYear")
+    if isinstance(raw_date, str):
+        parsed = _parse_amazon_de_date(raw_date)
+        if parsed is None and isinstance(source_year, (int, str)):
+            source_year_text = str(source_year).strip()
+            if source_year_text.isdigit() and not re.search(r"\b\d{4}\b", raw_date):
+                parsed = _parse_amazon_de_date(f"{raw_date.strip()} {source_year_text}")
+        if parsed is not None:
+            return parsed.isoformat()
+    return raw_date
 
 
 def _map_order_to_receipt_payload(
@@ -159,7 +170,6 @@ def _map_order_to_receipt_payload(
     source: str,
     default_store_name: str,
 ) -> dict[str, Any]:
-    profile = get_country_profile(source_id=source) if is_amazon_source_id(source) else None
     order_id = str(order.get("orderId") or "").strip()
     details_url = str(order.get("detailsUrl") or "").strip()
     currency = str(order.get("currency") or "EUR")
@@ -210,27 +220,12 @@ def _map_order_to_receipt_payload(
     promotions_in = order.get("promotions")
     source_promotions = promotions_in if isinstance(promotions_in, list) else []
     basket_discounts_total = 0
-    payment_adjustments_total = 0
     basket_discounts: list[dict[str, Any]] = []
-    payment_adjustments: list[dict[str, Any]] = []
     for promo in source_promotions:
         if not isinstance(promo, dict):
             continue
         amount = _to_negative_discount_cents(promo.get("amount"))
         if amount == 0:
-            continue
-        label = str(promo.get("description") or "Amazon promotion")
-        payment_subkind = payment_adjustment_subkind(label)
-        if payment_subkind is not None:
-            payment_adjustments_total += abs(amount)
-            payment_adjustments.append(
-                {
-                    "type": "payment_adjustment",
-                    "subkind": payment_subkind,
-                    "amount_cents": abs(amount),
-                    "label": label,
-                }
-            )
             continue
         basket_discounts_total += amount
         basket_discounts.append(
@@ -238,7 +233,7 @@ def _map_order_to_receipt_payload(
                 "type": "promotion",
                 "promotion_id": "amazon_promotion",
                 "amount_cents": amount,
-                "label": label,
+                "label": str(promo.get("description") or "Amazon promotion"),
                 "scope": "basket",
             }
         )
@@ -261,37 +256,20 @@ def _map_order_to_receipt_payload(
             if isinstance(first_discounts, list):
                 first_discounts.extend(basket_discounts)
 
-    raw_total_amount = order.get("totalAmount")
-    total_is_explicit = not (
-        raw_total_amount is None or (isinstance(raw_total_amount, str) and not raw_total_amount.strip())
-    )
-    explicit_total_cents = to_cents(raw_total_amount, default=0)
-    total_amount_cents = resolve_total_gross_cents(
-        order=order,
-        explicit_total_cents=explicit_total_cents,
-        total_is_explicit=total_is_explicit,
-        line_total_sum=line_total_sum,
-        basket_discount_total_cents=basket_discounts_total,
-        payment_adjustment_total_cents=payment_adjustments_total,
-    )
+    total_amount_cents = to_cents(order.get("totalAmount"), default=0)
+    if total_amount_cents <= 0:
+        total_amount_cents = line_total_sum
 
-    discount_total = resolve_discount_total_cents(
-        order=order,
-        item_discount_total_cents=item_discounts_total,
-        basket_discount_total_cents=basket_discounts_total,
-        payment_adjustment_total_cents=payment_adjustments_total,
+    discount_total = _to_positive_discount_total_cents(
+        order_total_savings=order.get("totalSavings"),
+        item_discounts=item_discounts_total,
+        basket_discounts=basket_discounts_total,
     )
-
-    purchased_at = order.get("orderDate")
-    if profile is not None and isinstance(purchased_at, str):
-        parsed = profile.date_parser(purchased_at)
-        if parsed is not None:
-            purchased_at = parsed.isoformat()
 
     rid = f"amazon-{order_id}" if order_id else ""
     return {
         "id": rid,
-        "purchasedAt": purchased_at,
+        "purchasedAt": _parse_order_purchased_at(order),
         "storeId": store_id,
         "storeName": default_store_name,
         "storeAddress": store_address,
@@ -303,7 +281,6 @@ def _map_order_to_receipt_payload(
         "rawOrderId": order_id or None,
         "detailsUrl": details_url or None,
         "orderStatus": order.get("orderStatus"),
-        "paymentAdjustments": payment_adjustments,
         "originalOrder": order,
     }
 

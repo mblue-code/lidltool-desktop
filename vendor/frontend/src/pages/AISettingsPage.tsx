@@ -54,7 +54,6 @@ const SUPPORTED_OAUTH_PROVIDERS = new Set<"openai-codex" | "github-copilot" | "g
 ]);
 
 const OCR_PROVIDER_OPTIONS = [
-  { id: "desktop_local", label: "Desktop bundled OCR" },
   { id: "glm_ocr_local", label: "GLM-OCR Local" },
   { id: "openai_compatible", label: "OpenAI-compatible API" }
 ] as const;
@@ -144,7 +143,7 @@ export function AISettingsPage() {
   const [initialized, setInitialized] = useState(false);
   const [ocrInitialized, setOcrInitialized] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
-  const [ocrDefaultProvider, setOcrDefaultProvider] = useState<string>("desktop_local");
+  const [ocrDefaultProvider, setOcrDefaultProvider] = useState<string>("glm_ocr_local");
   const [ocrFallbackEnabled, setOcrFallbackEnabled] = useState(false);
   const [ocrFallbackProvider, setOcrFallbackProvider] = useState<string>("openai_compatible");
   const [glmBaseUrl, setGlmBaseUrl] = useState("");
@@ -207,86 +206,28 @@ export function AISettingsPage() {
     if (oauthStatus !== "pending") {
       return;
     }
-    if (typeof window === "undefined" || typeof document === "undefined") {
-      return;
-    }
-
-    let cancelled = false;
-    let timeoutId: number | null = null;
-    let polling = false;
-
-    const scheduleNextPoll = () => {
-      if (cancelled || document.visibilityState !== "visible") {
-        return;
-      }
-      timeoutId = window.setTimeout(() => {
-        timeoutId = null;
-        void pollStatus();
-      }, 1000);
-    };
-
-    const pollStatus = async () => {
-      if (cancelled || polling || document.visibilityState !== "visible") {
-        return;
-      }
-      polling = true;
-      let shouldPollAgain = false;
-      try {
-        const status = await fetchAIOAuthStatus();
-        if (cancelled) {
-          return;
-        }
-        if (status.status === "connected") {
-          setOauthStatus("connected");
-          setOauthError(null);
-          toast.success(t("pages.aiSettings.toast.oauthConnected"));
-          void queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
-          return;
-        }
-        if (status.status === "error") {
-          setOauthStatus("error");
-          setOauthError(status.error || t("pages.aiSettings.oauth.failed"));
-          return;
-        }
-        shouldPollAgain = true;
-      } catch (error: unknown) {
-        if (!cancelled) {
+    const interval = window.setInterval(() => {
+      void fetchAIOAuthStatus()
+        .then((status) => {
+          if (status.status === "connected") {
+            setOauthStatus("connected");
+            setOauthError(null);
+            toast.success(t("pages.aiSettings.toast.oauthConnected"));
+            void queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
+            return;
+          }
+          if (status.status === "error") {
+            setOauthStatus("error");
+            setOauthError(status.error || t("pages.aiSettings.oauth.failed"));
+          }
+        })
+        .catch((error: unknown) => {
           setOauthStatus("error");
           setOauthError(resolveApiErrorMessage(error, t, t("pages.aiSettings.error.oauthStatus")));
-        }
-      } finally {
-        polling = false;
-        if (!cancelled && shouldPollAgain && oauthStatus === "pending" && document.visibilityState === "visible") {
-          scheduleNextPoll();
-        }
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (cancelled) {
-        return;
-      }
-      if (document.visibilityState !== "visible") {
-        if (timeoutId !== null) {
-          window.clearTimeout(timeoutId);
-          timeoutId = null;
-        }
-        return;
-      }
-      if (timeoutId === null) {
-        void pollStatus();
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    void pollStatus();
-
+        });
+    }, 1000);
     return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
+      window.clearInterval(interval);
     };
   }, [oauthStatus, queryClient, t]);
 
@@ -368,10 +309,10 @@ export function AISettingsPage() {
   const saveOCRMutation = useMutation({
     mutationFn: () =>
       saveOCRSettings({
-        default_provider: ocrDefaultProvider as "desktop_local" | "glm_ocr_local" | "openai_compatible" | "external_api",
+        default_provider: ocrDefaultProvider as "glm_ocr_local" | "openai_compatible",
         fallback_enabled: ocrFallbackEnabled,
         fallback_provider: ocrFallbackEnabled
-          ? (ocrFallbackProvider as "desktop_local" | "glm_ocr_local" | "openai_compatible" | "external_api")
+          ? (ocrFallbackProvider as "glm_ocr_local" | "openai_compatible")
           : undefined,
         glm_local_base_url: glmBaseUrl.trim(),
         glm_local_api_mode: glmApiMode,

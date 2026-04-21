@@ -13,7 +13,7 @@ db_url_override = os.getenv("LIDLTOOL_DB_URL")
 if db_url_override:
     config.set_main_option("sqlalchemy.url", db_url_override)
 
-if config.config_file_name is not None and os.path.exists(config.config_file_name):
+if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata

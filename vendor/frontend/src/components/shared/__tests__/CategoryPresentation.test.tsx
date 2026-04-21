@@ -27,17 +27,17 @@ describe("CategoryPresentation", () => {
     expect(screen.getByText("Fisch & Meeresfrüchte")).toBeInTheDocument();
   });
 
-  it("renders personal care subcategories with localized labels", () => {
-    render(<CategoryPresentation category="personal_care:cosmetics" locale="de" />);
-
-    expect(screen.getByText("Pflege")).toBeInTheDocument();
-    expect(screen.getByText("Kosmetik")).toBeInTheDocument();
-  });
-
-  it("renders dining categories with the new English labels", () => {
+  it("renders desktop-vendored dining labels", () => {
     render(<CategoryPresentation category="dining:restaurant" locale="en" />);
 
     expect(screen.getByText("Dining Out")).toBeInTheDocument();
     expect(screen.getByText("Restaurant")).toBeInTheDocument();
+  });
+
+  it("renders desktop-vendored personal care labels", () => {
+    render(<CategoryPresentation category="personal_care:cosmetics" locale="de" />);
+
+    expect(screen.getByText("Pflege")).toBeInTheDocument();
+    expect(screen.getByText("Kosmetik")).toBeInTheDocument();
   });
 });

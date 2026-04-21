@@ -405,7 +405,7 @@ describe("launch-critical route i18n smoke", () => {
           user_id: "u2",
           username: "anna",
           display_name: null,
-          is_admin: false,
+          is_admin: true,
           created_at: "2026-03-08T12:00:00Z",
           updated_at: "2026-03-08T12:00:00Z"
         }

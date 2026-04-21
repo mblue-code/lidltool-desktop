@@ -107,6 +107,6 @@ def _fallback_maturity(source_id: str) -> ConnectorMaturity:
         "amazon_fr": "preview",
         "amazon_gb": "preview",
         "rossmann_de": "preview",
-        "rewe_de": "preview",
+        "rewe_de": "stub",
     }
     return fallback.get(source_id, "stub")

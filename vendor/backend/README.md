@@ -329,27 +329,34 @@ lidltool connectors sync --source-id dm_de --full --option max_pages=10
 
 If the session expires, re-run `lidltool connectors auth bootstrap --source-id dm_de`.
 
-### 12. Direct Rossmann connector (session auth + live sync)
+### 12. Rossmann external plugin (direct app API bootstrap + host-side sync)
 
-Bootstrap Rossmann session once (headful browser):
+Bootstrap Rossmann once with the external plugin:
 
 ```bash
 lidltool connectors auth bootstrap --source-id rossmann_de
 ```
 
-This stores Playwright session state at:
+This plugin stores Rossmann bridge state at:
 
 ```text
-~/.config/lidltool/rossmann_storage_state.json
+~/.config/lidltool/connector_sessions/rossmann_de/rossmann_state.json
 ```
 
-Run direct sync (fetches Rossmann order-history pages and ingests canonically):
+Run sync after setup:
 
 ```bash
-lidltool connectors sync --source-id rossmann_de --full --option max_pages=10
+lidltool connectors sync --source-id rossmann_de --full
 ```
 
-If the session expires, re-run `lidltool connectors auth bootstrap --source-id rossmann_de`.
+This external plugin:
+
+- bootstraps through the Rossmann Android app account API
+- stores `accountId` and `accountHash` bridge state locally
+- mints fresh Anybill receipt tokens on the host for normal sync
+- syncs structured receipt JSON without ongoing emulator control
+
+If Rossmann invalidates the stored bridge state, re-run `lidltool connectors auth bootstrap --source-id rossmann_de`.
 
 ### 13. OCR document ingestion API (upload + process + status)
 
@@ -366,13 +373,7 @@ By default this binds only to `127.0.0.1` with `LIDLTOOL_HTTP_EXPOSURE_MODE=loca
 Start the durable OCR/sync worker (queue consumer):
 
 ```bash
-lidltool-job-worker --db ~/.local/share/lidltool/db.sqlite
-```
-
-For desktop-style on-demand operation, keep the worker separate from `lidltool serve` and let it idle out after a short warm period:
-
-```bash
-lidltool-job-worker --db ~/.local/share/lidltool/db.sqlite --idle-exit-after-s 600
+lidltool-job-worker --once --db ~/.local/share/lidltool/db.sqlite
 ```
 
 Protected HTTP routes require either an authenticated user session or an approved API-key transport. For non-browser examples below, assume `X-API-Key: <api_key>` is configured.
@@ -400,14 +401,6 @@ Poll status:
 curl -s "http://127.0.0.1:8000/api/v1/documents/<document_id>/status" \
   -H "X-API-Key: <api_key>"
 ```
-
-Document OCR status moves through these values:
-
-- `queued`
-- `starting_engine`
-- `processing`
-- `completed`
-- `failed`
 
 HTTP auth:
 
@@ -448,9 +441,8 @@ Bootstrap, cookie, and key model:
 
 OCR provider routing:
 
-- Preferred provider is configured via `LIDLTOOL_OCR_DEFAULT_PROVIDER` (`desktop_local`, `glm_ocr_local`, `openai_compatible`, or `external_api`).
-- `desktop_local` is the desktop-bundled local OCR path. It uses `rapidocr_onnxruntime`, loads lazily inside the worker process, and is the desktop default.
-- `glm_ocr_local` uses `LIDLTOOL_OCR_GLM_LOCAL_BASE_URL` plus `LIDLTOOL_OCR_GLM_LOCAL_MODEL` for a separately managed local GLM/OpenAI-compatible OCR runtime.
+- Preferred provider is configured via `LIDLTOOL_OCR_DEFAULT_PROVIDER` (`glm_ocr_local`, `openai_compatible`, or `external_api`).
+- `glm_ocr_local` is the self-hosted default and uses `LIDLTOOL_OCR_GLM_LOCAL_BASE_URL` plus `LIDLTOOL_OCR_GLM_LOCAL_MODEL`.
 - There is no longer a host-Ollama default. Set `LIDLTOOL_OCR_GLM_LOCAL_BASE_URL` explicitly for any local OCR runtime.
 - `LIDLTOOL_OCR_GLM_LOCAL_API_MODE=openai_chat_completion` is the default for self-hosted OpenAI-compatible OCR runtimes such as vLLM or SGLang.
 - `LIDLTOOL_OCR_GLM_LOCAL_API_MODE=ollama_generate` remains available only as a compatibility adapter for operators who intentionally use Ollama.
@@ -593,7 +585,7 @@ All options can be set via CLI flags, a TOML config file (`~/.config/lidltool/co
 | Trusted reverse-proxy CIDRs | `LIDLTOOL_HTTP_TRUSTED_PROXY_CIDRS` | `[]` _(required only for `reverse_proxy_tls`)_ |
 | OCR storage path | `LIDLTOOL_DOCUMENT_STORAGE_PATH` | `~/.local/share/lidltool/documents` |
 | OCR max upload (MB) | `LIDLTOOL_MAX_UPLOAD_SIZE_MB` | `12` |
-| OCR default provider | `LIDLTOOL_OCR_DEFAULT_PROVIDER` | `desktop_local` |
+| OCR default provider | `LIDLTOOL_OCR_DEFAULT_PROVIDER` | `glm_ocr_local` |
 | OCR fallback enabled | `LIDLTOOL_OCR_FALLBACK_ENABLED` | `false` |
 | OCR review confidence threshold | `LIDLTOOL_OCR_REVIEW_CONFIDENCE_THRESHOLD` | `0.80` |
 | OCR GLM local base URL | `LIDLTOOL_OCR_GLM_LOCAL_BASE_URL` | _(unset)_ |

@@ -77,4 +77,28 @@ describe("OcrWorkerSupervisor", () => {
 
     assert.deepEqual(fakeProcess.killedSignals, ["SIGTERM", "SIGKILL"]);
   });
+
+  it("surfaces a worker that exits during startup", async () => {
+    const fakeProcess = new FakeChildProcess();
+    const supervisor = new OcrWorkerSupervisor({
+      buildLaunchSpec: async () => ({
+        command: "python3",
+        args: ["-m", "lidltool.ingest.jobs", "--idle-exit-after-s", "2"],
+        env: {},
+        idleTimeoutSeconds: 2,
+      }),
+      emitLog: (payload) => logs.push(payload),
+      spawnProcess: (() => {
+        queueMicrotask(() => {
+          fakeProcess.emit("exit", 2, null);
+        });
+        return fakeProcess as unknown as ChildProcessWithoutNullStreams;
+      }) as typeof import("node:child_process").spawn,
+    });
+
+    await assert.rejects(
+      supervisor.ensureRunning(),
+      /ocr worker exited during startup/
+    );
+  });
 });

@@ -7,6 +7,7 @@ const TimingValueModeSchema = z.enum(["net", "gross", "count"]);
 const DepositAnalyticsSchema = z.object({
   date_from: z.string(),
   date_to: z.string(),
+  source_ids: z.array(z.string()).nullable().optional(),
   total_paid_cents: z.number(),
   total_returned_cents: z.number(),
   net_outstanding_cents: z.number(),
@@ -27,14 +28,13 @@ export async function fetchDepositAnalytics(params?: {
   toDate?: string;
   sourceIds?: string[];
 }): Promise<DepositAnalytics> {
-  const normalizedSourceIds =
-    params?.sourceIds && params.sourceIds.length > 0
-      ? Array.from(new Set(params.sourceIds.map((value) => value.trim()).filter(Boolean))).join(",")
-      : undefined;
+  const normalizedSourceIds = params?.sourceIds
+    ? Array.from(new Set(params.sourceIds.map((value) => value.trim()).filter(Boolean))).sort()
+    : undefined;
   return apiClient.get("/api/v1/analytics/deposits", DepositAnalyticsSchema, {
     from_date: params?.fromDate,
     to_date: params?.toDate,
-    source_ids: normalizedSourceIds
+    source_ids: normalizedSourceIds && normalizedSourceIds.length > 0 ? normalizedSourceIds.join(",") : undefined
   });
 }
 

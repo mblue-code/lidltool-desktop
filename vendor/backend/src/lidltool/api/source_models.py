@@ -127,10 +127,11 @@ def serialize_source_auth_status(
     auth_service: ConnectorAuthOrchestrationService,
     source_id: str,
     include_diagnostics: bool = True,
+    validate_session: bool = True,
 ) -> SourceAuthStatusPayload:
     snapshot = auth_service.get_auth_status(
         source_id=source_id,
-        validate_session=False,
+        validate_session=validate_session,
     )
     return {
         "source_id": source_id,

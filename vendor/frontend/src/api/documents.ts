@@ -19,22 +19,6 @@ const DocumentProcessResponseSchema = z.object({
   reused: z.boolean()
 });
 
-const DocumentJobTimelineEventSchema = z.object({
-  timestamp: z.string(),
-  event: z.string(),
-  status: z.string(),
-  message: z.string(),
-});
-
-const DocumentJobSchema = z.object({
-  job_id: z.string(),
-  status: z.string(),
-  started_at: z.string().nullable(),
-  finished_at: z.string().nullable(),
-  timeline: z.array(DocumentJobTimelineEventSchema).default([]),
-  error: z.string().nullable(),
-}).passthrough();
-
 const DocumentStatusResponseSchema = z.object({
   document_id: z.string(),
   transaction_id: z.string().nullable(),
@@ -46,7 +30,7 @@ const DocumentStatusResponseSchema = z.object({
   ocr_fallback_used: z.boolean().nullable(),
   ocr_latency_ms: z.number().nullable(),
   processed_at: z.string().nullable(),
-  job: DocumentJobSchema.optional()
+  job: z.record(z.string(), z.unknown()).optional()
 });
 
 export type DocumentUploadResponse = z.infer<typeof DocumentUploadResponseSchema>;
@@ -86,6 +70,21 @@ export async function processDocument(
   }
   appendCommonFormFields(formData);
   return apiClient.postForm(`/api/v1/documents/${documentId}/process`, DocumentProcessResponseSchema, formData);
+}
+
+export async function failDocumentProcess(
+  documentId: string,
+  params: { jobId: string; errorMessage: string }
+): Promise<DocumentProcessResponse> {
+  const formData = new FormData();
+  formData.set("job_id", params.jobId);
+  formData.set("error_message", params.errorMessage);
+  appendCommonFormFields(formData);
+  return apiClient.postForm(
+    `/api/v1/documents/${documentId}/process/fail`,
+    DocumentProcessResponseSchema,
+    formData
+  );
 }
 
 export async function fetchDocumentStatus(

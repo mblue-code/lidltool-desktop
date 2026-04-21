@@ -19,14 +19,8 @@ if TYPE_CHECKING:
     from lidltool.config import AppConfig
 
 SERVICE = "lidltool"
-LEGACY_ACCOUNT = "lidl_plus_de_refresh_token"
+ACCOUNT = "lidl_plus_de_refresh_token"
 LOGGER = logging.getLogger(__name__)
-_SOURCE_FIELDS = {
-    "refresh_token",
-    "access_token",
-    "access_token_expires_at",
-    "reauth_required",
-}
 
 
 @dataclass(slots=True)
@@ -35,7 +29,6 @@ class TokenStore:
     encryption_key: str | None = None
     encryption_key_id: str = "v1"
     encryption_required: bool = True
-    source_id: str = "lidl_plus_de"
 
     @classmethod
     def from_config(cls, config: AppConfig) -> TokenStore:
@@ -44,7 +37,6 @@ class TokenStore:
             encryption_key=config.credential_encryption_key,
             encryption_key_id=config.credential_encryption_key_id,
             encryption_required=config.credential_encryption_required,
-            source_id=config.source,
         )
 
     # ------------------------------------------------------------------
@@ -63,46 +55,45 @@ class TokenStore:
             try:
                 import keyring
 
-                token = keyring.get_password(SERVICE, self._account_name())
+                token = keyring.get_password(SERVICE, ACCOUNT)
                 if token:
                     return token
             except Exception:
                 pass
-        _, source_store = self._load_source_store()
-        return source_store.get("refresh_token") or None
+        return self._read_json_store().get("refresh_token") or None
 
     def set_refresh_token(self, token: str) -> None:
         if self._keyring_available():
             try:
                 import keyring
 
-                keyring.set_password(SERVICE, self._account_name(), token)
+                keyring.set_password(SERVICE, ACCOUNT, token)
                 # Still persist to file so access-cache and flags work
-                store, source_store = self._load_source_store()
-                source_store["refresh_token"] = token
-                source_store.pop("reauth_required", None)
-                self._write_source_store(store, source_store)
+                store = self._read_json_store()
+                store["refresh_token"] = token
+                store.pop("reauth_required", None)
+                self._write_json_store(store)
                 return
             except Exception:
                 pass
-        store, source_store = self._load_source_store()
-        source_store["refresh_token"] = token
-        source_store.pop("reauth_required", None)
-        self._write_source_store(store, source_store)
+        store = self._read_json_store()
+        store["refresh_token"] = token
+        store.pop("reauth_required", None)
+        self._write_json_store(store)
 
     def clear_refresh_token(self) -> None:
         if self._keyring_available():
             try:
                 import keyring
 
-                keyring.delete_password(SERVICE, self._account_name())
+                keyring.delete_password(SERVICE, ACCOUNT)
             except Exception:
                 pass
-        store, source_store = self._load_source_store()
-        removed = source_store.pop("refresh_token", None)
+        store = self._read_json_store()
+        removed = store.pop("refresh_token", None)
         if removed is None:
             return
-        self._write_source_store(store, source_store)
+        self._write_json_store(store)
 
     # ------------------------------------------------------------------
     # Access token cache (always in the JSON file — short-lived, 0600)
@@ -110,9 +101,9 @@ class TokenStore:
 
     def get_access_cache(self) -> tuple[str, datetime] | None:
         """Return (access_token, expires_at) if a valid cache entry exists."""
-        _, source_store = self._load_source_store()
-        token = source_store.get("access_token")
-        expires_str = source_store.get("access_token_expires_at")
+        store = self._read_json_store()
+        token = store.get("access_token")
+        expires_str = store.get("access_token_expires_at")
         if not isinstance(token, str) or not token:
             return None
         if not isinstance(expires_str, str):
@@ -127,19 +118,19 @@ class TokenStore:
 
     def set_access_cache(self, access_token: str, expires_at: datetime) -> None:
         """Persist a freshly issued access token and its expiry timestamp."""
-        store, source_store = self._load_source_store()
-        source_store["access_token"] = access_token
-        source_store["access_token_expires_at"] = expires_at.isoformat()
-        source_store.pop("reauth_required", None)  # successful refresh clears the flag
-        self._write_source_store(store, source_store)
+        store = self._read_json_store()
+        store["access_token"] = access_token
+        store["access_token_expires_at"] = expires_at.isoformat()
+        store.pop("reauth_required", None)  # successful refresh clears the flag
+        self._write_json_store(store)
 
     def clear_access_cache(self) -> None:
-        store, source_store = self._load_source_store()
-        removed_token = source_store.pop("access_token", None)
-        removed_exp = source_store.pop("access_token_expires_at", None)
+        store = self._read_json_store()
+        removed_token = store.pop("access_token", None)
+        removed_exp = store.pop("access_token_expires_at", None)
         if removed_token is None and removed_exp is None:
             return
-        self._write_source_store(store, source_store)
+        self._write_json_store(store)
 
     # ------------------------------------------------------------------
     # Reauth-required flag
@@ -147,22 +138,21 @@ class TokenStore:
 
     def set_reauth_required(self) -> None:
         """Mark that the refresh token has been rejected and re-auth is needed."""
-        store, source_store = self._load_source_store()
-        source_store["reauth_required"] = True
-        source_store.pop("access_token", None)
-        source_store.pop("access_token_expires_at", None)
-        self._write_source_store(store, source_store)
+        store = self._read_json_store()
+        store["reauth_required"] = True
+        store.pop("access_token", None)
+        store.pop("access_token_expires_at", None)
+        self._write_json_store(store)
 
     def is_reauth_required(self) -> bool:
-        _, source_store = self._load_source_store()
-        return bool(source_store.get("reauth_required"))
+        return bool(self._read_json_store().get("reauth_required"))
 
     def clear_reauth_required(self) -> None:
-        store, source_store = self._load_source_store()
-        removed = source_store.pop("reauth_required", None)
+        store = self._read_json_store()
+        removed = store.pop("reauth_required", None)
         if removed is None:
             return
-        self._write_source_store(store, source_store)
+        self._write_json_store(store)
 
     # ------------------------------------------------------------------
     # Internal JSON store helpers
@@ -203,49 +193,6 @@ class TokenStore:
         with self.fallback_file.open("w", encoding="utf-8") as fh:
             json.dump(stored_payload, fh, indent=2)
         os.chmod(self.fallback_file, 0o600)
-
-    def _account_name(self) -> str:
-        if self.source_id == "lidl_plus_de":
-            return LEGACY_ACCOUNT
-        return f"{self.source_id}_refresh_token"
-
-    def _load_source_store(self) -> tuple[dict, dict]:  # type: ignore[type-arg]
-        store = self._read_json_store()
-        sources = store.get("sources")
-        if isinstance(sources, dict):
-            source_store = sources.get(self.source_id)
-            if isinstance(source_store, dict):
-                return store, dict(source_store)
-        if self.source_id == "lidl_plus_de":
-            legacy = {
-                key: value
-                for key, value in store.items()
-                if key in _SOURCE_FIELDS
-            }
-            return store, legacy
-        return store, {}
-
-    def _write_source_store(self, store: dict, source_store: dict) -> None:  # type: ignore[type-arg]
-        sources = store.get("sources")
-        if not isinstance(sources, dict):
-            sources = {}
-        if source_store:
-            sources[self.source_id] = source_store
-        else:
-            sources.pop(self.source_id, None)
-        if sources:
-            store["sources"] = sources
-        else:
-            store.pop("sources", None)
-
-        if self.source_id == "lidl_plus_de":
-            for key in _SOURCE_FIELDS:
-                if key in source_store:
-                    store[key] = source_store[key]
-                else:
-                    store.pop(key, None)
-
-        self._write_json_store(store)
 
     def _require_encryption_key(self, *, operation: str) -> str:
         key = (self.encryption_key or "").strip()

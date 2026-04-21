@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from lidltool.config import AppConfig
-from lidltool.ocr.providers.desktop_local import DesktopLocalProvider
 from lidltool.ocr.providers.base import OcrProvider, OcrResult
 from lidltool.ocr.providers.external_api import ExternalApiProvider
 from lidltool.ocr.providers.glm_ocr_local import GlmOcrLocalProvider
@@ -21,7 +20,6 @@ class OcrProviderRouter:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
         self._providers: dict[str, OcrProvider] = {
-            "desktop_local": DesktopLocalProvider(config),
             "glm_ocr_local": GlmOcrLocalProvider(config),
             "openai_compatible": OpenAICompatibleProvider(config),
             "external_api": ExternalApiProvider(config),
@@ -34,7 +32,7 @@ class OcrProviderRouter:
         mime_type: str,
         file_name: str,
     ) -> RoutedOcrResult:
-        primary = self._config.ocr_default_provider or "desktop_local"
+        primary = self._config.ocr_default_provider or "glm_ocr_local"
         provider_order = [primary]
         fallback = (self._config.ocr_fallback_provider or "").strip()
         if (
@@ -54,12 +52,6 @@ class OcrProviderRouter:
                     raise last_error
                 continue
             attempted.append(provider_name)
-            configuration_error = provider.configuration_error()
-            if configuration_error is not None:
-                last_error = RuntimeError(configuration_error)
-                if provider_name == primary and not self._config.ocr_fallback_enabled:
-                    raise last_error
-                continue
             try:
                 result = provider.extract(
                     payload=payload,

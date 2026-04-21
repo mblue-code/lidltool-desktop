@@ -14,7 +14,21 @@ function renderWithQueryClient(ui: React.JSX.Element): void {
   render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
-function stubDocumentApi(statusTimeline: string[]): void {
+function desktopApiStub(
+  overrides: Record<string, unknown>
+): NonNullable<(typeof window)["desktopApi"]> {
+  return {
+    runImport: vi.fn(),
+    ...overrides
+  } as NonNullable<(typeof window)["desktopApi"]>;
+}
+
+function stubDocumentApi(
+  statusTimeline: string[],
+  options?: {
+    processFailStatus?: string;
+  }
+): void {
   let statusRequests = 0;
 
   vi.stubGlobal(
@@ -58,16 +72,27 @@ function stubDocumentApi(statusTimeline: string[]): void {
         };
       }
 
+      if (method === "POST" && url.pathname === "/api/v1/documents/doc-1/process/fail") {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            result: {
+              document_id: "doc-1",
+              job_id: "job-1",
+              status: options?.processFailStatus ?? "failed",
+              reused: false
+            },
+            warnings: [],
+            error: null
+          })
+        };
+      }
+
       if (method === "GET" && url.pathname === "/api/v1/documents/doc-1/status") {
         const index = Math.min(statusRequests, Math.max(statusTimeline.length - 1, 0));
         const status = statusTimeline[index] ?? "queued";
         statusRequests += 1;
-        const timeline = statusTimeline.slice(0, index + 1).map((entryStatus, entryIndex) => ({
-          timestamp: `2026-02-19T12:00:0${entryIndex}Z`,
-          event: entryStatus,
-          status: entryStatus === "failed" ? "failed" : entryStatus === "completed" ? "success" : "running",
-          message: `OCR state ${entryStatus}`
-        }));
         return {
           ok: true,
           json: async () => ({
@@ -83,14 +108,7 @@ function stubDocumentApi(statusTimeline: string[]): void {
               ocr_fallback_used: false,
               ocr_latency_ms: 420,
               processed_at: "2026-02-19T12:00:00Z",
-              job: {
-                job_id: "job-1",
-                status,
-                started_at: "2026-02-19T12:00:00Z",
-                finished_at: status === "completed" || status === "failed" ? "2026-02-19T12:00:04Z" : null,
-                timeline,
-                error: status === "failed" ? "OCR failed" : null
-              }
+              job: { status }
             },
             warnings: [],
             error: null
@@ -128,6 +146,7 @@ function assertNoLegacyApiKeyTransport(): void {
 describe("DocumentsUploadPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    delete (window as typeof window & { desktopApi?: unknown }).desktopApi;
   });
 
   afterEach(() => {
@@ -167,6 +186,33 @@ describe("DocumentsUploadPage", () => {
     assertNoLegacyApiKeyTransport();
   });
 
+  it("wakes the desktop OCR worker after the process request succeeds", async () => {
+    stubDocumentApi(["queued", "processing", "completed"]);
+    const wakeOcrWorker = vi.fn().mockResolvedValue({
+      running: true,
+      started: true,
+      idleTimeoutSeconds: 600
+    });
+    window.desktopApi = desktopApiStub({ wakeOcrWorker });
+
+    renderWithQueryClient(<DocumentsUploadPage />);
+
+    const fileInput = screen.getByLabelText("Choose document file");
+    const file = new File(["fake"], "receipt.png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload and process" }));
+
+    await waitFor(() => {
+      expect(wakeOcrWorker).toHaveBeenCalledTimes(1);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("OCR processing triggered. Status will update automatically.")).toBeInTheDocument();
+      expect(screen.getByText("Status queued")).toBeInTheDocument();
+    });
+  });
+
   it("polls OCR status from queued to failed", async () => {
     stubDocumentApi(["queued", "failed"]);
     renderWithQueryClient(<DocumentsUploadPage />);
@@ -189,6 +235,35 @@ describe("DocumentsUploadPage", () => {
       },
       { timeout: 7000 }
     );
+  });
+
+  it("reports a failed OCR job when the desktop worker cannot be started", async () => {
+    stubDocumentApi(["failed"], { processFailStatus: "failed" });
+    const wakeOcrWorker = vi.fn().mockRejectedValue(new Error("desktop wake failed"));
+    window.desktopApi = desktopApiStub({ wakeOcrWorker });
+
+    renderWithQueryClient(<DocumentsUploadPage />);
+
+    const fileInput = screen.getByLabelText("Choose document file");
+    const file = new File(["fake"], "receipt.png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload and process" }));
+
+    await waitFor(() => {
+      expect(wakeOcrWorker).toHaveBeenCalledTimes(1);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("desktop wake failed")).toBeInTheDocument();
+      expect(screen.getByText("Status failed")).toBeInTheDocument();
+    });
+
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some((call) => new URL(String(call[0])).pathname === "/api/v1/documents/doc-1/process/fail")
+    ).toBe(true);
   });
 
   it("blocks upload when metadata JSON is invalid", async () => {

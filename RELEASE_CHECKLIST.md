@@ -15,7 +15,7 @@ Run all commands from `apps/desktop`.
   - Expected: `vite build` completes and writes `vendor/frontend/dist`.
 - [ ] `npm run backend:prepare`
   - Expected: logs `Prepared desktop backend runtime at .../apps/desktop/.backend/venv`.
-  - Expected: Chromium exists under `.backend/venv/lib/python*/site-packages/playwright/driver/package/.local-browsers/chromium-*`.
+  - Expected: Playwright Chromium is installed outside the venv, by default under `.cache/playwright-browsers`.
   - Expected: uses Python 3.11-3.12 unless `LIDLTOOL_DESKTOP_ALLOW_UNSUPPORTED_PYTHON=1` is intentionally set.
 - [ ] `npm run test:ocr-packaged`
   - Expected: verifies the built `build/backend-venv` + `build/backend-src` payload can process a scanned PDF via the packaged OCR worker path.
@@ -26,6 +26,10 @@ Run all commands from `apps/desktop`.
   - Expected: `Synced frontend assets`, `Synced backend source`, `Synced backend runtime`.
 - [ ] `npm run dist:full`
   - Expected: packaged outputs in `dist_electron/` (`.dmg/.zip` on macOS, `.exe/.zip` on Windows).
+  - Expected on macOS: local builds do not attempt signing even if a development identity is present in the keychain.
+- [ ] `npm run dist:mac:signed`
+  - Expected: run only with explicit `CSC_NAME`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`.
+  - Expected: signed `.app` is notarized by `scripts/notarize.mjs`.
 
 ## 2. Packaged resource inclusion
 
@@ -37,8 +41,8 @@ Run all commands from `apps/desktop`.
   - `frontend-dist/index.html`
   - `backend-src/pyproject.toml`
   - `backend-venv/bin/lidltool` (macOS/Linux) or `backend-venv/Scripts/lidltool.exe` (Windows)
-- [ ] Verify Playwright browser payload in package:
-  - `backend-venv/lib/python*/site-packages/playwright/driver/package/.local-browsers/chromium-*`
+- [ ] Verify Playwright browser payload is not bundled in package:
+  - `backend-venv/lib/python*/site-packages/playwright/driver/package/.local-browsers` should be absent
 
 ## 3. Boot-flow validation
 
@@ -66,4 +70,5 @@ Run all commands from `apps/desktop`.
 ## 4. Final release outputs
 
 - [ ] Attach/ship only artifacts from `dist_electron/`.
-- [ ] Note that code signing/notarization is not configured in this scaffold.
+- [ ] For local QA builds, keep signing disabled via the default `dist*` scripts.
+- [ ] For release builds, use the explicit signed lane instead of relying on Electron Builder identity auto-discovery.

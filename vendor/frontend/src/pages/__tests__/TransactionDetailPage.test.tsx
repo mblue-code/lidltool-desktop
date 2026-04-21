@@ -220,37 +220,6 @@ describe("TransactionDetailPage", () => {
     expect(body.item_corrections?.[0]?.corrections?.category).toBe("groceries:dairy");
   });
 
-  it("shows and submits the new personal care subcategories", async () => {
-    renderTransactionDetail();
-
-    await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: "Item" })).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("combobox", { name: "Item" }));
-    fireEvent.click(await screen.findByRole("option", { name: "Milk" }));
-
-    fireEvent.click(screen.getByRole("combobox", { name: "Item Category" }));
-    fireEvent.click(await screen.findByRole("option", { name: "Personal Care / Cosmetics" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Apply correction" }));
-
-    await waitFor(() => {
-      expect(
-        vi.mocked(fetch).mock.calls.some((call) => String(call[0]).includes("/overrides"))
-      ).toBe(true);
-    });
-
-    const patchCall = vi
-      .mocked(fetch)
-      .mock.calls.find((call) => String(call[0]).includes("/overrides"));
-    expect(patchCall).toBeDefined();
-    const body = JSON.parse(String(patchCall?.[1]?.body || "{}")) as {
-      item_corrections?: Array<{ item_id: string; corrections?: { category?: string } }>;
-    };
-    expect(body.item_corrections?.[0]?.corrections?.category).toBe("personal_care:cosmetics");
-  });
-
   it("asks for confirmation before creating a global exact-name category rule", async () => {
     renderTransactionDetail();
 

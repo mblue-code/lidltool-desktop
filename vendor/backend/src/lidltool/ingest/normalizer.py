@@ -20,7 +20,6 @@ class NormalizedReceiptItem:
     unit: str | None
     unit_price: int | None
     line_total: int
-    is_deposit: bool
     vat_rate: Decimal | None
     category: str | None
     discounts: list[dict[str, Any]]
@@ -71,13 +70,7 @@ def to_cents(value: Any, default: int = 0) -> int:
     if isinstance(value, Decimal):
         return int((value * Decimal("100")).quantize(Decimal("1")))
     if isinstance(value, str):
-        normalized = (
-            value.replace("€", "")
-            .replace("EUR", "")
-            .replace("£", "")
-            .replace("GBP", "")
-            .replace(" ", "")
-        )
+        normalized = value.replace("€", "").replace("EUR", "").replace(" ", "")
         normalized = normalized.replace(",", ".")
         if normalized == "":
             return default
@@ -204,7 +197,6 @@ def normalize_receipt(
                 unit=str(unit) if unit is not None else None,
                 unit_price=unit_price,
                 line_total=line_total,
-                is_deposit=bool(raw_item.get("is_deposit", raw_item.get("isDeposit", False))),
                 vat_rate=vat_rate,
                 category=category,
                 discounts=discounts,

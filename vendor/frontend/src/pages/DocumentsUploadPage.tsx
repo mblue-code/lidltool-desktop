@@ -9,6 +9,7 @@ import { z } from "zod";
 import {
   DocumentProcessResponse,
   DocumentUploadResponse,
+  failDocumentProcess,
   fetchDocumentStatus,
   processDocument,
   uploadDocument
@@ -23,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
+import { getDesktopOcrBridge } from "@/lib/desktop-api";
 import { cn } from "@/lib/utils";
 import { jsonObjectStringSchema } from "@/lib/json-object-field";
 import { formatDateTime } from "@/utils/format";
@@ -34,14 +36,7 @@ type TimelineEvent = {
   createdAt: string;
 };
 
-type UploadStatus =
-  | "idle"
-  | "uploading"
-  | "queued"
-  | "startingEngine"
-  | "processing"
-  | "done"
-  | "error";
+type UploadStatus = "idle" | "uploading" | "processing" | "done" | "error";
 type TerminalOcrStatus = "completed" | "failed";
 
 const TERMINAL_OCR_STATUSES = new Set<TerminalOcrStatus>(["completed", "failed"]);
@@ -71,8 +66,6 @@ const UPLOAD_STATE_CONFIG: Record<
 > = {
   idle:       { className: "bg-muted text-muted-foreground",     Icon: null },
   uploading:  { className: "bg-primary/10 text-primary",         Icon: Loader2, spin: true },
-  queued:     { className: "bg-secondary text-secondary-foreground", Icon: Loader2, spin: true },
-  startingEngine: { className: "bg-amber-100 text-amber-900",    Icon: Loader2, spin: true },
   processing: { className: "bg-chart-3/10 text-chart-3",         Icon: Loader2, spin: true },
   done:       { className: "bg-success/10 text-success",         Icon: CheckCircle2 },
   error:      { className: "bg-destructive/10 text-destructive", Icon: XCircle },
@@ -84,10 +77,6 @@ function UploadStateChip({ state }: { state: UploadStatus }) {
   const labelKey =
     state === "uploading"
       ? "pages.documentsUpload.state.uploading"
-      : state === "queued"
-        ? "pages.documentsUpload.state.queued"
-        : state === "startingEngine"
-          ? "pages.documentsUpload.state.startingEngine"
       : state === "processing"
         ? "pages.documentsUpload.state.processing"
         : state === "done"
@@ -114,27 +103,7 @@ function ocrStatusClass(status: string): string {
   switch (status) {
     case "completed": return "border-transparent bg-success/15 text-success";
     case "failed":    return "border-transparent bg-destructive/15 text-destructive";
-    case "starting_engine": return "border-transparent bg-amber-100 text-amber-900";
-    case "processing": return "border-transparent bg-chart-3/10 text-chart-3";
-    case "queued": return "border-transparent bg-secondary text-secondary-foreground";
     default:          return "border-transparent bg-muted text-muted-foreground";
-  }
-}
-
-function deriveUploadStateFromOcrStatus(status: string | undefined): UploadStatus {
-  switch (status) {
-    case "queued":
-      return "queued";
-    case "starting_engine":
-      return "startingEngine";
-    case "processing":
-      return "processing";
-    case "completed":
-      return "done";
-    case "failed":
-      return "error";
-    default:
-      return "processing";
   }
 }
 
@@ -168,7 +137,7 @@ export function DocumentsUploadPage() {
     [t]
   );
 
-  const seenJobTimelineRef = useRef<Set<string>>(new Set());
+  const lastStatusRef = useRef<string | null>(null);
 
   const form = useForm<UploadFormInput, unknown, UploadFormOutput>({
     resolver: zodResolver(uploadFormSchema),
@@ -217,7 +186,7 @@ export function DocumentsUploadPage() {
   const currentStatus = statusQuery.data?.status || uploadResult?.status || "pending";
 
   async function startProcessing(documentId: string): Promise<void> {
-    setUploadState("queued");
+    setUploadState("processing");
     try {
       const result = await processMutation.mutateAsync(documentId);
       const reusedSuffix = result.reused ? " (reused)" : "";
@@ -235,12 +204,25 @@ export function DocumentsUploadPage() {
         },
         ...previous
       ]);
-      try {
-        await window.desktopApi?.wakeOcrWorker?.();
-      } catch (error) {
-        setErrorMessage(resolveApiErrorMessage(error, t, t("pages.documentsUpload.ocrWakeFailed")));
-        setUploadState("error");
-        return;
+      const desktopOcrBridge = getDesktopOcrBridge();
+      if (desktopOcrBridge) {
+        try {
+          await desktopOcrBridge.wakeOcrWorker();
+        } catch (error) {
+          const wakeErrorMessage =
+            error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : t("pages.documentsUpload.processFailed");
+          try {
+            await failDocumentProcess(documentId, {
+              jobId: result.job_id,
+              errorMessage: wakeErrorMessage
+            });
+          } catch {
+            // Preserve the original wake failure as the primary surfaced error.
+          }
+          throw new Error(wakeErrorMessage);
+        }
       }
       setStatusMessage(t("pages.documentsUpload.processingStarted"));
     } catch (error) {
@@ -253,31 +235,32 @@ export function DocumentsUploadPage() {
     if (!statusQuery.data || !activeDocumentId) {
       return;
     }
-    setUploadState(deriveUploadStateFromOcrStatus(statusQuery.data.status));
-
-    const unseenTimelineEvents = (statusQuery.data.job?.timeline ?? []).filter((event) => {
-      const key = `${event.timestamp}:${event.event}:${event.status}`;
-      if (seenJobTimelineRef.current.has(key)) {
-        return false;
-      }
-      seenJobTimelineRef.current.add(key);
-      return true;
-    });
-    if (unseenTimelineEvents.length === 0) {
+    const statusKey = `${statusQuery.data.status}:${statusQuery.data.review_status || "none"}`;
+    if (lastStatusRef.current === statusKey) {
       return;
     }
+    lastStatusRef.current = statusKey;
+    const confidenceSuffix =
+      statusQuery.data.ocr_confidence !== null ? `, OCR confidence: ${statusQuery.data.ocr_confidence.toFixed(3)}` : "";
+    const title = t("pages.documentsUpload.timeline.status", { status: statusQuery.data.status });
+    const detail = t("pages.documentsUpload.timeline.review", {
+      reviewStatus: statusQuery.data.review_status || "unknown",
+      confidenceSuffix
+    });
     setTimeline((previous) => [
-      ...unseenTimelineEvents
-        .map((event) => ({
-          key: `${event.timestamp}:${event.event}:${event.status}`,
-          title: t("pages.documentsUpload.timeline.status", { status: event.event }),
-          detail: event.message,
-          createdAt: event.timestamp,
-        }))
-        .reverse(),
-      ...previous,
+      {
+        key: `${statusKey}:${Date.now()}`,
+        title,
+        detail,
+        createdAt: new Date().toISOString()
+      },
+      ...previous
     ]);
-  }, [activeDocumentId, statusQuery.data, t]);
+
+    if (isTerminalOcrStatus(statusQuery.data.status)) {
+      setUploadState(statusQuery.data.status === "completed" ? "done" : "error");
+    }
+  }, [activeDocumentId, statusQuery.data]);
 
   const timelineItems = useMemo(() => timeline.slice(0, 10), [timeline]);
 
@@ -300,7 +283,7 @@ export function DocumentsUploadPage() {
           createdAt: new Date().toISOString()
         }
       ]);
-      seenJobTimelineRef.current.clear();
+      lastStatusRef.current = null;
       setStatusMessage(t("pages.documentsUpload.uploaded"));
       await startProcessing(result.document_id);
     } catch (error) {

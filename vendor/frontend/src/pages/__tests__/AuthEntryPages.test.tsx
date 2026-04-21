@@ -1,5 +1,5 @@
 import type * as React from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -59,6 +59,7 @@ describe("auth entry pages", () => {
         }
       }
     });
+    window.desktopApi = undefined;
   });
 
   afterEach(() => {
@@ -75,17 +76,6 @@ describe("auth entry pages", () => {
     });
   });
 
-  it("redirects setup to login after initial setup is already complete", async () => {
-    mocks.getSetupStatus.mockResolvedValue({ required: false, bootstrap_token_required: false });
-    mocks.fetchCurrentUser.mockRejectedValue(new Error("authentication required"));
-
-    renderPage(<SetupPage />);
-
-    await waitFor(() => {
-      expect(mocks.navigate).toHaveBeenCalledWith("/login", { replace: true });
-    });
-  });
-
   it("keeps the setup form accessible while setup is still required", async () => {
     mocks.getSetupStatus.mockResolvedValue({ required: true, bootstrap_token_required: false });
 
@@ -93,5 +83,44 @@ describe("auth entry pages", () => {
 
     expect(await screen.findByRole("heading", { name: "Welcome to Lidl Receipts" })).toBeInTheDocument();
     expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("reloads sign-in after a successful desktop restore from setup", async () => {
+    const originalLocation = window.location;
+    const assignSpy = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...originalLocation,
+        assign: assignSpy
+      }
+    });
+    mocks.getSetupStatus.mockResolvedValue({ required: true, bootstrap_token_required: false });
+    window.desktopApi = {
+      runImport: vi.fn().mockResolvedValue({
+        ok: true,
+        command: "desktop:import",
+        args: [],
+        exitCode: 0,
+        stdout: "",
+        stderr: ""
+      })
+    } as typeof window.desktopApi;
+
+    renderPage(<SetupPage />);
+
+    fireEvent.change(await screen.findByLabelText("Backup directory"), {
+      target: { value: "/tmp/desktop-backup" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Restore backup and sign in" }));
+
+    await waitFor(() => {
+      expect(window.desktopApi?.runImport).toHaveBeenCalled();
+      expect(assignSpy).toHaveBeenCalledWith("/login?restored=1");
+    });
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation
+    });
   });
 });

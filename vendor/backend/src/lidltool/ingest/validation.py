@@ -60,7 +60,6 @@ def validate_normalized_connector_payload(
     _validate_transaction_payload(
         report=report,
         normalized_record=normalized_record,
-        source_record_detail=source_record_detail,
         inspected_at=inspected_at,
     )
     item_index = _validate_items(report=report, normalized_record=normalized_record)
@@ -159,7 +158,6 @@ def _validate_transaction_payload(
     *,
     report: ValidationReport,
     normalized_record: NormalizedReceiptRecord,
-    source_record_detail: Mapping[str, Any],
     inspected_at: datetime,
 ) -> None:
     if not normalized_record.id.strip():
@@ -226,14 +224,12 @@ def _validate_transaction_payload(
             details={"total_gross_cents": normalized_record.total_gross_cents},
         )
     elif normalized_record.total_gross_cents == 0:
-        unsupported_reason = str(source_record_detail.get("unsupportedReason") or "").strip().lower()
-        if normalized_record.discount_total_cents <= 0 and unsupported_reason != "canceled_only":
-            report.add_issue(
-                code="zero_total_gross",
-                severity=ValidationSeverity.WARN,
-                message="total_gross_cents is zero; ingesting with warning",
-                path="$.normalized_record.total_gross_cents",
-            )
+        report.add_issue(
+            code="zero_total_gross",
+            severity=ValidationSeverity.WARN,
+            message="total_gross_cents is zero; ingesting with warning",
+            path="$.normalized_record.total_gross_cents",
+        )
     elif normalized_record.total_gross_cents > _MAX_REASONABLE_TOTAL_CENTS:
         report.add_issue(
             code="total_gross_implausibly_large",
@@ -443,36 +439,15 @@ def _validate_cross_field_consistency(
     item_total_cents = sum(
         item.line_total_cents for item in normalized_record.items if not bool(item.is_deposit)
     )
-    deposit_adjustment_cents = sum(
+    deposit_total_cents = sum(
         item.line_total_cents for item in normalized_record.items if bool(item.is_deposit)
     )
     extracted_discount_total = sum(row.amount_cents for row in discount_rows)
-    payment_adjustment_total = 0
-    raw_payment_adjustments = normalized_record.raw_json.get("paymentAdjustments")
-    if isinstance(raw_payment_adjustments, Sequence) and not isinstance(raw_payment_adjustments, (str, bytes)):
-        for adjustment in raw_payment_adjustments:
-            if not isinstance(adjustment, Mapping):
-                continue
-            amount = adjustment.get("amount_cents")
-            if amount is None:
-                amount = adjustment.get("amount")
-            try:
-                payment_adjustment_total += abs(int(amount))
-            except (TypeError, ValueError):
-                continue
-    candidate_totals = {
-        item_total_cents + deposit_adjustment_cents,
-        item_total_cents - extracted_discount_total + deposit_adjustment_cents,
-    }
+    candidate_totals = {item_total_cents, item_total_cents - extracted_discount_total}
     if normalized_record.discount_total_cents > 0:
         candidate_totals.add(
-            item_total_cents - normalized_record.discount_total_cents + deposit_adjustment_cents
+            item_total_cents - normalized_record.discount_total_cents
         )
-    if payment_adjustment_total > 0:
-        candidate_totals |= {
-            candidate_total - payment_adjustment_total
-            for candidate_total in tuple(candidate_totals)
-        }
     matched_total_cents = min(
         candidate_totals,
         key=lambda candidate_total: abs(candidate_total - normalized_record.total_gross_cents),
@@ -492,9 +467,9 @@ def _validate_cross_field_consistency(
             details={
                 "total_gross_cents": normalized_record.total_gross_cents,
                 "item_total_cents": item_total_cents,
-                "deposit_adjustment_cents": deposit_adjustment_cents,
+                "deposit_total_cents": deposit_total_cents,
+                "deposit_adjustment_cents": deposit_total_cents,
                 "extracted_discount_total_cents": extracted_discount_total,
-                "payment_adjustment_total_cents": payment_adjustment_total,
                 "matched_total_cents": matched_total_cents,
                 "delta_cents": total_delta,
             },

@@ -52,9 +52,14 @@ class ExternalManifestCandidate:
 
 def discover_external_manifest_candidates(search_paths: Iterable[Path]) -> list[ExternalManifestCandidate]:
     candidates: list[ExternalManifestCandidate] = []
+    seen_manifest_paths: set[Path] = set()
     for search_path in _normalized_search_paths(search_paths):
         for manifest_path in _iter_manifest_files(search_path):
-            candidates.append(_load_candidate(manifest_path, search_path=search_path))
+            resolved_manifest_path = manifest_path.resolve()
+            if resolved_manifest_path in seen_manifest_paths:
+                continue
+            seen_manifest_paths.add(resolved_manifest_path)
+            candidates.append(_load_candidate(resolved_manifest_path, search_path=search_path))
     return candidates
 
 

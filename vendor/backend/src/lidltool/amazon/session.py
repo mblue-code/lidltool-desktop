@@ -11,7 +11,11 @@ def default_amazon_state_file(
     source_id: str = "amazon_de",
 ) -> Path:
     config_dir = config.config_dir if config is not None else resolve_config_dir()
-    filename = "amazon_storage_state.json" if source_id == "amazon_de" else f"{source_id}_storage_state.json"
+    filename = (
+        "amazon_storage_state.json"
+        if source_id == "amazon_de"
+        else f"{source_id}_storage_state.json"
+    )
     return (config_dir / filename).expanduser().resolve()
 
 
@@ -21,7 +25,11 @@ def default_amazon_profile_dir(
     source_id: str = "amazon_de",
 ) -> Path:
     config_dir = config.config_dir if config is not None else resolve_config_dir()
-    dirname = "amazon_browser_profile" if source_id == "amazon_de" else f"{source_id}_browser_profile"
+    dirname = (
+        "amazon_browser_profile"
+        if source_id == "amazon_de"
+        else f"{source_id}_browser_profile"
+    )
     return (config_dir / dirname).expanduser().resolve()
 
 

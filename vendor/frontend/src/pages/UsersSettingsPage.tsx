@@ -139,7 +139,8 @@ export function UsersSettingsPage() {
       return createUser({
         username: editor.username.trim(),
         display_name: editor.displayName.trim() || null,
-        password: editor.password.trim()
+        password: editor.password.trim(),
+        is_admin: false
       });
     }
   });
@@ -316,12 +317,16 @@ export function UsersSettingsPage() {
     }
 
     setStatusMessage(null);
-    setRestoreResult(null);
+   setRestoreResult(null);
     try {
       const result = await restoreMutation.mutateAsync();
+      if (!result.ok) {
+        throw new Error(result.stderr || result.stdout || t("pages.usersSettings.restoreFailed"));
+      }
       setRestoreResult(result);
       setStatusMessage(t("pages.usersSettings.restoreSuccess"));
-      await queryClient.invalidateQueries();
+      queryClient.clear();
+      window.location.assign("/login?restored=1");
     } catch (error) {
       setStatusMessage(resolveApiErrorMessage(error, t, t("pages.usersSettings.restoreFailed")));
     }

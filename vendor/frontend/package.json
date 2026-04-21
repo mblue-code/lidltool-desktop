@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:demo": "VITE_APP_MODE=demo_snapshot VITE_BASE_PATH=/outlays/demo/ npm run build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:a11y": "vitest run src/pages/__tests__/a11y-critical.test.tsx",

@@ -46,6 +46,7 @@ from lidltool.ingest.dedupe import (
     canonical_discount_event_exists,
     canonical_transaction_for_fingerprint,
     canonical_transaction_for_source,
+    fingerprint_exists,
     receipt_exists,
 )
 from lidltool.ingest.json_payloads import make_json_safe
@@ -58,30 +59,9 @@ from lidltool.lidl.client import LidlClient
 LOGGER = logging.getLogger(__name__)
 
 
-def _date_quality_rank(date_source: Any) -> int:
-    normalized = str(date_source or "").strip().lower()
-    if normalized in {"explicit_order_date", "detail_order_date", "list_order_date"}:
-        return 2
-    if normalized == "page_year":
-        return 1
-    return 0
-
-
-def _existing_date_quality(transaction: Transaction) -> int:
-    raw_payload = transaction.raw_payload if isinstance(transaction.raw_payload, dict) else {}
-    connector_normalized = raw_payload.get("connector_normalized")
-    if isinstance(connector_normalized, dict):
-        return _date_quality_rank(connector_normalized.get("date_source"))
-    source_record_detail = raw_payload.get("source_record_detail")
-    if isinstance(source_record_detail, dict):
-        return _date_quality_rank(source_record_detail.get("dateSource"))
-    return 0
-
-
 @dataclass(slots=True)
 class SyncProgress:
     stage: str = "initializing"
-    detail: str | None = None
     pages: int = 0
     pages_total: int | None = None
     discovered_receipts: int = 0
@@ -90,8 +70,6 @@ class SyncProgress:
     new_items: int = 0
     skipped_existing: int = 0
     current_record_ref: str | None = None
-    current_year: int | None = None
-    current_page: int | None = None
 
 
 @dataclass(slots=True)
@@ -179,90 +157,46 @@ class SyncService:
             if not health.get("healthy", False):
                 raise RuntimeError(str(health.get("error", "connector healthcheck failed")))
             _emit_sync_progress(progress_cb, progress, stage="discovering")
-            stream_record_details = getattr(self._connector, "stream_record_details_with_progress", None)
-            uses_streaming_records = callable(stream_record_details)
-            if uses_streaming_records:
-                progress.pages_total = max_pages
-
-                def stream_progress(update: dict[str, Any]) -> None:
-                    _emit_sync_progress(
+            discover_with_progress = getattr(self._connector, "discover_new_records_with_progress", None)
+            if callable(discover_with_progress):
+                record_refs = discover_with_progress(
+                    progress_cb=lambda page_count, receipt_count: _emit_sync_progress(
                         progress_cb,
                         progress,
                         stage="discovering",
-                        detail="streaming_discovery",
-                        pages=int(update.get("pages", progress.pages) or progress.pages),
-                        discovered_receipts=int(
-                            update.get("discovered_receipts", progress.discovered_receipts)
-                            or progress.discovered_receipts
-                        ),
-                        current_year=(
-                            int(update["current_year"])
-                            if update.get("current_year") is not None
-                            else progress.current_year
-                        ),
-                        current_page=(
-                            int(update["current_page"])
-                            if update.get("current_page") is not None
-                            else progress.current_page
-                        ),
+                        pages=page_count,
+                        discovered_receipts=receipt_count,
                     )
-
-                record_iter = stream_record_details(
-                    max_pages=max_pages,
-                    progress_cb=stream_progress,
                 )
             else:
-                discover_with_progress = getattr(self._connector, "discover_new_records_with_progress", None)
-                if callable(discover_with_progress):
-                    record_refs = discover_with_progress(
-                        progress_cb=lambda page_count, receipt_count: _emit_sync_progress(
-                            progress_cb,
-                            progress,
-                            stage="discovering",
-                            detail="looking_for_receipts",
-                            pages=page_count,
-                            discovered_receipts=receipt_count,
-                        )
-                    )
-                else:
-                    record_refs = self._connector.discover_new_records()
-                    _emit_sync_progress(
-                        progress_cb,
-                        progress,
-                        stage="discovering",
-                        detail="looking_for_receipts",
-                        discovered_receipts=len(record_refs),
-                    )
-                if max_pages is not None:
-                    max_records = max_pages * max(self._config.page_size, 1)
-                    record_refs = record_refs[:max_records]
-                    progress.pages_total = min(
-                        max_pages,
-                        max(
-                            1, (len(record_refs) + self._config.page_size - 1) // self._config.page_size
-                        ),
-                    )
-                else:
-                    progress.pages_total = max(
-                        1, (len(record_refs) + self._config.page_size - 1) // self._config.page_size
-                    )
-                progress.discovered_receipts = len(record_refs)
-                if progress.pages == 0:
-                    progress.pages = progress.pages_total or 0
-                record_iter = ((receipt_id, None) for receipt_id in record_refs)
-
-            if not uses_streaming_records:
-                _emit_sync_progress(progress_cb, progress, stage="processing", detail="preparing_import")
-
-            for receipt_id, prefetched_detail in record_iter:
-                progress.receipts_seen += 1
-                progress.current_record_ref = receipt_id
+                record_refs = self._connector.discover_new_records()
                 _emit_sync_progress(
                     progress_cb,
                     progress,
-                    stage="processing",
-                    detail="streaming_import" if prefetched_detail is not None else "processing_records",
+                    stage="discovering",
+                    discovered_receipts=len(record_refs),
                 )
+            if max_pages is not None:
+                max_records = max_pages * max(self._config.page_size, 1)
+                record_refs = record_refs[:max_records]
+                progress.pages_total = min(
+                    max_pages,
+                    max(
+                        1, (len(record_refs) + self._config.page_size - 1) // self._config.page_size
+                    ),
+                )
+            else:
+                progress.pages_total = max(
+                    1, (len(record_refs) + self._config.page_size - 1) // self._config.page_size
+                )
+            progress.discovered_receipts = len(record_refs)
+            if progress.pages == 0:
+                progress.pages = progress.pages_total or 0
+            _emit_sync_progress(progress_cb, progress, stage="processing")
+
+            for receipt_id in record_refs:
+                progress.receipts_seen += 1
+                progress.current_record_ref = receipt_id
                 if not receipt_id:
                     state_warnings.append("Encountered empty receipt reference; skipped")
                     _emit_sync_progress(progress_cb, progress, stage="processing")
@@ -282,18 +216,7 @@ class SyncService:
                         break
                     continue
 
-                detail = prefetched_detail if prefetched_detail is not None else self._connector.fetch_record_detail(receipt_id)
-                unsupported_reason = str(detail.get("unsupportedReason") or "").strip()
-                if unsupported_reason:
-                    LOGGER.info(
-                        "ingest.connector.record decision=skip reason=unsupported source=%s record_ref=%s unsupported_reason=%s",
-                        source.id,
-                        receipt_id,
-                        unsupported_reason,
-                    )
-                    session.commit()
-                    _emit_sync_progress(progress_cb, progress, stage="processing")
-                    continue
+                detail = self._connector.fetch_record_detail(receipt_id)
                 normalized = normalize_receipt(detail, category_rules=rules)
                 canonical_normalized = self._connector.normalize(detail)
                 discounts = self._connector.extract_discounts(detail)
@@ -408,6 +331,13 @@ class SyncService:
                         break
                     continue
 
+                if fingerprint_exists(session, normalized.fingerprint):
+                    ingested_streak += 1
+                    progress.skipped_existing += 1
+                    session.commit()
+                    _emit_sync_progress(progress_cb, progress, stage="processing")
+                    continue
+
                 ingested_streak = 0
                 _upsert_store(
                     session,
@@ -502,27 +432,18 @@ def _emit_sync_progress(
     progress: SyncProgress,
     *,
     stage: str | None = None,
-    detail: str | None = None,
     pages: int | None = None,
     pages_total: int | None = None,
     discovered_receipts: int | None = None,
-    current_year: int | None = None,
-    current_page: int | None = None,
 ) -> None:
     if stage is not None:
         progress.stage = stage
-    if detail is not None:
-        progress.detail = detail
     if pages is not None:
         progress.pages = pages
     if pages_total is not None:
         progress.pages_total = pages_total
     if discovered_receipts is not None:
         progress.discovered_receipts = discovered_receipts
-    if current_year is not None:
-        progress.current_year = current_year
-    if current_page is not None:
-        progress.current_page = current_page
     if progress_cb is not None:
         progress_cb(progress)
 
@@ -702,7 +623,6 @@ def _upsert_canonical_transaction(
         "discount_total_cents", fallback_normalized.discount_total
     )
     discount_total_cents = int(discount_total_raw) if discount_total_raw is not None else None
-    new_date_quality = _date_quality_rank(connector_normalized.get("date_source"))
 
     existing = canonical_transaction_for_source(
         session,
@@ -710,8 +630,7 @@ def _upsert_canonical_transaction(
         source_transaction_id=source_transaction_id,
     )
     reason = "source_key"
-    fingerprint_dedupe_allowed = source.kind != "amazon" and not source.id.startswith("amazon_")
-    if existing is None and fingerprint and fingerprint_dedupe_allowed:
+    if existing is None and fingerprint:
         existing = canonical_transaction_for_fingerprint(
             session,
             source_id=source.id,
@@ -729,9 +648,6 @@ def _upsert_canonical_transaction(
     if existing is not None:
         if existing.user_id in {None, SERVICE_USER_ID}:
             existing.user_id = source.user_id
-        if source.kind == "amazon" or source.id.startswith("amazon_"):
-            if _existing_date_quality(existing) > new_date_quality:
-                purchased_at = existing.purchased_at
         existing.purchased_at = purchased_at
         existing.merchant_name = merchant_name
         existing.total_gross_cents = total_gross_cents
@@ -748,36 +664,29 @@ def _upsert_canonical_transaction(
             source_transaction_id,
             existing.id,
         )
-        transaction = existing
-        session.query(DiscountEvent).filter(DiscountEvent.transaction_id == transaction.id).delete(
-            synchronize_session=False
-        )
-        session.query(TransactionItem).filter(TransactionItem.transaction_id == transaction.id).delete(
-            synchronize_session=False
-        )
-        session.flush()
-    else:
-        transaction = Transaction(
-            source_id=source.id,
-            user_id=source.user_id,
-            source_account_id=source_account.id if source_account is not None else None,
-            source_transaction_id=source_transaction_id,
-            purchased_at=purchased_at,
-            merchant_name=merchant_name,
-            total_gross_cents=total_gross_cents,
-            currency=currency,
-            discount_total_cents=discount_total_cents,
-            fingerprint=fingerprint or None,
-            raw_payload=payload,
-        )
-        session.add(transaction)
-        session.flush()
-        LOGGER.info(
-            "ingest.canonical.transaction decision=insert source=%s source_transaction_id=%s transaction_id=%s",
-            source.id,
-            source_transaction_id,
-            transaction.id,
-        )
+        return
+
+    transaction = Transaction(
+        source_id=source.id,
+        user_id=source.user_id,
+        source_account_id=source_account.id if source_account is not None else None,
+        source_transaction_id=source_transaction_id,
+        purchased_at=purchased_at,
+        merchant_name=merchant_name,
+        total_gross_cents=total_gross_cents,
+        currency=currency,
+        discount_total_cents=discount_total_cents,
+        fingerprint=fingerprint or None,
+        raw_payload=payload,
+    )
+    session.add(transaction)
+    session.flush()
+    LOGGER.info(
+        "ingest.canonical.transaction decision=insert source=%s source_transaction_id=%s transaction_id=%s",
+        source.id,
+        source_transaction_id,
+        transaction.id,
+    )
 
     line_to_item: dict[int, TransactionItem] = {}
     item_rows: list[TransactionItem] = []

@@ -91,15 +91,18 @@ export function SetupPage() {
     setRestoreBusy(true);
     setRestoreStatus(null);
     try {
-      await desktopApi.runImport({
+      const result = await desktopApi.runImport({
         backupDir: restoreDir.trim(),
         includeCredentialKey: true,
         includeDocuments: true,
         includeToken: true,
         restartBackend: true
       });
+      if (!result.ok) {
+        throw new Error(result.stderr || result.stdout || t("auth.setup.restoreFailed"));
+      }
       setRestoreStatus(t("auth.setup.restoreSuccess"));
-      navigate("/login", { replace: true });
+      window.location.assign("/login?restored=1");
     } catch (err) {
       setRestoreStatus(err instanceof Error ? err.message : t("auth.setup.restoreFailed"));
     } finally {

@@ -122,9 +122,14 @@ Typical desktop flow:
   - `LIDLTOOL_DESKTOP_MODE=true`
   - `LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY`
   - desktop-managed connector plugin env vars for explicitly enabled receipt plugin packs
-  - `PLAYWRIGHT_BROWSERS_PATH=0` for bundled or managed venv backends
+  - `PLAYWRIGHT_BROWSERS_PATH=<profile>/playwright-browsers` for bundled or managed venv backends
 - Desktop defaults `config.toml`/`token.json` and document storage to the app profile instead of shared
   `~/.config/lidltool` or `~/.local/share/lidltool` paths, so packaged runs stay isolated from self-hosted state.
+- Local mac packaging is intentionally unsigned by default even when a signing identity exists in the keychain.
+- Signed mac release builds use `npm run dist:mac:signed` together with explicit `CSC_NAME`, `APPLE_ID`,
+  `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` environment variables.
+- Playwright browser binaries are kept outside the signed app bundle so Electron Builder does not try to recursively sign
+  a nested Chromium tree inside `Resources/backend-venv`.
 
 ## Desktop OCR
 
@@ -136,6 +141,7 @@ Desktop OCR now ships as a local packaged workflow instead of depending on an ex
 - The bundled desktop OCR provider is `glm_ocr_local`.
 - Image uploads and scanned PDFs are OCRed locally in the worker process. PDFs that already contain a text layer still use direct text extraction first.
 - The renderer wakes the worker after `POST /api/v1/documents/{document_id}/process` so the user does not get stuck in `queued`.
+- If the worker cannot be started, desktop reports that startup failure back to the backend so the document/job move to `failed` instead of remaining queued forever.
 
 User-visible OCR states:
 
@@ -505,12 +511,12 @@ npm run dist:full
 
 Expected high-level outcomes:
 - `frontend:build` succeeds and writes `vendor/frontend/dist`
-- `backend:prepare` succeeds and reports Chromium under `.../site-packages/playwright/.../.local-browsers/chromium-*`
+- `backend:prepare` succeeds and installs Chromium outside the venv, by default under `.cache/playwright-browsers`
 - `test:ocr-packaged` proves the built `build/backend-venv` + `build/backend-src` payload can upload a scanned PDF,
   start the separate OCR worker, reach `queued -> starting_engine -> processing -> completed`, create a receipt, and
   let the worker exit after idle timeout
 - `build` syncs `build/frontend-dist`, `build/backend-src`, `build/backend-venv`
-- `dist:full` produces packaged artifacts in `dist_electron/`
+- `dist:full` produces packaged artifacts in `dist_electron/` without attempting automatic mac signing
 
 For a Windows release, run the same workflow on Windows (or Windows CI runner).  
 For a macOS release, run it on macOS.
@@ -540,12 +546,24 @@ cd apps/desktop
 npm run dist:full
 ```
 
+Build an explicitly signed/notarized mac release:
+
+```bash
+cd apps/desktop
+CSC_NAME="Developer ID Application: <name> (<team>)" \
+APPLE_ID="..." \
+APPLE_APP_SPECIFIC_PASSWORD="..." \
+APPLE_TEAM_ID="..." \
+npm run dist:mac:signed
+```
+
 See `RELEASE_CHECKLIST.md` for concrete verification commands and expected outputs.
 
 ## Notes
 
 - First packaged run still depends on OS-level browser/sandbox compatibility for Playwright.
-- Code signing/notarization is not yet configured in this scaffold.
+- Default mac packaging scripts are intentionally unsigned so Electron Builder does not auto-discover a local development identity.
+- Signed/notarized mac releases go through the explicit `dist:mac:signed` lane.
 
 ## Manual Verification Results
 
@@ -594,7 +612,7 @@ Executed:
 APP="dist_electron/mac-arm64/LidlTool Desktop.app/Contents/Resources"
 for d in frontend-dist backend-src backend-venv; do test -d "$APP/$d" && echo "OK dir: $d"; done
 for f in frontend-dist/index.html backend-src/pyproject.toml backend-venv/bin/lidltool; do test -f "$APP/$f" && echo "OK file: $f"; done
-find "$APP/backend-venv/lib" -type d -path "*/site-packages/playwright/driver/package/.local-browsers/chromium-*"
+find "$APP/backend-venv/lib" -type d -path "*/site-packages/playwright/driver/package/.local-browsers"
 ```
 
 Outcome:
@@ -602,7 +620,7 @@ Outcome:
 - `frontend-dist/index.html`: present
 - `backend-src/pyproject.toml`: present
 - `backend-venv/bin/lidltool`: present
-- Playwright Chromium payload present under `.local-browsers/chromium-1208`
+- No Playwright browser payload bundled under `.local-browsers`
 
 ### Boot-flow validation (packaged app)
 

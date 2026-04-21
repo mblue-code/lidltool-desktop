@@ -14,6 +14,7 @@ import {
   ReviewCorrectionRequest,
   ReviewDecisionRequest
 } from "@/api/reviewQueue";
+import { isDemoSnapshotMode } from "@/demo/mode";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -127,6 +128,7 @@ export function ReviewQueuePage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { t } = useI18n();
+  const demoMode = isDemoSnapshotMode();
   const { documentId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -287,6 +289,10 @@ export function ReviewQueuePage() {
   }
 
   async function handleDecision(action: "approve" | "reject"): Promise<void> {
+    if (demoMode) {
+      setMutationStatus("Demo Snapshot: review actions are disabled.");
+      return;
+    }
     setMutationStatus(null);
     setMutationError(null);
     form.clearErrors(["actorId", "reason"]);
@@ -309,6 +315,10 @@ export function ReviewQueuePage() {
   }
 
   async function handlePatchTransaction(): Promise<void> {
+    if (demoMode) {
+      setMutationStatus("Demo Snapshot: transaction corrections are disabled.");
+      return;
+    }
     setMutationStatus(null);
     setMutationError(null);
     form.clearErrors(["actorId", "reason", "transactionCorrectionsJson"]);
@@ -335,6 +345,10 @@ export function ReviewQueuePage() {
   }
 
   async function handlePatchItem(): Promise<void> {
+    if (demoMode) {
+      setMutationStatus("Demo Snapshot: item corrections are disabled.");
+      return;
+    }
     setMutationStatus(null);
     setMutationError(null);
     form.clearErrors(["actorId", "reason", "selectedItemId", "itemCorrectionsJson"]);
@@ -381,6 +395,10 @@ export function ReviewQueuePage() {
   );
 
   async function handleBatchApprove(): Promise<void> {
+    if (demoMode) {
+      setMutationStatus("Demo Snapshot: batch approve is disabled.");
+      return;
+    }
     setMutationStatus(null);
     setMutationError(null);
     if (highConfidenceItems.length === 0) {
@@ -439,6 +457,14 @@ export function ReviewQueuePage() {
   return (
     <section className="space-y-4">
       <PageHeader title={t("pages.reviewQueue.title")} />
+      {demoMode ? (
+        <Alert>
+          <AlertTitle>Demo Snapshot</AlertTitle>
+          <AlertDescription>
+            This is the real review queue UI rendered with synthetic documents. Approve, reject, and correction actions are disabled on the public demo.
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       <Card>
         <CardContent className="pt-6">
@@ -477,7 +503,7 @@ export function ReviewQueuePage() {
                 type="button"
                 variant="outline"
                 onClick={() => setBatchApproveOpen(true)}
-                disabled={highConfidenceItems.length === 0}
+                disabled={demoMode || highConfidenceItems.length === 0}
               >
                 {t("pages.reviewQueue.batchApprove")}
               </Button>
@@ -692,7 +718,7 @@ export function ReviewQueuePage() {
                   <Button
                     type="button"
                     onClick={() => setApproveOpen(true)}
-                    disabled={decisionMutation.isPending}
+                    disabled={demoMode || decisionMutation.isPending}
                   >
                     {t("pages.reviewQueue.approve")}
                   </Button>
@@ -700,7 +726,7 @@ export function ReviewQueuePage() {
                     type="button"
                     variant="destructive"
                     onClick={() => setRejectOpen(true)}
-                    disabled={decisionMutation.isPending}
+                    disabled={demoMode || decisionMutation.isPending}
                   >
                     {t("pages.reviewQueue.reject")}
                   </Button>
@@ -734,7 +760,7 @@ export function ReviewQueuePage() {
                       type="button"
                       variant="outline"
                       onClick={() => void handlePatchTransaction()}
-                      disabled={patchTransactionMutation.isPending}
+                      disabled={demoMode || patchTransactionMutation.isPending}
                     >
                       {t("pages.reviewQueue.patch.transactionSubmit")}
                     </Button>
@@ -775,7 +801,7 @@ export function ReviewQueuePage() {
                       type="button"
                       variant="outline"
                       onClick={() => void handlePatchItem()}
-                      disabled={patchItemMutation.isPending || !hasDetailItems || !selectedItemInDetail}
+                      disabled={demoMode || patchItemMutation.isPending || !hasDetailItems || !selectedItemInDetail}
                     >
                       {t("pages.reviewQueue.patch.itemSubmit")}
                     </Button>

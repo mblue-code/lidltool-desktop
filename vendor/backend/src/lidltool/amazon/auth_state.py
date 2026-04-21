@@ -40,11 +40,6 @@ def classify_amazon_auth_state(
     normalized_html = html.lower()
     text = _html_to_text(html)
     rules = profile.auth_rules
-    authenticated_signal = _has_authenticated_signal(
-        normalized_url=normalized_url,
-        text=text,
-        profile=profile,
-    )
 
     if _matches_any(normalized_url, rules.bot_challenge_url_patterns) or _matches_any(
         normalized_html,
@@ -83,7 +78,11 @@ def classify_amazon_auth_state(
             ),
         )
 
-    if authenticated_signal:
+    if _has_authenticated_signal(
+        normalized_url=normalized_url,
+        text=text,
+        profile=profile,
+    ):
         return AmazonAuthClassification(
             state=AmazonAuthState.AUTHENTICATED,
             matched_on="authenticated_marker",

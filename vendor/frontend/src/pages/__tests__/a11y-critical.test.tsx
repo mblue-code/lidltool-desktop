@@ -52,23 +52,6 @@ describe("Critical route accessibility (axe)", () => {
         const url = new URL(String(input));
         const method = init?.method ?? "GET";
 
-        if (method === "GET" && url.pathname === "/api/v1/dashboard/years") {
-          return {
-            ok: true,
-            json: async () => ({
-              ok: true,
-              result: {
-                years: [2017, 2024, 2026],
-                min_year: 2017,
-                max_year: 2026,
-                latest_year: 2026
-              },
-              warnings: [],
-              error: null
-            })
-          };
-        }
-
         if (method === "GET" && url.pathname === "/api/v1/dashboard/cards") {
           return {
             ok: true,
@@ -85,25 +68,6 @@ describe("Critical route accessibility (axe)", () => {
                   gross_currency: "EUR",
                   savings_rate: 0.0663
                 }
-              },
-              warnings: [],
-              error: null
-            })
-          };
-        }
-
-        if (method === "GET" && url.pathname === "/api/v1/analytics/deposits") {
-          return {
-            ok: true,
-            json: async () => ({
-              ok: true,
-              result: {
-                date_from: "2026-02-01",
-                date_to: "2026-02-28",
-                total_paid_cents: 0,
-                total_returned_cents: 0,
-                net_outstanding_cents: 0,
-                monthly: []
               },
               warnings: [],
               error: null
@@ -531,7 +495,7 @@ describe("Critical route accessibility (axe)", () => {
   it("dashboard has no serious accessibility violations", async () => {
     const { container, getByText } = renderRoute("/", "/", <DashboardPage />);
     await waitFor(() => {
-      expect(getByText("Spend")).toBeInTheDocument();
+      expect(getByText("Spend total")).toBeInTheDocument();
     });
     await expectNoAxeViolations(container);
   });

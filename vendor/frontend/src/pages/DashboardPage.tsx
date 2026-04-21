@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { CalendarCheck, Euro, Percent, PiggyBank, ReceiptText } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { CalendarCheck, Euro, Package, Percent, PiggyBank, RefreshCw, TrendingDown } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { fetchRecurringCalendar, fetchRecurringForecast } from "@/api/recurringBills";
 import { DashboardPeriodMode, dashboardPanelsQueryOptions } from "@/app/queries";
-import { fetchDashboardYears } from "@/api/dashboard";
+import { fetchDepositAnalytics } from "@/api/analytics";
 import { fetchSources } from "@/api/sources";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -34,14 +34,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PageHeader } from "@/components/shared/PageHeader";
 import { type TranslationKey, useI18n } from "@/i18n";
 import { resolveApiErrorMessage, resolveApiWarningMessage } from "@/lib/backend-messages";
-import {
-  formatEurFromCents,
-  formatMonthDay,
-  formatMonthName,
-  formatMonthYear,
-  formatNumber,
-  formatPercent
-} from "../utils/format";
+import { formatEurFromCents, formatMonthDay, formatMonthName, formatMonthYear, formatPercent } from "../utils/format";
 
 type DiscountView = "native" | "normalized";
 type BreakdownDisplay = "chart" | "table";
@@ -60,7 +53,7 @@ type RetailerOption = {
   label: string;
 };
 
-const YEAR_MIN = 1900;
+const YEAR_MIN = 2020;
 const YEAR_MAX = 2100;
 const MONTH_MIN = 1;
 const MONTH_MAX = 12;
@@ -76,7 +69,6 @@ const RANGE_PRESETS: Array<{ label?: string; labelKey?: TranslationKey; startMon
 const DASHBOARD_SURFACE_CLASS = "app-dashboard-surface border-border/60";
 const DASHBOARD_SURFACE_STRONG_CLASS = "app-dashboard-surface-strong border-border/60";
 const DASHBOARD_CONTROL_CLASS = "app-dashboard-control border-border/70 text-foreground shadow-none";
-const DASHBOARD_BAR_CLASS = "bg-chart-2";
 
 function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -173,6 +165,26 @@ function labelFromTrendPoint(point: { year: number; month: number; period_key: s
   return point.period_key;
 }
 
+function discountTypeLabel(
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string,
+  type: string,
+  view: DiscountView
+): string {
+  if (view !== "normalized") {
+    return type;
+  }
+  const keyByType: Record<string, TranslationKey> = {
+    promotion: "pages.dashboard.discountType.promotion",
+    coupon: "pages.dashboard.discountType.coupon",
+    loyalty: "pages.dashboard.discountType.loyalty",
+    markdown: "pages.dashboard.discountType.markdown",
+    cashback: "pages.dashboard.discountType.cashback",
+    other: "pages.dashboard.discountType.other"
+  };
+  const key = keyByType[type];
+  return key ? t(key) : type;
+}
+
 function csvEscape(value: string): string {
   if (!value.includes(",") && !value.includes('"') && !value.includes("\n")) {
     return value;
@@ -210,6 +222,7 @@ function downloadBlob(filename: string, type: string, content: string): boolean 
 
 export function DashboardPage() {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [showFilters, setShowFilters] = useState(() => searchParams.toString() !== "");
   const today = new Date();
@@ -228,35 +241,28 @@ export function DashboardPage() {
   const breakdownDisplay = readBreakdownDisplay(searchParams.get("breakdown"));
   const spendView = readSpendView(searchParams.get("spend"));
   const selectedRetailerIds = readRetailerIds(searchParams.get("retailers"));
+  const spendViewLabel = t(`pages.dashboard.spendView.${spendView}` as TranslationKey);
+  const savingsViewLabel = t(`pages.dashboard.discountView.${view}` as TranslationKey);
+  const depositFilters = useMemo(() => {
+    if (periodMode === "month") {
+      return {
+        fromDate: monthIsoStart(year, month),
+        toDate: monthIsoEnd(year, month),
+      };
+    }
+    if (periodMode === "range") {
+      return {
+        fromDate: monthIsoStart(year, startMonth),
+        toDate: monthIsoEnd(year, endMonth),
+      };
+    }
+    return {
+      fromDate: monthIsoStart(year, 1),
+      toDate: monthIsoEnd(year, 12),
+    };
+  }, [endMonth, month, periodMode, startMonth, year]);
 
   const [exportStatus, setExportStatus] = useState<string | null>(null);
-
-  const yearsQuery = useQuery({ queryKey: ["dashboard-years"], queryFn: () => fetchDashboardYears() });
-  const availableYearMin = yearsQuery.data?.min_year ?? YEAR_MIN;
-  const availableYearMax = yearsQuery.data?.max_year ?? YEAR_MAX;
-
-  useEffect(() => {
-    const latestYear = yearsQuery.data?.latest_year;
-    if (latestYear === null || latestYear === undefined) {
-      return;
-    }
-
-    const rawYearParam = searchParams.get("year");
-    if (rawYearParam === null) {
-      if (year !== latestYear) {
-        const next = new URLSearchParams(searchParams);
-        next.set("year", String(latestYear));
-        setSearchParams(next);
-      }
-      return;
-    }
-
-    if (year < availableYearMin || year > availableYearMax) {
-      const next = new URLSearchParams(searchParams);
-      next.set("year", String(clampNumber(year, availableYearMin, availableYearMax)));
-      setSearchParams(next);
-    }
-  }, [availableYearMax, availableYearMin, searchParams, setSearchParams, year, yearsQuery.data?.latest_year]);
 
   function updateSearchParams(nextValues: Partial<{
     year: number;
@@ -282,7 +288,7 @@ export function DashboardPage() {
     const nextSpend = nextValues.spend ?? spendView;
     const nextRetailers = nextValues.retailers ?? selectedRetailerIds;
 
-    next.set("year", String(clampNumber(nextYear, availableYearMin, availableYearMax)));
+    next.set("year", String(clampNumber(nextYear, YEAR_MIN, YEAR_MAX)));
     next.set("period", nextPeriod);
     next.set("month", String(clampNumber(nextMonth, MONTH_MIN, MONTH_MAX)));
     next.set("start_month", String(clampNumber(normalizedStartMonth, MONTH_MIN, MONTH_MAX)));
@@ -313,6 +319,15 @@ export function DashboardPage() {
       sourceIds: selectedRetailerIds
     })
   );
+  const depositQuery = useQuery({
+    queryKey: ["deposit-analytics", depositFilters.fromDate, depositFilters.toDate, selectedRetailerIds],
+    queryFn: () =>
+      fetchDepositAnalytics({
+        fromDate: depositFilters.fromDate,
+        toDate: depositFilters.toDate,
+        sourceIds: selectedRetailerIds
+      })
+  });
   const recurringCalendarQuery = useQuery({
     queryKey: [
       "dashboard-recurring-calendar",
@@ -334,14 +349,26 @@ export function DashboardPage() {
   const trends = data?.trends ?? null;
   const breakdown = data?.breakdown ?? null;
   const composition = data?.composition ?? null;
-  const deposit = data?.deposit ?? null;
   const warnings = data?.warnings ?? [];
   const loading = isPending || isFetching;
+  const refreshing =
+    isFetching ||
+    depositQuery.isFetching ||
+    recurringCalendarQuery.isFetching ||
+    recurringForecastQuery.isFetching;
   const errorMessage = error ? resolveApiErrorMessage(error, t, t("pages.dashboard.loadError")) : null;
 
   const trendPoints = trends?.points ?? [];
   const breakdownRows = breakdown?.by_type ?? [];
   const retailerRows = composition?.retailers ?? [];
+  const displayBreakdownRows = useMemo(
+    () =>
+      breakdownRows.map((row) => ({
+        ...row,
+        label: discountTypeLabel(t, row.type, view)
+      })),
+    [breakdownRows, t, view]
+  );
 
   const retailerOptions = useMemo<RetailerOption[]>(() => {
     const options = new Map<string, string>();
@@ -409,10 +436,6 @@ export function DashboardPage() {
   const netSpendCents = cards ? cards.totals.net_cents ?? cards.totals.paid_cents : null;
   const grossSpendCents = cards ? cards.totals.gross_cents : null;
   const savingsCents = cards ? cards.totals.discount_total_cents ?? cards.totals.saved_cents : null;
-  const depositNetCents = deposit?.net_outstanding_cents ?? 0;
-  const hasDepositActivity =
-    deposit !== null &&
-    (deposit.total_paid_cents !== 0 || deposit.total_returned_cents !== 0 || deposit.net_outstanding_cents !== 0);
 
   const ledgerParams = new URLSearchParams();
   ledgerParams.set("year", String(year));
@@ -433,19 +456,13 @@ export function DashboardPage() {
 
   const trendTitle =
     periodMode === "month"
-      ? t("pages.dashboard.trendTitle.month")
+      ? t("pages.dashboard.trendTitle.month", { spendView: spendViewLabel })
       : periodMode === "range"
         ? t("pages.dashboard.trendTitle.range", {
-            rangeLabel: `${monthName(startMonth)}-${monthName(endMonth)} ${year}`
+            rangeLabel: `${monthName(startMonth)}-${monthName(endMonth)} ${year}`,
+            spendView: spendViewLabel
           })
-        : t("pages.dashboard.trendTitle.year", { year });
-
-  const visibleYearRangeLabel =
-    yearsQuery.data && yearsQuery.data.years.length > 0
-      ? yearsQuery.data.min_year === yearsQuery.data.max_year
-        ? String(yearsQuery.data.min_year)
-        : `${yearsQuery.data.min_year}-${yearsQuery.data.max_year}`
-      : null;
+        : t("pages.dashboard.trendTitle.year", { year, spendView: spendViewLabel });
 
   const exportRows = useMemo<ExportRow[]>(() => {
     const rows: ExportRow[] = [];
@@ -453,7 +470,7 @@ export function DashboardPage() {
       for (const row of breakdownRows) {
         rows.push({
           table: "savings_breakdown",
-          label: row.type,
+          label: discountTypeLabel(t, row.type, view),
           saved_cents: row.saved_cents,
           events: row.discount_events
         });
@@ -468,7 +485,17 @@ export function DashboardPage() {
       });
     }
     return rows;
-  }, [breakdownDisplay, breakdownRows, retailerRows]);
+  }, [breakdownDisplay, breakdownRows, retailerRows, t, view]);
+
+  function refreshDashboard(): void {
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["deposit-analytics"] }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard-recurring-calendar"] }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard-recurring-forecast"] }),
+      queryClient.invalidateQueries({ queryKey: ["sources"] })
+    ]);
+  }
 
   const periodExportLabel =
     periodMode === "month"
@@ -532,6 +559,10 @@ export function DashboardPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={refreshDashboard}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            {t(refreshing ? "pages.dashboard.refreshing" : "pages.dashboard.refresh")}
+          </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => setShowFilters((current) => !current)}>
             {t(showFilters ? "pages.dashboard.hideFilters" : "pages.dashboard.showFilters")}
           </Button>
@@ -567,22 +598,17 @@ export function DashboardPage() {
                 id="dashboard-year"
                 type="number"
                 value={year}
-                min={availableYearMin}
-                max={availableYearMax}
+                min={YEAR_MIN}
+                max={YEAR_MAX}
                 className={DASHBOARD_CONTROL_CLASS}
                 onChange={(event) => {
                   const parsed = Number(event.target.value);
                   if (!Number.isFinite(parsed)) {
                     return;
                   }
-                  updateSearchParams({ year: clampNumber(Math.floor(parsed), availableYearMin, availableYearMax) });
+                  updateSearchParams({ year: clampNumber(Math.floor(parsed), YEAR_MIN, YEAR_MAX) });
                 }}
               />
-              {visibleYearRangeLabel ? (
-                <p className="text-xs text-muted-foreground">
-                  {t("pages.dashboard.availableYears", { range: visibleYearRangeLabel })}
-                </p>
-              ) : null}
             </div>
 
             {periodMode === "month" ? (
@@ -783,27 +809,29 @@ export function DashboardPage() {
           Dashboard summary
         </h2>
         {loading ? (
-          <div className="grid gap-4 p-4 lg:grid-cols-2 2xl:grid-cols-4">
+          <div className="grid gap-4 p-4 lg:grid-cols-3 2xl:grid-cols-5">
+            <Skeleton className="h-20 rounded-lg" />
             <Skeleton className="h-20 rounded-lg" />
             <Skeleton className="h-20 rounded-lg" />
             <Skeleton className="h-20 rounded-lg" />
             <Skeleton className="h-20 rounded-lg" />
           </div>
         ) : (
-          <div className="grid divide-y lg:divide-y-0 lg:divide-x divide-border/40 lg:grid-cols-2 2xl:grid-cols-4">
+          <div className="grid divide-y lg:divide-y-0 lg:divide-x divide-border/40 lg:grid-cols-3 2xl:grid-cols-5">
             <Link to={ledgerLink}>
               <MetricCard
-                title={t("pages.dashboard.card.spend")}
-                value={grossSpendCents !== null ? formatEurFromCents(grossSpendCents) : "—"}
-                subtitle={
-                  netSpendCents !== null
-                    ? t("pages.dashboard.card.paidAfterDiscounts", {
-                        amount: formatEurFromCents(netSpendCents)
-                      })
-                    : undefined
-                }
-                icon={<Euro className="h-3.5 w-3.5" />}
+                title={t("pages.dashboard.card.netSpend")}
+                value={netSpendCents !== null ? formatEurFromCents(netSpendCents) : "—"}
+                icon={<TrendingDown className="h-3.5 w-3.5" />}
                 iconClassName="bg-primary/10 text-primary"
+              />
+            </Link>
+            <Link to={ledgerLink}>
+              <MetricCard
+                title={t("pages.dashboard.card.grossSpend")}
+                value={grossSpendCents !== null ? formatEurFromCents(grossSpendCents) : "—"}
+                icon={<Euro className="h-3.5 w-3.5" />}
+                iconClassName="bg-muted text-muted-foreground"
               />
             </Link>
             <Link to={savingsLedgerLink}>
@@ -822,22 +850,15 @@ export function DashboardPage() {
                 iconClassName="bg-chart-2/10 text-chart-2"
               />
             </Link>
-            <Link to={ledgerLink}>
-              <MetricCard
-                title={t("pages.dashboard.card.receipts")}
-                value={cards ? formatNumber(cards.totals.receipt_count) : "—"}
-                icon={<ReceiptText className="h-3.5 w-3.5" />}
-                iconClassName="bg-muted text-muted-foreground"
-              />
-            </Link>
+            <MetricCard
+              title={t("pages.dashboard.card.depositPaid")}
+              value={depositQuery.data ? formatEurFromCents(depositQuery.data.total_paid_cents) : "—"}
+              icon={<Package className="h-3.5 w-3.5" />}
+              iconClassName="bg-amber-500/10 text-amber-600"
+              subtitle={t("pages.dashboard.card.depositExcluded")}
+            />
           </div>
         )}
-        {!loading && hasDepositActivity ? (
-          <div className="border-t border-border/40 px-4 py-3 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">{t("pages.dashboard.depositSummary")}</span>{" "}
-            <span>{formatEurFromCents(depositNetCents)}</span>
-          </div>
-        ) : null}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
@@ -903,7 +924,7 @@ export function DashboardPage() {
                         </span>
                       </div>
                       <div className="h-2 rounded-full bg-muted">
-                        <div className={`h-2 rounded-full ${DASHBOARD_BAR_CLASS}`} style={{ width: `${widthPct}%` }} />
+                        <div className="h-2 rounded-full bg-primary" style={{ width: `${widthPct}%` }} />
                       </div>
                     </li>
                   );
@@ -935,16 +956,13 @@ export function DashboardPage() {
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-medium">{labelFromTrendPoint(point)}</span>
                         <span className="text-muted-foreground">
-                          {formatEurFromCents(spendCents)}
-                          {pointSavingsCents > 0
-                            ? ` · ${t("pages.dashboard.trendSavedAmount", {
-                                amount: formatEurFromCents(pointSavingsCents)
-                              })}`
-                            : ""}
+                          {spendView === "gross" ? t("pages.dashboard.trendGross") : t("pages.dashboard.trendNet")}{" "}
+                          {formatEurFromCents(spendCents)} | {t("pages.dashboard.trendNet")} {formatEurFromCents(netCents)} | {t("pages.dashboard.trendGross")}{" "}
+                          {formatEurFromCents(grossCents)} | {t("pages.dashboard.trendSavings")} {formatEurFromCents(pointSavingsCents)}
                         </span>
                       </div>
                       <div className="h-2 rounded-full bg-muted">
-                        <div className={`h-2 rounded-full ${DASHBOARD_BAR_CLASS}`} style={{ width: `${width}%` }} />
+                        <div className="h-2 rounded-full bg-primary" style={{ width: `${width}%` }} />
                       </div>
                     </li>
                   );
@@ -957,7 +975,7 @@ export function DashboardPage() {
         <Card>
           <CardHeader className="space-y-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base">{t("pages.dashboard.savingsByType", { view })}</CardTitle>
+              <CardTitle className="text-base">{t("pages.dashboard.savingsByType", { view: savingsViewLabel })}</CardTitle>
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -979,22 +997,22 @@ export function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {breakdownRows.length === 0 ? (
+            {displayBreakdownRows.length === 0 ? (
               <EmptyState title={t("pages.dashboard.emptyBreakdown")} />
             ) : breakdownDisplay === "chart" ? (
               <ul className="space-y-3">
-                {breakdownRows.map((row) => {
+                {displayBreakdownRows.map((row) => {
                   const width = Math.max(8, Math.round((row.saved_cents / maxBreakdownSaved) * 100));
                   return (
                     <li key={row.type} className="space-y-1">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium">{row.type}</span>
+                        <span className="font-medium">{row.label}</span>
                         <span className="text-muted-foreground">
                           {formatEurFromCents(row.saved_cents)} ({row.discount_events} {t("pages.dashboard.events").toLowerCase()})
                         </span>
                       </div>
                       <div className="h-2 rounded-full bg-muted">
-                        <div className={`h-2 rounded-full ${DASHBOARD_BAR_CLASS}`} style={{ width: `${width}%` }} />
+                        <div className="h-2 rounded-full bg-primary" style={{ width: `${width}%` }} />
                       </div>
                     </li>
                   );
@@ -1010,9 +1028,9 @@ export function DashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {breakdownRows.map((row) => (
+                  {displayBreakdownRows.map((row) => (
                     <TableRow key={row.type}>
-                      <TableCell>{row.type}</TableCell>
+                      <TableCell>{row.label}</TableCell>
                       <TableCell className="tabular-nums">{formatEurFromCents(row.saved_cents)}</TableCell>
                       <TableCell className="tabular-nums">{row.discount_events}</TableCell>
                     </TableRow>

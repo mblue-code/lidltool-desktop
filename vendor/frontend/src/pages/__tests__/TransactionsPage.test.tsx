@@ -5,8 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TransactionsPage } from "../TransactionsPage";
 
-const localStorageState = new Map<string, string>();
-
 function LocationProbe() {
   const location = useLocation();
   return <output data-testid="transactions-location-search">{location.search}</output>;
@@ -49,20 +47,6 @@ function renderTransactionsRoute(initialEntry = "/transactions"): void {
 describe("TransactionsPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    localStorageState.clear();
-    Object.defineProperty(window, "localStorage", {
-      configurable: true,
-      value: {
-        getItem: (key: string) => localStorageState.get(key) ?? null,
-        setItem: (key: string, value: string) => {
-          localStorageState.set(key, value);
-        },
-        removeItem: (key: string) => {
-          localStorageState.delete(key);
-        }
-      }
-    });
-    window.localStorage.setItem("app.locale", "en");
     const baseItems = [
       {
         id: "tx-large",
@@ -208,7 +192,7 @@ describe("TransactionsPage", () => {
 
   it("clear all resets visible inputs and removes all filter query params", async () => {
     renderTransactionsRoute(
-      "/transactions?query=milk&source_id=lidl&merchant_name=Store%20One&year=2025&month=2&min_total=1&max_total=24"
+      "/transactions?query=milk&source_id=lidl&merchant_name=Store%20One&year=2025&month=2&min_total_cents=100&max_total_cents=2400"
     );
 
     await waitFor(() => {
@@ -228,8 +212,8 @@ describe("TransactionsPage", () => {
     expect(screen.getByLabelText("Merchant")).toHaveValue("");
     expect(screen.getByLabelText("Year")).toHaveValue(null);
     expect(screen.getByLabelText("Month")).toHaveValue(null);
-    expect(screen.getByLabelText("Min total (EUR)")).toHaveValue("");
-    expect(screen.getByLabelText("Max total (EUR)")).toHaveValue("");
+    expect(screen.getByLabelText("Min total cents")).toHaveValue(null);
+    expect(screen.getByLabelText("Max total cents")).toHaveValue(null);
     expect(screen.getByTestId("transactions-location-search")).toHaveTextContent("?offset=0");
 
     const latestRequest = latestFetchUrl();
@@ -239,66 +223,8 @@ describe("TransactionsPage", () => {
     expect(latestRequest).not.toContain("merchant_name=Store+One");
     expect(latestRequest).not.toContain("year=2025");
     expect(latestRequest).not.toContain("month=2");
-    expect(latestRequest).not.toContain("min_total_cents=");
-    expect(latestRequest).not.toContain("max_total_cents=");
-  });
-
-  it("renders legacy cent URLs as euro filters for the user", async () => {
-    renderTransactionsRoute("/transactions?min_total_cents=100&max_total_cents=2400");
-
-    await waitFor(() => {
-      expect(screen.getByText(/Min total:\s*€1.00/)).toBeInTheDocument();
-      expect(screen.getByText(/Max total:\s*€24.00/)).toBeInTheDocument();
-    });
-
-    expect(screen.getByLabelText("Min total (EUR)")).toHaveValue("1");
-    expect(screen.getByLabelText("Max total (EUR)")).toHaveValue("24");
-  });
-
-  it("submits euro amount filters and converts decimals to cent-based API params", async () => {
-    renderTransactionsRoute("/transactions");
-
-    fireEvent.click(screen.getByRole("button", { name: "More Filters" }));
-    fireEvent.change(screen.getByLabelText("Min total (EUR)"), { target: { value: "12,50" } });
-    fireEvent.change(screen.getByLabelText("Max total (EUR)"), { target: { value: "20.05" } });
-    fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("transactions-location-search")).toHaveTextContent(
-        /\?min_total=12\.50&max_total=20\.05&offset=0/
-      );
-    });
-
-    const latestRequest = latestFetchUrl();
-    expect(latestRequest).toContain("min_total_cents=1250");
-    expect(latestRequest).toContain("max_total_cents=2005");
-
-    await waitFor(() => {
-      expect(screen.getByText(/Min total:\s*€12.50/)).toBeInTheDocument();
-      expect(screen.getByText(/Max total:\s*€20.05/)).toBeInTheDocument();
-    });
-  });
-
-  it("validates euro amount ranges before updating the URL", async () => {
-    renderTransactionsRoute("/transactions");
-
-    fireEvent.click(screen.getByRole("button", { name: "More Filters" }));
-    fireEvent.change(screen.getByLabelText("Min total (EUR)"), { target: { value: "12.345" } });
-    fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
-
-    expect(
-      await screen.findByText("Enter a valid minimum total in EUR, for example 12.50.")
-    ).toBeInTheDocument();
-    expect(screen.getByTestId("transactions-location-search")).toHaveTextContent("");
-
-    fireEvent.change(screen.getByLabelText("Min total (EUR)"), { target: { value: "20" } });
-    fireEvent.change(screen.getByLabelText("Max total (EUR)"), { target: { value: "10" } });
-    fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
-
-    expect(
-      await screen.findByText("The maximum total must be greater than or equal to the minimum total.")
-    ).toBeInTheDocument();
-    expect(screen.getByTestId("transactions-location-search")).toHaveTextContent("");
+    expect(latestRequest).not.toContain("min_total_cents=100");
+    expect(latestRequest).not.toContain("max_total_cents=2400");
   });
 
   it("reads timing drilldown filters from URL and forwards them to the transactions API", async () => {
@@ -350,18 +276,5 @@ describe("TransactionsPage", () => {
     await waitFor(() => {
       expect(screen.getByRole("link", { name: "Add Receipt" })).toHaveAttribute("href", "/add");
     });
-  });
-
-  it("uses euro wording in the advanced receipt filters", async () => {
-    renderTransactionsRoute("/transactions?min_total=12.50");
-
-    expect(await screen.findByLabelText("Min total (EUR)")).toHaveValue("12.50");
-    expect(screen.getAllByPlaceholderText("e.g. 12.50")).toHaveLength(2);
-    expect(
-      screen.getAllByText("Enter euro amounts such as 12.50. The app keeps cent precision internally.").length
-    ).toBeGreaterThan(0);
-    expect(
-      screen.queryByText(/cents/i, { selector: "label, p, span, button" })
-    ).not.toBeInTheDocument();
   });
 });

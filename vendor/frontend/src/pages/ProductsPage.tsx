@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { fetchAISettings } from "@/api/aiSettings";
+import { isDemoSnapshotMode } from "@/demo/mode";
 import {
   fetchProductDetail,
   fetchProductPriceSeries,
@@ -12,6 +13,7 @@ import {
   postSeedProducts
 } from "@/api/products";
 import { fetchQualityRecategorizeStatus, startQualityRecategorize } from "@/api/quality";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +29,7 @@ import { formatEurFromCents } from "@/utils/format";
 export function ProductsPage() {
   const queryClient = useQueryClient();
   const { t } = useI18n();
+  const demoMode = isDemoSnapshotMode();
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [recategorizeJobId, setRecategorizeJobId] = useState<string | null>(null);
@@ -124,7 +127,7 @@ export function ProductsPage() {
         <Button
           variant="outline"
           onClick={() => void seedMutation.mutateAsync()}
-          disabled={seedMutation.isPending}
+          disabled={demoMode || seedMutation.isPending}
           title={t("pages.products.seed.tooltip")}
         >
           {t("pages.products.seedButton")}
@@ -133,13 +136,21 @@ export function ProductsPage() {
           <Button
             variant="outline"
             onClick={() => void recategorizeMutation.mutateAsync()}
-            disabled={!categorizationEnabled || !categorizationReady || recategorizeRunning}
+            disabled={demoMode || !categorizationEnabled || !categorizationReady || recategorizeRunning}
             title="Re-run AI categorization for items still in other"
           >
             {recategorizeRunning ? "Repairing categories..." : "Repair uncategorized items"}
           </Button>
         ) : null}
       </PageHeader>
+      {demoMode ? (
+        <Alert>
+          <AlertTitle>Demo Snapshot</AlertTitle>
+          <AlertDescription>
+            Product search, clustering results, and price history use synthetic demo data. Seed and repair actions are disabled on the public demo.
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <Card>
         <CardContent>
           <div className="space-y-3">

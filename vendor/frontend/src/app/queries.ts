@@ -1,6 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
 
-import { fetchDepositAnalytics } from "@/api/analytics";
 import {
   fetchDashboardCardsWithWarnings,
   fetchDashboardTrendsWithWarnings,
@@ -116,30 +115,6 @@ export function dashboardPanelsQueryOptions(params: {
     return (cents / 100).toFixed(2);
   }
 
-  function monthBounds(targetYear: number, targetMonth: number): { fromDate: string; toDate: string } {
-    const lastDay = new Date(Date.UTC(targetYear, targetMonth, 0)).getUTCDate();
-    return {
-      fromDate: `${targetYear}-${String(targetMonth).padStart(2, "0")}-01`,
-      toDate: `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`
-    };
-  }
-
-  function periodWindow(): { fromDate: string; toDate: string } {
-    if (periodMode === "month") {
-      return monthBounds(year, month);
-    }
-    if (periodMode === "range") {
-      return {
-        fromDate: monthBounds(year, startMonth).fromDate,
-        toDate: monthBounds(year, endMonth).toDate
-      };
-    }
-    return {
-      fromDate: `${year}-01-01`,
-      toDate: `${year}-12-31`
-    };
-  }
-
   return queryOptions({
     queryKey: queryKeys.dashboardPanels(
       year,
@@ -172,10 +147,6 @@ export function dashboardPanelsQueryOptions(params: {
           endMonth,
           normalizedSourceIds
         );
-        const deposit = await fetchDepositAnalytics({
-          ...periodWindow(),
-          sourceIds: normalizedSourceIds
-        });
 
         const aggregatedReceiptCount = cardsResponses.reduce(
           (sum, response) => sum + response.result.totals.receipt_count,
@@ -304,7 +275,6 @@ export function dashboardPanelsQueryOptions(params: {
           trends: trendsResponse.result,
           breakdown,
           composition,
-          deposit,
           warnings
         };
       }
@@ -313,15 +283,11 @@ export function dashboardPanelsQueryOptions(params: {
       const trendMonthsBack = periodMode === "year" ? 12 : 6;
       const trendEndMonth = periodMode === "year" ? 12 : month;
 
-      const [cardsResponse, trendsResponse, breakdownResponse, compositionResponse, deposit] = await Promise.all([
+      const [cardsResponse, trendsResponse, breakdownResponse, compositionResponse] = await Promise.all([
         fetchDashboardCardsWithWarnings(year, selectedMonth, normalizedSourceIds),
         fetchDashboardTrendsWithWarnings(year, trendMonthsBack, trendEndMonth, normalizedSourceIds),
         fetchSavingsBreakdownWithWarnings(year, selectedMonth, view, normalizedSourceIds),
-        fetchRetailerCompositionWithWarnings(year, selectedMonth, normalizedSourceIds),
-        fetchDepositAnalytics({
-          ...periodWindow(),
-          sourceIds: normalizedSourceIds
-        })
+        fetchRetailerCompositionWithWarnings(year, selectedMonth, normalizedSourceIds)
       ]);
       const warnings = uniqueWarnings([
         cardsResponse,
@@ -334,7 +300,6 @@ export function dashboardPanelsQueryOptions(params: {
         trends: trendsResponse.result,
         breakdown: breakdownResponse.result,
         composition: compositionResponse.result,
-        deposit,
         warnings
       };
     }

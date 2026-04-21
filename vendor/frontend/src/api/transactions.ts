@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { apiClient } from "@/lib/api-client";
+import { isDemoSnapshotMode } from "@/demo/mode";
 
 const TransactionListItemSchema = z.object({
   id: z.string(),
@@ -323,5 +324,9 @@ export async function createManualTransaction(
 }
 
 export function buildDocumentPreviewUrl(documentId: string): string {
+  if (isDemoSnapshotMode()) {
+    const safeText = encodeURIComponent(`Outlays Demo Snapshot\n${documentId}\nSynthetic receipt preview`);
+    return `data:image/svg+xml;charset=UTF-8,<svg xmlns='http://www.w3.org/2000/svg' width='800' height='1200' viewBox='0 0 800 1200'><rect width='800' height='1200' fill='%23f8fafc'/><rect x='64' y='64' width='672' height='1072' rx='24' fill='white' stroke='%23cbd5e1' stroke-width='4'/><text x='400' y='180' text-anchor='middle' font-family='Arial, sans-serif' font-size='34' fill='%230f172a'>Outlays Demo Snapshot</text><text x='400' y='250' text-anchor='middle' font-family='Arial, sans-serif' font-size='24' fill='%23475569'>Synthetic receipt preview</text><text x='400' y='330' text-anchor='middle' font-family='Arial, sans-serif' font-size='20' fill='%2364748b'>${safeText}</text><line x1='120' y1='420' x2='680' y2='420' stroke='%23e2e8f0' stroke-width='2'/><text x='120' y='500' font-family='Arial, sans-serif' font-size='22' fill='%230f172a'>Bio Bananen</text><text x='640' y='500' text-anchor='end' font-family='Arial, sans-serif' font-size='22' fill='%230f172a'>2.29 EUR</text><text x='120' y='560' font-family='Arial, sans-serif' font-size='22' fill='%230f172a'>Milbona Vollmilch 3.5%</text><text x='640' y='560' text-anchor='end' font-family='Arial, sans-serif' font-size='22' fill='%230f172a'>1.39 EUR</text><text x='120' y='620' font-family='Arial, sans-serif' font-size='22' fill='%230f172a'>Junger Gouda 400g</text><text x='640' y='620' text-anchor='end' font-family='Arial, sans-serif' font-size='22' fill='%230f172a'>2.79 EUR</text><line x1='120' y1='720' x2='680' y2='720' stroke='%23e2e8f0' stroke-width='2'/><text x='120' y='790' font-family='Arial, sans-serif' font-size='24' fill='%230f172a'>Total</text><text x='640' y='790' text-anchor='end' font-family='Arial, sans-serif' font-size='24' fill='%230f172a'>48.92 EUR</text></svg>`;
+  }
   return apiClient.buildUrl(`/api/v1/documents/${documentId}/preview`).toString();
 }

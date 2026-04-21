@@ -1,0 +1,866 @@
+{
+  "dataset_id": "german_public_receipts_eval_v1",
+  "source_catalog": "/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/public_german_receipts_db/public_german_receipts.sqlite",
+  "receipts": [
+    {
+      "id": "rewe_img0001",
+      "chain": "REWE",
+      "receipt_type": "photo",
+      "file": "assets/rewe_img0001.jpg",
+      "source_key": "github:knipknap/receiptparser",
+      "source_path": "tests/data/germany/img/IMG0001.jpg",
+      "merchant": "REWE",
+      "purchased_at": "2014-12-04",
+      "currency": "EUR",
+      "total_gross_cents": 99,
+      "items": [
+        {
+          "name": "SUPPENGRUEN",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 99,
+          "is_deposit": false
+        }
+      ],
+      "discounts": []
+    },
+    {
+      "id": "penny_img0003",
+      "chain": "PENNY",
+      "receipt_type": "photo",
+      "file": "assets/penny_img0003.jpg",
+      "source_key": "github:knipknap/receiptparser",
+      "source_path": "tests/data/germany/img/IMG0003.jpg",
+      "merchant": "PENNY-MARKT GmbH",
+      "purchased_at": "2014-10-18",
+      "currency": "EUR",
+      "total_gross_cents": 1056,
+      "items": [
+        {
+          "name": "Saftorangen",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 149,
+          "is_deposit": false
+        },
+        {
+          "name": "Banane Golden v.",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 119,
+          "is_deposit": false
+        },
+        {
+          "name": "Apfel gruen",
+          "qty": "0.410",
+          "unit": "kg",
+          "unit_price_cents": 199,
+          "line_total_cents": 82,
+          "is_deposit": false
+        },
+        {
+          "name": "Pflaume 750g",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 99,
+          "is_deposit": false
+        },
+        {
+          "name": "Orto Mio Oliven",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 69,
+          "is_deposit": false
+        },
+        {
+          "name": "HAUTKLAR 3IN1",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 299,
+          "line_total_cents": 598,
+          "is_deposit": false
+        },
+        {
+          "name": "Today Nachfüllbe",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 65,
+          "is_deposit": false
+        },
+        {
+          "name": "Spül-/HH- Tücher",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 75,
+          "is_deposit": false
+        }
+      ],
+      "discounts": [
+        {
+          "label": "LEERGUT EINWEG",
+          "amount_cents": 200
+        }
+      ]
+    },
+    {
+      "id": "real_img0004",
+      "chain": "real",
+      "receipt_type": "photo",
+      "file": "assets/real_img0004.jpg",
+      "source_key": "github:knipknap/receiptparser",
+      "source_path": "tests/data/germany/img/IMG0004.jpg",
+      "merchant": "real,- SB-Warenhaus GmbH",
+      "purchased_at": "2015-09-05",
+      "currency": "EUR",
+      "total_gross_cents": 931,
+      "items": [
+        {
+          "name": "TIP BALKANKAESE",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 79,
+          "is_deposit": false
+        },
+        {
+          "name": "BED. FISCH",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 422,
+          "is_deposit": false
+        },
+        {
+          "name": "SPKART NEUT VWFK 2",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 199,
+          "is_deposit": false
+        },
+        {
+          "name": "TIP EDELSALAMI 150",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 129,
+          "is_deposit": false
+        },
+        {
+          "name": "TIP TEEWURST RUEG.",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 75,
+          "is_deposit": false
+        },
+        {
+          "name": "KASS MINUTENSTEAK",
+          "qty": "0.543",
+          "unit": "kg",
+          "unit_price_cents": 1099,
+          "line_total_cents": 597,
+          "is_deposit": false
+        }
+      ],
+      "discounts": [
+        {
+          "label": "PR PFANDGUTSCH2025650",
+          "amount_cents": 45
+        },
+        {
+          "label": "PR PFANDGUTSCH5015803",
+          "amount_cents": 525
+        }
+      ]
+    },
+    {
+      "id": "kaisers_img0006",
+      "chain": "Kaiser's",
+      "receipt_type": "photo",
+      "file": "assets/kaisers_img0006.jpg",
+      "source_key": "github:knipknap/receiptparser",
+      "source_path": "tests/data/germany/img/IMG0006.jpg",
+      "merchant": "Kaiser's Tengelmann GmbH",
+      "purchased_at": "2015-08-31",
+      "currency": "EUR",
+      "total_gross_cents": 1595,
+      "items": [
+        {
+          "name": "Wurst",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 292,
+          "is_deposit": false
+        },
+        {
+          "name": "Kaese",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 290,
+          "is_deposit": false
+        },
+        {
+          "name": "A&P BIERSCHI",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 179,
+          "line_total_cents": 179,
+          "is_deposit": false
+        },
+        {
+          "name": "KI.SCHOKOL.",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 99,
+          "line_total_cents": 99,
+          "is_deposit": false
+        },
+        {
+          "name": "BROT 500G",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 139,
+          "line_total_cents": 139,
+          "is_deposit": false
+        },
+        {
+          "name": "TRUE FRUITS",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 399,
+          "is_deposit": false
+        },
+        {
+          "name": "BANANEN",
+          "qty": "1.273",
+          "unit": "kg",
+          "unit_price_cents": 139,
+          "line_total_cents": 177,
+          "is_deposit": false
+        },
+        {
+          "name": "ESSIG",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 45,
+          "line_total_cents": 45,
+          "is_deposit": false
+        }
+      ],
+      "discounts": [
+        {
+          "label": "Leergutbon",
+          "amount_cents": 25
+        }
+      ]
+    },
+    {
+      "id": "penny_img0007",
+      "chain": "PENNY",
+      "receipt_type": "photo",
+      "file": "assets/penny_img0007.jpg",
+      "source_key": "github:knipknap/receiptparser",
+      "source_path": "tests/data/germany/img/IMG0007.jpg",
+      "merchant": "PENNY-MARKT GmbH",
+      "purchased_at": "2015-06-06",
+      "currency": "EUR",
+      "total_gross_cents": 503,
+      "items": [
+        {
+          "name": "WEIZENBROETCHEN",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 79,
+          "is_deposit": false
+        },
+        {
+          "name": "PENNY H-Milch",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 51,
+          "is_deposit": false
+        },
+        {
+          "name": "PENNY Chips",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 79,
+          "is_deposit": false
+        },
+        {
+          "name": "TURMBRAEU PILS",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 35,
+          "line_total_cents": 70,
+          "is_deposit": false
+        },
+        {
+          "name": "PFAND 0,25 EURO",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 25,
+          "line_total_cents": 50,
+          "is_deposit": true
+        },
+        {
+          "name": "Krombacher Dose",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 79,
+          "is_deposit": false
+        },
+        {
+          "name": "PFAND 0,25 EURO",
+          "qty": "1.000",
+          "unit": "pcs",
+          "unit_price_cents": 25,
+          "line_total_cents": 25,
+          "is_deposit": true
+        },
+        {
+          "name": "Schwip Schwap Do",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 45,
+          "is_deposit": false
+        },
+        {
+          "name": "PFAND 0,25 EURO",
+          "qty": "1.000",
+          "unit": "pcs",
+          "unit_price_cents": 25,
+          "line_total_cents": 25,
+          "is_deposit": true
+        }
+      ],
+      "discounts": []
+    },
+    {
+      "id": "dm_img0008",
+      "chain": "dm",
+      "receipt_type": "photo",
+      "file": "assets/dm_img0008.jpg",
+      "source_key": "github:knipknap/receiptparser",
+      "source_path": "tests/data/germany/img/IMG0008.jpg",
+      "merchant": "dm-drogerie markt",
+      "purchased_at": "2014-12-11",
+      "currency": "EUR",
+      "total_gross_cents": 585,
+      "items": [
+        {
+          "name": "essence colour&go nailpol. 152",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 155,
+          "is_deposit": false
+        },
+        {
+          "name": "essence colour&go nailpol. 189",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 155,
+          "is_deposit": false
+        },
+        {
+          "name": "essence compact powder 04",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 275,
+          "is_deposit": false
+        }
+      ],
+      "discounts": []
+    },
+    {
+      "id": "rewe_oraies_bar",
+      "chain": "REWE",
+      "receipt_type": "ebon_pdf",
+      "file": "assets/rewe_oraies_bar.pdf",
+      "source_key": "github:oraies/eBonsParser",
+      "source_path": "examples/rewe/rewe_bar.pdf",
+      "merchant": "REWE Markt GmbH",
+      "purchased_at": "2025-05-06",
+      "currency": "EUR",
+      "total_gross_cents": 685,
+      "items": [
+        {
+          "name": "MILRAM BURLANDER",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 159,
+          "is_deposit": false
+        },
+        {
+          "name": "MEHRKORNBROETCH.",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 129,
+          "is_deposit": false
+        },
+        {
+          "name": "TARTETEIG",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 189,
+          "is_deposit": false
+        },
+        {
+          "name": "SALATGURKE",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 69,
+          "is_deposit": false
+        },
+        {
+          "name": "THUNFISCHFI. OEL",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 139,
+          "is_deposit": false
+        }
+      ],
+      "discounts": []
+    },
+    {
+      "id": "rewe_oraies_card",
+      "chain": "REWE",
+      "receipt_type": "ebon_pdf",
+      "file": "assets/rewe_oraies_card.pdf",
+      "source_key": "github:oraies/eBonsParser",
+      "source_path": "examples/rewe/rewe_card.pdf",
+      "merchant": "REWE Markt GmbH",
+      "purchased_at": "2025-05-07",
+      "currency": "EUR",
+      "total_gross_cents": 1929,
+      "items": [
+        {
+          "name": "ORANGE SAFT",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 299,
+          "is_deposit": false
+        },
+        {
+          "name": "TOMATE FLEISCH",
+          "qty": "0.464",
+          "unit": "kg",
+          "unit_price_cents": 399,
+          "line_total_cents": 185,
+          "is_deposit": false
+        },
+        {
+          "name": "EIER BH M-L",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 199,
+          "is_deposit": false
+        },
+        {
+          "name": "LAC NJ.3,8% GVO",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 99,
+          "is_deposit": false
+        },
+        {
+          "name": "KNUSPER MUESLI",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 229,
+          "is_deposit": false
+        },
+        {
+          "name": "SCHWARZE OLIVEN",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 129,
+          "is_deposit": false
+        },
+        {
+          "name": "JA! MIWA STILL",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 174,
+          "is_deposit": false
+        },
+        {
+          "name": "PFAND 1,50 EURO",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 150,
+          "is_deposit": true
+        },
+        {
+          "name": "SPUELM ZITRUS",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 95,
+          "is_deposit": false
+        },
+        {
+          "name": "TODAY FLUESSIGS",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 65,
+          "is_deposit": false
+        },
+        {
+          "name": "KUECHENTUECHER",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 285,
+          "is_deposit": false
+        },
+        {
+          "name": "KL.PAPIERTASCHE",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 20,
+          "is_deposit": false
+        }
+      ],
+      "discounts": []
+    },
+    {
+      "id": "rewe_webd97_1",
+      "chain": "REWE",
+      "receipt_type": "ebon_pdf",
+      "file": "assets/rewe_webd97_1.pdf",
+      "source_key": "github:webD97/rewe-ebon-parser",
+      "source_path": "examples/eBons/1.pdf",
+      "merchant": "REWE Markt GmbH",
+      "purchased_at": "2020-01-13",
+      "currency": "EUR",
+      "total_gross_cents": 1305,
+      "items": [
+        {
+          "name": "ZITRONE",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 89,
+          "is_deposit": false
+        },
+        {
+          "name": "APFEL GRANNY SMI",
+          "qty": "0.792",
+          "unit": "kg",
+          "unit_price_cents": 249,
+          "line_total_cents": 197,
+          "is_deposit": false
+        },
+        {
+          "name": "KIWI GOLD",
+          "qty": "4.000",
+          "unit": "pcs",
+          "unit_price_cents": 79,
+          "line_total_cents": 316,
+          "is_deposit": false
+        },
+        {
+          "name": "BLATTSPINAT BIO",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 179,
+          "is_deposit": false
+        },
+        {
+          "name": "TOPFPFLANZE",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 499,
+          "is_deposit": false
+        },
+        {
+          "name": "ORANGENSAFT",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 85,
+          "is_deposit": false
+        },
+        {
+          "name": "TOPFREINIGER",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 35,
+          "is_deposit": false
+        }
+      ],
+      "discounts": [
+        {
+          "label": "LEERGUT EINWEG",
+          "amount_cents": 25
+        },
+        {
+          "label": "Mitarbeiterrabatt 5%",
+          "amount_cents": 6
+        },
+        {
+          "label": "Mitarbeiterrabatt 5%",
+          "amount_cents": 64
+        }
+      ]
+    },
+    {
+      "id": "rewe_webd97_4",
+      "chain": "REWE",
+      "receipt_type": "ebon_pdf",
+      "file": "assets/rewe_webd97_4.pdf",
+      "source_key": "github:webD97/rewe-ebon-parser",
+      "source_path": "examples/eBons/4.pdf",
+      "merchant": "REWE Markt GmbH",
+      "purchased_at": "2023-03-24",
+      "currency": "EUR",
+      "total_gross_cents": 3690,
+      "items": [
+        {
+          "name": "SALSICCIA NATUR",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 349,
+          "is_deposit": false
+        },
+        {
+          "name": "KAISERBROETCHEN",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 99,
+          "is_deposit": false
+        },
+        {
+          "name": "APFEL NICOTER",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 299,
+          "is_deposit": false
+        },
+        {
+          "name": "ZWIEBEL",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 159,
+          "is_deposit": false
+        },
+        {
+          "name": "KERRYGOLD UNGESA",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 429,
+          "is_deposit": false
+        },
+        {
+          "name": "H-MILCH GVO-FREI",
+          "qty": "12.000",
+          "unit": "pcs",
+          "unit_price_cents": 115,
+          "line_total_cents": 1380,
+          "is_deposit": false
+        },
+        {
+          "name": "H-SCHLAGSAHNE",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 109,
+          "line_total_cents": 218,
+          "is_deposit": false
+        },
+        {
+          "name": "TORTELLONI RICOT",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 99,
+          "is_deposit": false
+        },
+        {
+          "name": "FA ERDBEERE 75%",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 129,
+          "is_deposit": false
+        },
+        {
+          "name": "COCA COLA PET",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 129,
+          "line_total_cents": 258,
+          "is_deposit": false
+        },
+        {
+          "name": "PFAND 0,15 EUR",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 15,
+          "line_total_cents": 30,
+          "is_deposit": true
+        },
+        {
+          "name": "PFEFFERMINZTEE",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 69,
+          "is_deposit": false
+        },
+        {
+          "name": "ADIDAS DUSCHGEL",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 299,
+          "is_deposit": false
+        },
+        {
+          "name": "PALMOLIVE BAD",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 279,
+          "is_deposit": false
+        }
+      ],
+      "discounts": [
+        {
+          "label": "Mitarbeiterrabatt5%",
+          "amount_cents": 42
+        },
+        {
+          "label": "Mitarbeiterrabatt5%",
+          "amount_cents": 161
+        },
+        {
+          "label": "Inflationsrabatt 5%",
+          "amount_cents": 42
+        },
+        {
+          "label": "Inflationsrabatt 5%",
+          "amount_cents": 161
+        }
+      ]
+    },
+    {
+      "id": "rewe_webd97_5",
+      "chain": "REWE",
+      "receipt_type": "ebon_pdf",
+      "file": "assets/rewe_webd97_5.pdf",
+      "source_key": "github:webD97/rewe-ebon-parser",
+      "source_path": "examples/eBons/5.pdf",
+      "merchant": "REWE Jürgen Maziejewski OHG",
+      "purchased_at": "2023-08-11",
+      "currency": "EUR",
+      "total_gross_cents": 3944,
+      "items": [
+        {
+          "name": "SALAMI SPITZENQ.",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 179,
+          "is_deposit": false
+        },
+        {
+          "name": "BUTTERSCHINKEN",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 259,
+          "is_deposit": false
+        },
+        {
+          "name": "KAESEAUFSCHNITT",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 199,
+          "is_deposit": false
+        },
+        {
+          "name": "MIREE KRAEUTER",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 99,
+          "is_deposit": false
+        },
+        {
+          "name": "VITAL UND FIT",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 189,
+          "is_deposit": false
+        },
+        {
+          "name": "SKYR NATUR",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 149,
+          "is_deposit": false
+        },
+        {
+          "name": "BAG. SPECIALE",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 229,
+          "line_total_cents": 458,
+          "is_deposit": false
+        },
+        {
+          "name": "TIRAMISU",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 199,
+          "is_deposit": false
+        },
+        {
+          "name": "FUSILLI",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 79,
+          "is_deposit": false
+        },
+        {
+          "name": "PENNE RIGATE",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 79,
+          "is_deposit": false
+        },
+        {
+          "name": "REMOULADE",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 185,
+          "is_deposit": false
+        },
+        {
+          "name": "CRUNCHIPS PAPRIK",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 199,
+          "is_deposit": false
+        },
+        {
+          "name": "CREMA G. BOH.",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 1499,
+          "is_deposit": false
+        },
+        {
+          "name": "COMP.PROT.ZAHNCR",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 599,
+          "is_deposit": false
+        }
+      ],
+      "discounts": [
+        {
+          "label": "5% REWE Scan u. Go",
+          "amount_cents": 30
+        },
+        {
+          "label": "5% REWE Scan u. Go",
+          "amount_cents": 189
+        },
+        {
+          "label": "Mitarbeiterrabatt 5%",
+          "amount_cents": 29
+        },
+        {
+          "label": "Mitarbeiterrabatt 5%",
+          "amount_cents": 179
+        }
+      ]
+    }
+  ]
+}

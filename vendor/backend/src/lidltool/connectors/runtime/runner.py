@@ -122,7 +122,6 @@ def main(argv: list[str] | None = None) -> int:
 def _load_module(module_ref: str) -> ModuleType:
     if module_ref.endswith(".py") or "/" in module_ref:
         path = _resolve_module_path(module_ref)
-        _prepend_import_context(path.parent)
         spec = importlib.util.spec_from_file_location(f"lidltool_runtime_{abs(hash(path))}", path)
         if spec is None or spec.loader is None:
             raise ImportError(f"unable to load module from {path}")
@@ -151,12 +150,6 @@ def _resolve_module_path(module_ref: str) -> Path:
             return trimmed
 
     return direct
-
-
-def _prepend_import_context(path: Path) -> None:
-    candidate = str(path.resolve())
-    if candidate not in sys.path:
-        sys.path.insert(0, candidate)
 
 
 def _failure_response(

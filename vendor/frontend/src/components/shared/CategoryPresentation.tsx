@@ -159,6 +159,9 @@ export const CATEGORY_OPTIONS: readonly string[] = [
   "fees",
   "fees:shipping",
   "fees:service",
+  "electronics",
+  "gaming_media",
+  "shipping_fees",
   "deposit",
   "other"
 ] as const;

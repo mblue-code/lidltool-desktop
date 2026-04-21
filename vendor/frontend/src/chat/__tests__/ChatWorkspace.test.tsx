@@ -380,7 +380,20 @@ describe("ChatWorkspacePage", () => {
     );
 
     await screen.findByText("Visual analysis: Search Receipts (call-1)");
-    expect(screen.getByText("[]")).toBeInTheDocument();
+    const rawOutputSummary = screen.getByText("Raw tool output");
+    const details = rawOutputSummary.closest("details");
+    const summary = rawOutputSummary.closest("summary");
+    expect(details).not.toBeNull();
+    expect(summary).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+
+    const rawPayload = screen.getByText("[]", { selector: "pre" });
+    expect(rawPayload).not.toBeVisible();
+
+    fireEvent.click(summary as HTMLElement);
+
+    expect(details).toHaveAttribute("open");
+    expect(rawPayload).toBeVisible();
   });
 
   it("falls back to idle stream_status if run persistence and failure patch both fail", async () => {

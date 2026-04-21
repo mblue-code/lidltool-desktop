@@ -33,6 +33,19 @@ def _date_window(date_from: date | None, date_to: date | None, default_days: int
     return start, end
 
 
+def _normalize_source_ids(source_ids: list[str] | None) -> list[str] | None:
+    if source_ids is None:
+        return None
+    normalized = sorted({source_id.strip() for source_id in source_ids if source_id.strip()})
+    return normalized or None
+
+
+def _apply_source_filter(stmt: Any, source_ids: list[str] | None) -> Any:
+    if source_ids is None:
+        return stmt
+    return stmt.where(Transaction.source_id.in_(source_ids))
+
+
 def _validate_timing_value(value: str) -> str:
     normalized = value.strip().lower()
     if normalized not in {"net", "gross", "count"}:
@@ -44,13 +57,6 @@ def _normalized_source_kinds(source_kinds: list[str] | None) -> list[str] | None
     if source_kinds is None:
         return None
     normalized = sorted({source_kind.strip() for source_kind in source_kinds if source_kind.strip()})
-    return normalized or None
-
-
-def _normalized_source_ids(source_ids: list[str] | None) -> list[str] | None:
-    if source_ids is None:
-        return None
-    normalized = sorted({source_id.strip() for source_id in source_ids if source_id.strip()})
     return normalized or None
 
 
@@ -875,9 +881,7 @@ def deposit_analytics(
 ) -> dict[str, Any]:
     """Return deposit (Pfand) totals: paid, returned, net outstanding, and monthly breakdown."""
     start, end = _date_window(date_from, date_to, default_days=365 * 5)
-    start_dt = datetime.combine(start, datetime.min.time(), tzinfo=UTC)
-    end_exclusive_dt = datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
-    normalized_source_ids = _normalized_source_ids(source_ids)
+    normalized_source_ids = _normalize_source_ids(source_ids)
 
     vis_ids = visible_transaction_ids_subquery(visibility) if visibility is not None else None
 
@@ -906,14 +910,13 @@ def deposit_analytics(
         .join(Transaction, Transaction.id == TransactionItem.transaction_id)
         .where(
             TransactionItem.is_deposit.is_(True),
-            Transaction.purchased_at >= start_dt,
-            Transaction.purchased_at < end_exclusive_dt,
+            Transaction.purchased_at >= start.isoformat(),
+            Transaction.purchased_at <= end.isoformat(),
         )
         .group_by(func.substr(Transaction.purchased_at, 1, 7))
         .order_by(func.substr(Transaction.purchased_at, 1, 7))
     )
-    if normalized_source_ids is not None:
-        stmt = stmt.where(Transaction.source_id.in_(normalized_source_ids))
+    stmt = _apply_source_filter(stmt, normalized_source_ids)
     if vis_ids is not None:
         stmt = stmt.where(Transaction.id.in_(vis_ids))
 
@@ -937,6 +940,7 @@ def deposit_analytics(
     return {
         "date_from": start.isoformat(),
         "date_to": end.isoformat(),
+        "source_ids": normalized_source_ids,
         "total_paid_cents": total_paid,
         "total_returned_cents": total_returned,
         "net_outstanding_cents": total_paid + total_returned,

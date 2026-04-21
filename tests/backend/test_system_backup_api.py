@@ -111,6 +111,56 @@ def test_system_backup_succeeds_for_fresh_desktop_profile(tmp_path: Path) -> Non
     assert manifest["requested_by_user_id"]
 
 
+def test_system_backup_captures_live_sqlite_rows(tmp_path: Path) -> None:
+    config = _desktop_config(
+        tmp_path,
+        credential_key="desktop-backup-secret-key-with-sufficient-entropy-123456",
+    )
+    app = create_app(config=config)
+
+    with TestClient(app) as client:
+        client.cookies.set("lidltool_session", _issue_admin_session(app))
+        with session_scope(app.state.request_context.sessions) as session:
+            create_local_user(
+                session,
+                username="viewer",
+                password="viewer-password",
+                display_name="Viewer",
+                is_admin=False,
+            )
+        output_dir = tmp_path / "backup-live-rows"
+
+        response = client.post(
+            "/api/v1/system/backup",
+            json={
+                "output_dir": str(output_dir),
+                "include_documents": False,
+                "include_export_json": False,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+
+    backup_db_path = Path(payload["result"]["db_artifact"])
+    assert backup_db_path.is_file()
+    import sqlite3
+
+    connection = sqlite3.connect(backup_db_path)
+    try:
+        rows = connection.execute(
+            "select username, is_admin from users order by username"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    assert rows == [
+        ("admin", 1),
+        ("viewer", 0),
+    ]
+
+
 def test_system_backup_skips_missing_optional_artifacts(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -65,7 +65,7 @@ export const EN_MESSAGES = {
   "backend.warning.connectorPreviewSyncStarted":
     "This connector sync is still in preview and has not been live-validated yet.",
   "backend.warning.connectorRemoteBrowserSessionUnavailable":
-    "The remote browser session is unavailable. Connectors that support it will continue with the local browser flow instead.",
+    "The remote browser session is unavailable. Falling back to the local browser flow.",
   "common.close": "Close",
   "common.changes": "Changes",
   "common.cancel": "Cancel",
@@ -155,7 +155,7 @@ export const EN_MESSAGES = {
   "auth.setup.restorePlaceholder": "/path/to/backup-folder",
   "auth.setup.restoreUnavailable": "Restore is available in the packaged desktop app.",
   "auth.setup.restoreRequired": "Backup directory is required.",
-  "auth.setup.restoreSuccess": "Backup restored. Continue with Sign in.",
+  "auth.setup.restoreSuccess": "Backup restored. Reloading sign in with restored data.",
   "auth.setup.restoreFailed": "Restore failed.",
   "auth.setup.restoreSubmitting": "Restoring…",
   "auth.setup.restoreSubmit": "Restore backup and sign in",
@@ -787,7 +787,7 @@ export const EN_MESSAGES = {
   "pages.connectors.catalog.edeka.note":
     "External plugin wired into the shared auth browser path and ready for live validation.",
   "pages.connectors.catalog.rewe.note":
-    "Desktop REWE uses the normal Chrome-first flow: sign into REWE in your everyday Chrome profile, leave the tab open, then run Set up here.",
+    "Implemented but currently treated as preview/stub in real usage.",
   "pages.connectors.catalog.kaufland.note":
     "Implemented but currently treated as preview/stub in real usage.",
   "pages.connectors.catalog.dm.note":
@@ -867,8 +867,8 @@ export const EN_MESSAGES = {
   "pages.usersSettings.noKeys": "No agent keys yet.",
   "pages.usersSettings.dialog.editTitle": "Edit user",
   "pages.usersSettings.dialog.createTitle": "Add user",
-  "pages.usersSettings.dialog.editDescription": "Update the user profile and password.",
-  "pages.usersSettings.dialog.createDescription": "Create a new desktop user account.",
+  "pages.usersSettings.dialog.editDescription": "Update user profile, password, and admin role.",
+  "pages.usersSettings.dialog.createDescription": "Create a new user account.",
   "pages.usersSettings.field.newPasswordOptional": "New password (optional)",
   "pages.usersSettings.adminUser": "Admin user",
   "pages.usersSettings.saving": "Saving...",
@@ -911,7 +911,7 @@ export const EN_MESSAGES = {
   "pages.usersSettings.restoreSubmit": "Restore backup",
   "pages.usersSettings.restoreSubmitting": "Restoring backup...",
   "pages.usersSettings.restoreSuccess":
-    "Backup restored. Refresh the app if data does not update immediately.",
+    "Backup restored. Reloading sign in with restored data.",
   "pages.usersSettings.restoreAdminOnly": "Only admins can restore desktop backups.",
   "pages.usersSettings.restoreRuntimeOnly":
     "Desktop restore is only available inside the desktop app runtime.",
@@ -1121,7 +1121,7 @@ export const DE_MESSAGES: Record<TranslationKey, string> = {
   "backend.warning.connectorPreviewSyncStarted":
     "Diese Anbindungs-Synchronisierung ist noch im Vorschaustatus und wurde noch nicht live validiert.",
   "backend.warning.connectorRemoteBrowserSessionUnavailable":
-    "Die Remote-Browsersitzung ist nicht verfügbar. Anbindungen, die es unterstützen, nutzen stattdessen den lokalen Browserfluss.",
+    "Die Remote-Browsersitzung ist nicht verfügbar. Der lokale Browser wird stattdessen verwendet.",
   "common.close": "Schließen",
   "common.changes": "Änderungen",
   "common.cancel": "Abbrechen",
@@ -1212,7 +1212,7 @@ export const DE_MESSAGES: Record<TranslationKey, string> = {
   "auth.setup.restorePlaceholder": "/pfad/zum/backup-ordner",
   "auth.setup.restoreUnavailable": "Die Wiederherstellung ist in der gepackten Desktop-App verfügbar.",
   "auth.setup.restoreRequired": "Ein Backup-Verzeichnis ist erforderlich.",
-  "auth.setup.restoreSuccess": "Backup wiederhergestellt. Weiter mit der Anmeldung.",
+  "auth.setup.restoreSuccess": "Backup wiederhergestellt. Anmeldung wird mit den wiederhergestellten Daten neu geladen.",
   "auth.setup.restoreFailed": "Wiederherstellung fehlgeschlagen.",
   "auth.setup.restoreSubmitting": "Wird wiederhergestellt…",
   "auth.setup.restoreSubmit": "Backup wiederherstellen und anmelden",
@@ -1862,7 +1862,7 @@ export const DE_MESSAGES: Record<TranslationKey, string> = {
   "pages.connectors.catalog.edeka.note":
     "Externes Plugin, das in den geteilten Auth-Browserpfad eingebunden ist und jetzt live validiert werden kann.",
   "pages.connectors.catalog.rewe.note":
-    "REWE auf dem Desktop nutzt den normalen Chrome-zuerst-Ablauf: zuerst im gewohnten Chrome-Profil bei REWE anmelden, den Tab offen lassen und dann hier Einrichten starten.",
+    "Implementiert, wird in der realen Nutzung derzeit aber als Vorschau/Stub behandelt.",
   "pages.connectors.catalog.kaufland.note":
     "Implementiert, wird in der realen Nutzung derzeit aber als Vorschau/Stub behandelt.",
   "pages.connectors.catalog.dm.note":
@@ -1942,8 +1942,9 @@ export const DE_MESSAGES: Record<TranslationKey, string> = {
   "pages.usersSettings.noKeys": "Noch keine Agent-Schlüssel.",
   "pages.usersSettings.dialog.editTitle": "Benutzer bearbeiten",
   "pages.usersSettings.dialog.createTitle": "Benutzer hinzufügen",
-  "pages.usersSettings.dialog.editDescription": "Benutzerprofil und Passwort aktualisieren.",
-  "pages.usersSettings.dialog.createDescription": "Ein neues Desktop-Benutzerkonto erstellen.",
+  "pages.usersSettings.dialog.editDescription":
+    "Benutzerprofil, Passwort und Administratorrolle aktualisieren.",
+  "pages.usersSettings.dialog.createDescription": "Ein neues Benutzerkonto erstellen.",
   "pages.usersSettings.field.newPasswordOptional": "Neues Passwort (optional)",
   "pages.usersSettings.adminUser": "Administratorbenutzer",
   "pages.usersSettings.saving": "Wird gespeichert...",
@@ -1987,7 +1988,7 @@ export const DE_MESSAGES: Record<TranslationKey, string> = {
   "pages.usersSettings.restoreSubmit": "Backup wiederherstellen",
   "pages.usersSettings.restoreSubmitting": "Backup wird wiederhergestellt...",
   "pages.usersSettings.restoreSuccess":
-    "Backup wiederhergestellt. Aktualisieren Sie die App, falls sich die Daten nicht sofort aktualisieren.",
+    "Backup wiederhergestellt. Die Anmeldung wird mit den wiederhergestellten Daten neu geladen.",
   "pages.usersSettings.restoreAdminOnly": "Nur Administratoren können Desktop-Backups wiederherstellen.",
   "pages.usersSettings.restoreRuntimeOnly":
     "Die Desktop-Wiederherstellung ist nur innerhalb der Desktop-App-Laufzeit verfügbar.",

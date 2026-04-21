@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog } from "electron";
 import { randomBytes } from "node:crypto";
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -31,7 +31,18 @@ import {
   type ValidatedManifestSnapshot,
 } from "./plugins/receipt-plugin-packs";
 import { resolveDesktopReleaseContext, resolveDesktopReleaseMetadata } from "./release-metadata";
-import { buildBackendServeArgs, normalizeDesktopOcrProvider } from "./runtime-contract";
+import {
+  buildBackendServeArgs,
+  normalizeDesktopOcrProvider,
+  resolveManagedPlaywrightBrowsersPath,
+  shouldManagePlaywrightBrowsers
+} from "./runtime-contract";
+import {
+  copySqliteArtifact,
+  describeSqliteSnapshotMismatch,
+  snapshotSqliteArtifact,
+  type SqliteArtifactSnapshot
+} from "./sqlite-artifacts";
 
 const DEFAULT_PORT = 18765;
 
@@ -318,7 +329,17 @@ export class DesktopRuntime {
     }
 
     const dbBackupPath = join(backupDir, "lidltool.sqlite");
-    copyFileSync(cfg.dbPath, dbBackupPath);
+    const sqliteHelper = await this.sqliteHelperContext();
+    const liveSnapshot = await snapshotSqliteArtifact(cfg.dbPath, sqliteHelper);
+    await copySqliteArtifact(cfg.dbPath, dbBackupPath, sqliteHelper);
+    const backupSnapshot = await snapshotSqliteArtifact(dbBackupPath, sqliteHelper);
+    this.assertMatchingSqliteSnapshots({
+      expected: liveSnapshot,
+      actual: backupSnapshot,
+      action: "backup verification",
+      expectedLabel: "live database",
+      actualLabel: "backup artifact"
+    });
     copied.push(dbBackupPath);
     this.emitLog({ stream: "stdout", source: "backup", line: `Copied DB -> ${dbBackupPath}` });
 
@@ -393,7 +414,21 @@ export class DesktopRuntime {
       command: "desktop:backup",
       args: [backupDir],
       exitCode: exportResult?.exitCode ?? 0,
-      stdout: JSON.stringify({ backupDir, manifestPath, copied, skipped }, null, 2),
+      stdout: JSON.stringify(
+        {
+          backupDir,
+          manifestPath,
+          copied,
+          skipped,
+          verification: {
+            liveDbPath: cfg.dbPath,
+            liveDbSnapshot: liveSnapshot,
+            backupDbSnapshot: backupSnapshot
+          }
+        },
+        null,
+        2
+      ),
       stderr: exportResult?.stderr ?? ""
     };
   }
@@ -429,8 +464,34 @@ export class DesktopRuntime {
         `No database artifact found in backup directory '${backupDir}'. Expected 'lidltool.sqlite' or 'db-backup-*.sqlite'.`
       );
     }
+    const sqliteHelper = await this.sqliteHelperContext();
+    const sourceSnapshot = await snapshotSqliteArtifact(dbSource, sqliteHelper);
+    const tempRestorePath = join(
+      dirname(cfg.dbPath),
+      `.restore-${Date.now()}-${basename(cfg.dbPath)}`
+    );
     mkdirSync(dirname(cfg.dbPath), { recursive: true });
-    copyFileSync(dbSource, cfg.dbPath);
+    await copySqliteArtifact(dbSource, tempRestorePath, sqliteHelper);
+    const stagedSnapshot = await snapshotSqliteArtifact(tempRestorePath, sqliteHelper);
+    this.assertMatchingSqliteSnapshots({
+      expected: sourceSnapshot,
+      actual: stagedSnapshot,
+      action: "restore staging verification",
+      expectedLabel: "backup artifact",
+      actualLabel: "staged restore"
+    });
+    this.removeSqliteSidecars(cfg.dbPath);
+    rmSync(cfg.dbPath, { force: true });
+    renameSync(tempRestorePath, cfg.dbPath);
+    rmSync(tempRestorePath, { force: true });
+    const liveSnapshot = await snapshotSqliteArtifact(cfg.dbPath, sqliteHelper);
+    this.assertMatchingSqliteSnapshots({
+      expected: sourceSnapshot,
+      actual: liveSnapshot,
+      action: "restore verification",
+      expectedLabel: "backup artifact",
+      actualLabel: "live database"
+    });
     copied.push(cfg.dbPath);
     this.emitLog({ stream: "stdout", source: "restore", line: `Restored DB <- ${dbSource}` });
 
@@ -488,10 +549,15 @@ export class DesktopRuntime {
         {
           backupDir,
           dbSource,
+          liveDbPath: cfg.dbPath,
           copied,
           skipped,
           restartedBackend: restartBackend,
-          backendRunning: backendStatus?.running ?? false
+          backendRunning: backendStatus?.running ?? false,
+          verification: {
+            backupDbSnapshot: sourceSnapshot,
+            liveDbSnapshot: liveSnapshot
+          }
         },
         null,
         2
@@ -803,6 +869,39 @@ export class DesktopRuntime {
     return null;
   }
 
+  private async sqliteHelperContext(): Promise<{
+    pythonExecutable: string;
+    env: NodeJS.ProcessEnv;
+  }> {
+    const pythonExecutable = this.resolvePythonExecutable();
+    const env = await this.backendProcessEnv(pythonExecutable, {
+      includePluginRuntimePolicy: false
+    });
+    return { pythonExecutable, env };
+  }
+
+  private assertMatchingSqliteSnapshots(args: {
+    expected: SqliteArtifactSnapshot;
+    actual: SqliteArtifactSnapshot;
+    action: string;
+    expectedLabel: string;
+    actualLabel: string;
+  }): void {
+    const mismatches = describeSqliteSnapshotMismatch(args.expected, args.actual);
+    if (mismatches.length === 0) {
+      return;
+    }
+    throw new Error(
+      `${args.action} failed: ${mismatches.join("; ")}. ` +
+        `${args.expectedLabel}: ${args.expected.path}. ${args.actualLabel}: ${args.actual.path}.`
+    );
+  }
+
+  private removeSqliteSidecars(dbPath: string): void {
+    rmSync(`${dbPath}-shm`, { force: true });
+    rmSync(`${dbPath}-wal`, { force: true });
+  }
+
   private async runCommand(
     command: string,
     args: string[],
@@ -966,15 +1065,121 @@ export class DesktopRuntime {
       env.LIDLTOOL_CONNECTOR_EXTERNAL_OFFER_PLUGINS_ENABLED = "false";
       env.LIDLTOOL_CONNECTOR_EXTERNAL_ALLOWED_TRUST_CLASSES = runtimePolicy.allowedTrustClasses.join(",");
     }
-    if (!env.PLAYWRIGHT_BROWSERS_PATH && this.shouldUseInVenvPlaywrightBrowsers(command)) {
-      env.PLAYWRIGHT_BROWSERS_PATH = "0";
+    const managedPlaywrightBrowsersPath = resolveManagedPlaywrightBrowsersPath(
+      cfg.userDataDir,
+      command,
+      env.PLAYWRIGHT_BROWSERS_PATH
+    );
+    if (managedPlaywrightBrowsersPath) {
+      env.PLAYWRIGHT_BROWSERS_PATH = managedPlaywrightBrowsersPath;
+      await this.ensureManagedPlaywrightBrowsers(command, managedPlaywrightBrowsersPath, env);
     }
     return env;
   }
 
   private shouldUseInVenvPlaywrightBrowsers(command: string): boolean {
-    const normalized = command.replaceAll("\\", "/");
-    return normalized.includes("/backend-venv/") || normalized.includes("/.backend/venv/");
+    return shouldManagePlaywrightBrowsers(command);
+  }
+
+  private async ensureManagedPlaywrightBrowsers(
+    command: string,
+    browsersPath: string,
+    baseEnv: NodeJS.ProcessEnv
+  ): Promise<void> {
+    if (!this.shouldUseInVenvPlaywrightBrowsers(command)) {
+      return;
+    }
+
+    mkdirSync(browsersPath, { recursive: true });
+    if (this.hasInstalledPlaywrightBrowsers(browsersPath)) {
+      return;
+    }
+
+    const pythonExecutable = this.resolvePythonExecutable();
+    if (!this.isPathLike(pythonExecutable) || !existsSync(pythonExecutable)) {
+      this.emitLog({
+        stream: "stderr",
+        source: "backend",
+        line:
+          "Skipping Playwright browser install because no managed Python runtime was found. " +
+          "Set PLAYWRIGHT_BROWSERS_PATH manually if you are using an external backend."
+      });
+      return;
+    }
+
+    this.emitLog({
+      stream: "stdout",
+      source: "backend",
+      line: `Installing Playwright Chromium into ${browsersPath}`
+    });
+
+    const result = await this.runRawCommandCapture(
+      pythonExecutable,
+      ["-m", "playwright", "install", "chromium"],
+      {
+        ...baseEnv,
+        PLAYWRIGHT_BROWSERS_PATH: browsersPath
+      }
+    );
+
+    for (const line of splitLines(result.stdout)) {
+      this.emitLog({ stream: "stdout", source: "backend", line });
+    }
+    for (const line of splitLines(result.stderr)) {
+      this.emitLog({ stream: "stderr", source: "backend", line });
+    }
+
+    if (!result.ok || !this.hasInstalledPlaywrightBrowsers(browsersPath)) {
+      throw new Error(
+        `Failed to install managed Playwright browsers into '${browsersPath}'. ${result.stderr || result.stdout}`.trim()
+      );
+    }
+  }
+
+  private hasInstalledPlaywrightBrowsers(browsersPath: string): boolean {
+    if (!existsSync(browsersPath)) {
+      return false;
+    }
+    return readdirSync(browsersPath).some((entry) => /^chromium-|^chromium_headless_shell-/.test(entry));
+  }
+
+  private async runRawCommandCapture(
+    command: string,
+    args: string[],
+    env: NodeJS.ProcessEnv
+  ): Promise<CommandResult> {
+    return await new Promise<CommandResult>((resolve, reject) => {
+      const proc = spawn(command, args, {
+        env,
+        stdio: "pipe"
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      proc.on("error", (err) => {
+        reject(err);
+      });
+
+      proc.stdout.on("data", (chunk) => {
+        stdout += chunk.toString("utf-8");
+      });
+
+      proc.stderr.on("data", (chunk) => {
+        stderr += chunk.toString("utf-8");
+      });
+
+      proc.on("close", (code) => {
+        resolve({
+          ok: code === 0,
+          command,
+          args,
+          exitCode: code,
+          stdout: stdout.trim(),
+          stderr: stderr.trim()
+        });
+      });
+    });
   }
 
   private resolveCredentialEncryptionKey(userDataDir: string): string {

@@ -60,6 +60,17 @@ def prepare_document_for_vision(
     )
 
 
+def prepare_document_images_for_vision(
+    *,
+    payload: bytes,
+    mime_type: str,
+    file_name: str,
+) -> list[PreparedOcrImage]:
+    if mime_type != "application/pdf":
+        return [PreparedOcrImage(payload=payload, mime_type=mime_type, file_name=file_name)]
+    return _render_pdf_pages(payload=payload, file_name=file_name)
+
+
 def _extract_pdf_text(payload: bytes) -> str:
     reader = PdfReader(BytesIO(payload))
     chunks = []
@@ -86,4 +97,3 @@ def _render_pdf_pages(*, payload: bytes, file_name: str) -> list[PreparedOcrImag
     finally:
         document.close()
     return rendered
-

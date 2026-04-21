@@ -194,7 +194,6 @@ from lidltool.auth.user_auth import verify_password
 from lidltool.auth.users import (
     SERVICE_USERNAME,
     create_local_user,
-    ensure_human_users_are_admin,
     ensure_service_user,
     get_user_by_username,
     human_user_count,
@@ -1907,10 +1906,6 @@ def _connector_is_preview_source(
     )
 
 
-def _connector_prefers_local_browser_flow(source_id: str) -> bool:
-    return source_id in {"rewe_de"}
-
-
 def _idle_connector_cascade_status() -> dict[str, Any]:
     return {
         "status": "idle",
@@ -3348,7 +3343,7 @@ class UserCreateRequest(BaseModel):
     username: str
     display_name: str | None = None
     password: str
-    is_admin: bool = True
+    is_admin: bool = False
 
 
 class UserUpdateRequest(BaseModel):
@@ -3853,7 +3848,6 @@ def create_app(
         try:
             context = _resolve_request_context(request)
             with session_scope(context.sessions) as session:
-                ensure_human_users_are_admin(session)
                 if human_user_count(session) == 0:
                     raise HTTPException(status_code=503, detail="setup required")
                 user = get_user_by_username(session, username=payload.username)
@@ -4307,7 +4301,7 @@ def create_app(
                     username=payload.username,
                     password=payload.password,
                     display_name=payload.display_name,
-                    is_admin=True,
+                    is_admin=payload.is_admin,
                 )
                 result = _serialize_user(user)
             return _response(True, result=result, warnings=[], error=None)
@@ -4329,6 +4323,7 @@ def create_app(
                     config=context.config,
                     admin_required=True,
                 )
+                current_user = auth_context.user
                 user = session.get(User, user_id)
                 if user is None or user.username == SERVICE_USERNAME:
                     raise RuntimeError("user not found")
@@ -4348,7 +4343,25 @@ def create_app(
                             else None
                         ),
                     )
-                user.is_admin = True
+                if payload.is_admin is not None:
+                    if (
+                        user.is_admin
+                        and not payload.is_admin
+                        and user.user_id == current_user.user_id
+                    ):
+                        raise RuntimeError("cannot remove admin privileges from current user")
+                    if user.is_admin and not payload.is_admin:
+                        admin_count = int(
+                            session.execute(
+                                select(func.count(User.user_id)).where(
+                                    User.is_admin.is_(True),
+                                    User.username != SERVICE_USERNAME,
+                                )
+                            ).scalar_one()
+                        )
+                        if admin_count <= 1:
+                            raise RuntimeError("at least one admin user is required")
+                    user.is_admin = payload.is_admin
                 user.updated_at = datetime.now(tz=UTC)
                 session.flush()
                 result = _serialize_user(user)
@@ -4658,6 +4671,55 @@ def create_app(
                     "job_id": job.id,
                     "status": job.status,
                     "reused": reused,
+                },
+                warnings=warnings,
+                error=None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/documents/{document_id}/process/fail")
+    async def fail_document_process(
+        request: Request,
+        document_id: str,
+        job_id: str = Form(...),
+        error_message: str = Form(...),
+        scope: str = Form(default="personal"),
+        legacy_api_key: str | None = Form(default=None, alias="api_key"),
+    ) -> Any:
+        try:
+            _reject_legacy_form_api_key(legacy_api_key)
+            await _reject_form_runtime_override_usage(request)
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                document = session.get(Document, document_id)
+                if document is None:
+                    raise RuntimeError("document not found")
+                if not _document_is_visible(
+                    session=session, document=document, visibility=visibility
+                ):
+                    raise RuntimeError("document not found")
+            jobs = JobService(session_factory=sessions, config=app_config)
+            snapshot = jobs.fail_ocr_job_startup(
+                job_id=job_id,
+                document_id=document_id,
+                error=error_message.strip() or "ocr worker startup failed",
+            )
+            if snapshot is None:
+                raise RuntimeError("job not found")
+            return _response(
+                True,
+                {
+                    "document_id": document_id,
+                    "job_id": snapshot.id,
+                    "status": snapshot.status,
                 },
                 warnings=warnings,
                 error=None,
@@ -7561,8 +7623,7 @@ def create_app(
                     continue
                 if _connector_bootstrap_is_running(existing):
                     raise RuntimeError(
-                        "connector setup is already running for "
-                        f"{existing_source}; finish or cancel it before starting {source_id}"
+                        f"connector bootstrap already running for source: {existing_source}"
                     )
 
             prev = bootstrap_sessions.get(source_id)
@@ -7585,23 +7646,22 @@ def create_app(
 
             remote_login_url: str | None = None
             env: dict[str, str] | None = None
-            if not _connector_prefers_local_browser_flow(source_id):
-                try:
-                    _ensure_vnc_runtime(app)
-                    remote_login_url = _novnc_login_url(request)
-                    runtime = get_vnc_runtime(app)
-                    if runtime is not None:
-                        env = {
-                            "DISPLAY": runtime.display,
-                            "LIDLTOOL_AUTH_BROWSER_MODE": "remote_vnc",
-                        }
-                except Exception as exc:  # noqa: BLE001
-                    warnings.append(
-                        _warning(
-                            f"remote browser session unavailable; falling back to local display ({exc})",
-                            code="connector_remote_browser_session_unavailable",
-                        )
+            try:
+                _ensure_vnc_runtime(app)
+                remote_login_url = _novnc_login_url(request)
+                runtime = get_vnc_runtime(app)
+                if runtime is not None:
+                    env = {
+                        "DISPLAY": runtime.display,
+                        "LIDLTOOL_AUTH_BROWSER_MODE": "remote_vnc",
+                    }
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(
+                    _warning(
+                        f"remote browser session unavailable; falling back to local display ({exc})",
+                        code="connector_remote_browser_session_unavailable",
                     )
+                )
 
             started = service.start_bootstrap(
                 source_id=source_id,

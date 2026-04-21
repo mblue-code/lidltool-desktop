@@ -27,50 +27,6 @@
       "release_notes_summary": "Bundled official connector metadata is discovery-only here and never auto-activates additional plugins."
     },
     {
-      "entry_id": "connector.builtin.lidl_plus_gb",
-      "entry_type": "connector",
-      "plugin_id": "builtin.lidl_plus_gb",
-      "source_id": "lidl_plus_gb",
-      "display_name": "Lidl Plus UK",
-      "summary": "Official Lidl Plus UK receipt connector bundled with the self-hosted and desktop shells.",
-      "description": "Built-in connector entry for the Lidl Plus UK login and receipt sync flow.",
-      "trust_class": "official",
-      "maintainer": "lidltool maintainers",
-      "source": "lidltool curated catalog",
-      "supported_products": ["self_hosted", "desktop"],
-      "supported_markets": ["GB"],
-      "current_version": "1.0.0",
-      "compatibility": {
-        "min_core_version": "0.1.0",
-        "supported_host_kinds": ["self_hosted", "electron"]
-      },
-      "install_methods": ["built_in"],
-      "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
-      "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
-    },
-    {
-      "entry_id": "connector.builtin.lidl_plus_fr",
-      "entry_type": "connector",
-      "plugin_id": "builtin.lidl_plus_fr",
-      "source_id": "lidl_plus_fr",
-      "display_name": "Lidl Plus France",
-      "summary": "Official Lidl Plus France receipt connector bundled with the self-hosted and desktop shells.",
-      "description": "Built-in connector entry for the Lidl Plus France login and receipt sync flow.",
-      "trust_class": "official",
-      "maintainer": "lidltool maintainers",
-      "source": "lidltool curated catalog",
-      "supported_products": ["self_hosted", "desktop"],
-      "supported_markets": ["FR"],
-      "current_version": "1.0.0",
-      "compatibility": {
-        "min_core_version": "0.1.0",
-        "supported_host_kinds": ["self_hosted", "electron"]
-      },
-      "install_methods": ["built_in"],
-      "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
-      "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
-    },
-    {
       "entry_id": "connector.builtin.amazon_de",
       "entry_type": "connector",
       "plugin_id": "builtin.amazon_de",
@@ -121,12 +77,34 @@
       "source_id": "amazon_gb",
       "display_name": "Amazon",
       "summary": "Official Amazon.co.uk receipt connector available in the core bundle.",
-      "description": "Built-in connector entry for Amazon UK order and invoice history sync.",
+      "description": "Built-in connector entry for Amazon.co.uk order and invoice history sync.",
       "trust_class": "official",
       "maintainer": "lidltool maintainers",
       "source": "lidltool curated catalog",
       "supported_products": ["self_hosted", "desktop"],
       "supported_markets": ["GB"],
+      "current_version": "1.0.0",
+      "compatibility": {
+        "min_core_version": "0.1.0",
+        "supported_host_kinds": ["self_hosted", "electron"]
+      },
+      "install_methods": ["built_in"],
+      "docs_url": "https://github.com/maximilianblucher/lidl-receipts-cli/blob/main/docs/connectors/sdk.md",
+      "homepage_url": "https://github.com/maximilianblucher/lidl-receipts-cli"
+    },
+    {
+      "entry_id": "connector.builtin.rossmann_de",
+      "entry_type": "connector",
+      "plugin_id": "builtin.rossmann_de",
+      "source_id": "rossmann_de",
+      "display_name": "Rossmann",
+      "summary": "Official Rossmann receipt connector available in the core bundle.",
+      "description": "Built-in connector entry for Rossmann.de auth bootstrap and sync.",
+      "trust_class": "official",
+      "maintainer": "lidltool maintainers",
+      "source": "lidltool curated catalog",
+      "supported_products": ["self_hosted", "desktop"],
+      "supported_markets": ["DE"],
       "current_version": "1.0.0",
       "compatibility": {
         "min_core_version": "0.1.0",

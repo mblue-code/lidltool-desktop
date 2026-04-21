@@ -176,6 +176,16 @@ export function getDesktopCapabilityBridge(): DesktopCapabilityBridge | null {
   };
 }
 
+export function getDesktopOcrBridge(): DesktopOcrBridge | null {
+  const desktopApi = (window as unknown as { desktopApi?: Partial<DesktopOcrBridge> }).desktopApi;
+  if (!desktopApi || typeof desktopApi.wakeOcrWorker !== "function") {
+    return null;
+  }
+  return {
+    wakeOcrWorker: () => desktopApi.wakeOcrWorker!()
+  };
+}
+
 export function getDesktopConnectorBridge(): DesktopConnectorBridge | null {
   const desktopApi = (window as unknown as { desktopApi?: Partial<DesktopConnectorBridge> }).desktopApi;
   if (

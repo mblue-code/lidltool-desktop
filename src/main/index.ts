@@ -22,9 +22,15 @@ let latestBootError: string | null = null;
 let currentLocale: DesktopLocale = "en";
 let lastRequestedSurface: "control_center" | "main_app" = "control_center";
 let appIsQuitting = false;
+let lastCloseRequestHint: { source: string; at: string } | null = null;
+let windowLifecycleConsoleLoggingEnabled = true;
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function getWindowLifecycleLogPath(): string {
+  return join(app.getPath("userData"), "window-lifecycle.log");
 }
 
 function logWindowLifecycle(
@@ -40,14 +46,35 @@ function logWindowLifecycle(
   };
 
   try {
-    const logPath = join(app.getPath("userData"), "window-lifecycle.log");
     mkdirSync(app.getPath("userData"), { recursive: true });
-    appendFileSync(logPath, `${JSON.stringify(payload)}\n`, "utf-8");
+    appendFileSync(getWindowLifecycleLogPath(), `${JSON.stringify(payload)}\n`, "utf-8");
   } catch {
     // Best-effort instrumentation only.
   }
 
-  console.log(`[desktop-window] ${JSON.stringify(payload)}`);
+  if (!windowLifecycleConsoleLoggingEnabled) {
+    return;
+  }
+
+  try {
+    console.log(`[desktop-window] ${JSON.stringify(payload)}`);
+  } catch (error) {
+    windowLifecycleConsoleLoggingEnabled = false;
+    try {
+      appendFileSync(
+        getWindowLifecycleLogPath(),
+        `${JSON.stringify({
+          timestamp: nowIso(),
+          event: "window.lifecycle_console_logging_disabled",
+          pid: process.pid,
+          reason: error instanceof Error ? error.message : String(error)
+        })}\n`,
+        "utf-8"
+      );
+    } catch {
+      // Best-effort instrumentation only.
+    }
+  }
 }
 
 function describeWindow(window: BrowserWindow | null): Record<string, unknown> {
@@ -67,6 +94,31 @@ function describeWindow(window: BrowserWindow | null): Record<string, unknown> {
     url: window.webContents.getURL(),
     bounds
   };
+}
+
+function noteCloseRequest(source: string): void {
+  lastCloseRequestHint = {
+    source,
+    at: nowIso()
+  };
+}
+
+function describeCloseRequestHint(): Record<string, unknown> {
+  if (!lastCloseRequestHint) {
+    return {};
+  }
+  return {
+    closeRequestSource: lastCloseRequestHint.source,
+    closeRequestAt: lastCloseRequestHint.at
+  };
+}
+
+function shouldGuardMainWindowClose(window: BrowserWindow): boolean {
+  if (appIsQuitting || process.platform !== "darwin") {
+    return false;
+  }
+  const surface = inferSurfaceFromUrl(window.webContents.getURL()) ?? lastRequestedSurface;
+  return surface === "main_app";
 }
 
 function inferSurfaceFromUrl(url: string): "control_center" | "main_app" | null {
@@ -297,8 +349,23 @@ function createWindow(): BrowserWindow {
     logWindowLifecycle("window.restore", describeWindow(window));
   });
 
-  window.on("close", () => {
-    logWindowLifecycle("window.close", describeWindow(window));
+  window.on("close", (event) => {
+    const details = {
+      surface: inferSurfaceFromUrl(window.webContents.getURL()) ?? lastRequestedSurface,
+      appIsQuitting,
+      ...describeCloseRequestHint(),
+      ...describeWindow(window)
+    };
+    if (shouldGuardMainWindowClose(window)) {
+      event.preventDefault();
+      logWindowLifecycle("window.close_guarded", details);
+      lastCloseRequestHint = null;
+      restoreWindowVisibility(window, "close-guard");
+      scheduleVisibilityRecovery(window, "close-guard");
+      return;
+    }
+    logWindowLifecycle("window.close", details);
+    lastCloseRequestHint = null;
   });
 
   window.on("closed", () => {
@@ -311,6 +378,32 @@ function createWindow(): BrowserWindow {
   window.webContents.setWindowOpenHandler((details) => {
     void shell.openExternal(details.url);
     return { action: "deny" };
+  });
+
+  window.webContents.on("render-process-gone", (_event, details) => {
+    logWindowLifecycle("window.render_process_gone", {
+      reason: details.reason,
+      exitCode: details.exitCode,
+      ...describeWindow(window)
+    });
+  });
+
+  window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    logWindowLifecycle("window.did_fail_load", {
+      errorCode,
+      errorDescription,
+      validatedURL,
+      isMainFrame,
+      ...describeWindow(window)
+    });
+  });
+
+  window.webContents.on("unresponsive", () => {
+    logWindowLifecycle("window.unresponsive", describeWindow(window));
+  });
+
+  window.webContents.on("responsive", () => {
+    logWindowLifecycle("window.responsive", describeWindow(window));
   });
 
   window.webContents.on("before-input-event", (event, input) => {
@@ -337,6 +430,19 @@ function createWindow(): BrowserWindow {
     if (key === "a") {
       event.preventDefault();
       window.webContents.selectAll();
+      return;
+    }
+    if (key === "w") {
+      noteCloseRequest(process.platform === "darwin" ? "accelerator:cmd+w" : "accelerator:ctrl+w");
+      logWindowLifecycle("window.close_accelerator", {
+        ...describeCloseRequestHint(),
+        ...describeWindow(window)
+      });
+      if (shouldGuardMainWindowClose(window)) {
+        event.preventDefault();
+        restoreWindowVisibility(window, "close-accelerator-guard");
+        scheduleVisibilityRecovery(window, "close-accelerator-guard");
+      }
       return;
     }
     if (key === "z") {

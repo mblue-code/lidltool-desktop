@@ -56,6 +56,7 @@ export class OcrWorkerSupervisor {
     this.workerProcess = process;
 
     let spawnError: Error | null = null;
+    let earlyExit: { code: number | null; signal: NodeJS.Signals | null } | null = null;
     process.on("error", (error) => {
       spawnError = error;
       this.workerProcess = null;
@@ -66,6 +67,7 @@ export class OcrWorkerSupervisor {
       });
     });
     process.on("exit", (code, signal) => {
+      earlyExit = { code, signal };
       this.emitLog({
         stream: "stdout",
         line: `ocr worker exited code=${code ?? "null"} signal=${signal ?? "null"}`,
@@ -89,6 +91,13 @@ export class OcrWorkerSupervisor {
     for (let attempt = 0; attempt < 10; attempt += 1) {
       if (spawnError) {
         throw spawnError;
+      }
+      const startupExitInfo: { code: number | null; signal: NodeJS.Signals | null } | null = earlyExit;
+      if (this.workerProcess === null && startupExitInfo !== null) {
+        const { code, signal } = startupExitInfo;
+        throw new Error(
+          `ocr worker exited during startup (code=${code ?? "null"}, signal=${signal ?? "null"})`
+        );
       }
       await sleep(50);
     }

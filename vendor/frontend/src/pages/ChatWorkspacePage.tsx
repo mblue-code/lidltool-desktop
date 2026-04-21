@@ -20,6 +20,7 @@ import {
   resolveAgentModelSelection,
   writeStoredModelMap
 } from "@/chat/model-selection";
+import { isDemoSnapshotMode } from "@/demo/mode";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -156,6 +157,7 @@ function createMessageIdempotencyKey(): string {
 export function ChatWorkspacePage() {
   const queryClient = useQueryClient();
   const { t } = useI18n();
+  const demoMode = isDemoSnapshotMode();
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [isComposingNewThread, setIsComposingNewThread] = useState(false);
   const [threadSearch, setThreadSearch] = useState("");
@@ -327,6 +329,10 @@ export function ChatWorkspacePage() {
     if (streaming) {
       return;
     }
+    if (demoMode) {
+      setStreamError("Demo Snapshot: chat input is disabled. Browse the showcase threads instead.");
+      return;
+    }
     const content = input.trim();
     if (!content) {
       return;
@@ -456,6 +462,7 @@ export function ChatWorkspacePage() {
         <Button
           type="button"
           variant="outline"
+          disabled={demoMode}
           onClick={() => {
             setSelectedThreadId(null);
             setIsComposingNewThread(true);
@@ -640,6 +647,14 @@ export function ChatWorkspacePage() {
                 <AlertDescription>{streamError}</AlertDescription>
               </Alert>
             ) : null}
+            {demoMode ? (
+              <Alert>
+                <AlertTitle>Showcase History</AlertTitle>
+                <AlertDescription>
+                  This page is rendered by the real chat workspace. In the public demo it stays read-only and shows curated threads instead of live generation.
+                </AlertDescription>
+              </Alert>
+            ) : null}
 
             <div className="flex-1 space-y-3 overflow-y-auto rounded-md border bg-muted/20 p-3">
               {messagesQuery.isPending && selectedThreadId ? (
@@ -656,6 +671,7 @@ export function ChatWorkspacePage() {
                         key={key}
                         variant="outline"
                         size="sm"
+                        disabled={demoMode}
                         onClick={() => setInput(t(`pages.chatWorkspace.suggestions.${key}`))}
                       >
                         {t(`pages.chatWorkspace.suggestions.${key}`)}
@@ -715,10 +731,10 @@ export function ChatWorkspacePage() {
                 }}
                 placeholder={t("pages.chatWorkspace.placeholder")}
                 rows={4}
-                disabled={streaming}
+                disabled={demoMode || streaming}
               />
               <div className="flex justify-end">
-                <Button type="submit" disabled={streaming || input.trim().length === 0 || !agent}>
+                <Button type="submit" disabled={demoMode || streaming || input.trim().length === 0 || !agent}>
                   {streaming ? t("pages.chatWorkspace.generating") : t("pages.chatWorkspace.send")}
                 </Button>
               </div>

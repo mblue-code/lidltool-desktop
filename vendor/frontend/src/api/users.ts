@@ -81,6 +81,7 @@ export async function createUser(payload: {
   username: string;
   display_name?: string | null;
   password: string;
+  is_admin: boolean;
 }): Promise<User> {
   return apiClient.post("/api/v1/users", UserSchema, payload);
 }
@@ -90,6 +91,7 @@ export async function updateUser(
   payload: {
     display_name?: string | null;
     password?: string;
+    is_admin?: boolean;
   }
 ): Promise<User> {
   return apiClient.patch(`/api/v1/users/${userId}`, UserSchema, payload);

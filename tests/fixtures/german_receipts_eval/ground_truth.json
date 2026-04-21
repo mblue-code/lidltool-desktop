@@ -1,0 +1,358 @@
+{
+  "dataset_id": "german_receipts_eval_v1",
+  "source": {
+    "repository": "https://github.com/knipknap/receiptparser",
+    "license": "MIT",
+    "license_file": "COPYING"
+  },
+  "receipts": [
+    {
+      "id": "IMG0001",
+      "file": "images/IMG0001.jpg",
+      "source_path": "tests/data/germany/img/IMG0001.jpg",
+      "merchant": "REWE",
+      "purchased_at": "2014-12-04",
+      "currency": "EUR",
+      "total_gross_cents": 99,
+      "items": [
+        {
+          "name": "SUPPENGRUEN",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 99,
+          "is_deposit": false
+        }
+      ],
+      "discounts": []
+    },
+    {
+      "id": "IMG0003",
+      "file": "images/IMG0003.jpg",
+      "source_path": "tests/data/germany/img/IMG0003.jpg",
+      "merchant": "PENNY-MARKT GmbH",
+      "purchased_at": "2014-10-18",
+      "currency": "EUR",
+      "total_gross_cents": 1056,
+      "items": [
+        {
+          "name": "Saftorangen",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 149,
+          "is_deposit": false
+        },
+        {
+          "name": "Banane Golden v.",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 119,
+          "is_deposit": false
+        },
+        {
+          "name": "Apfel gruen",
+          "qty": "0.410",
+          "unit": "kg",
+          "unit_price_cents": 199,
+          "line_total_cents": 82,
+          "is_deposit": false
+        },
+        {
+          "name": "Pflaume 750g",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 99,
+          "is_deposit": false
+        },
+        {
+          "name": "Orto Mio Oliven",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 69,
+          "is_deposit": false
+        },
+        {
+          "name": "HAUTKLAR 3IN1",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 299,
+          "line_total_cents": 598,
+          "is_deposit": false
+        },
+        {
+          "name": "Today Nachfüllbe",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 65,
+          "is_deposit": false
+        },
+        {
+          "name": "Spül-/HH- Tücher",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 75,
+          "is_deposit": false
+        }
+      ],
+      "discounts": [
+        {
+          "label": "LEERGUT EINWEG",
+          "amount_cents": 200
+        }
+      ]
+    },
+    {
+      "id": "IMG0004",
+      "file": "images/IMG0004.jpg",
+      "source_path": "tests/data/germany/img/IMG0004.jpg",
+      "merchant": "real,- SB-Warenhaus GmbH",
+      "purchased_at": "2015-09-05",
+      "currency": "EUR",
+      "total_gross_cents": 931,
+      "items": [
+        {
+          "name": "TIP BALKANKAESE",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 79,
+          "is_deposit": false
+        },
+        {
+          "name": "BED. FISCH",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 422,
+          "is_deposit": false
+        },
+        {
+          "name": "SPKART NEUT VWFK 2",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 199,
+          "is_deposit": false
+        },
+        {
+          "name": "TIP EDELSALAMI 150",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 129,
+          "is_deposit": false
+        },
+        {
+          "name": "TIP TEEWURST RUEG.",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 75,
+          "is_deposit": false
+        },
+        {
+          "name": "KASS MINUTENSTEAK",
+          "qty": "0.543",
+          "unit": "kg",
+          "unit_price_cents": 1099,
+          "line_total_cents": 597,
+          "is_deposit": false
+        }
+      ],
+      "discounts": [
+        {
+          "label": "PR PFANDGUTSCH2025650",
+          "amount_cents": 45
+        },
+        {
+          "label": "PR PFANDGUTSCH5015803",
+          "amount_cents": 525
+        }
+      ]
+    },
+    {
+      "id": "IMG0006",
+      "file": "images/IMG0006.jpg",
+      "source_path": "tests/data/germany/img/IMG0006.jpg",
+      "merchant": "Kaiser's Tengelmann GmbH",
+      "purchased_at": "2015-08-31",
+      "currency": "EUR",
+      "total_gross_cents": 1595,
+      "items": [
+        {
+          "name": "Wurst",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 292,
+          "is_deposit": false
+        },
+        {
+          "name": "Kaese",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 290,
+          "is_deposit": false
+        },
+        {
+          "name": "A&P BIERSCHI",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 179,
+          "line_total_cents": 179,
+          "is_deposit": false
+        },
+        {
+          "name": "KI.SCHOKOL.",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 99,
+          "line_total_cents": 99,
+          "is_deposit": false
+        },
+        {
+          "name": "BROT 500G",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 139,
+          "line_total_cents": 139,
+          "is_deposit": false
+        },
+        {
+          "name": "TRUE FRUITS",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 399,
+          "is_deposit": false
+        },
+        {
+          "name": "BANANEN",
+          "qty": "1.273",
+          "unit": "kg",
+          "unit_price_cents": 139,
+          "line_total_cents": 177,
+          "is_deposit": false
+        },
+        {
+          "name": "ESSIG",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 45,
+          "line_total_cents": 45,
+          "is_deposit": false
+        }
+      ],
+      "discounts": [
+        {
+          "label": "Leergutbon",
+          "amount_cents": 25
+        }
+      ]
+    },
+    {
+      "id": "IMG0007",
+      "file": "images/IMG0007.jpg",
+      "source_path": "tests/data/germany/img/IMG0007.jpg",
+      "merchant": "PENNY-MARKT GmbH",
+      "purchased_at": "2015-06-06",
+      "currency": "EUR",
+      "total_gross_cents": 503,
+      "items": [
+        {
+          "name": "WEIZENBROETCHEN",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 79,
+          "is_deposit": false
+        },
+        {
+          "name": "PENNY H-Milch",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 51,
+          "is_deposit": false
+        },
+        {
+          "name": "PENNY Chips",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 79,
+          "is_deposit": false
+        },
+        {
+          "name": "TURMBRAEU PILS",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 35,
+          "line_total_cents": 70,
+          "is_deposit": false
+        },
+        {
+          "name": "PFAND 0,25 EURO",
+          "qty": "2.000",
+          "unit": "pcs",
+          "unit_price_cents": 25,
+          "line_total_cents": 50,
+          "is_deposit": true
+        },
+        {
+          "name": "Krombacher Dose",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 79,
+          "is_deposit": false
+        },
+        {
+          "name": "PFAND 0,25 EURO",
+          "qty": "1.000",
+          "unit": "pcs",
+          "unit_price_cents": 25,
+          "line_total_cents": 25,
+          "is_deposit": true
+        },
+        {
+          "name": "Schwip Schwap Do",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 45,
+          "is_deposit": false
+        },
+        {
+          "name": "PFAND 0,25 EURO",
+          "qty": "1.000",
+          "unit": "pcs",
+          "unit_price_cents": 25,
+          "line_total_cents": 25,
+          "is_deposit": true
+        }
+      ],
+      "discounts": []
+    },
+    {
+      "id": "IMG0008",
+      "file": "images/IMG0008.jpg",
+      "source_path": "tests/data/germany/img/IMG0008.jpg",
+      "merchant": "dm-drogerie markt",
+      "purchased_at": "2014-12-11",
+      "currency": "EUR",
+      "total_gross_cents": 585,
+      "items": [
+        {
+          "name": "essence colour&go nailpol. 152",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 155,
+          "is_deposit": false
+        },
+        {
+          "name": "essence colour&go nailpol. 189",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 155,
+          "is_deposit": false
+        },
+        {
+          "name": "essence compact powder 04",
+          "qty": "1.000",
+          "unit": "pcs",
+          "line_total_cents": 275,
+          "is_deposit": false
+        }
+      ],
+      "discounts": []
+    }
+  ]
+}

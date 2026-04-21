@@ -89,8 +89,9 @@ def migrate_db(db_url: str, *, revision: str = "head") -> None:
                         if db_url in _MIGRATED_HEAD_URLS:
                             return
                 _ensure_parent_dir_for_sqlite(db_url)
+                repo_root = Path(__file__).resolve().parents[3]
                 migrations_path = Path(__file__).resolve().parent / "migrations"
-                config = Config()
+                config = Config(str(repo_root / "alembic.ini"))
                 config.set_main_option("script_location", str(migrations_path))
                 config.set_main_option("sqlalchemy.url", db_url)
                 if revision == "head":

@@ -85,7 +85,7 @@ describe("ChatUiRenderer", () => {
     expect(screen.getByText("Category Mix")).toBeInTheDocument();
     expect(screen.getByText("Budget Flow")).toBeInTheDocument();
     expect(screen.getByText("Top Items")).toBeInTheDocument();
-    expect(container.querySelector('path[stroke-linecap="butt"]')).toBeTruthy();
+    expect(container.querySelectorAll('path[stroke-linecap="butt"]')).toHaveLength(2);
   });
 
   it("renders multi-series line charts from a y-array spec", () => {
@@ -117,5 +117,45 @@ describe("ChatUiRenderer", () => {
     expect(screen.getByText("boden_10er")).toBeInTheDocument();
     expect(screen.getByText("bio_6er")).toBeInTheDocument();
     expect(container.querySelectorAll("polyline")).toHaveLength(2);
+  });
+
+  it("keeps dense-axis line charts wide and rotated in export mode", () => {
+    const spec = {
+      version: "v1" as const,
+      layout: "stack" as const,
+      elements: [
+        {
+          type: "LineChart" as const,
+          props: {
+            title: "Dense Axis Trend",
+            x: "month",
+            y: "amount",
+            data: Array.from({ length: 10 }, (_, index) => ({
+              month: `2025-${String(index + 1).padStart(2, "0")}-retail-history`,
+              amount: 100 + index * 15
+            }))
+          }
+        }
+      ]
+    };
+
+    const { container, rerender } = render(<ChatUiRenderer spec={spec} variant="inline" />);
+
+    expect(screen.getByText("Dense Axis Trend")).toBeInTheDocument();
+    expect(container.querySelector("svg")).toHaveStyle({
+      width: "840px",
+      minWidth: "100%"
+    });
+    expect(container.querySelector('text[transform^="rotate(-35"]')).toBeTruthy();
+
+    rerender(<ChatUiRenderer spec={spec} variant="export" />);
+
+    expect(container.querySelector("svg")).toHaveStyle({
+      width: "960px"
+    });
+    expect(container.querySelector("svg")).not.toHaveStyle({
+      minWidth: "100%"
+    });
+    expect(container.querySelector('text[transform^="rotate(-35"]')).toBeTruthy();
   });
 });

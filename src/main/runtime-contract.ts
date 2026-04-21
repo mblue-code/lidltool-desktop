@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 const SUPPORTED_DESKTOP_OCR_PROVIDERS = new Set([
   "glm_ocr_local",
   "openai_compatible",
@@ -22,4 +24,24 @@ export function buildBackendServeArgs(dbPath: string, port: number): string[] {
     "--port",
     String(port)
   ];
+}
+
+export function shouldManagePlaywrightBrowsers(command: string): boolean {
+  const normalized = command.replaceAll("\\", "/");
+  return normalized.includes("/backend-venv/") || normalized.includes("/.backend/venv/");
+}
+
+export function resolveManagedPlaywrightBrowsersPath(
+  userDataDir: string,
+  command: string,
+  currentValue: string | null | undefined
+): string | null {
+  const existing = String(currentValue ?? "").trim();
+  if (existing) {
+    return existing;
+  }
+  if (!shouldManagePlaywrightBrowsers(command)) {
+    return null;
+  }
+  return join(userDataDir, "playwright-browsers");
 }

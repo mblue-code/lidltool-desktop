@@ -22,6 +22,11 @@ function resetDir(path) {
   mkdirSync(path, { recursive: true });
 }
 
+function shouldIncludeBundledBackendPath(srcPath) {
+  const normalized = srcPath.replaceAll("\\", "/");
+  return !normalized.includes("/site-packages/playwright/driver/package/.local-browsers");
+}
+
 resetDir(frontendDistDest);
 if (existsSync(frontendDistSrc)) {
   cpSync(frontendDistSrc, frontendDistDest, { recursive: true });
@@ -46,7 +51,10 @@ if (existsSync(backendSrc)) {
 
 resetDir(backendVenvDest);
 if (existsSync(backendVenvSrc)) {
-  cpSync(backendVenvSrc, backendVenvDest, { recursive: true });
+  cpSync(backendVenvSrc, backendVenvDest, {
+    recursive: true,
+    filter: (src) => shouldIncludeBundledBackendPath(src)
+  });
 } else {
   writeFileSync(
     join(backendVenvDest, "README.txt"),

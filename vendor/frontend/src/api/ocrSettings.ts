@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { apiClient } from "@/lib/api-client";
 
-const OCRProviderSchema = z.enum(["desktop_local", "glm_ocr_local", "openai_compatible", "external_api"]);
+const OCRProviderSchema = z.enum(["glm_ocr_local", "openai_compatible", "external_api"]);
 
 const OCRSettingsSchema = z.object({
   default_provider: OCRProviderSchema,
