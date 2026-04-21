@@ -113,7 +113,8 @@ Typical desktop flow:
   4. system PATH (`lidltool` / `lidltool.exe`)
 - Frontend assets for packaged builds are copied to `resources/frontend-dist`.
 - Vendored backend source is copied to `resources/backend-src`.
-- Desktop shell brand assets and packaged app icons live entirely inside `apps/desktop` (`src/renderer/assets`, `vendor/frontend/src/assets`, and `build/icon.*`).
+- Desktop shell brand assets and packaged app icons live entirely inside `apps/desktop` (`src/renderer/assets`, `vendor/frontend/src/assets`, and generated `build/icon.*` files).
+- `npm run icons:generate` rebuilds `build/icon.png`, `build/icon.ico`, and `build/icon.icns` from `src/renderer/assets/logo-mark.svg` so packaged builds do not fall back to Electron defaults.
 - Backend receives:
   - `LIDLTOOL_FRONTEND_DIST`
   - `LIDLTOOL_REPO_ROOT`
