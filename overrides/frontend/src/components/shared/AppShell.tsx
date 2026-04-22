@@ -28,6 +28,7 @@ import { fetchAISettings } from "@/api/aiSettings";
 import {
   fetchConnectors,
   fetchConnectorSyncStatus,
+  type ConnectorDiscoveryRow,
   type ConnectorSyncStatus
 } from "@/api/connectors";
 import { logout } from "@/api/auth";
@@ -473,6 +474,78 @@ function filterNavItems(items: NavItem[], isAdmin: boolean, visibleRoutes: Set<s
   return items.filter((item) => (!item.adminOnly || isAdmin) && visibleRoutes.has(item.to));
 }
 
+type SidebarMerchantSummary = {
+  label: string;
+  connected: boolean;
+};
+
+function isAmazonConnector(sourceId: string): boolean {
+  return sourceId.startsWith("amazon_");
+}
+
+function isLidlConnector(sourceId: string): boolean {
+  return sourceId.startsWith("lidl_plus");
+}
+
+function canonicalSidebarMerchantLabel(connector: ConnectorDiscoveryRow): string {
+  if (isAmazonConnector(connector.source_id)) {
+    return "Amazon";
+  }
+  if (isLidlConnector(connector.source_id)) {
+    return "Lidl Plus";
+  }
+  return connector.display_name?.trim() || connector.source_id;
+}
+
+function connectorIsBuiltin(connector: ConnectorDiscoveryRow): boolean {
+  return (connector.install_origin ?? connector.origin ?? "builtin") === "builtin";
+}
+
+function connectorIsConnected(connector: ConnectorDiscoveryRow): boolean {
+  if (connector.enable_state !== "enabled") {
+    return false;
+  }
+  return ["connected", "ready", "syncing"].includes(connector.ui?.status ?? "");
+}
+
+function shouldShowSidebarConnector(connector: ConnectorDiscoveryRow): boolean {
+  if (!connector.supports_sync || connector.install_state !== "installed") {
+    return false;
+  }
+  if (connectorIsBuiltin(connector)) {
+    return true;
+  }
+  return connector.enable_state === "enabled";
+}
+
+function buildSidebarMerchantSummaries(connectors: ConnectorDiscoveryRow[]): SidebarMerchantSummary[] {
+  const grouped = new Map<string, SidebarMerchantSummary>();
+
+  for (const connector of connectors) {
+    if (!shouldShowSidebarConnector(connector)) {
+      continue;
+    }
+
+    const label = canonicalSidebarMerchantLabel(connector);
+    const connected = connectorIsConnected(connector);
+    const existing = grouped.get(label);
+
+    if (existing) {
+      existing.connected = existing.connected || connected;
+      continue;
+    }
+
+    grouped.set(label, { label, connected });
+  }
+
+  return Array.from(grouped.values()).sort((left, right) => {
+    if (left.connected !== right.connected) {
+      return left.connected ? -1 : 1;
+    }
+    return left.label.localeCompare(right.label);
+  });
+}
+
 function formatShellTimestamp(locale: "en" | "de", value: string | null | undefined): string {
   if (!value) {
     return locale === "de" ? "Lokale Daten" : "Local data";
@@ -556,7 +629,7 @@ function SidebarContent({
   aiReady,
   quickActions,
   connectedMerchantCount,
-  topMerchantLabels,
+  merchantSummaries,
   lastUpdatedLabel
 }: {
   user: CurrentUser;
@@ -566,7 +639,7 @@ function SidebarContent({
   aiReady: boolean;
   quickActions: NavItem[];
   connectedMerchantCount: number;
-  topMerchantLabels: string[];
+  merchantSummaries: SidebarMerchantSummary[];
   lastUpdatedLabel: string;
 }) {
   const { t } = useI18n();
@@ -637,14 +710,19 @@ function SidebarContent({
               {connectedMerchantCount}
             </div>
           </div>
-          {topMerchantLabels.length > 0 ? (
+          {merchantSummaries.length > 0 ? (
             <div className="mt-4 grid grid-cols-2 gap-2">
-              {topMerchantLabels.slice(0, 6).map((label) => (
+              {merchantSummaries.slice(0, 6).map((merchant) => (
                 <div
-                  key={label}
-                  className="rounded-2xl border border-white/8 bg-white/6 px-3 py-3 text-sm font-medium text-sidebar-foreground/82"
+                  key={merchant.label}
+                  className={cn(
+                    "rounded-2xl border px-3 py-3 text-sm font-medium",
+                    merchant.connected
+                      ? "border-emerald-400/30 bg-emerald-500/14 text-emerald-100"
+                      : "border-white/8 bg-white/6 text-sidebar-foreground/82"
+                  )}
                 >
-                  {label}
+                  {merchant.label}
                 </div>
               ))}
             </div>
@@ -834,10 +912,11 @@ export function AppShell({ user }: AppShellProps) {
   const globalSyncRunId = globalSyncStatus ? syncRunKey(globalSyncStatus.sourceId, globalSyncStatus.status) : null;
   const globalSyncDismissed =
     globalSyncStatus?.status.status !== "running" && globalSyncRunId !== null && dismissedSyncRun === globalSyncRunId;
-  const sidebarMerchantLabels = globalSyncConnectors
-    .map((connector) => connector.display_name?.trim() || connector.source_id)
-    .filter(Boolean)
-    .slice(0, 6);
+  const sidebarMerchantSummaries = useMemo(
+    () => buildSidebarMerchantSummaries(connectorsQuery.data?.connectors ?? []),
+    [connectorsQuery.data?.connectors]
+  );
+  const connectedMerchantCount = sidebarMerchantSummaries.filter((merchant) => merchant.connected).length;
   const notifications = notificationsQuery.data?.items ?? [];
   const unreadNotifications = notificationsQuery.data?.unread_count ?? 0;
   const lastUpdatedLabel = formatShellTimestamp(
@@ -945,8 +1024,8 @@ export function AppShell({ user }: AppShellProps) {
             chatOpen={chatOpen}
             aiReady={Boolean(aiReady)}
             quickActions={quickActions}
-            connectedMerchantCount={globalSyncConnectors.length}
-            topMerchantLabels={sidebarMerchantLabels}
+            connectedMerchantCount={connectedMerchantCount}
+            merchantSummaries={sidebarMerchantSummaries}
             lastUpdatedLabel={lastUpdatedLabel}
           />
         </aside>
@@ -981,8 +1060,8 @@ export function AppShell({ user }: AppShellProps) {
                       chatOpen={chatOpen}
                       aiReady={Boolean(aiReady)}
                       quickActions={quickActions}
-                      connectedMerchantCount={globalSyncConnectors.length}
-                      topMerchantLabels={sidebarMerchantLabels}
+                      connectedMerchantCount={connectedMerchantCount}
+                      merchantSummaries={sidebarMerchantSummaries}
                       lastUpdatedLabel={lastUpdatedLabel}
                     />
                   </SheetContent>

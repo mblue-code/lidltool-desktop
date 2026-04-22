@@ -26,6 +26,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { useI18n } from "@/i18n";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -159,11 +160,6 @@ function emptyCashflowFilterState(): CashflowFilterState {
   };
 }
 
-function summaryBasisLabel(summary: BudgetSummary): string {
-  const { income_basis, income_basis_cents } = summary.totals;
-  return income_basis_cents > 0 ? `${income_basis} (${formatEurFromCents(income_basis_cents)})` : income_basis;
-}
-
 function recurringPaidAmount(item: BudgetSummary["recurring"]["items"][number]): number {
   if (item.actual_amount_cents !== null) {
     return item.actual_amount_cents;
@@ -173,8 +169,6 @@ function recurringPaidAmount(item: BudgetSummary["recurring"]["items"][number]):
   }
   return 0;
 }
-
-const passthroughTranslate = (key: string) => key;
 
 const CASHFLOW_PRESETS: Array<{
   key: string;
@@ -231,6 +225,8 @@ const COMMON_CASHFLOW_CATEGORIES = [
 ];
 
 export function BudgetPage() {
+  const { locale, tText } = useI18n();
+  const passthroughTranslate = tText;
   const queryClient = useQueryClient();
   const [monthValue, setMonthValue] = useState(currentMonthValue());
   const { year, month } = monthDisplayValue(monthValue);
@@ -350,7 +346,11 @@ export function BudgetPage() {
         notes: payload.notes.trim() || null
       }),
     onSuccess: (result) => {
-      setFeedback({ kind: "success", message: `Saved budget for ${formatMonthYear(`${year}-${String(month).padStart(2, "0")}-01T00:00:00`)}` });
+      const formattedMonth = formatMonthYear(`${year}-${String(month).padStart(2, "0")}-01T00:00:00`);
+      setFeedback({
+        kind: "success",
+        message: locale === "de" ? `Budget für ${formattedMonth} gespeichert.` : `Saved budget for ${formattedMonth}`
+      });
       setMonthForm(budgetMonthToFormState(result));
       void queryClient.invalidateQueries({ queryKey: ["budget-month", year, month] });
       void queryClient.invalidateQueries({ queryKey: ["budget-summary", year, month] });
@@ -364,7 +364,7 @@ export function BudgetPage() {
     mutationFn: async (payload: CashflowFormState) => {
       const amountCents = parseEuroAmountToCents(payload.amount);
       if (amountCents === null || amountCents <= 0) {
-        throw new Error("Amount must be a valid euro value");
+        throw new Error(tText("Amount must be a valid euro value"));
       }
       const request = {
         effective_date: payload.effectiveDate,
@@ -384,7 +384,7 @@ export function BudgetPage() {
     onSuccess: () => {
       setFeedback({
         kind: "success",
-        message: editingCashflowId ? "Updated cash-flow entry." : "Created cash-flow entry."
+        message: editingCashflowId ? tText("Updated cash-flow entry.") : tText("Created cash-flow entry.")
       });
       setEditingCashflowId(null);
       setCashflowForm(emptyCashflowFormState(defaultDate));
@@ -399,7 +399,7 @@ export function BudgetPage() {
   const deleteCashflowMutation = useMutation({
     mutationFn: deleteCashflowEntry,
     onSuccess: () => {
-      setFeedback({ kind: "success", message: "Deleted cash-flow entry." });
+      setFeedback({ kind: "success", message: tText("Deleted cash-flow entry.") });
       void queryClient.invalidateQueries({ queryKey: ["cashflow-entries", year, month] });
       void queryClient.invalidateQueries({ queryKey: ["budget-summary", year, month] });
     },
@@ -414,7 +414,7 @@ export function BudgetPage() {
     onSuccess: (_, variables) => {
       setFeedback({
         kind: "success",
-        message: variables.linkedTransactionId ? "Linked cash-flow entry to receipt." : "Removed receipt link."
+        message: variables.linkedTransactionId ? tText("Linked cash-flow entry to receipt.") : tText("Removed receipt link.")
       });
       setReconcileEntryId(null);
       setReceiptSearch("");
@@ -433,7 +433,7 @@ export function BudgetPage() {
     mutationFn: async (payload: BudgetRuleFormState) => {
       const amountCents = parseEuroAmountToCents(payload.amount);
       if (amountCents === null || amountCents <= 0) {
-        throw new Error("Budget rule amount must be greater than zero");
+        throw new Error(tText("Budget rule amount must be greater than zero"));
       }
       return createBudgetRule({
         scope_type: payload.scopeType,
@@ -516,9 +516,11 @@ export function BudgetPage() {
       (targetSavingsFallback !== null ? savedValue - targetSavingsFallback : savedValue);
 
     const incomeBasisLabelValue = summary
-      ? summaryBasisLabel(summary)
+      ? summary.totals.income_basis_cents > 0
+        ? `${tText(summary.totals.income_basis.replace(/_/g, " "))} (${formatEurFromCents(summary.totals.income_basis_cents)})`
+        : tText(summary.totals.income_basis.replace(/_/g, " "))
       : incomeBasisCentsValue > 0
-        ? `${plannedIncomeValue !== null ? "planned_income" : "actual_income"} (${formatEurFromCents(incomeBasisCentsValue)})`
+        ? `${tText((plannedIncomeValue !== null ? "planned income" : "actual income"))} (${formatEurFromCents(incomeBasisCentsValue)})`
         : "—";
 
     return {
@@ -543,7 +545,7 @@ export function BudgetPage() {
       incomeBasisLabel: incomeBasisLabelValue,
       savingsDelta: savingsDeltaValue
     };
-  }, [cashflowEntries, displayBudgetMonth, summary]);
+  }, [cashflowEntries, displayBudgetMonth, summary, tText]);
   const plannedIncome = summaryMetrics.plannedIncome;
   const actualIncome = summaryMetrics.actualIncome;
   const remaining = summaryMetrics.remaining;
@@ -565,7 +567,7 @@ export function BudgetPage() {
   function handleCashflowSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     if (!cashflowForm.description.trim()) {
-      setFeedback({ kind: "error", message: "Cash-flow description is required." });
+      setFeedback({ kind: "error", message: tText("Cash-flow description is required.") });
       return;
     }
     void saveCashflowMutation.mutateAsync(cashflowForm);
@@ -595,12 +597,12 @@ export function BudgetPage() {
   }
 
   function formatReceiptCandidateLabel(transaction: TransactionListItem): string {
-    return transaction.store_name?.trim() || "Unknown merchant";
+    return transaction.store_name?.trim() || tText("Unknown merchant");
   }
 
   return (
     <section className="space-y-6">
-      <PageHeader title="Budget" description="Track monthly income, recurring bills, receipt spend, and savings." />
+      <PageHeader title="Budget" description={tText("Track monthly income, recurring bills, receipt spend, and savings.")} />
 
       {feedback ? (
         <p className={feedback.kind === "error" ? "text-sm text-destructive" : "text-sm text-success"}>
@@ -620,7 +622,7 @@ export function BudgetPage() {
         </div>
         <div className="flex-1 space-y-1">
           <p className="text-xs text-muted-foreground">
-            {displayBudgetMonth?.notes?.trim() ? displayBudgetMonth.notes : "No notes set for this month yet."}
+            {displayBudgetMonth?.notes?.trim() ? displayBudgetMonth.notes : tText("No notes set for this month yet.")}
           </p>
         </div>
       </div>
@@ -629,42 +631,50 @@ export function BudgetPage() {
         <MetricCard
           title="Income"
           value={formatEurFromCents(actualIncome)}
-          subtitle={plannedIncome !== null ? `Planned ${formatEurFromCents(plannedIncome)}` : "No planned income yet"}
+          subtitle={plannedIncome !== null ? (locale === "de" ? `Geplant ${formatEurFromCents(plannedIncome)}` : `Planned ${formatEurFromCents(plannedIncome)}`) : tText("No planned income yet")}
           icon={<Wallet className="h-3.5 w-3.5" />}
           iconClassName="bg-primary/10 text-primary"
         />
         <MetricCard
           title="Outflow"
           value={formatEurFromCents(totalOutflow)}
-          subtitle={`Receipts ${formatEurFromCents(receiptSpend)} · manual ${formatEurFromCents(manualOutflow)} · ${reconciledCount} reconciled`}
+          subtitle={locale === "de"
+            ? `Belege ${formatEurFromCents(receiptSpend)} · manuell ${formatEurFromCents(manualOutflow)} · ${reconciledCount} abgeglichen`
+            : `Receipts ${formatEurFromCents(receiptSpend)} · manual ${formatEurFromCents(manualOutflow)} · ${reconciledCount} reconciled`}
           icon={<TrendingDown className="h-3.5 w-3.5" />}
           iconClassName="bg-destructive/10 text-destructive"
         />
         <MetricCard
           title="Remaining"
           value={formatEurFromCents(remaining)}
-          subtitle={`Available ${formatEurFromCents(available)} · saved ${formatEurFromCents(saved)}`}
+          subtitle={locale === "de"
+            ? `Verfügbar ${formatEurFromCents(available)} · gespart ${formatEurFromCents(saved)}`
+            : `Available ${formatEurFromCents(available)} · saved ${formatEurFromCents(saved)}`}
           icon={<PiggyBank className="h-3.5 w-3.5" />}
           iconClassName="bg-success/10 text-success"
         />
         <MetricCard
           title="Recurring"
           value={formatEurFromCents(recurringExpected)}
-          subtitle={`${summaryMetrics.recurringPaidCount} paid / ${summaryMetrics.recurringUnpaidCount} unpaid`}
+          subtitle={locale === "de"
+            ? `${summaryMetrics.recurringPaidCount} bezahlt / ${summaryMetrics.recurringUnpaidCount} offen`
+            : `${summaryMetrics.recurringPaidCount} paid / ${summaryMetrics.recurringUnpaidCount} unpaid`}
           icon={<CalendarCheck className="h-3.5 w-3.5" />}
           iconClassName="bg-chart-2/10 text-chart-2"
         />
         <MetricCard
           title="Income basis"
           value={summaryMetrics.incomeBasisLabel}
-          subtitle={`Savings delta ${formatEurFromCents(summaryMetrics.savingsDelta)}`}
+          subtitle={locale === "de"
+            ? `Spar-Differenz ${formatEurFromCents(summaryMetrics.savingsDelta)}`
+            : `Savings delta ${formatEurFromCents(summaryMetrics.savingsDelta)}`}
           icon={<TrendingUp className="h-3.5 w-3.5" />}
           iconClassName="bg-amber-500/10 text-amber-600"
         />
         <MetricCard
           title="Recurring bills"
           value={formatEurFromCents(recurringPaid)}
-          subtitle={`Forecast ${formatEurFromCents(recurringExpected)}`}
+          subtitle={locale === "de" ? `Prognose ${formatEurFromCents(recurringExpected)}` : `Forecast ${formatEurFromCents(recurringExpected)}`}
           icon={<ReceiptText className="h-3.5 w-3.5" />}
           iconClassName="bg-muted text-muted-foreground"
         />
@@ -718,7 +728,7 @@ export function BudgetPage() {
                   Save month settings
                 </Button>
                 <span className="text-sm text-muted-foreground">
-                  Current currency: {currency}
+                  {locale === "de" ? `Aktuelle Währung: ${currency}` : `Current currency: ${currency}`}
                 </span>
               </div>
             </form>
@@ -752,7 +762,7 @@ export function BudgetPage() {
                     <TableRow key={item.occurrence_id}>
                       <TableCell>{formatDate(item.due_date)}</TableCell>
                       <TableCell>{item.bill_name}</TableCell>
-                      <TableCell className="capitalize">{item.status}</TableCell>
+                      <TableCell className="capitalize">{tText(item.status)}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {item.expected_amount_cents === null ? "Variable" : formatEurFromCents(item.expected_amount_cents)}
                       </TableCell>
@@ -868,15 +878,17 @@ export function BudgetPage() {
             </div>
             <div className="flex flex-wrap items-center gap-3 md:col-span-2 xl:col-span-4">
               <Button type="submit" disabled={saveCashflowMutation.isPending}>
-                {editingCashflowId ? "Update entry" : "Add entry"}
+                {editingCashflowId ? tText("Update entry") : tText("Add entry")}
               </Button>
               {editingCashflowId ? (
                 <Button type="button" variant="outline" onClick={cancelCashflowEdit}>
-                  Cancel edit
+                  {tText("Cancel edit")}
                 </Button>
               ) : null}
               <span className="text-sm text-muted-foreground">
-                Open adjustments {openAdjustmentCount} · reconciled {reconciledCount}
+                {locale === "de"
+                  ? `Offene Anpassungen ${openAdjustmentCount} · abgeglichen ${reconciledCount}`
+                  : `Open adjustments ${openAdjustmentCount} · reconciled ${reconciledCount}`}
               </span>
             </div>
           </form>
@@ -964,7 +976,7 @@ export function BudgetPage() {
                 {cashflowEntries.map((entry) => (
                   <TableRow key={entry.id}>
                     <TableCell>{formatDate(entry.effective_date)}</TableCell>
-                    <TableCell className="capitalize">{entry.direction}</TableCell>
+                    <TableCell className="capitalize">{tText(entry.direction === "inflow" ? "Inflow" : "Outflow")}</TableCell>
                     <TableCell>{entry.category}</TableCell>
                     <TableCell className="max-w-[280px]">
                       <div className="truncate">{entry.description ?? "—"}</div>
@@ -974,11 +986,11 @@ export function BudgetPage() {
                     </TableCell>
                     <TableCell>
                       <div className="space-y-1 text-sm">
-                        <div>{entry.is_reconciled ? "Reconciled" : "Open"}</div>
+                        <div>{entry.is_reconciled ? tText("Reconciled") : tText("Open")}</div>
                         <div className="text-xs text-muted-foreground">{entry.source_type}</div>
                         {entry.linked_transaction ? (
                           <div className="text-xs text-muted-foreground">
-                            {entry.linked_transaction.merchant_name ?? "Receipt"} · {formatDate(entry.linked_transaction.purchased_at)}
+                            {entry.linked_transaction.merchant_name ?? tText("Receipt")} · {formatDate(entry.linked_transaction.purchased_at)}
                           </div>
                         ) : null}
                       </div>
@@ -990,7 +1002,7 @@ export function BudgetPage() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         <Button type="button" variant="ghost" size="sm" onClick={() => startCashflowEdit(entry)}>
-                          Edit
+                          {tText("Edit")}
                         </Button>
                         {entry.direction === "outflow" ? (
                           <Button
@@ -1011,7 +1023,7 @@ export function BudgetPage() {
                             }}
                             disabled={reconcileCashflowMutation.isPending}
                           >
-                            {entry.is_reconciled ? "Unlink receipt" : "Link receipt"}
+                            {entry.is_reconciled ? tText("Unlink receipt") : tText("Link receipt")}
                           </Button>
                         ) : null}
                         <Button
@@ -1021,7 +1033,7 @@ export function BudgetPage() {
                           onClick={() => deleteCashflowMutation.mutate(entry.id)}
                           disabled={deleteCashflowMutation.isPending}
                         >
-                          Delete
+                          {tText("Delete")}
                         </Button>
                       </div>
                     </TableCell>
@@ -1035,13 +1047,17 @@ export function BudgetPage() {
             <div className="space-y-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
               <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h3 className="text-sm font-medium">Link receipt to {reconcileEntry.description ?? "manual entry"}</h3>
+                  <h3 className="text-sm font-medium">
+                    {locale === "de"
+                      ? `Beleg verknüpfen mit ${reconcileEntry.description ?? tText("manual entry")}`
+                      : `Link receipt to ${reconcileEntry.description ?? tText("manual entry")}`}
+                  </h3>
                   <p className="text-sm text-muted-foreground">
-                    Match this manual expense to a scraped receipt so it no longer counts twice.
+                    {tText("Match this manual expense to a scraped receipt so it no longer counts twice.")}
                   </p>
                 </div>
                 <Button type="button" variant="outline" onClick={() => setReconcileEntryId(null)}>
-                  Close
+                  {tText("Close")}
                 </Button>
               </div>
               <div className="space-y-2">
@@ -1054,11 +1070,11 @@ export function BudgetPage() {
                 />
               </div>
               {receiptCandidatesQuery.isPending ? (
-                <p className="text-sm text-muted-foreground">Searching receipts…</p>
+                <p className="text-sm text-muted-foreground">{tText("Searching receipts…")}</p>
               ) : null}
               {receiptCandidates.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No receipts found for this month. Try another search term or keep the manual entry open for now.
+                  {tText("No receipts found for this month. Try another search term or keep the manual entry open for now.")}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -1083,7 +1099,7 @@ export function BudgetPage() {
                         }
                         disabled={reconcileCashflowMutation.isPending}
                       >
-                        Use receipt
+                        {tText("Use receipt")}
                       </Button>
                     </div>
                   ))}
@@ -1102,7 +1118,7 @@ export function BudgetPage() {
           <form className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={(event) => {
             event.preventDefault();
             if (!budgetRuleForm.scopeValue.trim()) {
-              setFeedback({ kind: "error", message: "Scope value is required for budget rules." });
+              setFeedback({ kind: "error", message: tText("Scope value is required for budget rules.") });
               return;
             }
             void budgetRuleMutation.mutateAsync(budgetRuleForm);
@@ -1183,9 +1199,9 @@ export function BudgetPage() {
                   <TableBody>
                     {budgetRules.map((rule) => (
                       <TableRow key={rule.rule_id}>
-                        <TableCell>{rule.scope_type}</TableCell>
+                        <TableCell>{tText(rule.scope_type.replace(/_/g, " "))}</TableCell>
                         <TableCell>{rule.scope_value}</TableCell>
-                        <TableCell>{rule.period}</TableCell>
+                        <TableCell>{tText(rule.period)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatEurFromCents(rule.amount_cents)}</TableCell>
                       </TableRow>
                     ))}
@@ -1214,7 +1230,7 @@ export function BudgetPage() {
                   <TableBody>
                     {utilizationRows.map((row) => (
                       <TableRow key={row.rule_id}>
-                        <TableCell>{row.scope_type}:{row.scope_value}</TableCell>
+                        <TableCell>{tText(row.scope_type.replace(/_/g, " "))}:{row.scope_value}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatEurFromCents(row.budget_cents)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatEurFromCents(row.spent_cents)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatEurFromCents(row.remaining_cents)}</TableCell>

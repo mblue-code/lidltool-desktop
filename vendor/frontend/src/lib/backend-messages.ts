@@ -44,6 +44,11 @@ const BACKEND_MESSAGE_KEYS = {
   user_not_found: "backend.error.userNotFound"
 } satisfies Record<string, TranslationKey>;
 
+const SUPPRESSED_WARNING_CODES = new Set([
+  "connector_preview_bootstrap_started",
+  "connector_preview_sync_started"
+]);
+
 type TranslateFn = (key: TranslationKey, variables?: Record<string, string | number>) => string;
 
 export function resolveBackendMessage(
@@ -67,6 +72,10 @@ export function resolveBackendMessage(
 
 export function resolveApiWarningMessage(warning: ApiWarning, t: TranslateFn): string {
   return resolveBackendMessage(warning, t, warning.message);
+}
+
+export function shouldSuppressApiWarning(warning: ApiWarning): boolean {
+  return warning.code !== null && SUPPRESSED_WARNING_CODES.has(warning.code);
 }
 
 export function resolveApiErrorMessage(

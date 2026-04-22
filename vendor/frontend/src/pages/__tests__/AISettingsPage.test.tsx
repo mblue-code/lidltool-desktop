@@ -120,8 +120,9 @@ describe("AISettingsPage", () => {
     renderPage(<AISettingsPage />);
 
     expect(await screen.findByText("Item categorization")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect ChatGPT / Codex" })).toBeInTheDocument();
 
-    const oauthTab = screen.getByRole("tab", { name: "Sign in with..." });
+    const oauthTab = screen.getByRole("tab", { name: "ChatGPT / Codex" });
     fireEvent.mouseDown(oauthTab);
     fireEvent.click(oauthTab);
 

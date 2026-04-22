@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { MetricCard } from "@/components/shared/MetricCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useI18n } from "@/i18n";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDate, formatEurFromCents } from "@/utils/format";
 
@@ -18,6 +19,7 @@ function currentMonth() {
 }
 
 export function CashFlowPage() {
+  const { tText } = useI18n();
   const { year, month } = currentMonth();
   const budgetSummaryQuery = useQuery({
     queryKey: ["cash-flow-page", "summary", year, month],
@@ -45,54 +47,54 @@ export function CashFlowPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Cash Flow"
-        description="Follow money in and out of the month, then jump straight into the cash ledger or recurring commitments."
+        title={tText("Cash Flow")}
+        description={tText("Follow money in and out of the month, then jump straight into the cash ledger or recurring commitments.")}
       >
         <Button asChild variant="outline">
-          <Link to="/budget">Open budget</Link>
+          <Link to="/budget">{tText("Open budget")}</Link>
         </Button>
       </PageHeader>
 
       <div className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
         <Card className="app-dashboard-surface border-border/60">
-          <MetricCard title="Inflow" value={formatEurFromCents(totals.inflow)} icon={<ArrowUpCircle className="h-4 w-4" />} />
+          <MetricCard title={tText("Inflow")} value={formatEurFromCents(totals.inflow)} icon={<ArrowUpCircle className="h-4 w-4" />} />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
-          <MetricCard title="Outflow" value={formatEurFromCents(totals.outflow)} icon={<ArrowDownCircle className="h-4 w-4" />} />
+          <MetricCard title={tText("Outflow")} value={formatEurFromCents(totals.outflow)} icon={<ArrowDownCircle className="h-4 w-4" />} />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
-          <MetricCard title="Remaining" value={formatEurFromCents(totals.remaining)} icon={<Wallet className="h-4 w-4" />} />
+          <MetricCard title={tText("Remaining")} value={formatEurFromCents(totals.remaining)} icon={<Wallet className="h-4 w-4" />} />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
-          <MetricCard title="Upcoming bills" value={formatEurFromCents(totals.upcomingBills)} icon={<CalendarCheck className="h-4 w-4" />} />
+          <MetricCard title={tText("Upcoming bills")} value={formatEurFromCents(totals.upcomingBills)} icon={<CalendarCheck className="h-4 w-4" />} />
         </Card>
       </div>
 
       <Card className="app-dashboard-surface border-border/60">
         <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <CardTitle>Cash ledger</CardTitle>
+          <CardTitle>{tText("Cash ledger")}</CardTitle>
           <Button asChild variant="ghost" size="sm">
-            <Link to="/budget">Manage entries</Link>
+            <Link to="/budget">{tText("Manage entries")}</Link>
           </Button>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Direction</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
+                <TableHead>{tText("Date")}</TableHead>
+                <TableHead>{tText("Direction")}</TableHead>
+                <TableHead>{tText("Category")}</TableHead>
+                <TableHead>{tText("Description")}</TableHead>
+                <TableHead className="text-right">{tText("Amount")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {(cashflowEntriesQuery.data?.items ?? []).slice(0, 10).map((entry) => (
                 <TableRow key={entry.id}>
                   <TableCell>{formatDate(entry.effective_date)}</TableCell>
-                  <TableCell className="capitalize">{entry.direction}</TableCell>
+                  <TableCell className="capitalize">{tText(entry.direction === "inflow" ? "Inflow" : "Outflow")}</TableCell>
                   <TableCell>{entry.category}</TableCell>
-                  <TableCell>{entry.description || "Manual entry"}</TableCell>
+                  <TableCell>{entry.description || tText("Manual entry")}</TableCell>
                   <TableCell className="text-right">{formatEurFromCents(entry.amount_cents)}</TableCell>
                 </TableRow>
               ))}

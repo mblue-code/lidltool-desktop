@@ -49,10 +49,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: "custom", label: "Custom", baseUrl: "", model: "" }
 ];
 
-const SUPPORTED_OAUTH_PROVIDERS = new Set<"openai-codex" | "github-copilot" | "google-gemini-cli">([
-  "openai-codex"
-]);
-
 const OCR_PROVIDER_OPTIONS = [
   { id: "glm_ocr_local", label: "GLM-OCR Local" },
   { id: "openai_compatible", label: "OpenAI-compatible API" }
@@ -106,7 +102,7 @@ function inferApiCategorizationModel(baseUrl: string | null, model: string): str
 
 export function AISettingsPage() {
   const queryClient = useQueryClient();
-  const { t } = useI18n();
+  const { locale, t, tText } = useI18n();
   const settingsQuery = useQuery({
     queryKey: ["ai-settings"],
     queryFn: fetchAISettings
@@ -121,6 +117,7 @@ export function AISettingsPage() {
   const [model, setModel] = useState<string>("grok-3-mini");
   const [apiKey, setApiKey] = useState<string>("");
   const [saveStatus, setSaveStatus] = useState<{ ok: boolean; error: string | null } | null>(null);
+  const [connectionTab, setConnectionTab] = useState<"api-key" | "oauth">("oauth");
 
   const [categorizationEnabled, setCategorizationEnabled] = useState(false);
   const [categorizationProvider, setCategorizationProvider] = useState<"oauth_codex" | "api_compatible">(
@@ -267,18 +264,21 @@ export function AISettingsPage() {
       }),
     onSuccess: (result) => {
       if (!result.ok) {
-        setCategorizationSaveStatus({ ok: false, error: result.error || "Failed to save categorization settings" });
+        setCategorizationSaveStatus({
+          ok: false,
+          error: result.error || tText("Failed to save categorization settings")
+        });
         return;
       }
       setCategorizationSaveStatus({ ok: true, error: null });
       setCategorizationApiKey("");
-      toast.success("Item categorization settings saved");
+      toast.success(tText("Item categorization settings saved"));
       void queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
     },
     onError: (error) => {
       setCategorizationSaveStatus({
         ok: false,
-        error: resolveApiErrorMessage(error, t, "Failed to save categorization settings")
+        error: resolveApiErrorMessage(error, t, tText("Failed to save categorization settings"))
       });
     }
   });
@@ -290,18 +290,18 @@ export function AISettingsPage() {
       }),
     onSuccess: (result) => {
       if (!result.ok) {
-        setOauthChatSaveStatus({ ok: false, error: result.error || "Failed to save chat model" });
+        setOauthChatSaveStatus({ ok: false, error: result.error || tText("Failed to save chat model") });
         return;
       }
       setOauthChatSaveStatus({ ok: true, error: null });
-      toast.success("Chat model settings saved");
+      toast.success(tText("Chat model settings saved"));
       void queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
       void queryClient.invalidateQueries({ queryKey: ["ai-agent-config"] });
     },
     onError: (error) => {
       setOauthChatSaveStatus({
         ok: false,
-        error: resolveApiErrorMessage(error, t, "Failed to save chat model")
+        error: resolveApiErrorMessage(error, t, tText("Failed to save chat model"))
       });
     }
   });
@@ -396,131 +396,133 @@ export function AISettingsPage() {
 
   const categorizationRuntimeReady = settings?.categorization_runtime_ready === true;
   const categorizationRuntimeStatus = settings?.categorization_runtime_status || "not_configured";
+  const copy = {
+    oauthHeroEyebrow: locale === "de" ? "Direkt ohne API-Schlüssel" : "Use it without an API key",
+    oauthHeroTitle: locale === "de" ? "ChatGPT / Codex direkt verbinden" : "Connect ChatGPT / Codex directly",
+    oauthHeroDescription:
+      locale === "de"
+        ? "Nutze dein bestehendes ChatGPT- oder Codex-Abo direkt in der Desktop-App. Die Anmeldung ist die empfohlene Standardoption."
+        : "Use your existing ChatGPT or Codex subscription directly in the desktop app. This sign-in path is the recommended default.",
+    defaultChatModel: locale === "de" ? "Standard-Chatmodell" : "Default chat model",
+    defaultChatModelDescription:
+      locale === "de"
+        ? "Lege fest, welches ChatGPT/Codex-Modell standardmäßig für Chats und Assistenten verwendet wird. Später kannst du es pro Chat weiterhin ändern."
+        : "Choose the default ChatGPT/Codex model for chats and assistant actions. You can still change it later per chat.",
+    codexModel: locale === "de" ? "Codex-Modell" : "Codex model",
+    saving: locale === "de" ? "Speichert..." : "Saving...",
+    saveChatModel: locale === "de" ? "Chatmodell speichern" : "Save chat model",
+    itemCategorization: locale === "de" ? "Artikelkategorisierung" : "Item categorization",
+    itemCategorizationDescription:
+      locale === "de"
+        ? "Wähle zwischen deiner ChatGPT/Codex-Anmeldung ohne API-Schlüssel oder einem separaten API-kompatiblen Anbieter für günstige Kategorisierungsläufe."
+        : "Choose between your ChatGPT/Codex sign-in with no API key or a separate API-compatible provider for cheaper categorization runs.",
+    enable: locale === "de" ? "Aktivieren" : "Enable",
+    disable: locale === "de" ? "Deaktivieren" : "Disable",
+    categorizationStatus: locale === "de" ? "Kategorisierungsstatus" : "Categorization status",
+    enabled: locale === "de" ? "Aktiviert" : "Enabled",
+    disabled: locale === "de" ? "Deaktiviert" : "Disabled",
+    connected: locale === "de" ? "Verbunden" : "Connected",
+    categorizationHint:
+      locale === "de"
+        ? "Wähle `Aktivieren` und speichere die Einstellungen unten, damit zukünftige Reparaturläufe die Kategorisierung verwenden."
+        : "Choose `Enable`, then save the settings below to activate categorization for future repair runs.",
+    categorizationProvider: locale === "de" ? "Kategorisierungsanbieter" : "Categorization provider",
+    codexModelDescription:
+      locale === "de"
+        ? "Diese Liste spiegelt die Modelle wider, die aktuell in deinem Codex-Abo sichtbar sind. GPT-5.4-Mini bleibt hier der Standard, damit Kategorisierung günstiger als Hauptchats bleibt."
+        : "This list mirrors the models currently visible in your Codex subscription UI. GPT-5.4-Mini stays the default here because categorization should remain cheaper than main chat.",
+    oauthStatus: locale === "de" ? "OAuth-Status" : "OAuth status",
+    runtimeStatus: locale === "de" ? "Laufzeitstatus" : "Runtime status",
+    notConnected: locale === "de" ? "nicht verbunden" : "not connected",
+    providerSubscription:
+      locale === "de" ? "ChatGPT-/Codex-Abo" : "ChatGPT/Codex subscription",
+    providerSubscriptionDescription:
+      locale === "de"
+        ? "Verwendet deine ChatGPT-/Codex-Anmeldung. Kein API-Schlüssel erforderlich."
+        : "Uses your ChatGPT/Codex sign-in. No API key required.",
+    providerApiCompatible: locale === "de" ? "API-kompatibler Anbieter" : "API-compatible provider",
+    providerApiCompatibleDescription:
+      locale === "de"
+        ? "Verwende ein gehostetes Open-Weight- oder API-Modell mit Basis-URL und API-Schlüssel."
+        : "Use a hosted open-weight or API model with base URL and API key.",
+    baseUrl: locale === "de" ? "Basis-URL" : "Base URL",
+    model: locale === "de" ? "Modell" : "Model",
+    apiKey: locale === "de" ? "API-Schlüssel" : "API key",
+    categorizationApiKeyConfigured:
+      locale === "de"
+        ? "Gespeicherter API-Schlüssel für die Kategorisierung ist bereits konfiguriert"
+        : "Stored categorization API key is already configured",
+    pasteCategorizationApiKey:
+      locale === "de" ? "API-Schlüssel für Kategorisierung einfügen" : "Paste categorization API key",
+    enableAndSaveCategorization:
+      locale === "de" ? "Kategorisierung aktivieren und speichern" : "Enable and save categorization",
+    saveCategorizationDisabled:
+      locale === "de" ? "Kategorisierung als deaktiviert speichern" : "Save categorization as disabled"
+  } as const;
 
   return (
     <section className="space-y-4">
       <PageHeader title={t("nav.item.aiAssistant")} />
-      <Card>
+      <Card className="app-dashboard-surface border-border/60">
         <CardContent className="space-y-6 pt-6">
           <div className="app-section-divider mt-0 pt-0">
-            <Tabs defaultValue="api-key" className="space-y-4">
-              <TabsList>
-                <TabsTrigger value="api-key">{t("pages.aiSettings.tab.apiKey")}</TabsTrigger>
-                <TabsTrigger value="oauth">{t("pages.aiSettings.tab.oauth")}</TabsTrigger>
+            <Tabs value={connectionTab} onValueChange={(value) => setConnectionTab(value as "api-key" | "oauth")} className="space-y-5">
+              <TabsList className="h-auto w-full justify-start gap-2 rounded-[22px] border border-border/60 p-1.5 app-soft-surface">
+                <TabsTrigger
+                  value="oauth"
+                  className="min-w-[11rem] rounded-[18px] px-4 py-2.5 text-sm text-foreground/75 data-[state=active]:bg-background data-[state=active]:text-foreground dark:data-[state=active]:bg-[var(--app-dashboard-surface-strong)]"
+                >
+                  {t("pages.aiSettings.tab.oauth")}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="api-key"
+                  className="min-w-[11rem] rounded-[18px] px-4 py-2.5 text-sm text-foreground/75 data-[state=active]:bg-background data-[state=active]:text-foreground dark:data-[state=active]:bg-[var(--app-dashboard-surface-strong)]"
+                >
+                  {t("pages.aiSettings.tab.apiKey")}
+                </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="api-key" className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="ai-provider-preset">{t("common.provider")}</Label>
-                    <select
-                      id="ai-provider-preset"
-                      className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
-                      value={activePreset}
-                      onChange={(event) => applyPreset(event.target.value)}
-                    >
-                      {PROVIDER_PRESETS.map((preset) => (
-                        <option key={preset.id} value={preset.id}>
-                          {preset.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="ai-model">{t("common.model")}</Label>
-                    <Input
-                      id="ai-model"
-                      value={model}
-                      onChange={(event) => {
-                        setModel(event.target.value);
-                        setActivePreset("custom");
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="ai-base-url">{t("common.baseUrl")}</Label>
-                  <Input
-                    id="ai-base-url"
-                    value={baseUrl}
-                    onChange={(event) => {
-                      setBaseUrl(event.target.value);
-                      setActivePreset("custom");
-                    }}
-                    placeholder={t("pages.aiSettings.placeholder.baseUrl")}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="ai-api-key">{t("pages.aiSettings.field.apiKey")}</Label>
-                  <Input
-                    id="ai-api-key"
-                    type="password"
-                    value={apiKey}
-                    onChange={(event) => setApiKey(event.target.value)}
-                    placeholder={
-                      settings?.api_key_set
-                        ? t("pages.aiSettings.placeholder.apiKeyConfigured")
-                        : t("pages.aiSettings.placeholder.apiKey")
-                    }
-                  />
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <Button onClick={() => void saveMutation.mutateAsync()} disabled={saveMutation.isPending}>
-                    {saveMutation.isPending ? t("pages.aiSettings.testing") : t("pages.aiSettings.testAndSave")}
-                  </Button>
-                  {saveStatus?.ok ? (
-                    <p className="text-sm text-green-600">{t("pages.aiSettings.savedSuccessfully")}</p>
-                  ) : null}
-                  {saveStatus && !saveStatus.ok ? (
-                    <p className="text-sm text-destructive">{saveStatus.error}</p>
-                  ) : null}
-                </div>
-              </TabsContent>
-
               <TabsContent value="oauth" className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => void oauthMutation.mutateAsync("openai-codex")}
-                    disabled={oauthMutation.isPending || oauthStatus === "pending"}
-                  >
-                    {t("pages.aiSettings.connect.chatgpt")}
-                  </Button>
-                  <Button variant="outline" disabled title={t("pages.aiSettings.connect.unsupportedTitle")}>
-                    {t("pages.aiSettings.connect.githubComingSoon")}
-                  </Button>
-                  <Button variant="outline" disabled title={t("pages.aiSettings.connect.unsupportedTitle")}>
-                    {t("pages.aiSettings.connect.googleComingSoon")}
-                  </Button>
+                <div className="app-dashboard-surface-strong rounded-[28px] border border-border/60 p-5">
+                  <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="max-w-2xl space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-600 dark:text-emerald-300">
+                        {copy.oauthHeroEyebrow}
+                      </p>
+                      <h3 className="text-lg font-semibold text-foreground">{copy.oauthHeroTitle}</h3>
+                      <p className="text-sm leading-6 text-foreground/80">{copy.oauthHeroDescription}</p>
+                    </div>
+                    <div className="flex min-w-[16rem] flex-col items-stretch gap-3">
+                      <Button
+                        onClick={() => void oauthMutation.mutateAsync("openai-codex")}
+                        disabled={oauthMutation.isPending || oauthStatus === "pending"}
+                      >
+                        {t("pages.aiSettings.connect.chatgpt")}
+                      </Button>
+                      <div className="rounded-[20px] border border-border/60 bg-background/70 px-4 py-3 text-sm text-foreground/80">
+                        <p className="font-medium text-foreground">{copy.oauthStatus}</p>
+                        <p className={oauthStatus === "connected" ? "mt-1 text-emerald-600 dark:text-emerald-300" : "mt-1 text-foreground/75"}>
+                          {oauthStatus === "connected"
+                            ? t("pages.aiSettings.oauth.connected")
+                            : oauthStatus === "pending"
+                              ? t("pages.aiSettings.oauth.waiting")
+                              : oauthStatus === "error"
+                                ? oauthError || t("pages.aiSettings.oauth.failed")
+                                : copy.notConnected}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                {SUPPORTED_OAUTH_PROVIDERS.size < 3 ? (
-                  <p className="text-xs text-muted-foreground">{t("pages.aiSettings.additionalProviders")}</p>
-                ) : null}
-                {oauthStatus === "pending" ? (
-                  <p className="text-sm text-muted-foreground">{t("pages.aiSettings.oauth.waiting")}</p>
-                ) : null}
-                {oauthStatus === "connected" ? (
-                  <p className="text-sm text-green-600">{t("pages.aiSettings.oauth.connected")}</p>
-                ) : null}
-                {oauthStatus === "error" ? (
-                  <p className="text-sm text-destructive">{oauthError || t("pages.aiSettings.oauth.failed")}</p>
-                ) : null}
 
-                <div className="rounded-md border p-4">
+                <div className="app-soft-surface rounded-[24px] border border-border/60 p-5">
                   <div className="space-y-1">
-                    <h3 className="text-sm font-medium">Pi agent chat model</h3>
-                    <p className="text-xs text-muted-foreground">
-                      This is the default ChatGPT/Codex model for chat. The options below mirror the models
-                      currently available in your Codex subscription UI. Users can still switch models per
-                      chat thread and in the chat side panel.
-                    </p>
+                    <h3 className="text-sm font-semibold text-foreground">{copy.defaultChatModel}</h3>
+                    <p className="text-sm leading-6 text-foreground/70">{copy.defaultChatModelDescription}</p>
                   </div>
                   <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
                     <div className="space-y-2">
-                      <Label htmlFor="oauth-chat-model">Codex model</Label>
+                      <Label htmlFor="oauth-chat-model">{copy.codexModel}</Label>
                       <select
                         id="oauth-chat-model"
                         className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
@@ -535,7 +537,7 @@ export function AISettingsPage() {
                       </select>
                     </div>
                     <Button onClick={() => void saveChatModelMutation.mutateAsync()} disabled={saveChatModelMutation.isPending}>
-                      {saveChatModelMutation.isPending ? "Saving..." : "Save chat model"}
+                      {saveChatModelMutation.isPending ? copy.saving : copy.saveChatModel}
                     </Button>
                   </div>
                   {oauthChatSaveStatus?.ok ? (
@@ -546,18 +548,88 @@ export function AISettingsPage() {
                   ) : null}
                 </div>
               </TabsContent>
+
+              <TabsContent value="api-key" className="space-y-4">
+                <div className="app-soft-surface rounded-[24px] border border-border/60 p-5 space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="ai-provider-preset">{t("common.provider")}</Label>
+                      <select
+                        id="ai-provider-preset"
+                        className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
+                        value={activePreset}
+                        onChange={(event) => applyPreset(event.target.value)}
+                      >
+                        {PROVIDER_PRESETS.map((preset) => (
+                          <option key={preset.id} value={preset.id}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="ai-model">{t("common.model")}</Label>
+                      <Input
+                        id="ai-model"
+                        value={model}
+                        onChange={(event) => {
+                          setModel(event.target.value);
+                          setActivePreset("custom");
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ai-base-url">{t("common.baseUrl")}</Label>
+                    <Input
+                      id="ai-base-url"
+                      value={baseUrl}
+                      onChange={(event) => {
+                        setBaseUrl(event.target.value);
+                        setActivePreset("custom");
+                      }}
+                      placeholder={t("pages.aiSettings.placeholder.baseUrl")}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ai-api-key">{t("pages.aiSettings.field.apiKey")}</Label>
+                    <Input
+                      id="ai-api-key"
+                      type="password"
+                      value={apiKey}
+                      onChange={(event) => setApiKey(event.target.value)}
+                      placeholder={
+                        settings?.api_key_set
+                          ? t("pages.aiSettings.placeholder.apiKeyConfigured")
+                          : t("pages.aiSettings.placeholder.apiKey")
+                      }
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <Button onClick={() => void saveMutation.mutateAsync()} disabled={saveMutation.isPending}>
+                      {saveMutation.isPending ? t("pages.aiSettings.testing") : t("pages.aiSettings.testAndSave")}
+                    </Button>
+                    {saveStatus?.ok ? (
+                      <p className="text-sm text-green-600">{t("pages.aiSettings.savedSuccessfully")}</p>
+                    ) : null}
+                    {saveStatus && !saveStatus.ok ? (
+                      <p className="text-sm text-destructive">{saveStatus.error}</p>
+                    ) : null}
+                  </div>
+                </div>
+              </TabsContent>
             </Tabs>
           </div>
 
           <div className="app-section-divider mt-0 pt-4">
-            <div className="rounded-md border p-4">
+            <div className="app-soft-surface rounded-[24px] border border-border/60 p-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1">
-                  <h3 className="text-sm font-medium">Item categorization</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Choose one of two modes: use your ChatGPT/Codex subscription with no API key, or
-                    use a separate API-compatible provider with its own cheap model.
-                  </p>
+                  <h3 className="text-sm font-semibold text-foreground">{copy.itemCategorization}</h3>
+                  <p className="text-sm leading-6 text-foreground/70">{copy.itemCategorizationDescription}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
@@ -565,30 +637,28 @@ export function AISettingsPage() {
                     variant={categorizationEnabled ? "secondary" : "default"}
                     onClick={() => setCategorizationEnabled(true)}
                   >
-                    Enable
+                    {copy.enable}
                   </Button>
                   <Button
                     type="button"
                     variant={categorizationEnabled ? "outline" : "secondary"}
                     onClick={() => setCategorizationEnabled(false)}
                   >
-                    Disable
+                    {copy.disable}
                   </Button>
                 </div>
               </div>
 
               <div className="mt-4 space-y-4">
-                <div className="flex items-center justify-between rounded-md bg-muted/30 px-3 py-2 text-sm">
-                  <span className="font-medium">Categorization status</span>
-                  <span className={categorizationEnabled ? "text-green-600" : "text-muted-foreground"}>
-                    {categorizationEnabled ? "Enabled" : "Disabled"}
+                <div className="flex items-center justify-between rounded-[18px] border border-border/60 bg-background/70 px-3 py-2.5 text-sm">
+                  <span className="font-medium text-foreground">{copy.categorizationStatus}</span>
+                  <span className={categorizationEnabled ? "text-green-600 dark:text-emerald-300" : "text-foreground/70"}>
+                    {categorizationEnabled ? copy.enabled : copy.disabled}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Choose `Enable`, then save the settings below to activate categorization for future repair runs.
-                </p>
+                <p className="text-sm text-foreground/70">{copy.categorizationHint}</p>
                 <div className="space-y-2">
-                  <Label htmlFor="categorization-provider">Categorization provider</Label>
+                  <Label htmlFor="categorization-provider">{copy.categorizationProvider}</Label>
                   <select
                     id="categorization-provider"
                     className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
@@ -599,22 +669,21 @@ export function AISettingsPage() {
                   >
                     {CATEGORIZATION_PROVIDER_OPTIONS.map((option) => (
                       <option key={option.id} value={option.id}>
-                        {option.label}
+                        {option.id === "oauth_codex" ? copy.providerSubscription : copy.providerApiCompatible}
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-muted-foreground">
-                    {
-                      CATEGORIZATION_PROVIDER_OPTIONS.find((option) => option.id === categorizationProvider)
-                        ?.description
-                    }
+                  <p className="text-sm text-foreground/70">
+                    {categorizationProvider === "oauth_codex"
+                      ? copy.providerSubscriptionDescription
+                      : copy.providerApiCompatibleDescription}
                   </p>
                 </div>
 
                 {categorizationProvider === "oauth_codex" ? (
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="categorization-oauth-model">Codex model</Label>
+                      <Label htmlFor="categorization-oauth-model">{copy.codexModel}</Label>
                       <select
                         id="categorization-oauth-model"
                         className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
@@ -627,22 +696,19 @@ export function AISettingsPage() {
                           </option>
                         ))}
                       </select>
-                      <p className="text-xs text-muted-foreground">
-                        This list mirrors the current models visible in your Codex subscription UI. GPT-5.4-Mini
-                        is the default here because categorization work should stay cheaper than main chat.
-                      </p>
+                      <p className="text-sm leading-6 text-foreground/70">{copy.codexModelDescription}</p>
                     </div>
-                    <div className="space-y-2 rounded-md bg-muted/40 p-3 text-sm">
+                    <div className="space-y-2 rounded-[20px] border border-border/60 bg-background/70 p-4 text-sm">
                       <p>
-                        OAuth status:{" "}
-                        <span className={settings?.oauth_connected ? "text-green-600" : "text-muted-foreground"}>
-                          {settings?.oauth_connected ? "connected" : "not connected"}
+                        <span className="font-medium text-foreground">{copy.oauthStatus}:</span>{" "}
+                        <span className={settings?.oauth_connected ? "text-green-600 dark:text-emerald-300" : "text-foreground/70"}>
+                          {settings?.oauth_connected ? copy.connected : copy.notConnected}
                         </span>
                       </p>
                       <p>
-                        Runtime status:{" "}
-                        <span className={categorizationRuntimeReady ? "text-green-600" : "text-muted-foreground"}>
-                          {categorizationRuntimeStatus}
+                        <span className="font-medium text-foreground">{copy.runtimeStatus}:</span>{" "}
+                        <span className={categorizationRuntimeReady ? "text-green-600 dark:text-emerald-300" : "text-foreground/70"}>
+                          {tText(categorizationRuntimeStatus.replace(/_/g, " "))}
                         </span>
                       </p>
                     </div>
@@ -650,7 +716,7 @@ export function AISettingsPage() {
                 ) : (
                   <div className="grid gap-4 md:grid-cols-3">
                     <div className="space-y-2 md:col-span-1">
-                      <Label htmlFor="categorization-api-base-url">Base URL</Label>
+                      <Label htmlFor="categorization-api-base-url">{copy.baseUrl}</Label>
                       <Input
                         id="categorization-api-base-url"
                         value={categorizationBaseUrl}
@@ -659,7 +725,7 @@ export function AISettingsPage() {
                       />
                     </div>
                     <div className="space-y-2 md:col-span-1">
-                      <Label htmlFor="categorization-api-model">Model</Label>
+                      <Label htmlFor="categorization-api-model">{copy.model}</Label>
                       <Input
                         id="categorization-api-model"
                         value={categorizationModel}
@@ -668,7 +734,7 @@ export function AISettingsPage() {
                       />
                     </div>
                     <div className="space-y-2 md:col-span-1">
-                      <Label htmlFor="categorization-api-key">API key</Label>
+                      <Label htmlFor="categorization-api-key">{copy.apiKey}</Label>
                       <Input
                         id="categorization-api-key"
                         type="password"
@@ -676,8 +742,8 @@ export function AISettingsPage() {
                         onChange={(event) => setCategorizationApiKey(event.target.value)}
                         placeholder={
                           settings?.categorization_api_key_set
-                            ? "Stored categorization API key is already configured"
-                            : "Paste categorization API key"
+                            ? copy.categorizationApiKeyConfigured
+                            : copy.pasteCategorizationApiKey
                         }
                       />
                     </div>
@@ -690,10 +756,10 @@ export function AISettingsPage() {
                     disabled={saveCategorizationMutation.isPending}
                   >
                     {saveCategorizationMutation.isPending
-                      ? "Saving..."
+                      ? copy.saving
                       : categorizationEnabled
-                        ? "Enable and save categorization"
-                        : "Save categorization as disabled"}
+                        ? copy.enableAndSaveCategorization
+                        : copy.saveCategorizationDisabled}
                   </Button>
                   {categorizationSaveStatus?.ok ? (
                     <p className="text-sm text-green-600">{t("pages.aiSettings.savedSuccessfully")}</p>
@@ -712,128 +778,130 @@ export function AISettingsPage() {
               <p className="text-sm text-muted-foreground">{t("pages.aiSettings.ocr.description")}</p>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="ocr-default-provider">{t("pages.aiSettings.ocr.primaryProvider")}</Label>
-                <select
-                  id="ocr-default-provider"
-                  className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
-                  value={ocrDefaultProvider}
-                  onChange={(event) => setOcrDefaultProvider(event.target.value)}
-                >
-                  {OCR_PROVIDER_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+            <div className="app-soft-surface rounded-[24px] border border-border/60 p-5 space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="ocr-default-provider">{t("pages.aiSettings.ocr.primaryProvider")}</Label>
+                  <select
+                    id="ocr-default-provider"
+                    className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
+                    value={ocrDefaultProvider}
+                    onChange={(event) => setOcrDefaultProvider(event.target.value)}
+                  >
+                    {OCR_PROVIDER_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ocr-fallback-provider">{t("pages.aiSettings.ocr.fallbackProvider")}</Label>
+                  <select
+                    id="ocr-fallback-provider"
+                    className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
+                    value={ocrFallbackProvider}
+                    onChange={(event) => setOcrFallbackProvider(event.target.value)}
+                    disabled={!ocrFallbackEnabled}
+                  >
+                    {OCR_PROVIDER_OPTIONS.filter((option) => option.id !== ocrDefaultProvider).map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="ocr-fallback-provider">{t("pages.aiSettings.ocr.fallbackProvider")}</Label>
-                <select
-                  id="ocr-fallback-provider"
-                  className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
-                  value={ocrFallbackProvider}
-                  onChange={(event) => setOcrFallbackProvider(event.target.value)}
-                  disabled={!ocrFallbackEnabled}
-                >
-                  {OCR_PROVIDER_OPTIONS.filter((option) => option.id !== ocrDefaultProvider).map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
 
-            <div className="flex items-center justify-between rounded-md border px-3 py-2">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">{t("pages.aiSettings.ocr.enableFallback")}</p>
-                <p className="text-xs text-muted-foreground">{t("pages.aiSettings.ocr.enableFallbackHint")}</p>
+              <div className="flex items-center justify-between rounded-[18px] border border-border/60 bg-background/70 px-3 py-2.5">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-foreground">{t("pages.aiSettings.ocr.enableFallback")}</p>
+                  <p className="text-xs text-muted-foreground">{t("pages.aiSettings.ocr.enableFallbackHint")}</p>
+                </div>
+                <Switch checked={ocrFallbackEnabled} onCheckedChange={setOcrFallbackEnabled} />
               </div>
-              <Switch checked={ocrFallbackEnabled} onCheckedChange={setOcrFallbackEnabled} />
-            </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="ocr-glm-base-url">{t("pages.aiSettings.ocr.glmBaseUrl")}</Label>
-                <Input
-                  id="ocr-glm-base-url"
-                  value={glmBaseUrl}
-                  onChange={(event) => setGlmBaseUrl(event.target.value)}
-                  placeholder={glmApiMode === "ollama_generate" ? "http://localhost:11434" : "http://glm-ocr:8080/v1"}
-                />
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="ocr-glm-base-url">{t("pages.aiSettings.ocr.glmBaseUrl")}</Label>
+                  <Input
+                    id="ocr-glm-base-url"
+                    value={glmBaseUrl}
+                    onChange={(event) => setGlmBaseUrl(event.target.value)}
+                    placeholder={glmApiMode === "ollama_generate" ? "http://localhost:11434" : "http://glm-ocr:8080/v1"}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ocr-glm-api-mode">{t("pages.aiSettings.ocr.glmApiMode")}</Label>
+                  <select
+                    id="ocr-glm-api-mode"
+                    className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
+                    value={glmApiMode}
+                    onChange={(event) =>
+                      setGlmApiMode(event.target.value as "ollama_generate" | "openai_chat_completion")
+                    }
+                  >
+                    {GLM_LOCAL_API_MODE_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">{t("pages.aiSettings.ocr.glmApiModeHint")}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ocr-glm-model">{t("pages.aiSettings.ocr.glmModel")}</Label>
+                  <Input
+                    id="ocr-glm-model"
+                    value={glmModel}
+                    onChange={(event) => setGlmModel(event.target.value)}
+                    placeholder="glm-ocr"
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="ocr-glm-api-mode">{t("pages.aiSettings.ocr.glmApiMode")}</Label>
-                <select
-                  id="ocr-glm-api-mode"
-                  className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
-                  value={glmApiMode}
-                  onChange={(event) =>
-                    setGlmApiMode(event.target.value as "ollama_generate" | "openai_chat_completion")
-                  }
-                >
-                  {GLM_LOCAL_API_MODE_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted-foreground">{t("pages.aiSettings.ocr.glmApiModeHint")}</p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="ocr-glm-model">{t("pages.aiSettings.ocr.glmModel")}</Label>
-                <Input
-                  id="ocr-glm-model"
-                  value={glmModel}
-                  onChange={(event) => setGlmModel(event.target.value)}
-                  placeholder="glm-ocr"
-                />
-              </div>
-            </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="ocr-api-base-url">{t("pages.aiSettings.ocr.apiBaseUrl")}</Label>
-                <Input
-                  id="ocr-api-base-url"
-                  value={ocrOpenaiBaseUrl}
-                  onChange={(event) => setOcrOpenaiBaseUrl(event.target.value)}
-                  placeholder="https://api.openai.com/v1"
-                />
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="ocr-api-base-url">{t("pages.aiSettings.ocr.apiBaseUrl")}</Label>
+                  <Input
+                    id="ocr-api-base-url"
+                    value={ocrOpenaiBaseUrl}
+                    onChange={(event) => setOcrOpenaiBaseUrl(event.target.value)}
+                    placeholder="https://api.openai.com/v1"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ocr-api-model">{t("pages.aiSettings.ocr.apiModel")}</Label>
+                  <Input
+                    id="ocr-api-model"
+                    value={ocrOpenaiModel}
+                    onChange={(event) => setOcrOpenaiModel(event.target.value)}
+                    placeholder="gpt-4o-mini"
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="ocr-api-model">{t("pages.aiSettings.ocr.apiModel")}</Label>
-                <Input
-                  id="ocr-api-model"
-                  value={ocrOpenaiModel}
-                  onChange={(event) => setOcrOpenaiModel(event.target.value)}
-                  placeholder="gpt-4o-mini"
-                />
+
+              <p className="text-xs text-muted-foreground">
+                {ocrSettingsQuery.data?.openai_credentials_ready
+                  ? t("pages.aiSettings.ocr.credentialsReady")
+                  : t("pages.aiSettings.ocr.credentialsMissing")}
+              </p>
+
+              <div className="flex items-center gap-3">
+                <Button onClick={() => void saveOCRMutation.mutateAsync()} disabled={saveOCRMutation.isPending}>
+                  {saveOCRMutation.isPending ? t("pages.aiSettings.testing") : t("pages.aiSettings.ocr.save")}
+                </Button>
+                {ocrSaveStatus?.ok ? (
+                  <p className="text-sm text-green-600">{t("pages.aiSettings.savedSuccessfully")}</p>
+                ) : null}
+                {ocrSaveStatus && !ocrSaveStatus.ok ? (
+                  <p className="text-sm text-destructive">{ocrSaveStatus.error}</p>
+                ) : null}
               </div>
-            </div>
-
-            <p className="text-xs text-muted-foreground">
-              {ocrSettingsQuery.data?.openai_credentials_ready
-                ? t("pages.aiSettings.ocr.credentialsReady")
-                : t("pages.aiSettings.ocr.credentialsMissing")}
-            </p>
-
-            <div className="flex items-center gap-3">
-              <Button onClick={() => void saveOCRMutation.mutateAsync()} disabled={saveOCRMutation.isPending}>
-                {saveOCRMutation.isPending ? t("pages.aiSettings.testing") : t("pages.aiSettings.ocr.save")}
-              </Button>
-              {ocrSaveStatus?.ok ? (
-                <p className="text-sm text-green-600">{t("pages.aiSettings.savedSuccessfully")}</p>
-              ) : null}
-              {ocrSaveStatus && !ocrSaveStatus.ok ? (
-                <p className="text-sm text-destructive">{ocrSaveStatus.error}</p>
-              ) : null}
             </div>
           </div>
 
-          <div className="app-section-divider mt-0 flex items-center justify-between gap-3 pt-4 text-sm text-muted-foreground">
+          <div className="app-section-divider mt-0 flex items-center justify-between gap-3 rounded-[20px] border border-border/60 app-soft-surface px-4 py-4 text-sm text-muted-foreground">
             <p>{connectionLabel}</p>
             <Button
               variant="destructive"

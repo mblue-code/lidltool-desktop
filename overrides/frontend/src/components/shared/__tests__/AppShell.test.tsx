@@ -59,7 +59,7 @@ function renderShell(
               <Routes>
                 <Route path="/" element={<AppShell user={STUB_USER} />}>
                   <Route path="transactions" element={<p>Transactions content</p>} />
-                  <Route path="groceries" element={<p>Groceries content</p>} />
+                  <Route path="groceries" element={<p>Purchases content</p>} />
                   <Route path="settings" element={<p>Settings content</p>} />
                   <Route index element={<RouteLocationState />} />
                   <Route
@@ -180,7 +180,7 @@ describe("AppShell", () => {
     expect(screen.getByText("Transactions content")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preferences" })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Add Receipt" })[0]).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Groceries" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Purchases" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Cash Flow" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
   });
@@ -300,9 +300,78 @@ describe("AppShell", () => {
     const preloadRouteModuleSpy = vi.spyOn(pageLoaders, "preloadRouteModule").mockImplementation(() => undefined);
 
     renderShell();
-    fireEvent.mouseEnter(screen.getByRole("link", { name: "Groceries" }));
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "Purchases" }));
 
     expect(preloadRouteModuleSpy).toHaveBeenCalledWith("/groceries");
+  });
+
+  it("deduplicates Amazon in the sidebar and hides inactive external plugins", async () => {
+    vi.spyOn(connectorsApi, "fetchConnectors").mockResolvedValue({
+      generated_at: "2026-04-12T12:00:00Z",
+      viewer: { is_admin: true },
+      operator_actions: { can_reload: true, can_rescan: true },
+      summary: { total_connectors: 5, by_status: { ready: 4, setup_required: 1 } },
+      connectors: [
+        {
+          source_id: "amazon_de",
+          display_name: "Amazon",
+          origin: "builtin",
+          install_origin: "builtin",
+          supports_sync: true,
+          install_state: "installed",
+          enable_state: "enabled",
+          ui: { status: "connected" }
+        } as unknown as connectorsApi.ConnectorDiscoveryRow,
+        {
+          source_id: "amazon_fr",
+          display_name: "Amazon",
+          origin: "builtin",
+          install_origin: "builtin",
+          supports_sync: true,
+          install_state: "installed",
+          enable_state: "enabled",
+          ui: { status: "ready" }
+        } as unknown as connectorsApi.ConnectorDiscoveryRow,
+        {
+          source_id: "amazon_gb",
+          display_name: "Amazon",
+          origin: "builtin",
+          install_origin: "builtin",
+          supports_sync: true,
+          install_state: "installed",
+          enable_state: "disabled",
+          ui: { status: "setup_required" }
+        } as unknown as connectorsApi.ConnectorDiscoveryRow,
+        {
+          source_id: "lidl_plus_de",
+          display_name: "Lidl Plus",
+          origin: "builtin",
+          install_origin: "builtin",
+          supports_sync: true,
+          install_state: "installed",
+          enable_state: "enabled",
+          ui: { status: "ready" }
+        } as unknown as connectorsApi.ConnectorDiscoveryRow,
+        {
+          source_id: "rossmann_de",
+          display_name: "Rossmann",
+          origin: "local_path",
+          install_origin: "local_path",
+          supports_sync: true,
+          install_state: "installed",
+          enable_state: "disabled",
+          ui: { status: "ready" }
+        } as unknown as connectorsApi.ConnectorDiscoveryRow
+      ]
+    });
+
+    renderShell();
+
+    expect(await screen.findByText("Amazon")).toBeInTheDocument();
+    expect(screen.getByText("Lidl Plus")).toBeInTheDocument();
+    expect(screen.queryByText("Rossmann")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Amazon")).toHaveLength(1);
+    expect(screen.getByText("Amazon").closest("div")).toHaveClass("text-emerald-100");
   });
 
   it("prefetches visible shortcut route modules when focused", () => {

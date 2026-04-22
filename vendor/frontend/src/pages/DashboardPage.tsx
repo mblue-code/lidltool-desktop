@@ -16,6 +16,7 @@ import { useDateRangeContext } from "@/app/date-range-context";
 import { fetchDashboardOverview } from "@/api/dashboard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useI18n } from "@/i18n";
 import { formatDate, formatEurFromCents } from "@/utils/format";
 
 function sectionTitle(title: string, actionHref?: string, actionLabel?: string) {
@@ -33,14 +34,16 @@ function sectionTitle(title: string, actionHref?: string, actionLabel?: string) 
   );
 }
 
-function deltaLabel(deltaPct: number | null): string {
+function deltaLabel(deltaPct: number | null, locale: "en" | "de"): string {
   if (deltaPct === null) {
-    return "No previous comparison";
+    return locale === "de" ? "Kein Vergleichszeitraum" : "No previous comparison";
   }
-  return `${Math.abs(deltaPct * 100).toFixed(1)}% vs previous period`;
+  return locale === "de"
+    ? `${Math.abs(deltaPct * 100).toFixed(1)}% zum vorherigen Zeitraum`
+    : `${Math.abs(deltaPct * 100).toFixed(1)}% vs previous period`;
 }
 
-function DeltaPill({ deltaPct }: { deltaPct: number | null }) {
+function DeltaPill({ deltaPct, locale }: { deltaPct: number | null; locale: "en" | "de" }) {
   const positive = (deltaPct ?? 0) > 0;
   const negative = (deltaPct ?? 0) < 0;
   const Icon = positive ? ArrowUpRight : ArrowDownRight;
@@ -54,17 +57,19 @@ function DeltaPill({ deltaPct }: { deltaPct: number | null }) {
       ].join(" ")}
     >
       {(positive || negative) && <Icon className="h-3.5 w-3.5" />}
-      {deltaLabel(deltaPct)}
+      {deltaLabel(deltaPct, locale)}
     </span>
   );
 }
 
 function RingChart({
   categories,
-  totalCents
+  totalCents,
+  locale
 }: {
   categories: Array<{ category: string; amount_cents: number; share: number }>;
   totalCents: number;
+  locale: "en" | "de";
 }) {
   const colors = ["#14b8a6", "#2563eb", "#7c3aed", "#fb923c", "#ec4899", "#cbd5e1"];
   const gradient = useMemo(() => {
@@ -88,7 +93,7 @@ function RingChart({
         >
           <div className="absolute inset-[26px] flex flex-col items-center justify-center rounded-full bg-white">
             <span className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(totalCents)}</span>
-            <span className="mt-2 text-sm text-muted-foreground">Net spend</span>
+            <span className="mt-2 text-sm text-muted-foreground">{locale === "de" ? "Nettoausgaben" : "Net spend"}</span>
           </div>
         </div>
       </div>
@@ -108,9 +113,11 @@ function RingChart({
 }
 
 function CashFlowBars({
-  points
+  points,
+  locale
 }: {
   points: Array<{ date: string; inflow_cents: number; outflow_cents: number; net_cents: number }>;
+  locale: "en" | "de";
 }) {
   const maxAbs = Math.max(
     1,
@@ -136,8 +143,8 @@ function CashFlowBars({
         })}
       </div>
       <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-        <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /> Inflow</span>
-        <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-rose-400" /> Outflow</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /> {locale === "de" ? "Einnahmen" : "Inflow"}</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-rose-400" /> {locale === "de" ? "Ausgaben" : "Outflow"}</span>
         <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-slate-900" /> Net</span>
       </div>
     </div>
@@ -173,25 +180,35 @@ function ProgressRow({
 
 export function DashboardPage() {
   const { fromDate, toDate } = useDateRangeContext();
+  const { locale, tText } = useI18n();
   const overviewQuery = useQuery({
     queryKey: ["dashboard-overview", fromDate, toDate],
     queryFn: () => fetchDashboardOverview(fromDate, toDate)
   });
   const overview = overviewQuery.data;
+  const periodLabel = useMemo(() => {
+    const start = new Date(overview?.period.from_date ?? fromDate);
+    const end = new Date(overview?.period.to_date ?? toDate);
+    const formatter = new Intl.DateTimeFormat(locale === "de" ? "de-DE" : "en-US", {
+      month: "short",
+      day: "numeric"
+    });
+    return `${formatter.format(start)} - ${formatter.format(end)}`;
+  }, [fromDate, locale, overview?.period.from_date, overview?.period.to_date, toDate]);
 
   return (
     <div className="space-y-6">
       <section className="app-dashboard-surface-strong rounded-[32px] border border-border/60 px-6 py-7 lg:px-8">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-600">Dashboard</p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-slate-950">Your finance overview</h1>
-            <p className="mt-3 max-w-2xl text-base text-muted-foreground">
-              Track spend, groceries, cash movement, bills, and merchants from the same local-first desktop profile.
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-400">Dashboard</p>
+            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white">{tText("Your finance overview")}</h1>
+            <p className="mt-3 max-w-2xl text-base text-slate-300">
+              {tText("Track spend, groceries, cash movement, bills, and merchants from the same local-first desktop profile.")}
             </p>
           </div>
-          <div className="rounded-[24px] border border-border/60 bg-white px-5 py-4 text-sm text-muted-foreground">
-            {overview ? `${overview.period.from_date} to ${overview.period.to_date}` : `${fromDate} to ${toDate}`}
+          <div className="rounded-[24px] border border-white/10 bg-white/6 px-5 py-4 text-sm text-slate-200">
+            {periodLabel}
           </div>
         </div>
       </section>
@@ -202,41 +219,41 @@ export function DashboardPage() {
             <Card className="app-dashboard-surface border-border/60">
               <CardContent className="space-y-3 p-5">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-muted-foreground">Total spending</span>
+                  <span className="text-sm font-medium text-muted-foreground">{tText("Total spending")}</span>
                   <Wallet className="h-5 w-5 text-rose-500" />
                 </div>
                 <div className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(overview.kpis.total_spending.current_cents)}</div>
-                <DeltaPill deltaPct={overview.kpis.total_spending.delta_pct} />
+                <DeltaPill deltaPct={overview.kpis.total_spending.delta_pct} locale={locale} />
               </CardContent>
             </Card>
             <Card className="app-dashboard-surface border-border/60">
               <CardContent className="space-y-3 p-5">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-muted-foreground">Groceries</span>
+                  <span className="text-sm font-medium text-muted-foreground">{tText("Purchases")}</span>
                   <ReceiptText className="h-5 w-5 text-emerald-500" />
                 </div>
                 <div className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(overview.kpis.groceries.current_cents)}</div>
-                <DeltaPill deltaPct={overview.kpis.groceries.delta_pct} />
+                <DeltaPill deltaPct={overview.kpis.groceries.delta_pct} locale={locale} />
               </CardContent>
             </Card>
             <Card className="app-dashboard-surface border-border/60">
               <CardContent className="space-y-3 p-5">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-muted-foreground">Cash inflow</span>
+                  <span className="text-sm font-medium text-muted-foreground">{tText("Cash inflow")}</span>
                   <ArrowDownRight className="h-5 w-5 text-emerald-500" />
                 </div>
                 <div className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(overview.kpis.cash_inflow.current_cents)}</div>
-                <DeltaPill deltaPct={overview.kpis.cash_inflow.delta_pct} />
+                <DeltaPill deltaPct={overview.kpis.cash_inflow.delta_pct} locale={locale} />
               </CardContent>
             </Card>
             <Card className="app-dashboard-surface border-border/60">
               <CardContent className="space-y-3 p-5">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-muted-foreground">Cash outflow</span>
+                  <span className="text-sm font-medium text-muted-foreground">{tText("Cash outflow")}</span>
                   <ArrowUpRight className="h-5 w-5 text-rose-500" />
                 </div>
                 <div className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(overview.kpis.cash_outflow.current_cents)}</div>
-                <DeltaPill deltaPct={overview.kpis.cash_outflow.delta_pct} />
+                <DeltaPill deltaPct={overview.kpis.cash_outflow.delta_pct} locale={locale} />
               </CardContent>
             </Card>
           </>
@@ -252,6 +269,7 @@ export function DashboardPage() {
                 <RingChart
                   categories={overview.spending_overview.categories}
                   totalCents={overview.spending_overview.total_cents}
+                  locale={locale}
                 />
               </CardContent>
             </Card>
@@ -259,7 +277,7 @@ export function DashboardPage() {
             <Card className="app-dashboard-surface border-border/60">
               <CardHeader>{sectionTitle("Cash flow summary", "/cash-flow", "View cash flow")}</CardHeader>
               <CardContent>
-                <CashFlowBars points={overview.cash_flow_summary.points} />
+                <CashFlowBars points={overview.cash_flow_summary.points} locale={locale} />
               </CardContent>
             </Card>
 
@@ -270,7 +288,7 @@ export function DashboardPage() {
                   <div key={bill.occurrence_id} className="flex items-center justify-between gap-3 rounded-[22px] bg-slate-50 px-4 py-3">
                     <div>
                       <p className="font-medium">{bill.bill_name}</p>
-                      <p className="text-sm text-muted-foreground">{bill.due_date}</p>
+                      <p className="text-sm text-muted-foreground">{formatDate(bill.due_date)}</p>
                     </div>
                     <div className="text-right font-semibold">{formatEurFromCents(bill.expected_amount_cents ?? 0)}</div>
                   </div>
@@ -354,7 +372,9 @@ export function DashboardPage() {
                   <div key={merchant.merchant} className="flex items-center justify-between gap-3 rounded-[22px] bg-slate-50 px-4 py-3">
                     <div>
                       <p className="font-medium">{merchant.merchant}</p>
-                      <p className="text-sm text-muted-foreground">{merchant.receipt_count} receipts</p>
+                      <p className="text-sm text-muted-foreground">
+                        {locale === "de" ? `${merchant.receipt_count} Belege` : `${merchant.receipt_count} receipts`}
+                      </p>
                     </div>
                     <div className="font-semibold">{formatEurFromCents(merchant.spend_cents)}</div>
                   </div>
@@ -372,7 +392,7 @@ export function DashboardPage() {
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="font-medium">{goal.name}</p>
-                          <p className="text-sm text-muted-foreground">{goal.progress.status}</p>
+                          <p className="text-sm text-muted-foreground">{tText(goal.progress.status.replace(/_/g, " "))}</p>
                         </div>
                         <div className="font-semibold">{formatEurFromCents(goal.target_amount_cents)}</div>
                       </div>

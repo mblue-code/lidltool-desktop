@@ -7,7 +7,7 @@ import { DateRangeProvider } from "@/app/date-range-context";
 import { AccessScopeProvider } from "@/app/scope-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { I18nProvider, useI18n } from "@/i18n";
-import { resolveApiWarningMessage } from "@/lib/backend-messages";
+import { resolveApiWarningMessage, shouldSuppressApiWarning } from "@/lib/backend-messages";
 import { isRetryableApiError } from "@/lib/api-errors";
 import { subscribeApiWarnings } from "@/lib/api-warnings";
 
@@ -27,6 +27,9 @@ function AppProvidersContent({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     return subscribeApiWarnings((warning) => {
+      if (shouldSuppressApiWarning(warning)) {
+        return;
+      }
       toast.warning(t("system.backendWarning"), {
         description: resolveApiWarningMessage(warning, t),
         duration: 7000

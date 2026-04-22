@@ -8,11 +8,13 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { MetricCard } from "@/components/shared/MetricCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useI18n } from "@/i18n";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDate, formatEurFromCents } from "@/utils/format";
 
 export function GroceriesPage() {
   const { fromDate, toDate } = useDateRangeContext();
+  const { tText } = useI18n();
   const summaryQuery = useQuery({
     queryKey: ["groceries-page", fromDate, toDate],
     queryFn: () => fetchGroceriesSummary(fromDate, toDate)
@@ -22,39 +24,39 @@ export function GroceriesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Groceries"
-        description="Track basket size, category concentration, and the latest receipt flow for the active dashboard window."
+        title={tText("Purchases")}
+        description={tText("Track basket size, category concentration, and the latest receipt flow for the active dashboard window.")}
       >
         <Button asChild variant="outline">
-          <Link to="/transactions">Open transactions</Link>
+          <Link to="/transactions">{tText("Open transactions")}</Link>
         </Button>
       </PageHeader>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card className="app-dashboard-surface border-border/60">
           <MetricCard
-            title="Tracked spend"
+            title={tText("Tracked spend")}
             value={formatEurFromCents(summary?.totals.spend_cents ?? 0)}
             icon={<ShoppingCart className="h-4 w-4" />}
           />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
           <MetricCard
-            title="Average basket"
+            title={tText("Average basket")}
             value={formatEurFromCents(summary?.totals.average_basket_cents ?? 0)}
             icon={<TrendingUp className="h-4 w-4" />}
           />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
           <MetricCard
-            title="Recent receipts"
+            title={tText("Recent receipts")}
             value={String(summary?.totals.receipt_count ?? 0)}
             icon={<ReceiptText className="h-4 w-4" />}
           />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
           <MetricCard
-            title="Active merchants"
+            title={tText("Active merchants")}
             value={String(summary?.totals.merchant_count ?? 0)}
             icon={<Database className="h-4 w-4" />}
           />
@@ -64,7 +66,7 @@ export function GroceriesPage() {
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <Card className="app-dashboard-surface border-border/60">
           <CardHeader>
-            <CardTitle>Category mix</CardTitle>
+            <CardTitle>{tText("Category mix")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {(summary?.category_breakdown ?? []).map((item) => {
@@ -87,19 +89,19 @@ export function GroceriesPage() {
 
         <Card className="app-dashboard-surface border-border/60">
           <CardHeader className="flex flex-row items-center justify-between gap-3">
-            <CardTitle>Recent grocery transactions</CardTitle>
+            <CardTitle>{tText("Recent purchases")}</CardTitle>
             <Button asChild variant="ghost" size="sm">
-              <Link to="/transactions">View all</Link>
+              <Link to="/transactions">{tText("View all")}</Link>
             </Button>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Merchant</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>{tText("Merchant")}</TableHead>
+                  <TableHead>{tText("Date")}</TableHead>
+                  <TableHead>{tText("Source")}</TableHead>
+                  <TableHead className="text-right">{tText("Amount")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
