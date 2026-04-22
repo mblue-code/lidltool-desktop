@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as aiSettingsApi from "@/api/aiSettings";
 import * as connectorsApi from "@/api/connectors";
+import * as notificationsApi from "@/api/notifications";
+import { DateRangeProvider } from "@/app/date-range-context";
 import * as pageLoaders from "@/app/page-loaders";
 import { AccessScopeProvider } from "@/app/scope-provider";
 import {
@@ -35,7 +37,7 @@ function RouteLocationState() {
 }
 
 function renderShell(
-  initialEntry = "/receipts",
+  initialEntry = "/transactions",
   options?: {
     queryClient?: QueryClient;
   }
@@ -51,48 +53,52 @@ function renderShell(
   render(
     <QueryClientProvider client={queryClient}>
       <AccessScopeProvider>
-        <DesktopCapabilitiesProvider capabilities={getDefaultDesktopCapabilities()}>
-          <MemoryRouter initialEntries={[initialEntry]}>
-            <Routes>
-              <Route path="/" element={<AppShell user={STUB_USER} />}>
-                <Route path="receipts" element={<p>Receipts content</p>} />
-                <Route index element={<RouteLocationState />} />
-                <Route
-                  path="offers"
-                  element={
-                    <DesktopRouteGate>
-                      <p>Offers content</p>
-                    </DesktopRouteGate>
-                  }
-                />
-                <Route
-                  path="automations"
-                  element={
-                    <DesktopRouteGate>
-                      <p>Automations content</p>
-                    </DesktopRouteGate>
-                  }
-                />
-                <Route
-                  path="automation-inbox"
-                  element={
-                    <DesktopRouteGate>
-                      <p>Automation inbox content</p>
-                    </DesktopRouteGate>
-                  }
-                />
-                <Route
-                  path="reliability"
-                  element={
-                    <DesktopRouteGate>
-                      <p>Reliability content</p>
-                    </DesktopRouteGate>
-                  }
-                />
-              </Route>
-            </Routes>
-          </MemoryRouter>
-        </DesktopCapabilitiesProvider>
+        <DateRangeProvider>
+          <DesktopCapabilitiesProvider capabilities={getDefaultDesktopCapabilities()}>
+            <MemoryRouter initialEntries={[initialEntry]}>
+              <Routes>
+                <Route path="/" element={<AppShell user={STUB_USER} />}>
+                  <Route path="transactions" element={<p>Transactions content</p>} />
+                  <Route path="groceries" element={<p>Groceries content</p>} />
+                  <Route path="settings" element={<p>Settings content</p>} />
+                  <Route index element={<RouteLocationState />} />
+                  <Route
+                    path="offers"
+                    element={
+                      <DesktopRouteGate>
+                        <p>Offers content</p>
+                      </DesktopRouteGate>
+                    }
+                  />
+                  <Route
+                    path="automations"
+                    element={
+                      <DesktopRouteGate>
+                        <p>Automations content</p>
+                      </DesktopRouteGate>
+                    }
+                  />
+                  <Route
+                    path="automation-inbox"
+                    element={
+                      <DesktopRouteGate>
+                        <p>Automation inbox content</p>
+                      </DesktopRouteGate>
+                    }
+                  />
+                  <Route
+                    path="reliability"
+                    element={
+                      <DesktopRouteGate>
+                        <p>Reliability content</p>
+                      </DesktopRouteGate>
+                    }
+                  />
+                </Route>
+              </Routes>
+            </MemoryRouter>
+          </DesktopCapabilitiesProvider>
+        </DateRangeProvider>
       </AccessScopeProvider>
     </QueryClientProvider>
   );
@@ -110,7 +116,6 @@ describe("AppShell", () => {
     setRequestScope("personal");
     window.localStorage?.removeItem?.("app.global_sync_banner.dismissed");
     window.localStorage?.removeItem?.("layout.chat_panel_width");
-    window.localStorage?.removeItem?.("layout.advanced_nav_open");
     vi.spyOn(aiSettingsApi, "fetchAISettings").mockResolvedValue({
       enabled: true,
       base_url: "https://api.openai.com/v1",
@@ -154,6 +159,11 @@ describe("AppShell", () => {
       output_tail: [],
       can_cancel: false
     }));
+    vi.spyOn(notificationsApi, "fetchNotifications").mockResolvedValue({
+      count: 0,
+      unread_count: 0,
+      items: []
+    });
   });
 
   afterEach(() => {
@@ -165,11 +175,14 @@ describe("AppShell", () => {
 
     expect(screen.getByRole("link", { name: "Skip to main content" })).toHaveAttribute("href", "#main-content");
     expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Receipts" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Transactions" })).toBeInTheDocument();
     expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
-    expect(screen.getByText("Receipts content")).toBeInTheDocument();
+    expect(screen.getByText("Transactions content")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preferences" })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Add Receipt" })[0]).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Groceries" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Cash Flow" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
   });
 
   it("offers a signed-in path back to the control center from preferences", () => {
@@ -200,7 +213,7 @@ describe("AppShell", () => {
     } satisfies connectorsApi.ConnectorSyncStatus);
     vi.spyOn(connectorsApi, "fetchConnectorSyncStatus").mockRejectedValue(new Error("sync status unavailable"));
 
-    renderShell("/receipts", { queryClient });
+    renderShell("/transactions", { queryClient });
 
     await waitFor(() => {
       expect(screen.queryByText("Lidl sync")).not.toBeInTheDocument();
@@ -208,17 +221,14 @@ describe("AppShell", () => {
     });
   });
 
-  it("keeps unsupported desktop routes out of the visible nav", () => {
+  it("keeps unsupported desktop routes out of the visible finance rail", () => {
     renderShell();
 
     expect(screen.queryByRole("link", { name: "Offers" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Automations" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Reliability" })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Show advanced tools" }));
-
-    expect(screen.getAllByRole("link", { name: "Products" })[0]).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Chat" })[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Connectors" })[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Open chat" })[0]).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Offers" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Automations" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Reliability" })).not.toBeInTheDocument();
@@ -290,19 +300,18 @@ describe("AppShell", () => {
     const preloadRouteModuleSpy = vi.spyOn(pageLoaders, "preloadRouteModule").mockImplementation(() => undefined);
 
     renderShell();
-    fireEvent.mouseEnter(screen.getAllByRole("link", { name: "Connectors" })[0]);
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "Groceries" }));
 
-    expect(preloadRouteModuleSpy).toHaveBeenCalledWith("/connectors");
+    expect(preloadRouteModuleSpy).toHaveBeenCalledWith("/groceries");
   });
 
-  it("prefetches visible advanced route modules when focused", () => {
+  it("prefetches visible shortcut route modules when focused", () => {
     const preloadRouteModuleSpy = vi.spyOn(pageLoaders, "preloadRouteModule").mockImplementation(() => undefined);
 
     renderShell();
-    fireEvent.click(screen.getByRole("button", { name: "Show advanced tools" }));
-    fireEvent.focus(screen.getAllByRole("link", { name: "Chat" })[0]);
+    fireEvent.focus(screen.getAllByRole("link", { name: "Connectors" })[0]);
 
-    expect(preloadRouteModuleSpy).toHaveBeenCalledWith("/chat");
+    expect(preloadRouteModuleSpy).toHaveBeenCalledWith("/connectors");
   });
 
   it("opens the side chat panel from the footer button without leaving the current page", () => {
@@ -312,7 +321,7 @@ describe("AppShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
 
     expect(screen.getByRole("dialog", { name: "AI Assistant" })).toBeInTheDocument();
-    expect(screen.getByText("Receipts content")).toBeInTheDocument();
+    expect(screen.getByText("Transactions content")).toBeInTheDocument();
   });
 
   it("shows stage-specific sync feedback instead of zeroed metrics during authentication", async () => {

@@ -31,7 +31,7 @@ test.describe("packaged desktop first run", () => {
       });
 
       await expect(page).toHaveURL(/:\/\/(?:127\.0\.0\.1|localhost):\d+\/?(?:[#?].*)?$/);
-      await expect(page.locator("#main-content").getByRole("heading", { name: "Overview" }).first()).toBeVisible();
+      await expect(page.locator("#main-content").getByRole("heading", { name: "Your finance overview" }).first()).toBeVisible();
       await ensureVisibleWindowCount(electronApp, 1);
 
       await page.waitForTimeout(3_000);

@@ -227,7 +227,10 @@ export async function ensureAuthenticated(
       continue;
     }
 
-    if (currentPath === "/" && (await page.getByRole("heading", { name: "Overview" }).isVisible().catch(() => false))) {
+    if (
+      currentPath === "/" &&
+      (await page.getByRole("heading", { name: "Your finance overview" }).isVisible().catch(() => false))
+    ) {
       return;
     }
 
@@ -259,7 +262,7 @@ export async function ensureAuthenticated(
   }
 
   await expect(page).toHaveURL(pathnamePattern("/"));
-  await expect(page.locator("#main-content").getByRole("heading", { name: "Overview" }).first()).toBeVisible();
+  await expect(page.locator("#main-content").getByRole("heading", { name: "Your finance overview" }).first()).toBeVisible();
 }
 
 export async function openAdvancedTools(page: Page): Promise<void> {

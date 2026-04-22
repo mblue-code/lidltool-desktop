@@ -50,6 +50,7 @@ Run all commands from `apps/desktop`.
   - Expected: backend auto-starts and full app UI opens directly.
   - Fresh install restore path: on `/setup`, run **Restore backup and sign in**, then sign in with restored user.
   - Expected: restored DB/user data is usable immediately in full UI after restore.
+  - Expected dashboard landing state: the finance shell loads and `Your finance overview` is visible inside `#main-content`.
   - Verify full app backup flow: navigate to `System -> Users`, run **Create backup bundle**, and confirm result payload includes output directory + manifest path.
   - Verify full app restore flow: navigate to `System -> Users`, run **Restore backup bundle**, and confirm result payload indicates restore success.
   - Verify unsupported desktop URLs redirect safely: open `/offers`, `/automations`, `/automation-inbox`, and `/reliability` directly.

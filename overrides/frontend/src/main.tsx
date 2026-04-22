@@ -18,6 +18,7 @@ import App from "./App";
 import "./index.css";
 
 const DashboardPage = lazy(() => pageLoaders.dashboard().then((module) => ({ default: module.DashboardPage })));
+const GroceriesPage = lazy(() => pageLoaders.groceries().then((module) => ({ default: module.GroceriesPage })));
 const ExplorePage = lazy(() => pageLoaders.explore().then((module) => ({ default: module.ExplorePage })));
 const OffersPage = lazy(() => pageLoaders.offers().then((module) => ({ default: module.OffersPage })));
 const ProductsPage = lazy(() => pageLoaders.products().then((module) => ({ default: module.ProductsPage })));
@@ -36,6 +37,11 @@ const ManualImportPage = lazy(() =>
 );
 const BudgetPage = lazy(() => pageLoaders.budget().then((module) => ({ default: module.BudgetPage })));
 const BillsPage = lazy(() => pageLoaders.bills().then((module) => ({ default: module.BillsPage })));
+const CashFlowPage = lazy(() => pageLoaders.cashFlow().then((module) => ({ default: module.CashFlowPage })));
+const ReportsPage = lazy(() => pageLoaders.reports().then((module) => ({ default: module.ReportsPage })));
+const GoalsPage = lazy(() => pageLoaders.goals().then((module) => ({ default: module.GoalsPage })));
+const MerchantsPage = lazy(() => pageLoaders.merchants().then((module) => ({ default: module.MerchantsPage })));
+const SettingsPage = lazy(() => pageLoaders.settings().then((module) => ({ default: module.SettingsPage })));
 const PatternsPage = lazy(() => pageLoaders.patterns().then((module) => ({ default: module.PatternsPage })));
 const TransactionsPage = lazy(() =>
   pageLoaders.transactions().then((module) => ({ default: module.TransactionsPage }))
@@ -64,7 +70,12 @@ const AISettingsPage = lazy(() =>
 
 function TransactionsRedirect() {
   const location = useLocation();
-  return <Navigate to={{ pathname: "/receipts", search: location.search, hash: location.hash }} replace />;
+  return <Navigate to={{ pathname: "/transactions", search: location.search, hash: location.hash }} replace />;
+}
+
+function DashboardRedirect() {
+  const location = useLocation();
+  return <Navigate to={{ pathname: "/", search: location.search, hash: location.hash }} replace />;
 }
 
 async function bootstrap() {
@@ -90,6 +101,8 @@ async function bootstrap() {
                     }
                   >
                     <Route index element={<DashboardPage />} />
+                    <Route path="dashboard" element={<DashboardRedirect />} />
+                    <Route path="groceries" element={<GroceriesPage />} />
                     <Route path="explore" element={<ExplorePage />} />
                     <Route
                       path="offers"
@@ -109,9 +122,14 @@ async function bootstrap() {
                     <Route path="imports/ocr" element={<DocumentsUploadPage />} />
                     <Route path="budget" element={<BudgetPage />} />
                     <Route path="bills" element={<BillsPage />} />
+                    <Route path="cash-flow" element={<CashFlowPage />} />
+                    <Route path="reports" element={<ReportsPage />} />
+                    <Route path="goals" element={<GoalsPage />} />
+                    <Route path="merchants" element={<MerchantsPage />} />
+                    <Route path="settings" element={<SettingsPage />} />
                     <Route path="patterns" element={<PatternsPage />} />
-                    <Route path="receipts" element={<TransactionsPage />} />
-                    <Route path="transactions" element={<TransactionsRedirect />} />
+                    <Route path="transactions" element={<TransactionsPage />} />
+                    <Route path="receipts" element={<TransactionsRedirect />} />
                     <Route path="transactions/:transactionId" element={<TransactionDetailPage />} />
                     <Route path="documents/upload" element={<DocumentsUploadPage />} />
                     <Route path="review-queue" element={<ReviewQueuePage />} />

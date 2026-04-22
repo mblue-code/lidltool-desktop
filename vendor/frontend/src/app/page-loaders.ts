@@ -1,5 +1,6 @@
 export const pageLoaders = {
   overview: () => import("@/pages/DashboardPage"),
+  groceries: () => import("@/pages/GroceriesPage"),
   explore: () => import("@/pages/ExplorePage"),
   offers: () => import("@/pages/OffersPage"),
   products: () => import("@/pages/ProductsPage"),
@@ -11,6 +12,11 @@ export const pageLoaders = {
   manualImport: () => import("@/pages/ManualImportPage"),
   budget: () => import("@/pages/BudgetPage"),
   bills: () => import("@/pages/BillsPage"),
+  cashFlow: () => import("@/pages/CashFlowPage"),
+  reports: () => import("@/pages/ReportsPage"),
+  goals: () => import("@/pages/GoalsPage"),
+  merchants: () => import("@/pages/MerchantsPage"),
+  settings: () => import("@/pages/SettingsPage"),
   patterns: () => import("@/pages/PatternsPage"),
   dashboard: () => import("@/pages/DashboardPage"),
   transactions: () => import("@/pages/TransactionsPage"),
@@ -30,6 +36,7 @@ const ROUTE_PREFIX_PRELOADERS: Array<{
   preload: () => Promise<unknown>;
 }> = [
   { prefix: "/explore", preload: pageLoaders.explore },
+  { prefix: "/groceries", preload: pageLoaders.groceries },
   { prefix: "/offers", preload: pageLoaders.offers },
   { prefix: "/products", preload: pageLoaders.products },
   { prefix: "/compare", preload: pageLoaders.compare },
@@ -42,6 +49,10 @@ const ROUTE_PREFIX_PRELOADERS: Array<{
   { prefix: "/imports/ocr", preload: pageLoaders.documentsUpload },
   { prefix: "/budget", preload: pageLoaders.budget },
   { prefix: "/bills", preload: pageLoaders.bills },
+  { prefix: "/cash-flow", preload: pageLoaders.cashFlow },
+  { prefix: "/reports", preload: pageLoaders.reports },
+  { prefix: "/goals", preload: pageLoaders.goals },
+  { prefix: "/merchants", preload: pageLoaders.merchants },
   { prefix: "/patterns", preload: pageLoaders.patterns },
   { prefix: "/transactions", preload: pageLoaders.transactions },
   { prefix: "/documents/upload", preload: pageLoaders.documentsUpload },
@@ -52,6 +63,7 @@ const ROUTE_PREFIX_PRELOADERS: Array<{
   { prefix: "/reliability", preload: pageLoaders.reliability },
   { prefix: "/settings/ai", preload: pageLoaders.aiSettings },
   { prefix: "/settings/users", preload: pageLoaders.usersSettings },
+  { prefix: "/settings", preload: pageLoaders.settings },
   { prefix: "/", preload: pageLoaders.overview }
 ];
 

@@ -3,6 +3,7 @@ import { ThemeProvider } from "next-themes";
 import { ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { DateRangeProvider } from "@/app/date-range-context";
 import { AccessScopeProvider } from "@/app/scope-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { I18nProvider, useI18n } from "@/i18n";
@@ -60,7 +61,9 @@ export function AppProviders({ children }: AppProvidersProps) {
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem enableColorScheme>
         <QueryClientProvider client={queryClient}>
           <AccessScopeProvider>
-            <AppProvidersContent>{children}</AppProvidersContent>
+            <DateRangeProvider>
+              <AppProvidersContent>{children}</AppProvidersContent>
+            </DateRangeProvider>
           </AccessScopeProvider>
         </QueryClientProvider>
       </ThemeProvider>

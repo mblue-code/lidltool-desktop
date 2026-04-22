@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -8,23 +8,17 @@ import {
   CalendarCheck,
   CheckCircle2,
   Database,
-  GitCompare,
   LayoutDashboard,
   LoaderCircle,
   LogOut,
   Menu,
   MessageCircle,
-  Package,
   Plus,
   ReceiptText,
-  Search,
-  ShieldCheck,
   SlidersHorizontal,
   TrendingUp,
-  Users,
   X,
   Wallet,
-  Zap,
   type LucideIcon
 } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -37,8 +31,14 @@ import {
   type ConnectorSyncStatus
 } from "@/api/connectors";
 import { logout } from "@/api/auth";
+import {
+  fetchNotifications,
+  markAllNotificationsRead,
+  updateNotificationReadState
+} from "@/api/notifications";
 import type { CurrentUser } from "@/api/users";
 import { getSidePanelPageContext } from "@/agent/page-context";
+import { useDateRangeContext, type DateRangePreset } from "@/app/date-range-context";
 import { preloadRouteModule } from "@/app/page-loaders";
 import { useAccessScope } from "@/app/scope-provider";
 import { ChatPanel } from "@/components/ChatPanel";
@@ -88,51 +88,29 @@ function isDocumentVisible(): boolean {
 
 const PRIMARY_NAV_GROUPS: NavGroup[] = [
   {
-    labelKey: "nav.group.analytics",
+    labelKey: "nav.group.workspace",
     items: [
-      { to: "/", labelKey: "nav.item.overview", icon: LayoutDashboard },
-      { to: "/receipts", labelKey: "nav.item.receipts", icon: ReceiptText },
-      { to: "/add", labelKey: "nav.item.manualImport", icon: Plus },
+      { to: "/", labelKey: "nav.item.dashboard", icon: LayoutDashboard },
+      { to: "/transactions", labelKey: "nav.item.transactions", icon: ReceiptText },
+      { to: "/groceries", labelKey: "nav.item.groceries", icon: Database },
       { to: "/budget", labelKey: "nav.item.budget", icon: Wallet },
       { to: "/bills", labelKey: "nav.item.bills", icon: CalendarCheck },
-      { to: "/connectors", labelKey: "nav.item.connectors", icon: Database }
+      { to: "/cash-flow", labelKey: "nav.item.cashFlow", icon: TrendingUp },
+      { to: "/reports", labelKey: "nav.item.reports", icon: Activity },
+      { to: "/goals", labelKey: "nav.item.goals", icon: CheckCircle2 },
+      { to: "/merchants", labelKey: "nav.item.merchants", icon: Database },
+      { to: "/settings", labelKey: "nav.item.settings", icon: SlidersHorizontal }
     ]
   }
 ];
 
-const ADVANCED_NAV_GROUPS: NavGroup[] = [
-  {
-    labelKey: "nav.group.data",
-    items: [
-      { to: "/offers", labelKey: "nav.item.offers", icon: BellRing },
-      { to: "/products", labelKey: "nav.item.products", icon: Package },
-      { to: "/compare", labelKey: "nav.item.comparisons", icon: GitCompare },
-      { to: "/patterns", labelKey: "nav.item.patterns", icon: TrendingUp },
-      { to: "/explore", labelKey: "nav.item.explore", icon: Search }
-    ]
-  },
-  {
-    labelKey: "nav.group.data",
-    items: [
-      { to: "/imports/ocr", labelKey: "nav.item.ocrImport", icon: ReceiptText },
-      { to: "/quality", labelKey: "nav.item.dataQuality", icon: ShieldCheck },
-      { to: "/sources", labelKey: "nav.item.sources", icon: Database },
-      { to: "/automations", labelKey: "nav.item.automations", icon: Zap },
-      { to: "/chat", labelKey: "nav.item.chat", icon: MessageCircle }
-    ]
-  },
-  {
-    labelKey: "nav.group.system",
-    items: [
-      { to: "/reliability", labelKey: "nav.item.reliability", icon: Activity, adminOnly: true },
-      { to: "/settings/ai", labelKey: "nav.item.aiAssistant", icon: Zap, adminOnly: true },
-      { to: "/settings/users", labelKey: "nav.item.users", icon: Users, adminOnly: true }
-    ]
-  }
+const QUICK_ACTIONS: NavItem[] = [
+  { to: "/add", labelKey: "nav.item.manualImport", icon: Plus },
+  { to: "/connectors", labelKey: "nav.item.connectors", icon: Database },
+  { to: "/chat", labelKey: "nav.item.chat", icon: MessageCircle }
 ];
 
 const CHAT_PANEL_WIDTH_STORAGE_KEY = "layout.chat_panel_width";
-const ADVANCED_NAV_STORAGE_KEY = "layout.advanced_nav_open";
 const GLOBAL_SYNC_DISMISS_STORAGE_KEY = "app.global_sync_banner.dismissed";
 const CHAT_PANEL_WIDTH_DEFAULT = 420;
 const CHAT_PANEL_WIDTH_MIN = 320;
@@ -152,18 +130,12 @@ function controlCenterMenuLabel(locale: "en" | "de"): string {
   return locale === "de" ? "Kontrollzentrum öffnen" : "Open control center";
 }
 
-function advancedToggleLabel(locale: "en" | "de", expanded: boolean): string {
-  if (locale === "de") {
-    return expanded ? "Erweiterte Werkzeuge ausblenden" : "Erweiterte Werkzeuge anzeigen";
-  }
-  return expanded ? "Hide advanced tools" : "Show advanced tools";
+function notificationEmptyLabel(locale: "en" | "de"): string {
+  return locale === "de" ? "Noch keine Benachrichtigungen." : "No notifications yet.";
 }
 
-function advancedDescription(locale: "en" | "de"): string {
-  if (locale === "de") {
-    return "Anbindungen, Diagnose und Power-User-Werkzeuge bleiben hier, bis Sie sie brauchen.";
-  }
-  return "Connectors, diagnostics, and power-user tools stay here until you need them.";
+function notificationMarkAllReadLabel(locale: "en" | "de"): string {
+  return locale === "de" ? "Alle als gelesen markieren" : "Mark all as read";
 }
 
 function syncBannerStatusLabel(
@@ -497,17 +469,58 @@ function filterNavGroups(groups: NavGroup[], isAdmin: boolean, visibleRoutes: Se
     .filter((group) => group.items.length > 0);
 }
 
+function filterNavItems(items: NavItem[], isAdmin: boolean, visibleRoutes: Set<string>): NavItem[] {
+  return items.filter((item) => (!item.adminOnly || isAdmin) && visibleRoutes.has(item.to));
+}
+
+function formatShellTimestamp(locale: "en" | "de", value: string | null | undefined): string {
+  if (!value) {
+    return locale === "de" ? "Lokale Daten" : "Local data";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) {
+    return locale === "de" ? "Lokale Daten" : "Local data";
+  }
+  return new Intl.DateTimeFormat(locale === "de" ? "de-DE" : "en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function formatTopBarRange(locale: "en" | "de", fromDate: string, toDate: string): string {
+  const start = new Date(fromDate);
+  const end = new Date(toDate);
+  const formatter = new Intl.DateTimeFormat(locale === "de" ? "de-DE" : "en-US", {
+    month: "short",
+    day: "numeric"
+  });
+  return `${formatter.format(start)} - ${formatter.format(end)}`;
+}
+
+function datePresetLabel(locale: "en" | "de", preset: DateRangePreset): string {
+  const labels: Record<DateRangePreset, { en: string; de: string }> = {
+    this_week: { en: "This week", de: "Diese Woche" },
+    last_7_days: { en: "Last 7 days", de: "Letzte 7 Tage" },
+    this_month: { en: "This month", de: "Dieser Monat" },
+    last_month: { en: "Last month", de: "Letzter Monat" },
+    custom: { en: "Custom", de: "Benutzerdefiniert" }
+  };
+  return locale === "de" ? labels[preset].de : labels[preset].en;
+}
+
 function NavItems({ groups }: { groups: NavGroup[] }) {
   const { t } = useI18n();
 
   return (
-    <nav className="flex flex-col gap-5" aria-label={t("nav.primary")}>
+    <nav className="flex flex-col gap-7" aria-label={t("nav.primary")}>
       {groups.map((group, index) => (
         <div key={`${group.labelKey}-${index}`}>
-          <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
+          <p className="mb-3 px-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-sidebar-foreground/35">
             {t(group.labelKey)}
           </p>
-          <div className="flex flex-col gap-0.5">
+          <div className="flex flex-col gap-1.5">
             {group.items.map((item) => (
               <NavLink
                 key={item.to}
@@ -517,14 +530,14 @@ function NavItems({ groups }: { groups: NavGroup[] }) {
                 onFocus={() => preloadRouteModule(item.to)}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-start gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium leading-snug transition-colors",
+                    "flex items-center gap-3 rounded-[24px] px-4 py-3.5 text-left text-base font-medium tracking-[-0.02em] transition-colors",
                     isActive
-                      ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      ? "bg-emerald-500/78 text-white shadow-[0_16px_30px_rgba(16,185,129,0.22)]"
+                      : "text-sidebar-foreground/72 hover:bg-white/7 hover:text-white"
                   )
                 }
               >
-                <item.icon className="mt-0.5 h-4 w-4 shrink-0" />
+                <item.icon className="h-5 w-5 shrink-0" />
                 <span className="min-w-0 flex-1 whitespace-normal">{t(item.labelKey)}</span>
               </NavLink>
             ))}
@@ -541,72 +554,120 @@ function SidebarContent({
   onOpenChat,
   chatOpen,
   aiReady,
-  showAdvancedNav,
-  onToggleAdvancedNav
+  quickActions,
+  connectedMerchantCount,
+  topMerchantLabels,
+  lastUpdatedLabel
 }: {
   user: CurrentUser;
   onLogout: () => void;
   onOpenChat: () => void;
   chatOpen: boolean;
   aiReady: boolean;
-  showAdvancedNav: boolean;
-  onToggleAdvancedNav: () => void;
+  quickActions: NavItem[];
+  connectedMerchantCount: number;
+  topMerchantLabels: string[];
+  lastUpdatedLabel: string;
 }) {
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
   const desktopCapabilities = useDesktopCapabilities();
   const visibleRoutes = useMemo(
     () =>
-      new Set(
-        [...PRIMARY_NAV_GROUPS, ...ADVANCED_NAV_GROUPS]
-          .flatMap((group) => group.items)
-          .filter((item) => isDesktopNavRouteVisible(desktopCapabilities, item.to))
-          .map((item) => item.to)
-      ),
+      new Set([
+        ...PRIMARY_NAV_GROUPS.flatMap((group) => group.items),
+        ...QUICK_ACTIONS
+      ]
+        .filter((item) => isDesktopNavRouteVisible(desktopCapabilities, item.to))
+        .map((item) => item.to)),
     [desktopCapabilities]
   );
   const primaryGroups = filterNavGroups(PRIMARY_NAV_GROUPS, user.is_admin, visibleRoutes);
-  const advancedGroups = filterNavGroups(ADVANCED_NAV_GROUPS, user.is_admin, visibleRoutes);
 
   return (
-    <div className="flex h-full flex-col bg-sidebar">
-      <div className="flex items-center gap-3 border-b border-sidebar-border px-4 py-4">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sidebar-border/70 bg-sidebar-accent/40 p-1.5 shadow-[0_10px_28px_rgba(2,12,24,0.32)]">
+    <div className="flex h-full flex-col bg-[linear-gradient(180deg,rgba(7,20,35,0.98),rgba(5,16,30,0.98))] text-sidebar-foreground">
+      <div className="px-6 pb-4 pt-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/6 p-2 shadow-[0_16px_34px_rgba(2,12,24,0.42)]">
           <img src={logoMark} alt="" aria-hidden="true" className="h-full w-full" />
         </div>
-        <div>
-          <p className="text-sm font-semibold text-sidebar-foreground">{t("app.brand.title")}</p>
-          <p className="text-xs text-sidebar-foreground/50">{t("app.brand.subtitle")}</p>
+          <div>
+            <p className="text-lg font-semibold tracking-tight text-white">{t("app.brand.title")}</p>
+            <p className="text-sm text-sidebar-foreground/60">{t("app.brand.subtitle")}</p>
+          </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-4">
+      <div className="flex-1 overflow-y-auto px-4 pb-6">
         <NavItems groups={primaryGroups} />
 
-        {advancedGroups.length > 0 ? (
-          <div className="mt-6 border-t border-sidebar-border pt-4">
-            <Button
-              variant="ghost"
-            className="h-auto w-full items-start justify-between gap-3 whitespace-normal px-3 py-2.5 text-left leading-snug text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              onClick={onToggleAdvancedNav}
-            >
-            <span className="min-w-0 flex-1 whitespace-normal">{advancedToggleLabel(locale, showAdvancedNav)}</span>
-              <SlidersHorizontal className="h-4 w-4" />
-            </Button>
-            {showAdvancedNav ? (
-              <div className="mt-4">
-                <NavItems groups={advancedGroups} />
-              </div>
-            ) : (
-              <p className="px-3 pt-2 text-xs leading-5 text-sidebar-foreground/40">
-                {advancedDescription(locale)}
-              </p>
-            )}
+        {quickActions.length > 0 ? (
+          <div className="mt-8 rounded-[28px] border border-white/8 bg-white/4 p-4 shadow-[0_20px_44px_rgba(2,12,24,0.26)]">
+            <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-sidebar-foreground/40">
+              {t("nav.group.shortcuts")}
+            </p>
+            <div className="mt-3 grid gap-2">
+              {quickActions.map((item) => (
+                <Button
+                  key={item.to}
+                  asChild
+                  variant="ghost"
+                  className="h-11 justify-start gap-3 rounded-2xl border border-transparent bg-white/4 px-3 text-sidebar-foreground/78 hover:border-white/8 hover:bg-white/8 hover:text-white"
+                >
+                  <Link
+                    to={item.to}
+                    onMouseEnter={() => preloadRouteModule(item.to)}
+                    onFocus={() => preloadRouteModule(item.to)}
+                  >
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    {t(item.labelKey)}
+                  </Link>
+                </Button>
+              ))}
+            </div>
           </div>
         ) : null}
+
+        <div className="mt-8 rounded-[28px] border border-white/8 bg-white/4 p-4 shadow-[0_20px_44px_rgba(2,12,24,0.26)]">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-white">{t("app.sidebar.connectedMerchants")}</p>
+              <p className="text-xs text-sidebar-foreground/55">{t("app.sidebar.connectedMerchantsHint")}</p>
+            </div>
+            <div className="rounded-full bg-white/10 px-3 py-1 text-sm font-semibold text-white">
+              {connectedMerchantCount}
+            </div>
+          </div>
+          {topMerchantLabels.length > 0 ? (
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {topMerchantLabels.slice(0, 6).map((label) => (
+                <div
+                  key={label}
+                  className="rounded-2xl border border-white/8 bg-white/6 px-3 py-3 text-sm font-medium text-sidebar-foreground/82"
+                >
+                  {label}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-sidebar-foreground/55">{t("app.sidebar.connectedMerchantsEmpty")}</p>
+          )}
+        </div>
+
+        <div className="mt-4 rounded-[28px] border border-emerald-400/18 bg-emerald-400/8 p-4 shadow-[0_20px_44px_rgba(2,12,24,0.22)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200/70">
+            {t("app.sidebar.localData")}
+          </p>
+          <p className="mt-3 text-sm font-medium text-white">{lastUpdatedLabel}</p>
+          <p className="mt-1 text-xs text-sidebar-foreground/55">{t("app.sidebar.localDataHint")}</p>
+        </div>
       </div>
 
-      <div className="px-3 pb-2">
-        <Button variant="outline" className="relative w-full justify-start gap-2" onClick={onOpenChat}>
+      <div className="px-4 pb-3">
+        <Button
+          variant="outline"
+          className="relative h-11 w-full justify-start gap-2 rounded-2xl border-white/10 bg-white/4 text-sidebar-foreground/78 hover:bg-white/8 hover:text-white"
+          onClick={onOpenChat}
+        >
           <MessageCircle className="h-4 w-4" />
           {chatOpen ? t("app.chat.close") : t("app.chat.open")}
           {aiReady ? (
@@ -618,10 +679,10 @@ function SidebarContent({
         </Button>
       </div>
 
-      <div className="border-t border-sidebar-border px-3 py-3">
+      <div className="border-t border-white/8 px-4 py-4">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <p className="truncate text-xs font-medium text-sidebar-foreground">
+            <p className="truncate text-xs font-medium text-white">
               {user.display_name ?? user.username}
             </p>
             {user.is_admin ? (
@@ -632,7 +693,7 @@ function SidebarContent({
             variant="ghost"
             size="icon"
             aria-label={t("action.signOut")}
-            className="h-7 w-7 shrink-0 text-sidebar-foreground/50 hover:text-sidebar-foreground"
+            className="h-8 w-8 shrink-0 rounded-full text-sidebar-foreground/60 hover:bg-white/8 hover:text-white"
             onClick={onLogout}
           >
             <LogOut className="h-3.5 w-3.5" />
@@ -656,17 +717,18 @@ type AppShellProps = {
 export function AppShell({ user }: AppShellProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const desktopCapabilities = useDesktopCapabilities();
   const { theme, setTheme } = useTheme();
   const navItems = useMemo(
     () =>
-      [...PRIMARY_NAV_GROUPS, ...ADVANCED_NAV_GROUPS]
-        .flatMap((group) => group.items)
+      [...PRIMARY_NAV_GROUPS.flatMap((group) => group.items), ...QUICK_ACTIONS]
         .filter((item) => isDesktopNavRouteVisible(desktopCapabilities, item.to)),
     [desktopCapabilities]
   );
   const { scope, setScope } = useAccessScope();
   const { locale, setLocale, t } = useI18n();
+  const { preset, fromDate, toDate, setPreset } = useDateRangeContext();
   const canOpenControlCenter = hasDesktopControlCenterBridge();
   const [chatOpen, setChatOpen] = useState(false);
   const [dismissedSyncRun, setDismissedSyncRun] = useState<string | null>(() => {
@@ -678,16 +740,6 @@ export function AppShell({ user }: AppShellProps) {
       return null;
     }
     return storage.getItem(GLOBAL_SYNC_DISMISS_STORAGE_KEY);
-  });
-  const [showAdvancedNav, setShowAdvancedNav] = useState<boolean>(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-    const storage = window.localStorage;
-    if (!storage || typeof storage.getItem !== "function") {
-      return false;
-    }
-    return storage.getItem(ADVANCED_NAV_STORAGE_KEY) === "true";
   });
   const [chatPanelWidth, setChatPanelWidth] = useState<number>(() => {
     if (typeof window === "undefined") {
@@ -712,10 +764,37 @@ export function AppShell({ user }: AppShellProps) {
     queryKey: ["connectors"],
     queryFn: fetchConnectors
   });
+  const notificationsQuery = useQuery({
+    queryKey: ["notifications", "header"],
+    queryFn: () => fetchNotifications(8),
+    refetchInterval: 30_000
+  });
+  const markAllNotificationsReadMutation = useMutation({
+    mutationFn: markAllNotificationsRead,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    }
+  });
+  const markNotificationReadMutation = useMutation({
+    mutationFn: ({ notificationId }: { notificationId: string }) =>
+      updateNotificationReadState(notificationId, false),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    }
+  });
   const globalSyncConnectors =
     connectorsQuery.data?.connectors.filter(
       (connector) => connector.supports_sync && connector.install_state === "installed"
     ) ?? [];
+  const quickActions = useMemo(
+    () =>
+      filterNavItems(
+        QUICK_ACTIONS,
+        user.is_admin,
+        new Set(navItems.map((item) => item.to))
+      ),
+    [navItems, user.is_admin]
+  );
   const connectorSyncQueries = useQueries({
     queries: globalSyncConnectors.map((connector) => ({
       queryKey: ["global-connector-sync-status", connector.source_id],
@@ -755,6 +834,20 @@ export function AppShell({ user }: AppShellProps) {
   const globalSyncRunId = globalSyncStatus ? syncRunKey(globalSyncStatus.sourceId, globalSyncStatus.status) : null;
   const globalSyncDismissed =
     globalSyncStatus?.status.status !== "running" && globalSyncRunId !== null && dismissedSyncRun === globalSyncRunId;
+  const sidebarMerchantLabels = globalSyncConnectors
+    .map((connector) => connector.display_name?.trim() || connector.source_id)
+    .filter(Boolean)
+    .slice(0, 6);
+  const notifications = notificationsQuery.data?.items ?? [];
+  const unreadNotifications = notificationsQuery.data?.unread_count ?? 0;
+  const lastUpdatedLabel = formatShellTimestamp(
+    locale,
+    globalSyncStatus?.status.finished_at ??
+      globalSyncStatus?.status.started_at ??
+      connectorsQuery.data?.generated_at ??
+      null
+  );
+  const topBarRangeLabel = formatTopBarRange(locale, fromDate, toDate);
 
   async function handleLogout() {
     try {
@@ -807,17 +900,6 @@ export function AppShell({ user }: AppShellProps) {
       return;
     }
     const storage = window.localStorage;
-    if (!storage || typeof storage.setItem !== "function") {
-      return;
-    }
-    storage.setItem(ADVANCED_NAV_STORAGE_KEY, String(showAdvancedNav));
-  }, [showAdvancedNav]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const storage = window.localStorage;
     if (!storage || typeof storage.setItem !== "function" || typeof storage.removeItem !== "function") {
       return;
     }
@@ -846,7 +928,7 @@ export function AppShell({ user }: AppShellProps) {
   }, []);
 
   return (
-    <div className="min-h-screen bg-muted/30 dark:bg-transparent">
+    <div className="min-h-screen bg-[#f3f6fb] dark:bg-transparent">
       <a
         href="#main-content"
         className="sr-only rounded-md bg-background px-3 py-2 text-sm font-medium focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50"
@@ -855,15 +937,17 @@ export function AppShell({ user }: AppShellProps) {
       </a>
 
       <div className="flex min-h-screen dark:bg-[var(--app-shell-surface)]">
-        <aside className="hidden w-72 xl:w-80 md:flex md:flex-col" aria-label={t("nav.primary")}>
+        <aside className="hidden w-[320px] shrink-0 xl:w-[348px] md:flex md:flex-col" aria-label={t("nav.primary")}>
           <SidebarContent
             user={user}
             onLogout={handleLogout}
             onOpenChat={handleOpenChat}
             chatOpen={chatOpen}
             aiReady={Boolean(aiReady)}
-            showAdvancedNav={showAdvancedNav}
-            onToggleAdvancedNav={() => setShowAdvancedNav((current) => !current)}
+            quickActions={quickActions}
+            connectedMerchantCount={globalSyncConnectors.length}
+            topMerchantLabels={sidebarMerchantLabels}
+            lastUpdatedLabel={lastUpdatedLabel}
           />
         </aside>
 
@@ -878,8 +962,8 @@ export function AppShell({ user }: AppShellProps) {
             } as CSSProperties
           }
         >
-          <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur-sm dark:bg-[var(--app-header-surface)]">
-            <div className="mx-auto flex w-full max-w-7xl items-center gap-3 px-4 py-3 md:px-6">
+          <header className="sticky top-0 z-30 border-b border-border/50 bg-background/88 backdrop-blur-xl dark:bg-[var(--app-header-surface)]">
+            <div className="mx-auto flex w-full max-w-[1720px] items-center gap-3 px-4 py-4 md:px-6 lg:px-8">
               <div className="md:hidden">
                 <Sheet>
                   <SheetTrigger asChild>
@@ -896,20 +980,111 @@ export function AppShell({ user }: AppShellProps) {
                       }}
                       chatOpen={chatOpen}
                       aiReady={Boolean(aiReady)}
-                      showAdvancedNav={showAdvancedNav}
-                      onToggleAdvancedNav={() => setShowAdvancedNav((current) => !current)}
+                      quickActions={quickActions}
+                      connectedMerchantCount={globalSyncConnectors.length}
+                      topMerchantLabels={sidebarMerchantLabels}
+                      lastUpdatedLabel={lastUpdatedLabel}
                     />
                   </SheetContent>
                 </Sheet>
               </div>
 
-              <div className="flex min-w-0 items-center gap-2">
-                {activeNavItem ? <activeNavItem.icon className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
-                <h1 className="truncate text-sm font-semibold">{t(activeNavItem?.labelKey ?? "app.defaultPageTitle")}</h1>
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  {activeNavItem ? <activeNavItem.icon className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
+                  <h1 className="truncate text-base font-semibold tracking-[-0.02em]">
+                    {t(activeNavItem?.labelKey ?? "app.defaultPageTitle")}
+                  </h1>
+                </div>
+                <p className="mt-1 hidden text-sm text-muted-foreground lg:block">
+                  {t("app.header.desktopSubtitle")}
+                </p>
               </div>
 
               <div className="ml-auto flex items-center gap-2">
-                    <Button asChild size="sm" className="gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="hidden h-12 rounded-2xl px-4 text-sm lg:flex">
+                      <CalendarCheck className="mr-2 h-4 w-4" />
+                      {topBarRangeLabel}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>{datePresetLabel(locale, preset)}</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuRadioGroup value={preset} onValueChange={(value) => setPreset(value as DateRangePreset)}>
+                      <DropdownMenuRadioItem value="this_week">{datePresetLabel(locale, "this_week")}</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="last_7_days">{datePresetLabel(locale, "last_7_days")}</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="this_month">{datePresetLabel(locale, "this_month")}</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="last_month">{datePresetLabel(locale, "last_month")}</DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="relative h-12 w-12 rounded-2xl"
+                      aria-label={t("app.header.notifications")}
+                    >
+                      <BellRing className="h-4 w-4" />
+                      {unreadNotifications > 0 ? (
+                        <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-rose-500" />
+                      ) : null}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" sideOffset={8} className="w-96 max-w-[calc(100vw-2rem)]">
+                    <div className="flex items-center justify-between px-2 py-1.5">
+                      <DropdownMenuLabel className="px-0">{t("app.header.notifications")}</DropdownMenuLabel>
+                      {unreadNotifications > 0 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2 text-xs"
+                          onClick={() => markAllNotificationsReadMutation.mutate()}
+                        >
+                          {notificationMarkAllReadLabel(locale)}
+                        </Button>
+                      ) : null}
+                    </div>
+                    <DropdownMenuSeparator />
+                    {notifications.length > 0 ? (
+                      notifications.map((notification) => (
+                        <DropdownMenuItem
+                          key={notification.id}
+                          className="items-start gap-3 whitespace-normal py-3"
+                          onSelect={() => {
+                            if (notification.unread) {
+                              markNotificationReadMutation.mutate({ notificationId: notification.id });
+                            }
+                            if (notification.href) {
+                              navigate(notification.href);
+                            }
+                          }}
+                        >
+                          <span
+                            className={cn(
+                              "mt-1 h-2.5 w-2.5 shrink-0 rounded-full",
+                              notification.unread ? "bg-rose-500" : "bg-slate-300"
+                            )}
+                          />
+                          <div className="min-w-0 space-y-1">
+                            <p className="font-medium leading-5">{notification.title}</p>
+                            <p className="text-xs leading-5 text-muted-foreground">{notification.body}</p>
+                          </div>
+                        </DropdownMenuItem>
+                      ))
+                    ) : (
+                      <div className="px-3 py-4 text-sm text-muted-foreground">
+                        {notificationEmptyLabel(locale)}
+                      </div>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button asChild size="sm" className="h-12 gap-2 rounded-2xl px-4">
                   <Link to="/add">
                     <Plus className="h-4 w-4" />
                     {t("nav.item.manualImport")}
@@ -918,7 +1093,7 @@ export function AppShell({ user }: AppShellProps) {
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" aria-label={t("app.header.preferences")}>
+                    <Button variant="outline" size="sm" className="h-12 rounded-2xl px-4" aria-label={t("app.header.preferences")}>
                       <SlidersHorizontal className="h-4 w-4" />
                       <span className="hidden sm:inline">{t("app.header.preferences")}</span>
                     </Button>
@@ -984,7 +1159,7 @@ export function AppShell({ user }: AppShellProps) {
           <main
             id="main-content"
             tabIndex={-1}
-            className="mx-auto w-full max-w-7xl flex-1 space-y-6 px-4 py-6 md:px-6"
+            className="mx-auto w-full max-w-[1720px] flex-1 space-y-6 px-4 py-6 md:px-6 lg:px-8 lg:py-8"
           >
             <DesktopRedirectBanner onDismiss={dismissDesktopRedirectNotice} />
             {globalSyncStatus && !globalSyncDismissed ? (

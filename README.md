@@ -7,7 +7,7 @@ plugin-capable, but it is intentionally narrower than the self-hosted server dep
 
 Desktop is for:
 - opening the app when you want a local sync
-- reviewing receipts on the same machine
+- reviewing receipts and finance summaries on the same machine
 - exporting normalized receipt data
 - creating or restoring local backups
 - enabling a small number of receipt plugin packs
@@ -30,6 +30,43 @@ Sprint 16 focuses on product polish instead of new parity scope.
 - backup, export, and restore flows now explain what is included, what stays out of scope, and where misunderstandings are most likely
 - regional edition and market profile context is surfaced more clearly from the existing release metadata
 - partial-runtime states now stay actionable when full frontend assets are missing or release metadata falls back to a safe local shell profile
+
+## Finance workspace shell
+
+The desktop main app now uses a finance-first shell once the user leaves the control center.
+
+Primary navigation:
+- `Dashboard`
+- `Transactions`
+- `Groceries`
+- `Budget`
+- `Bills`
+- `Cash Flow`
+- `Reports`
+- `Goals`
+- `Merchants`
+- `Settings`
+
+Desktop shortcuts stay available without taking over the finance IA:
+- `Add Receipt`
+- `Connectors`
+- `Chat`
+
+Compatibility routing:
+- `/` is the canonical dashboard route
+- `/dashboard` redirects to `/`
+- `/transactions` is the canonical history route
+- `/receipts` redirects to `/transactions`
+
+The new shell keeps the desktop-specific capability policy in place:
+- unsupported self-hosted/operator routes still redirect away inside Electron
+- connectors and desktop tools remain available, but they no longer define the primary product hierarchy
+
+Delivered finance workspace modules:
+- `Dashboard` now includes KPI deltas, spending overview, cash-flow summary, upcoming bills, recent groceries, budget progress, recent activity, merchant summary, insight banner, and top goals.
+- `Groceries`, `Cash Flow`, `Reports`, `Goals`, and `Merchants` are real routes backed by upstream APIs instead of placeholder pages.
+- the top bar notification bell is backed by persisted unread/read state with derived alerts for sync outcomes, bill timing, budget risk, goal risk, and connector attention.
+- report exports now ship from dedicated template payloads rather than ad-hoc page-local fixtures.
 
 ## Intentional desktop deltas after parity
 
@@ -93,9 +130,14 @@ Typical desktop flow:
 2. Land in the control center with the backend still off.
 3. Review the installed edition and market profile.
 4. Install, update, enable, disable, or remove receipt packs if needed.
-5. Either keep the session shell-only for one-off export/backup/import work, or explicitly choose **Open main app** when you want the full UI.
-6. Run a one-off sync from the main app or from the control center using the connector `source_id` entries that the current desktop build exposes.
-7. Review results locally, then export or back up if you want a portable copy.
+5. Either keep the session shell-only for one-off export/backup/import work, or explicitly choose **Open main app** when you want the full finance workspace.
+6. Land in the finance shell and use `Dashboard`, `Transactions`, `Groceries`, `Budget`, `Bills`, `Cash Flow`, `Reports`, `Goals`, `Merchants`, or `Settings` depending on the task.
+7. Run a one-off sync from the main app or from the control center using the connector `source_id` entries that the current desktop build exposes.
+8. Review results locally, then export or back up if you want a portable copy.
+
+Release validation performed for the finance shell:
+- packaged mac desktop artifact rebuilt with `npm run dist:mac`
+- fresh-profile packaged smoke passed with `npm run test:e2e:packaged` against the built `.app` executable
 
 ## Runtime model
 
