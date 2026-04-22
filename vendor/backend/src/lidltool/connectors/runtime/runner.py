@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib
 import importlib.util
 import sys
@@ -47,10 +48,13 @@ def serve(entrypoint: str) -> int:
     request_envelope = parse_runtime_request_envelope(raw_request)
     started = time.monotonic()
     try:
-        runtime = load_entrypoint(entrypoint)
-        if not hasattr(runtime, "invoke_action"):
-            raise TypeError("runtime entrypoint object must define invoke_action(request)")
-        raw_response = runtime.invoke_action(request_envelope.request)
+        # Reserve stdout for the runtime envelope so plugin diagnostics cannot
+        # corrupt the JSON protocol.
+        with contextlib.redirect_stdout(sys.stderr):
+            runtime = load_entrypoint(entrypoint)
+            if not hasattr(runtime, "invoke_action"):
+                raise TypeError("runtime entrypoint object must define invoke_action(request)")
+            raw_response = runtime.invoke_action(request_envelope.request)
         response = _validate_response(raw_response)
     except Exception as exc:
         duration_ms = max(int((time.monotonic() - started) * 1000), 0)

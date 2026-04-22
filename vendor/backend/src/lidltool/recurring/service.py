@@ -467,17 +467,6 @@ class RecurringBillsService:
         clamped_offset = max(offset, 0)
 
         with session_scope(self._session_factory) as session:
-            today = date.today()
-            sync_start = from_date or (_month_start(today) - relativedelta(months=1))
-            sync_end = to_date or _month_end(_month_start(today) + relativedelta(months=11))
-            sync_recurring_occurrences_for_window(
-                session=session,
-                user_id=user_id,
-                start_date=sync_start,
-                end_date=sync_end,
-                bill_id=bill_id,
-                include_inactive_bills=include_inactive_bills,
-            )
             self._roll_occurrence_statuses(session=session, user_id=user_id)
             stmt = select(RecurringBillOccurrence).join(
                 RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id
@@ -525,14 +514,6 @@ class RecurringBillsService:
         review_threshold: float = 0.7,
     ) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
-            today = date.today()
-            sync_recurring_occurrences_for_window(
-                session=session,
-                user_id=user_id,
-                start_date=_month_start(today) - relativedelta(months=1),
-                end_date=_month_end(_month_start(today) + relativedelta(months=5)),
-                bill_id=bill_id,
-            )
             self._roll_occurrence_statuses(session=session, user_id=user_id)
 
             occ_stmt = (
@@ -750,12 +731,6 @@ class RecurringBillsService:
     def get_overview(self, *, user_id: str) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
             today = date.today()
-            sync_recurring_occurrences_for_window(
-                session=session,
-                user_id=user_id,
-                start_date=_month_start(today) - relativedelta(months=1),
-                end_date=_month_end(_month_start(today) + relativedelta(months=11)),
-            )
             self._roll_occurrence_statuses(session=session, user_id=user_id)
 
             active_bills = int(
@@ -851,13 +826,6 @@ class RecurringBillsService:
         last_day = _month_end(first_day)
 
         with session_scope(self._session_factory) as session:
-            sync_recurring_occurrences_for_window(
-                session=session,
-                user_id=user_id,
-                start_date=first_day,
-                end_date=last_day,
-                include_inactive_bills=include_inactive_bills,
-            )
             self._roll_occurrence_statuses(session=session, user_id=user_id)
             stmt = (
                 select(RecurringBillOccurrence, RecurringBill)
@@ -970,13 +938,6 @@ class RecurringBillsService:
         user_id: str,
     ) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
-            today = date.today()
-            sync_recurring_occurrences_for_window(
-                session=session,
-                user_id=user_id,
-                start_date=_month_start(today) - relativedelta(months=1),
-                end_date=_month_end(_month_start(today) + relativedelta(months=11)),
-            )
             self._roll_occurrence_statuses(session=session, user_id=user_id)
             rows = (
                 session.execute(

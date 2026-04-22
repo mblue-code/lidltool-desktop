@@ -52,6 +52,12 @@ class OcrProviderRouter:
                     raise last_error
                 continue
             attempted.append(provider_name)
+            configuration_error = provider.configuration_error()
+            if configuration_error is not None:
+                last_error = RuntimeError(configuration_error)
+                if provider_name == primary and not self._config.ocr_fallback_enabled:
+                    raise last_error
+                continue
             try:
                 result = provider.extract(
                     payload=payload,

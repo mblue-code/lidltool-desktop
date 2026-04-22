@@ -145,11 +145,9 @@ class AuthBrowserRuntimeService:
                         except Exception:
                             is_main_frame = True
                         if is_main_frame:
-                            saw_navigation_away = _record_navigation_away(
-                                candidate=getattr(frame, "url", ""),
-                                start_url=normalized_start_url,
-                                saw_navigation_away=saw_navigation_away,
-                            )
+                            normalized_url = _normalize_browser_url(getattr(frame, "url", ""))
+                            if normalized_url and normalized_url != normalized_start_url:
+                                saw_navigation_away = True
                         capture(getattr(frame, "url", ""), track_navigation_away=is_main_frame)
 
                     page.on("framenavigated", handle_frame_navigation)

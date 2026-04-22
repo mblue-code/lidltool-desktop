@@ -322,25 +322,15 @@ class JobService:
         poll_interval_s: float = 1.0,
         max_jobs: int | None = None,
         idle_exit: bool = False,
-        idle_exit_after_s: float | None = None,
     ) -> int:
         processed = 0
-        idle_timeout = max(float(idle_exit_after_s or 0), 0.0) if idle_exit_after_s is not None else None
-        idle_started_at: float | None = None
         while max_jobs is None or processed < max_jobs:
             claimed = self.run_worker_once()
             if claimed:
                 processed += 1
-                idle_started_at = None
                 continue
             if idle_exit:
                 break
-            if idle_timeout is not None:
-                now = time.monotonic()
-                if idle_started_at is None:
-                    idle_started_at = now
-                elif now - idle_started_at >= idle_timeout:
-                    break
             time.sleep(max(poll_interval_s, 0.1))
         return processed
 
@@ -424,57 +414,6 @@ class JobService:
             "dead_letter": _summary_dead_letter(summary),
             "error": snapshot.error,
         }
-
-    def fail_ocr_job_startup(
-        self,
-        *,
-        job_id: str,
-        document_id: str,
-        error: str,
-    ) -> JobSnapshot | None:
-        now = datetime.now(tz=UTC)
-        with session_scope(self._session_factory) as session:
-            job = session.get(IngestionJob, job_id)
-            if job is None:
-                return None
-
-            summary = dict(job.summary or {})
-            if summary.get("job_type") != "ocr_process":
-                raise RuntimeError("job is not an OCR process job")
-
-            queued_document_id = str(summary.get("document_id", "")).strip()
-            if queued_document_id != document_id:
-                raise RuntimeError("job does not belong to the requested document")
-
-            if job.status in TERMINAL_STATUSES:
-                return _to_snapshot(job)
-
-            if job.status not in {JOB_STATUS_QUEUED, JOB_STATUS_RUNNING}:
-                raise RuntimeError(f"cannot fail OCR startup from status '{job.status}'")
-
-            _append_timeline_event(
-                summary,
-                event="failed",
-                status=JOB_STATUS_FAILED,
-                message="ocr worker failed before the document could be processed",
-                details={"error": error, "failure_kind": "worker_startup_failure"},
-            )
-            summary["failure"] = {
-                "failure_kind": "worker_startup_failure",
-                "error": error,
-            }
-            if job.started_at is None:
-                job.started_at = now
-            job.summary = summary
-            job.error = error
-            job.status = JOB_STATUS_FAILED
-            job.finished_at = now
-
-            document = session.get(Document, document_id)
-            if document is not None:
-                document.ocr_status = "failed"
-
-            return _to_snapshot(job)
 
     def _run_sync_job(self, job_id: str, full: bool) -> None:
         LOGGER.info("job.lifecycle.running job_id=%s", job_id)
@@ -582,18 +521,6 @@ class JobService:
                 message="job started by durable worker",
                 details={"worker_claim": worker_claim},
             )
-            if summary.get("job_type") == "ocr_process":
-                document_id = str(summary.get("document_id", "")).strip()
-                if document_id:
-                    self._set_ocr_document_status(
-                        session=session,
-                        job=job,
-                        document_id=document_id,
-                        summary=summary,
-                        status="starting_engine",
-                        event="starting_engine",
-                        message="ocr worker claimed queued document",
-                    )
             job.summary = summary
             LOGGER.info(
                 "job.worker.claimed job_id=%s worker_id=%s host=%s pid=%s",
@@ -610,13 +537,6 @@ class JobService:
             from lidltool.ingest.ocr_ingest import OcrIngestService
 
             service = OcrIngestService(session_factory=self._session_factory, config=self._config)
-            self._set_ocr_document_status_for_job(
-                job_id=job_id,
-                document_id=document_id,
-                status="processing",
-                event="processing",
-                message="ocr extraction is running",
-            )
             result = self._run_ocr_with_timeout_retry(
                 service=service,
                 job_id=job_id,
@@ -678,54 +598,6 @@ class JobService:
             runtime_host=self._runtime_host,
         ).build_receipt_connector(source_id=source_config.source)
         return resolved.client, resolved.connector
-
-    def _set_ocr_document_status_for_job(
-        self,
-        *,
-        job_id: str,
-        document_id: str,
-        status: str,
-        event: str,
-        message: str,
-    ) -> None:
-        with session_scope(self._session_factory) as session:
-            job = session.get(IngestionJob, job_id)
-            if job is None:
-                return
-            summary = dict(job.summary or {})
-            self._set_ocr_document_status(
-                session=session,
-                job=job,
-                document_id=document_id,
-                summary=summary,
-                status=status,
-                event=event,
-                message=message,
-            )
-            job.summary = summary
-
-    def _set_ocr_document_status(
-        self,
-        *,
-        session: Session,
-        job: IngestionJob,
-        document_id: str,
-        summary: dict[str, Any],
-        status: str,
-        event: str,
-        message: str,
-    ) -> None:
-        document = session.get(Document, document_id)
-        if document is None or document.ocr_status == status:
-            return
-        document.ocr_status = status
-        _append_timeline_event(
-            summary,
-            event=event,
-            status=job.status,
-            message=message,
-            details={"document_status": status},
-        )
 
     def _update_progress(self, *, job_id: str, progress: SyncProgress) -> None:
         with session_scope(self._session_factory) as session:
@@ -1182,7 +1054,6 @@ def run_worker(
     poll_interval_s: float = 1.0,
     max_jobs: int | None = None,
     once: bool = False,
-    idle_exit_after_s: float | None = None,
     stale_after_minutes: int = 30,
 ) -> int:
     config = _worker_config(db=db, config_path=config_path)
@@ -1199,7 +1070,6 @@ def run_worker(
         poll_interval_s=poll_interval_s,
         max_jobs=max_jobs,
         idle_exit=once,
-        idle_exit_after_s=idle_exit_after_s,
     )
 
 
@@ -1210,12 +1080,6 @@ def main() -> None:
     parser.add_argument("--poll-interval-s", type=float, default=1.0)
     parser.add_argument("--max-jobs", type=int, default=None)
     parser.add_argument("--once", action="store_true", help="Exit when queue is empty")
-    parser.add_argument(
-        "--idle-exit-after-s",
-        type=float,
-        default=None,
-        help="Keep polling until the queue stays empty for this many seconds, then exit.",
-    )
     parser.add_argument("--stale-after-minutes", type=int, default=30)
     args = parser.parse_args()
     processed = run_worker(
@@ -1224,7 +1088,6 @@ def main() -> None:
         poll_interval_s=args.poll_interval_s,
         max_jobs=args.max_jobs,
         once=args.once,
-        idle_exit_after_s=args.idle_exit_after_s,
         stale_after_minutes=args.stale_after_minutes,
     )
     LOGGER.info("job.worker.exited processed=%s", processed)

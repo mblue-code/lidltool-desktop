@@ -14,10 +14,6 @@ import {
 } from "@/api/reviewQueue";
 import { fetchAutomationExecutions, fetchAutomationRules } from "@/api/automations";
 import {
-  cancelConnectorBootstrap,
-  fetchConnectorBootstrapStatus,
-} from "@/api/connectors";
-import {
   fetchTransactionDetail,
   fetchTransactionHistory,
   fetchTransactions
@@ -220,56 +216,6 @@ describe("API contract drift checks", () => {
     ]);
 
     await expect(fetchDashboardCards(2026, 2)).rejects.toBeInstanceOf(ApiValidationError);
-  });
-
-  it("parses canceled connector bootstrap states from the desktop backend", async () => {
-    stubApiRoutes([
-      {
-        method: "GET",
-        path: "/api/v1/connectors/dm_de/bootstrap/status",
-        result: {
-          source_id: "dm_de",
-          status: "canceled",
-          command: "python -m lidltool.cli connectors auth bootstrap --source-id dm_de",
-          pid: 4321,
-          started_at: "2026-04-20T16:20:00Z",
-          finished_at: "2026-04-20T16:22:00Z",
-          return_code: -15,
-          output_tail: ["auth bootstrap canceled"],
-          can_cancel: false,
-          remote_login_url: null,
-        }
-      },
-      {
-        method: "POST",
-        path: "/api/v1/connectors/dm_de/bootstrap/cancel",
-        result: {
-          source_id: "dm_de",
-          canceled: true,
-          bootstrap: {
-            source_id: "dm_de",
-            status: "canceled",
-            command: "python -m lidltool.cli connectors auth bootstrap --source-id dm_de",
-            pid: 4321,
-            started_at: "2026-04-20T16:20:00Z",
-            finished_at: "2026-04-20T16:22:00Z",
-            return_code: -15,
-            output_tail: ["auth bootstrap canceled"],
-            can_cancel: false,
-            remote_login_url: null,
-          }
-        }
-      }
-    ]);
-
-    await expect(fetchConnectorBootstrapStatus("dm_de")).resolves.toMatchObject({
-      source_id: "dm_de",
-      status: "canceled",
-    });
-    await expect(cancelConnectorBootstrap("dm_de")).resolves.toMatchObject({
-      canceled: true,
-      bootstrap: { status: "canceled" },
-    });
   });
 
   it("parses transactions contracts from backend-realistic fixtures", async () => {

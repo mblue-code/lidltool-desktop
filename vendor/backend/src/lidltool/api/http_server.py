@@ -50,6 +50,7 @@ from starlette.requests import HTTPConnection
 from starlette.types import Scope
 
 from lidltool.ai.clustering import cluster_products_with_llm, get_cluster_job_progress
+from lidltool.api import route_auth as route_auth_module
 from lidltool.ai.config import (
     get_ai_api_key,
     get_ai_oauth_access_token,
@@ -77,18 +78,25 @@ from lidltool.analytics.advanced import (
 from lidltool.analytics.item_categorizer import resolve_item_categorizer_runtime_client
 from lidltool.analytics.recategorization import recategorize_transactions
 from lidltool.analytics.queries import (
+    dashboard_available_years,
+    dashboard_category_spend_summary,
+    dashboard_merchant_summary,
     dashboard_retailer_composition,
     dashboard_savings_breakdown,
     dashboard_totals,
     dashboard_trends,
     export_receipts,
+    dashboard_window_totals,
+    dashboard_window_transactions,
+    grocery_workspace_summary,
+    merchant_workspace_summary,
     review_queue,
     review_queue_detail,
     search_transactions,
     transaction_detail,
 )
 from lidltool.analytics.query_dsl import parse_dsl_to_query
-from lidltool.analytics.scope import VisibilityContext, parse_scope
+from lidltool.analytics.scope import VisibilityContext, parse_scope, visible_transaction_ids_subquery
 from lidltool.analytics.workbench import (
     add_comparison_group_member,
     comparison_group_series,
@@ -242,10 +250,15 @@ from lidltool.connectors.runtime.execution import ConnectorExecutionService
 from lidltool.db.audit import list_transaction_history
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
 from lidltool.db.models import (
+    CashflowEntry,
     ChatMessage,
     ChatRun,
     ChatThread,
     Document,
+    Goal,
+    Notification,
+    RecurringBill,
+    RecurringBillOccurrence,
     Source,
     Transaction,
     TransactionItem,
@@ -309,8 +322,15 @@ from lidltool.offers.service import (
     update_offer_source,
     update_watchlist as update_offer_watchlist,
 )
+from lidltool.goals.service import create_goal, delete_goal, goals_summary, list_goals, update_goal
+from lidltool.notifications.service import (
+    list_notifications,
+    mark_all_notifications_read,
+    update_notification,
+)
 from lidltool.recurring.service import RecurringBillsService
 from lidltool.reliability.metrics import compute_endpoint_slo_summary, record_endpoint_metric
+from lidltool.reports.service import build_report_templates
 from lidltool.storage.document_storage import DocumentStorage, DocumentStorageError
 
 LOGGER = logging.getLogger(__name__)
@@ -720,6 +740,14 @@ def _status_code_for_exception(exc: Exception) -> int:
 
 def _assert_route_auth_matrix_complete(app: FastAPI) -> None:
     assert_route_auth_policy(app)
+
+
+def _register_runtime_route_auth_policy(policy: RouteAuthPolicy) -> None:
+    key = (policy.method, policy.path)
+    if key in HTTP_ROUTE_AUTH_BY_KEY:
+        return
+    route_auth_module.HTTP_ROUTE_AUTH_MATRIX = (*route_auth_module.HTTP_ROUTE_AUTH_MATRIX, policy)
+    route_auth_module.HTTP_ROUTE_AUTH_BY_KEY[key] = policy
 
 
 def _assert_route_auth_category(request: HTTPConnection, *allowed_categories: str) -> RouteAuthPolicy:
@@ -1223,6 +1251,277 @@ def _dashboard_summary_payload(
             "syncing": sum(1 for item in source_statuses if item["status"] == "syncing"),
         },
         "generated_at": datetime.now(tz=UTC).isoformat(),
+    }
+
+
+def _normalize_dashboard_window(
+    from_date: str | None,
+    to_date: str | None,
+) -> tuple[datetime, datetime]:
+    today = datetime.now(tz=UTC)
+    if from_date:
+        parsed_from = _parse_optional_iso_datetime(from_date)
+    else:
+        parsed_from = today - timedelta(days=6)
+    if to_date:
+        parsed_to = _parse_to_date(to_date)
+    else:
+        parsed_to = today
+    if parsed_from is None or parsed_to is None:
+        raise ValueError("dashboard window could not be parsed")
+    if parsed_from > parsed_to:
+        raise ValueError("from_date must be <= to_date")
+    return parsed_from, parsed_to
+
+
+def _serialize_cashflow_points(entries: list[CashflowEntry]) -> list[dict[str, Any]]:
+    by_day: dict[str, dict[str, int]] = {}
+    for entry in entries:
+        key = entry.effective_date.isoformat()
+        bucket = by_day.setdefault(key, {"inflow_cents": 0, "outflow_cents": 0})
+        if entry.direction == "inflow":
+            bucket["inflow_cents"] += entry.amount_cents
+        else:
+            bucket["outflow_cents"] += entry.amount_cents
+    return [
+        {
+            "date": day,
+            "inflow_cents": values["inflow_cents"],
+            "outflow_cents": values["outflow_cents"],
+            "net_cents": values["inflow_cents"] - values["outflow_cents"],
+        }
+        for day, values in sorted(by_day.items())
+    ]
+
+
+def _dashboard_overview_payload(
+    session: Session,
+    *,
+    user: User,
+    visibility: VisibilityContext,
+    from_dt: datetime,
+    to_dt: datetime,
+) -> dict[str, Any]:
+    previous_days = max(1, (to_dt.date() - from_dt.date()).days + 1)
+    previous_to = from_dt - timedelta(seconds=1)
+    previous_from = previous_to - timedelta(days=previous_days - 1)
+
+    current_totals = dashboard_window_totals(
+        session, from_date=from_dt, to_date=to_dt, visibility=visibility
+    )
+    previous_totals = dashboard_window_totals(
+        session, from_date=previous_from, to_date=previous_to, visibility=visibility
+    )
+    category_rows = dashboard_category_spend_summary(
+        session, from_date=from_dt, to_date=to_dt, visibility=visibility
+    )
+    merchant_rows = dashboard_merchant_summary(
+        session, from_date=from_dt, to_date=to_dt, visibility=visibility
+    )
+    recent_transactions = dashboard_window_transactions(
+        session, from_date=from_dt, to_date=to_dt, visibility=visibility, limit=5
+    )
+
+    cashflow_entries = session.execute(
+        select(CashflowEntry)
+        .where(
+            CashflowEntry.user_id == user.user_id,
+            CashflowEntry.effective_date >= from_dt.date(),
+            CashflowEntry.effective_date <= to_dt.date(),
+        )
+        .order_by(CashflowEntry.effective_date.asc(), CashflowEntry.created_at.asc())
+    ).scalars().all()
+    inflow_cents = sum(
+        entry.amount_cents for entry in cashflow_entries if entry.direction == "inflow"
+    )
+    outflow_cents = sum(
+        entry.amount_cents for entry in cashflow_entries if entry.direction == "outflow"
+    )
+
+    recurring_rows = session.execute(
+        select(
+            RecurringBillOccurrence,
+            RecurringBill,
+        )
+        .join(RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id)
+        .where(
+            RecurringBill.user_id == user.user_id,
+            RecurringBillOccurrence.due_date >= datetime.now(tz=UTC).date(),
+            RecurringBillOccurrence.due_date
+            <= max(datetime.now(tz=UTC).date(), to_dt.date() + timedelta(days=14)),
+            RecurringBillOccurrence.status.in_(("upcoming", "due", "overdue")),
+        )
+        .order_by(RecurringBillOccurrence.due_date.asc(), RecurringBill.name.asc())
+        .limit(6)
+    ).all()
+    upcoming_bill_items = [
+        {
+            "occurrence_id": occurrence.id,
+            "bill_id": bill.id,
+            "bill_name": bill.name,
+            "status": occurrence.status,
+            "due_date": occurrence.due_date.isoformat(),
+            "expected_amount_cents": occurrence.expected_amount_cents,
+        }
+        for occurrence, bill in recurring_rows
+    ]
+
+    grocery_total_stmt = (
+        select(func.coalesce(func.sum(TransactionItem.line_total_cents), 0))
+        .join(Transaction, Transaction.id == TransactionItem.transaction_id)
+        .where(
+            Transaction.purchased_at >= from_dt,
+            Transaction.purchased_at <= to_dt,
+            func.lower(func.coalesce(TransactionItem.category, "")).like("grocer%"),
+        )
+    )
+    grocery_total_stmt = grocery_total_stmt.where(
+        Transaction.id.in_(visible_transaction_ids_subquery(visibility))
+    )
+    grocery_total_cents = int(session.execute(grocery_total_stmt).scalar_one() or 0)
+
+    grocery_trip_count = sum(1 for item in recent_transactions if item.get("store_name"))
+    grocery_average_cents = (
+        round(grocery_total_cents / grocery_trip_count) if grocery_trip_count > 0 else 0
+    )
+
+    budget_rows = budget_utilization(
+        session,
+        year=to_dt.year,
+        month=to_dt.month,
+        visibility=visibility,
+        user_id=user.user_id,
+    )["rows"]
+    goal_rows = goals_summary(
+        session,
+        user_id=user.user_id,
+        visibility=visibility,
+        from_date=from_dt.date(),
+        to_date=to_dt.date(),
+    )["items"]
+
+    activity_items: list[dict[str, Any]] = []
+    for transaction in recent_transactions:
+        activity_items.append(
+            {
+                "id": f"tx:{transaction['id']}",
+                "kind": "transaction",
+                "title": transaction["store_name"] or transaction["source_id"],
+                "subtitle": "Transaction imported",
+                "amount_cents": transaction["total_gross_cents"],
+                "occurred_at": transaction["purchased_at"],
+                "href": f"/transactions/{transaction['id']}",
+            }
+        )
+    for entry in reversed(cashflow_entries[-4:]):
+        activity_items.append(
+            {
+                "id": f"cashflow:{entry.id}",
+                "kind": "cashflow",
+                "title": entry.description or entry.category,
+                "subtitle": entry.direction.capitalize(),
+                "amount_cents": entry.amount_cents,
+                "occurred_at": datetime.combine(entry.effective_date, datetime.min.time(), tzinfo=UTC).isoformat(),
+                "href": "/cash-flow",
+            }
+        )
+    for occurrence, bill in recurring_rows[:3]:
+        activity_items.append(
+            {
+                "id": f"bill:{occurrence.id}",
+                "kind": "bill",
+                "title": bill.name,
+                "subtitle": occurrence.status.capitalize(),
+                "amount_cents": occurrence.expected_amount_cents or 0,
+                "occurred_at": datetime.combine(occurrence.due_date, datetime.min.time(), tzinfo=UTC).isoformat(),
+                "href": "/bills",
+            }
+        )
+    activity_items.sort(key=lambda item: item["occurred_at"], reverse=True)
+
+    spend_delta_cents = current_totals["net_cents"] - previous_totals["net_cents"]
+    spend_delta_pct = 0.0
+    if previous_totals["net_cents"] > 0:
+        spend_delta_pct = round(spend_delta_cents / previous_totals["net_cents"], 4)
+    insight = {
+        "kind": "spend_change",
+        "title": "Spending insight",
+        "body": (
+            "Net spending is lower than the previous comparison window."
+            if spend_delta_cents < 0
+            else "Net spending is higher than the previous comparison window."
+        ),
+        "delta_cents": spend_delta_cents,
+        "delta_pct": spend_delta_pct,
+        "href": "/transactions",
+    }
+
+    def _delta(current: int, previous: int) -> dict[str, Any]:
+        delta_cents = current - previous
+        delta_pct = round(delta_cents / previous, 4) if previous > 0 else None
+        return {
+            "current_cents": current,
+            "previous_cents": previous,
+            "delta_cents": delta_cents,
+            "delta_pct": delta_pct,
+        }
+
+    return {
+        "period": {
+            "from_date": from_dt.date().isoformat(),
+            "to_date": to_dt.date().isoformat(),
+            "comparison_from_date": previous_from.date().isoformat(),
+            "comparison_to_date": previous_to.date().isoformat(),
+            "days": previous_days,
+        },
+        "kpis": {
+            "total_spending": _delta(current_totals["net_cents"], previous_totals["net_cents"]),
+            "groceries": _delta(grocery_total_cents, 0),
+            "cash_inflow": _delta(inflow_cents, 0),
+            "cash_outflow": _delta(outflow_cents, 0),
+        },
+        "spending_overview": {
+            "total_cents": current_totals["net_cents"],
+            "categories": category_rows,
+        },
+        "cash_flow_summary": {
+            "totals": {
+                "inflow_cents": inflow_cents,
+                "outflow_cents": outflow_cents,
+                "net_cents": inflow_cents - outflow_cents,
+            },
+            "points": _serialize_cashflow_points(cashflow_entries),
+        },
+        "upcoming_bills": {
+            "count": len(upcoming_bill_items),
+            "total_expected_cents": sum(
+                item["expected_amount_cents"] or 0 for item in upcoming_bill_items
+            ),
+            "items": upcoming_bill_items,
+        },
+        "recent_grocery_transactions": {
+            "count": len(recent_transactions),
+            "total_cents": grocery_total_cents,
+            "average_basket_cents": grocery_average_cents,
+            "items": recent_transactions,
+        },
+        "budget_progress": {
+            "count": len(budget_rows),
+            "items": budget_rows[:4],
+        },
+        "recent_activity": {
+            "count": len(activity_items),
+            "items": activity_items[:8],
+        },
+        "insight": insight,
+        "merchants": {
+            "count": len(merchant_rows),
+            "items": merchant_rows,
+        },
+        "top_goals": {
+            "count": len(goal_rows),
+            "items": goal_rows[:3],
+        },
     }
 
 
@@ -1839,6 +2138,13 @@ def _connector_process_env(app: FastAPI, *, config: AppConfig) -> dict[str, str]
         env["DISPLAY"] = runtime.display
     env["PYTHONUNBUFFERED"] = "1"
     return env
+
+
+def _prefer_local_auth_browser_for_desktop() -> bool:
+    return (
+        os.getenv("LIDLTOOL_DESKTOP_MODE", "").strip().lower() == "true"
+        or os.getenv("LIDLTOOL_CONNECTOR_HOST_KIND", "").strip().lower() == "electron"
+    )
 
 
 def _start_connector_command_session(
@@ -3251,6 +3557,37 @@ class CashflowEntryUpdateRequest(BaseModel):
     linked_transaction_id: str | None = None
     linked_recurring_occurrence_id: str | None = None
     notes: str | None = None
+
+
+class GoalCreateRequest(BaseModel):
+    name: str
+    goal_type: str
+    target_amount_cents: int
+    currency: str = "EUR"
+    period: str = "current_window"
+    category: str | None = None
+    merchant_name: str | None = None
+    recurring_bill_id: str | None = None
+    target_date: date | None = None
+    notes: str | None = None
+
+
+class GoalUpdateRequest(BaseModel):
+    name: str | None = None
+    goal_type: str | None = None
+    target_amount_cents: int | None = None
+    currency: str | None = None
+    period: str | None = None
+    category: str | None = None
+    merchant_name: str | None = None
+    recurring_bill_id: str | None = None
+    target_date: date | None = None
+    notes: str | None = None
+    active: bool | None = None
+
+
+class NotificationUpdateRequest(BaseModel):
+    unread: bool
 
 
 RecurringBillFrequency = Literal["weekly", "biweekly", "monthly", "quarterly", "yearly"]
@@ -4671,55 +5008,6 @@ def create_app(
                     "job_id": job.id,
                     "status": job.status,
                     "reused": reused,
-                },
-                warnings=warnings,
-                error=None,
-            )
-        except Exception as exc:  # noqa: BLE001
-            return _error_response(exc)
-
-    @app.post("/api/v1/documents/{document_id}/process/fail")
-    async def fail_document_process(
-        request: Request,
-        document_id: str,
-        job_id: str = Form(...),
-        error_message: str = Form(...),
-        scope: str = Form(default="personal"),
-        legacy_api_key: str | None = Form(default=None, alias="api_key"),
-    ) -> Any:
-        try:
-            _reject_legacy_form_api_key(legacy_api_key)
-            await _reject_form_runtime_override_usage(request)
-            context = _resolve_request_context(request)
-            app_config = context.config
-            sessions = context.sessions
-            warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(
-                    request=request, session=session, config=app_config
-                )
-                visibility = _visibility_for_scope(current_user, scope)
-                document = session.get(Document, document_id)
-                if document is None:
-                    raise RuntimeError("document not found")
-                if not _document_is_visible(
-                    session=session, document=document, visibility=visibility
-                ):
-                    raise RuntimeError("document not found")
-            jobs = JobService(session_factory=sessions, config=app_config)
-            snapshot = jobs.fail_ocr_job_startup(
-                job_id=job_id,
-                document_id=document_id,
-                error=error_message.strip() or "ocr worker startup failed",
-            )
-            if snapshot is None:
-                raise RuntimeError("job not found")
-            return _response(
-                True,
-                {
-                    "document_id": document_id,
-                    "job_id": snapshot.id,
-                    "status": snapshot.status,
                 },
                 warnings=warnings,
                 error=None,
@@ -6856,6 +7144,31 @@ def create_app(
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
+    @app.get("/api/v1/dashboard/years")
+    def get_dashboard_years(
+        request: Request,
+        source_ids: str | None = None,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                result = dashboard_available_years(
+                    session,
+                    source_ids=_parse_source_ids(source_ids),
+                    visibility=visibility,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
     @app.get("/api/v1/dashboard/summary")
     def get_dashboard_summary(
         request: Request,
@@ -6886,6 +7199,35 @@ def create_app(
                     year=resolved_year,
                     month=resolved_month,
                     recent_limit=recent_limit,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/dashboard/overview")
+    def get_dashboard_overview(
+        request: Request,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            resolved_from, resolved_to = _normalize_dashboard_window(from_date, to_date)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                result = _dashboard_overview_payload(
+                    session,
+                    user=current_user,
+                    visibility=visibility,
+                    from_dt=resolved_from,
+                    to_dt=resolved_to,
                 )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -7646,22 +7988,23 @@ def create_app(
 
             remote_login_url: str | None = None
             env: dict[str, str] | None = None
-            try:
-                _ensure_vnc_runtime(app)
-                remote_login_url = _novnc_login_url(request)
-                runtime = get_vnc_runtime(app)
-                if runtime is not None:
-                    env = {
-                        "DISPLAY": runtime.display,
-                        "LIDLTOOL_AUTH_BROWSER_MODE": "remote_vnc",
-                    }
-            except Exception as exc:  # noqa: BLE001
-                warnings.append(
-                    _warning(
-                        f"remote browser session unavailable; falling back to local display ({exc})",
-                        code="connector_remote_browser_session_unavailable",
+            if not _prefer_local_auth_browser_for_desktop():
+                try:
+                    _ensure_vnc_runtime(app)
+                    remote_login_url = _novnc_login_url(request)
+                    runtime = get_vnc_runtime(app)
+                    if runtime is not None:
+                        env = {
+                            "DISPLAY": runtime.display,
+                            "LIDLTOOL_AUTH_BROWSER_MODE": "remote_vnc",
+                        }
+                except Exception as exc:  # noqa: BLE001
+                    warnings.append(
+                        _warning(
+                            f"remote browser session unavailable; falling back to local display ({exc})",
+                            code="connector_remote_browser_session_unavailable",
+                        )
                     )
-                )
 
             started = service.start_bootstrap(
                 source_id=source_id,
@@ -8615,6 +8958,300 @@ finally:
                     user_id=current_user.user_id,
                     entry_id=entry_id,
                 )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/groceries/summary")
+    def get_groceries_summary(
+        request: Request,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                from_dt, to_dt = _normalize_dashboard_window(from_date, to_date)
+                result = grocery_workspace_summary(
+                    session,
+                    from_date=from_dt,
+                    to_date=to_dt,
+                    visibility=visibility,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/merchants/summary")
+    def get_merchants_summary(
+        request: Request,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        scope: str = "personal",
+        search: str | None = None,
+        limit: int = 40,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                from_dt, to_dt = _normalize_dashboard_window(from_date, to_date)
+                result = merchant_workspace_summary(
+                    session,
+                    from_date=from_dt,
+                    to_date=to_dt,
+                    visibility=visibility,
+                    search=search,
+                    limit=max(1, min(limit, 100)),
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/reports/templates")
+    def get_report_templates(
+        request: Request,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                from_dt, to_dt = _normalize_dashboard_window(from_date, to_date)
+                result = build_report_templates(
+                    session,
+                    user_id=current_user.user_id,
+                    visibility=visibility,
+                    from_date=from_dt.date(),
+                    to_date=to_dt.date(),
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/goals/summary")
+    def get_goals_summary(
+        request: Request,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                from_dt, to_dt = _normalize_dashboard_window(from_date, to_date)
+                result = goals_summary(
+                    session,
+                    user_id=current_user.user_id,
+                    visibility=visibility,
+                    from_date=from_dt.date(),
+                    to_date=to_dt.date(),
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/goals")
+    def get_goals(
+        request: Request,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        scope: str = "personal",
+        include_inactive: bool = False,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                from_dt, to_dt = _normalize_dashboard_window(from_date, to_date)
+                result = list_goals(
+                    session,
+                    user_id=current_user.user_id,
+                    visibility=visibility,
+                    from_date=from_dt.date(),
+                    to_date=to_dt.date(),
+                    include_inactive=include_inactive,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/goals")
+    def post_goal(
+        request: Request,
+        payload: GoalCreateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                result = create_goal(
+                    session,
+                    user_id=current_user.user_id,
+                    name=payload.name,
+                    goal_type=payload.goal_type,
+                    target_amount_cents=payload.target_amount_cents,
+                    currency=payload.currency,
+                    period=payload.period,
+                    category=payload.category,
+                    merchant_name=payload.merchant_name,
+                    recurring_bill_id=payload.recurring_bill_id,
+                    target_date=payload.target_date,
+                    notes=payload.notes,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.patch("/api/v1/goals/{goal_id}")
+    def patch_goal(
+        request: Request,
+        goal_id: str,
+        payload: GoalUpdateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                result = update_goal(
+                    session,
+                    user_id=current_user.user_id,
+                    goal_id=goal_id,
+                    payload=payload.model_dump(exclude_unset=True),
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.delete("/api/v1/goals/{goal_id}")
+    def remove_goal(
+        request: Request,
+        goal_id: str,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                result = delete_goal(session, user_id=current_user.user_id, goal_id=goal_id)
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/notifications")
+    def get_notifications(
+        request: Request,
+        limit: int = 20,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                result = list_notifications(
+                    session,
+                    user_id=current_user.user_id,
+                    visibility=visibility,
+                    limit=max(1, min(limit, 50)),
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.patch("/api/v1/notifications/{notification_id}")
+    def patch_notification(
+        request: Request,
+        notification_id: str,
+        payload: NotificationUpdateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                result = update_notification(
+                    session,
+                    user_id=current_user.user_id,
+                    notification_id=notification_id,
+                    unread=payload.unread,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/notifications/mark-all-read")
+    def post_mark_all_notifications_read(
+        request: Request,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                result = mark_all_notifications_read(session, user_id=current_user.user_id)
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -10320,6 +10957,9 @@ finally:
     if frontend_dist.exists():
         app.mount("/", SPAStaticFiles(directory=frontend_dist, html=True), name="frontend")
 
+    _register_runtime_route_auth_policy(
+        RouteAuthPolicy("GET", "/api/v1/dashboard/years", "authenticated_principal")
+    )
     _assert_route_auth_matrix_complete(app)
     return app
 

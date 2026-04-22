@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
@@ -77,6 +78,36 @@ def _month_key(year: int, month: int) -> str:
 def _normalize_discount_type(kind: str | None) -> str:
     value = (kind or "unknown").strip().lower()
     return _NORMALIZED_DISCOUNT_TYPE_MAP.get(value, "other")
+
+
+def dashboard_available_years(
+    session: Session,
+    *,
+    source_ids: list[str] | None = None,
+    visibility: VisibilityContext | None = None,
+) -> dict[str, Any]:
+    normalized_source_ids = _normalize_source_ids(source_ids)
+    year_expr = func.strftime("%Y", Transaction.purchased_at)
+    stmt = (
+        select(year_expr)
+        .where(Transaction.purchased_at.is_not(None))
+        .group_by(year_expr)
+        .order_by(year_expr.asc())
+    )
+    stmt = _apply_source_filter(stmt, normalized_source_ids)
+    stmt = _apply_transaction_visibility(stmt, visibility)
+
+    years = [
+        int(raw_year)
+        for (raw_year,) in session.execute(stmt).all()
+        if raw_year is not None and str(raw_year).isdigit()
+    ]
+    return {
+        "years": years,
+        "min_year": years[0] if years else None,
+        "max_year": years[-1] if years else None,
+        "latest_year": years[-1] if years else None,
+    }
 
 
 def _apply_transaction_visibility(stmt: Any, visibility: VisibilityContext | None) -> Any:
@@ -685,6 +716,275 @@ def dashboard_retailer_composition(
             "savings_rate": _safe_ratio(discount_total, gross_total),
         },
         "retailers": retailers,
+    }
+
+
+def dashboard_window_totals(
+    session: Session,
+    *,
+    from_date: datetime,
+    to_date: datetime,
+    visibility: VisibilityContext | None = None,
+) -> dict[str, Any]:
+    stmt = select(
+        func.count(Transaction.id),
+        func.coalesce(func.sum(Transaction.total_gross_cents), 0),
+        func.coalesce(func.sum(Transaction.discount_total_cents), 0),
+    ).where(
+        Transaction.purchased_at >= from_date,
+        Transaction.purchased_at <= to_date,
+    )
+    stmt = _apply_transaction_visibility(stmt, visibility)
+    receipt_count, gross_cents, discount_cents = session.execute(stmt).one()
+    net_cents = int(gross_cents or 0) - int(discount_cents or 0)
+    return {
+        "receipt_count": int(receipt_count or 0),
+        "gross_cents": int(gross_cents or 0),
+        "discount_total_cents": int(discount_cents or 0),
+        "net_cents": net_cents,
+    }
+
+
+def dashboard_category_spend_summary(
+    session: Session,
+    *,
+    from_date: datetime,
+    to_date: datetime,
+    visibility: VisibilityContext | None = None,
+    limit: int = 6,
+) -> list[dict[str, Any]]:
+    stmt = (
+        select(
+            func.coalesce(TransactionItem.category, "uncategorized"),
+            func.coalesce(func.sum(TransactionItem.line_total_cents), 0),
+        )
+        .join(Transaction, Transaction.id == TransactionItem.transaction_id)
+        .where(Transaction.purchased_at >= from_date, Transaction.purchased_at <= to_date)
+        .group_by(func.coalesce(TransactionItem.category, "uncategorized"))
+        .order_by(func.coalesce(func.sum(TransactionItem.line_total_cents), 0).desc())
+        .limit(limit)
+    )
+    stmt = _apply_transaction_visibility(stmt, visibility)
+    rows = session.execute(stmt).all()
+    total_cents = sum(int(amount or 0) for _, amount in rows)
+    return [
+        {
+            "category": str(category or "uncategorized"),
+            "amount_cents": int(amount or 0),
+            "share": _safe_ratio(int(amount or 0), total_cents),
+        }
+        for category, amount in rows
+    ]
+
+
+def dashboard_window_transactions(
+    session: Session,
+    *,
+    from_date: datetime,
+    to_date: datetime,
+    visibility: VisibilityContext | None = None,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    result = search_transactions(
+        session,
+        purchased_from=from_date,
+        purchased_to=to_date + timedelta(seconds=1),
+        limit=limit,
+        offset=0,
+        visibility=visibility,
+    )
+    return result["transactions"]
+
+
+def dashboard_merchant_summary(
+    session: Session,
+    *,
+    from_date: datetime,
+    to_date: datetime,
+    visibility: VisibilityContext | None = None,
+    limit: int = 6,
+) -> list[dict[str, Any]]:
+    stmt = (
+        select(
+            func.coalesce(Transaction.merchant_name, Source.display_name, Transaction.source_id),
+            func.count(Transaction.id),
+            func.coalesce(func.sum(Transaction.total_gross_cents), 0),
+            func.max(Transaction.purchased_at),
+        )
+        .select_from(Transaction)
+        .join(Source, Source.id == Transaction.source_id, isouter=True)
+        .where(Transaction.purchased_at >= from_date, Transaction.purchased_at <= to_date)
+        .group_by(func.coalesce(Transaction.merchant_name, Source.display_name, Transaction.source_id))
+        .order_by(func.coalesce(func.sum(Transaction.total_gross_cents), 0).desc())
+        .limit(limit)
+    )
+    stmt = _apply_transaction_visibility(stmt, visibility)
+    rows = session.execute(stmt).all()
+    return [
+        {
+            "merchant": str(name or "Unknown"),
+            "receipt_count": int(count or 0),
+            "spend_cents": int(spend or 0),
+            "last_purchased_at": last_purchased_at.isoformat() if last_purchased_at else None,
+        }
+        for name, count, spend, last_purchased_at in rows
+    ]
+
+
+def grocery_workspace_summary(
+    session: Session,
+    *,
+    from_date: datetime,
+    to_date: datetime,
+    visibility: VisibilityContext,
+    limit: int = 12,
+) -> dict[str, Any]:
+    transactions = dashboard_window_transactions(
+        session,
+        from_date=from_date,
+        to_date=to_date,
+        visibility=visibility,
+        limit=max(limit, 24),
+    )
+    total_cents = sum(int(item["total_gross_cents"]) for item in transactions)
+    merchant_names = {
+        (item.get("store_name") or item.get("source_id") or "Unknown")
+        for item in transactions
+    }
+    category_rows = (
+        session.execute(
+            select(
+                func.coalesce(TransactionItem.category, "uncategorized"),
+                func.coalesce(func.sum(TransactionItem.line_total_cents), 0),
+            )
+            .join(Transaction, Transaction.id == TransactionItem.transaction_id)
+            .where(
+                Transaction.purchased_at >= from_date,
+                Transaction.purchased_at <= to_date,
+                Transaction.id.in_(visible_transaction_ids_subquery(visibility)),
+            )
+            .group_by(func.coalesce(TransactionItem.category, "uncategorized"))
+            .order_by(func.sum(TransactionItem.line_total_cents).desc())
+            .limit(8)
+        )
+        .all()
+    )
+    return {
+        "period": {
+            "from_date": from_date.date().isoformat(),
+            "to_date": to_date.date().isoformat(),
+        },
+        "totals": {
+            "spend_cents": total_cents,
+            "receipt_count": len(transactions),
+            "average_basket_cents": round(total_cents / len(transactions)) if transactions else 0,
+            "merchant_count": len(merchant_names),
+        },
+        "category_breakdown": [
+            {"category": str(category), "amount_cents": int(amount_cents or 0)}
+            for category, amount_cents in category_rows
+        ],
+        "recent_transactions": transactions[:limit],
+    }
+
+
+def merchant_workspace_summary(
+    session: Session,
+    *,
+    from_date: datetime,
+    to_date: datetime,
+    visibility: VisibilityContext,
+    search: str | None = None,
+    limit: int = 40,
+) -> dict[str, Any]:
+    merchant_filter = (search or "").strip().lower()
+    merchant_buckets: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "merchant": "Unknown",
+            "receipt_count": 0,
+            "spend_cents": 0,
+            "last_purchased_at": None,
+            "source_ids": set(),
+        }
+    )
+    rows = (
+        session.execute(
+            select(Transaction)
+            .where(
+                Transaction.purchased_at >= from_date,
+                Transaction.purchased_at <= to_date,
+                Transaction.id.in_(visible_transaction_ids_subquery(visibility)),
+            )
+            .order_by(Transaction.purchased_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    for tx in rows:
+        merchant_name = (tx.merchant_name or tx.source_id or "Unknown").strip() or "Unknown"
+        if merchant_filter and merchant_filter not in merchant_name.lower():
+            continue
+        bucket = merchant_buckets[merchant_name]
+        bucket["merchant"] = merchant_name
+        bucket["receipt_count"] += 1
+        bucket["spend_cents"] += tx.total_gross_cents
+        bucket["source_ids"].add(tx.source_id)
+        if bucket["last_purchased_at"] is None or tx.purchased_at > bucket["last_purchased_at"]:
+            bucket["last_purchased_at"] = tx.purchased_at
+
+    dominant_category_rows = (
+        session.execute(
+            select(
+                func.coalesce(Transaction.merchant_name, Transaction.source_id, "Unknown"),
+                func.coalesce(TransactionItem.category, "uncategorized"),
+                func.coalesce(func.sum(TransactionItem.line_total_cents), 0),
+            )
+            .join(Transaction, Transaction.id == TransactionItem.transaction_id)
+            .where(
+                Transaction.purchased_at >= from_date,
+                Transaction.purchased_at <= to_date,
+                Transaction.id.in_(visible_transaction_ids_subquery(visibility)),
+            )
+            .group_by(
+                func.coalesce(Transaction.merchant_name, Transaction.source_id, "Unknown"),
+                func.coalesce(TransactionItem.category, "uncategorized"),
+            )
+            .order_by(
+                func.coalesce(Transaction.merchant_name, Transaction.source_id, "Unknown").asc(),
+                func.sum(TransactionItem.line_total_cents).desc(),
+            )
+        )
+        .all()
+    )
+    dominant_categories: dict[str, str] = {}
+    for merchant_name, category, _amount_cents in dominant_category_rows:
+        merchant_key = str(merchant_name or "Unknown")
+        if merchant_key not in dominant_categories:
+            dominant_categories[merchant_key] = str(category)
+
+    items = sorted(
+        (
+            {
+                "merchant": bucket["merchant"],
+                "receipt_count": bucket["receipt_count"],
+                "spend_cents": bucket["spend_cents"],
+                "last_purchased_at": bucket["last_purchased_at"].isoformat()
+                if bucket["last_purchased_at"] is not None
+                else None,
+                "source_ids": sorted(bucket["source_ids"]),
+                "dominant_category": dominant_categories.get(bucket["merchant"]),
+            }
+            for bucket in merchant_buckets.values()
+        ),
+        key=lambda item: (-item["spend_cents"], item["merchant"].lower()),
+    )[:limit]
+    return {
+        "period": {
+            "from_date": from_date.date().isoformat(),
+            "to_date": to_date.date().isoformat(),
+        },
+        "count": len(items),
+        "items": items,
     }
 
 

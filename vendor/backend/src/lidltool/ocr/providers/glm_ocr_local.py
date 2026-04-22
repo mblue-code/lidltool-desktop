@@ -36,6 +36,10 @@ class GlmOcrLocalProvider(OcrProvider):
         mime_type: str,
         file_name: str,
     ) -> OcrResult:
+        configuration_error = self.configuration_error()
+        if configuration_error is not None:
+            raise RuntimeError(configuration_error)
+
         prepared = prepare_document_for_vision(
             payload=payload,
             mime_type=mime_type,
@@ -49,10 +53,6 @@ class GlmOcrLocalProvider(OcrProvider):
                 latency_ms=None,
                 metadata=prepared.metadata,
             )
-
-        configuration_error = self.configuration_error()
-        if configuration_error is not None:
-            raise RuntimeError(configuration_error)
 
         base_url = self._base_url()
         model = self._model()

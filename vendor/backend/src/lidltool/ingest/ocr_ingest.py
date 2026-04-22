@@ -16,19 +16,11 @@ from lidltool.analytics.normalization import load_normalization_bundle
 from lidltool.analytics.product_matcher import resolve_product_for_item
 from lidltool.config import AppConfig
 from lidltool.db.engine import session_scope
-from lidltool.db.models import (
-    DiscountEvent,
-    Document,
-    Source,
-    SourceAccount,
-    Transaction,
-    TransactionItem,
-)
+from lidltool.db.models import Document, Source, SourceAccount, Transaction, TransactionItem
 from lidltool.ingest.ocr_source import OCR_SOURCE_ID, ensure_ocr_source
 from lidltool.ocr.confidence import confidence_metadata
-from lidltool.ocr.parser import ParsedReceipt, normalize_receipt_text
+from lidltool.ocr.parser import normalize_receipt_text, parse_receipt_text, to_canonical_payload
 from lidltool.ocr.provider_router import OcrProviderRouter
-from lidltool.ocr.structured_extraction import OcrStructuredReceiptExtractor
 from lidltool.storage.document_storage import DocumentStorage
 
 
@@ -38,7 +30,6 @@ class OcrIngestService:
         self._config = config
         self._storage = DocumentStorage(config)
         self._router = OcrProviderRouter(config)
-        self._structured_extractor = OcrStructuredReceiptExtractor(config=config)
         self._item_categorizer_model_client = resolve_item_categorizer_runtime_client(config)
 
     def process_document(self, *, document_id: str) -> dict[str, Any]:
@@ -54,35 +45,14 @@ class OcrIngestService:
                 file_name=file_name,
             )
             normalized_ocr_text = normalize_receipt_text(routed.result.text)
-            structured = self._structured_extractor.extract(
-                ocr_text=normalized_ocr_text,
-                fallback_store=document.file_name or "OCR Upload",
-                ocr_provider=routed.result.provider,
-                ocr_metadata=routed.result.metadata or {},
-            )
-            parsed = _parsed_receipt_from_canonical(structured.canonical)
+            parsed = parse_receipt_text(normalized_ocr_text)
             metadata = confidence_metadata(
                 parsed=parsed,
                 ocr=routed.result,
                 fallback_used=routed.fallback_used,
                 attempted_providers=routed.attempted_providers,
             )
-            structured_failure_mode = structured.source == "parser"
-            if structured_failure_mode:
-                metadata["transaction_confidence"] = min(
-                    float(metadata.get("transaction_confidence") or 0.0),
-                    0.49,
-                )
-                metadata["item_confidence_scores"] = [
-                    min(float(score), 0.49)
-                    for score in list(metadata.get("item_confidence_scores") or [])
-                ]
-                metadata["item_confidence_mean"] = (
-                    min(float(metadata["item_confidence_mean"]), 0.49)
-                    if metadata.get("item_confidence_mean") is not None
-                    else None
-                )
-            metadata["structured_failure_mode"] = structured_failure_mode
+            canonical = to_canonical_payload(parsed)
             uploader_user_id = None
             if isinstance(document.metadata_json, dict):
                 raw_uploader_user_id = document.metadata_json.get("uploader_user_id")
@@ -98,13 +68,11 @@ class OcrIngestService:
                 source=source,
                 source_account=account,
                 config=self._config,
-                canonical=structured.canonical,
-                extracted_discounts=structured.discounts,
+                canonical=canonical,
                 raw_payload={
                     "ocr_text": normalized_ocr_text,
                     "ocr_metadata": routed.result.metadata or {},
                     "confidence": metadata,
-                    "structured_extraction": structured.metadata,
                 },
                 transaction_confidence=metadata["transaction_confidence"],
                 item_confidence_scores=metadata["item_confidence_scores"],
@@ -115,8 +83,6 @@ class OcrIngestService:
             document.ocr_status = "completed"
             tx_confidence = float(tx.confidence) if tx.confidence is not None else None
             if (
-                structured_failure_mode
-                or
                 tx_confidence is None
                 or tx_confidence < self._config.ocr_review_confidence_threshold
             ):
@@ -135,7 +101,6 @@ class OcrIngestService:
                     "ocr_attempted_providers": routed.attempted_providers,
                     "ocr_metadata": routed.result.metadata or {},
                     "confidence": metadata,
-                    "structured_extraction": structured.metadata,
                 }
             )
             document.metadata_json = merged_metadata
@@ -181,7 +146,6 @@ def _upsert_ocr_transaction(
     source_account: SourceAccount,
     config: AppConfig,
     canonical: dict[str, object],
-    extracted_discounts: list[dict[str, object]],
     raw_payload: dict[str, object],
     transaction_confidence: float,
     item_confidence_scores: list[float],
@@ -209,12 +173,6 @@ def _upsert_ocr_transaction(
         if isinstance(total_gross_raw, int | float | str) and str(total_gross_raw).strip() != ""
         else 0
     )
-    discount_total_raw = canonical.get("discount_total_cents")
-    discount_total_cents = (
-        int(discount_total_raw)
-        if isinstance(discount_total_raw, int | float | str) and str(discount_total_raw).strip() != ""
-        else None
-    )
 
     tx = Transaction(
         source_id=source.id,
@@ -225,7 +183,7 @@ def _upsert_ocr_transaction(
         merchant_name=str(canonical.get("store_name") or normalization_bundle.source),
         total_gross_cents=total_gross_cents,
         currency=str(canonical.get("currency") or "EUR"),
-        discount_total_cents=discount_total_cents,
+        discount_total_cents=None,
         confidence=_to_decimal(transaction_confidence),
         fingerprint=str(canonical.get("fingerprint") or None),
         raw_payload=raw_payload,
@@ -235,7 +193,6 @@ def _upsert_ocr_transaction(
 
     raw_items = canonical.get("items")
     items = raw_items if isinstance(raw_items, list) else []
-    line_to_item: dict[int, TransactionItem] = {}
     item_rows: list[TransactionItem] = []
     categorization_requests: list[CategorizationRequest] = []
     for idx, item in enumerate(items, start=1):
@@ -254,7 +211,6 @@ def _upsert_ocr_transaction(
             ),
             line_total_cents=int(item.get("line_total_cents") or 0),
             category=str(item.get("category")) if item.get("category") is not None else None,
-            is_deposit=bool(item.get("is_deposit")),
             confidence=_to_decimal(score),
             raw_payload=item,
         )
@@ -302,42 +258,6 @@ def _upsert_ocr_transaction(
         item_row.category_source_value = categorization_result.source_value
         item_row.category_version = categorization_result.version
         session.add(item_row)
-        session.flush()
-        line_to_item[item_row.line_no] = item_row
-
-    for discount in extracted_discounts:
-        if not isinstance(discount, dict):
-            continue
-        raw_amount = discount.get("amount_cents")
-        amount_cents = int(raw_amount) if isinstance(raw_amount, int | float | str) else 0
-        amount_cents = abs(amount_cents)
-        if amount_cents <= 0:
-            continue
-        line_no_raw = discount.get("line_no")
-        discount_line_no = int(line_no_raw) if isinstance(line_no_raw, int | float | str) else None
-        discount_item_row = line_to_item.get(discount_line_no) if discount_line_no is not None else None
-        discount_type = str(discount.get("type") or "discount").lower()
-        source_label = str(discount.get("label") or discount_type)
-        event = DiscountEvent(
-            transaction_id=tx.id,
-            transaction_item_id=discount_item_row.id if discount_item_row is not None else None,
-            source=source.id,
-            source_discount_code=(
-                str(discount["promotion_id"]) if discount.get("promotion_id") is not None else None
-            ),
-            source_label=source_label,
-            scope=str(discount.get("scope") or ("item" if discount_item_row is not None else "transaction")),
-            amount_cents=amount_cents,
-            currency=str(canonical.get("currency") or "EUR"),
-            kind=discount_type,
-            subkind=str(discount.get("subkind")) if discount.get("subkind") is not None else None,
-            funded_by=str(discount.get("funded_by") or "retailer"),
-            is_loyalty_program=(
-                "bonus" in source_label.lower() or "coupon" in source_label.lower()
-            ),
-            raw_payload={"ocr_discount": discount},
-        )
-        session.add(event)
     return tx
 
 
@@ -345,22 +265,3 @@ def _to_decimal(value: float | None) -> Decimal | None:
     if value is None:
         return None
     return Decimal(f"{value:.3f}")
-
-
-def _parsed_receipt_from_canonical(canonical: dict[str, object]) -> ParsedReceipt:
-    purchased_at_raw = str(canonical.get("purchased_at") or "")
-    purchased_at = datetime.fromisoformat(purchased_at_raw) if purchased_at_raw else datetime.now(tz=UTC)
-    if purchased_at.tzinfo is None:
-        purchased_at = purchased_at.replace(tzinfo=UTC)
-    return ParsedReceipt(
-        source_transaction_id=str(canonical.get("id") or "ocr:unknown"),
-        purchased_at=purchased_at,
-        store_name=str(canonical.get("store_name") or "OCR Upload"),
-        total_gross_cents=int(canonical.get("total_gross_cents") or 0),
-        currency=str(canonical.get("currency") or "EUR"),
-        items=[
-            item
-            for item in (canonical.get("items") if isinstance(canonical.get("items"), list) else [])
-            if isinstance(item, dict)
-        ],
-    )

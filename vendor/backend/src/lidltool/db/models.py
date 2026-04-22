@@ -151,6 +151,12 @@ class User(Base):
     cashflow_entries: Mapped[list[CashflowEntry]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    goals: Mapped[list[Goal]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    notifications: Mapped[list[Notification]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     offer_source_configs: Mapped[list[OfferSourceConfig]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -1218,7 +1224,66 @@ class CashflowEntry(Base):
     user: Mapped[User] = relationship(back_populates="cashflow_entries")
 
 
+class Goal(Base):
+    __tablename__ = "goals"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    goal_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    target_amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="EUR")
+    period: Mapped[str] = mapped_column(String, nullable=False, default="current_window")
+    category: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    merchant_name: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    recurring_bill_id: Mapped[str | None] = mapped_column(
+        ForeignKey("recurring_bills.id"), nullable=True, index=True
+    )
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    user: Mapped[User] = relationship(back_populates="goals")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String, nullable=False, default="info", index=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    href: Mapped[str | None] = mapped_column(String, nullable=True)
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    unread: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    user: Mapped[User] = relationship(back_populates="notifications")
+
+
 Index("ix_budget_rules_user_active", BudgetRule.user_id, BudgetRule.active)
 Index("ux_budget_months_user_period", BudgetMonth.user_id, BudgetMonth.year, BudgetMonth.month, unique=True)
 Index("ix_cashflow_entries_user_date", CashflowEntry.user_id, CashflowEntry.effective_date)
 Index("ix_cashflow_entries_user_direction", CashflowEntry.user_id, CashflowEntry.direction)
+Index("ix_goals_user_active", Goal.user_id, Goal.active)
+Index("ix_goals_user_type", Goal.user_id, Goal.goal_type)
+Index("ix_notifications_user_unread", Notification.user_id, Notification.unread)
+Index("ix_notifications_user_occurred", Notification.user_id, Notification.occurred_at)
+Index("ux_notifications_user_fingerprint", Notification.user_id, Notification.fingerprint, unique=True)

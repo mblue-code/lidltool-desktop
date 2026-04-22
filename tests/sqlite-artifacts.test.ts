@@ -28,11 +28,28 @@ path = sys.argv[1]
 connection = sqlite3.connect(path)
 connection.execute("PRAGMA journal_mode=WAL")
 connection.execute("CREATE TABLE users (username TEXT PRIMARY KEY, is_admin INTEGER NOT NULL)")
+connection.execute(
+    """
+    CREATE TABLE budget_rules (
+        rule_id TEXT PRIMARY KEY,
+        user_id TEXT,
+        scope_type TEXT NOT NULL,
+        scope_value TEXT NOT NULL,
+        period TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        active INTEGER NOT NULL
+    )
+    """
+)
 for index, username in enumerate(sys.argv[2:]):
     connection.execute(
         "INSERT INTO users (username, is_admin) VALUES (?, ?)",
         (username, 1 if index == 0 else 0),
     )
+connection.execute(
+    "INSERT INTO budget_rules (rule_id, user_id, scope_type, scope_value, period, amount_cents, active) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ("rule-1", sys.argv[2], "category", "groceries", "month", 5000, 1),
+)
 connection.commit()
 connection.close()
       `,

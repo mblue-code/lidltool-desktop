@@ -195,7 +195,6 @@ class AppConfig(BaseModel):
     ocr_request_timeout_s: float = 120.0
     ocr_request_retries: int = 1
     ocr_review_confidence_threshold: float = 0.80
-    ocr_structured_vision_enabled: bool = True
     ocr_glm_local_base_url: str | None = None
     ocr_glm_local_api_mode: str = "openai_chat_completion"
     ocr_glm_local_api_key: str | None = None
@@ -642,10 +641,6 @@ def build_config(config_path: Path | None = None, db_override: Path | None = Non
     if os.getenv("LIDLTOOL_OCR_REVIEW_CONFIDENCE_THRESHOLD"):
         env_overrides["ocr_review_confidence_threshold"] = float(
             os.getenv("LIDLTOOL_OCR_REVIEW_CONFIDENCE_THRESHOLD", "0.80")
-        )
-    if os.getenv("LIDLTOOL_OCR_STRUCTURED_VISION_ENABLED"):
-        env_overrides["ocr_structured_vision_enabled"] = (
-            os.getenv("LIDLTOOL_OCR_STRUCTURED_VISION_ENABLED", "true").lower() == "true"
         )
     if os.getenv("LIDLTOOL_OCR_GLM_LOCAL_BASE_URL"):
         env_overrides["ocr_glm_local_base_url"] = os.getenv("LIDLTOOL_OCR_GLM_LOCAL_BASE_URL")

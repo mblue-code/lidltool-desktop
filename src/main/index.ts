@@ -239,7 +239,7 @@ async function loadStartupSurface(window: BrowserWindow): Promise<void> {
       );
       return;
     }
-    await loadControlCenter(window);
+    await openMainApp(window);
   } catch (err) {
     await loadControlCenter(window, String(err));
   }

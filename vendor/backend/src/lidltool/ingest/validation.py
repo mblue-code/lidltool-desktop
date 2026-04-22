@@ -443,10 +443,18 @@ def _validate_cross_field_consistency(
         item.line_total_cents for item in normalized_record.items if bool(item.is_deposit)
     )
     extracted_discount_total = sum(row.amount_cents for row in discount_rows)
-    candidate_totals = {item_total_cents, item_total_cents - extracted_discount_total}
+    base_totals = {
+        item_total_cents,
+        item_total_cents + deposit_total_cents,
+    }
+    candidate_totals = set(base_totals)
+    if extracted_discount_total > 0:
+        candidate_totals.update(
+            base_total - extracted_discount_total for base_total in base_totals
+        )
     if normalized_record.discount_total_cents > 0:
-        candidate_totals.add(
-            item_total_cents - normalized_record.discount_total_cents
+        candidate_totals.update(
+            base_total - normalized_record.discount_total_cents for base_total in base_totals
         )
     matched_total_cents = min(
         candidate_totals,

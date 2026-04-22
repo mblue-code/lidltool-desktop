@@ -22,11 +22,13 @@ Desktop is intentionally different from self-hosted.
 
 Important desktop truths:
 
-- Desktop opens into the Control Center first.
-- The Python backend is off until the user explicitly opens the main app or starts the local service.
+- Successful packaged launches should open the finance workspace directly.
+- The Control Center remains available as a fallback surface and explicit local-tools surface.
 - Desktop is for occasional local use, not always-on server behavior.
 - Some self-hosted routes are intentionally unsupported in desktop.
 - Receipt packs are locally installed ZIPs in the desktop profile, not self-hosted plugin directories.
+- The finance-first shell is the primary product hierarchy, but supporting analysis and import routes outside the main left-nav are still part of the desktop app and must be covered during QA.
+- Chrome is not a substitute test surface for desktop QA. It is only an allowed fallback for specific connector-auth recovery steps called out below.
 
 Do not file desktop bugs just because desktop lacks self-hosted-only surfaces.
 
@@ -35,8 +37,13 @@ Do not file desktop bugs just because desktop lacks self-hosted-only surfaces.
 The current desktop route policy treats these as supported or testable:
 
 - `/`
+- `/dashboard` redirecting to `/`
 - `/login`
 - `/setup`
+- `/transactions`
+- `/receipts` redirecting to `/transactions`
+- `/transactions/...`
+- `/groceries`
 - `/explore`
 - `/products`
 - `/compare`
@@ -48,14 +55,17 @@ The current desktop route policy treats these as supported or testable:
 - `/imports/ocr`
 - `/budget`
 - `/bills`
+- `/cash-flow`
+- `/reports`
+- `/goals`
+- `/merchants`
+- `/settings`
+- `/settings/ai`
+- `/settings/users`
 - `/patterns`
-- `/receipts`
-- `/transactions/...`
 - `/documents/upload`
 - `/review-queue`
 - `/chat`
-- `/settings/ai`
-- `/settings/users`
 
 The current desktop route policy intentionally treats these as unsupported and redirecting:
 
@@ -72,11 +82,12 @@ The run should prove:
 
 - the newest desktop app can be rebuilt cleanly
 - the packaged desktop app can launch from a truly fresh profile
-- the Control Center behaves correctly
-- the main app can be opened from desktop
+- the success-path boot lands in the finance app
+- the finance-first shell and its supporting financial outlook surfaces are the primary packaged-app experience
+- the Control Center still behaves correctly when explicitly opened or when fallback is triggered
 - desktop auth/setup works on a fresh database
 - desktop connector and receipt-pack workflows work
-- receipt import, OCR, review queue, analytics, budget, recurring bills, backup/export/restore, and key admin surfaces work
+- receipt import, OCR, review queue, analysis surfaces, budget, recurring bills, cash flow, goals, reports, merchants, backup/export/restore, and key admin surfaces work
 - every connector that is actually usable in the desktop build is genuinely attempted
 
 ## Final Deliverables
@@ -97,7 +108,9 @@ Use this report structure:
 - Fresh-state prep performed
 - Credentials and assets used
 - Desktop surfaces passed
+- Finance workspace regression coverage
 - Connector results
+- OCR regression result
 - Failures
 - External blockers
 - Risks
@@ -270,55 +283,64 @@ Do not launch it against the normal user profile.
 ## Execution Order
 
 1. Fresh rebuild and fresh-profile launch
-2. Control Center checks
-3. Open main app and first-user setup
-4. Empty-state route sweep
-5. Receipt-pack import and connector inventory
-6. Connector setup and sync matrix
-7. Manual import
-8. OCR, review queue, and quality
-9. Receipts, dashboard, products, comparisons, patterns, sources
-10. Budget and bills
-11. Backup, export, and restore
-12. Users settings and permission checks
-13. Optional AI and chat
+2. Success-path startup and first-user setup
+3. Empty-state route sweep
+4. Receipt-pack import and connector inventory
+5. Connector setup and sync matrix
+6. Manual import
+7. OCR, review queue, and quality
+8. Finance workspace and supporting analysis retest after data import
+9. Budget, bills, goals, cash flow, and reports
+10. Backup, export, and restore
+11. Users settings and permission checks
+12. Control Center reachability and fallback behavior
+13. AI settings and chat
 14. Final evidence capture
 
-## Phase 1: Control Center
+## Phase 1: Success-Path Startup And First-User Setup
 
-Desktop should land in the Control Center first.
+On a healthy packaged build, desktop should boot into the full finance app, not the fallback shell.
 
 Verify:
 
 - the app launches without immediately crashing
-- Control Center loads before the full app
-- desktop runtime diagnostics are visible if exposed
-- the app explains whether it is in full-app-ready, reduced fallback, or control-center-only mode
-- backend is not already running before explicitly opening the main app
+- the packaged app auto-starts the backend on the success path
+- the initial route lands on fresh first-user setup, login, or the finance app depending on the profile state
+- on a fresh database, the app reaches first-user setup without needing a manual Control Center hop
 
-## Phase 2: Open Main App And First-User Setup
+For a fresh profile:
 
-1. Choose `Open main app` from the desktop shell.
-2. Confirm the app lands on fresh first-user setup.
-3. Create the admin user.
-4. Confirm redirect into the desktop main app.
-5. Log out once.
-6. Log back in as admin.
+1. Confirm the app lands on fresh first-user setup.
+2. Create the admin user.
+3. Confirm redirect into the desktop finance app.
+4. Log out once.
+5. Log back in as admin.
 
-## Phase 3: Empty-State Desktop Route Sweep
+## Phase 2: Empty-State Desktop Route Sweep
 
 Visit:
 
 - `/`
+- `/dashboard`
+- `/transactions`
 - `/receipts`
+- `/groceries`
 - `/add`
+- `/imports/manual`
+- `/documents/upload`
+- `/review-queue`
 - `/budget`
 - `/bills`
+- `/cash-flow`
+- `/reports`
+- `/goals`
+- `/merchants`
 - `/connectors`
 - `/imports/ocr`
 - `/quality`
 - `/sources`
 - `/chat`
+- `/settings`
 - `/settings/ai`
 - `/settings/users`
 - `/explore`
@@ -333,7 +355,7 @@ Expected unsupported-route behavior to verify, not fail:
 - `/automation-inbox`
 - `/reliability`
 
-## Phase 4: Desktop Receipt-Packs And Connector Inventory
+## Phase 3: Desktop Receipt-Packs And Connector Inventory
 
 Use the desktop Connectors page as the source of truth.
 
@@ -346,7 +368,7 @@ Import local ZIP receipt packs from `dist_plugin_packs` for:
 
 Enable imported packs explicitly if required.
 
-## Phase 5: Connector Matrix
+## Phase 4: Connector Matrix
 
 Use:
 
@@ -375,7 +397,7 @@ Attempt every connector the desktop build actually shows, including any Amazon m
 1. Import ZIP
 2. Enable it
 3. Try normal setup first
-4. If challenged, log into REWE in normal Chrome, leave the tab open, rerun setup
+4. If challenged, log into REWE in normal Chrome only for the merchant-auth recovery step, leave the tab open, rerun setup in desktop, and keep all actual route and UI validation inside the packaged desktop app
 5. Run sync
 6. Verify downstream receipts
 
@@ -409,17 +431,19 @@ If surfaced by desktop:
 2. Enable it
 3. If no session bundle is provided, verify the pack imports and the setup flow clearly requests the bundle
 
-## Phase 6: Downstream Data Verification
+## Phase 5: Downstream Data Verification
 
 After each successful connector sync, verify:
 
-- `/receipts` shows rows from that source
+- `/transactions` shows rows from that source
+- `/receipts` redirects to `/transactions` if exercised
 - filtering works
 - at least one detail page opens
 - `/sources` reflects the source
 - dashboard values update
+- groceries, merchants, and reports reflect the new data where applicable
 
-## Phase 7: Manual Import
+## Phase 6: Manual Import
 
 Create at least three manual transactions in `/add`:
 
@@ -427,41 +451,71 @@ Create at least three manual transactions in `/add`:
 - `QA Internet Provider` total `44.99`
 - `QA Streaming` total `10.99`
 
-Verify they appear in `/receipts`.
+Verify they appear in `/transactions`.
 
-## Phase 8: OCR, Review Queue, And Quality
+## Phase 7: OCR, Review Queue, And Quality
 
-### OCR happy path
+Treat `/documents/upload` as the current OCR entrypoint and `/imports/ocr` as the older compatibility entrypoint that still needs explicit coverage if surfaced.
+
+### OCR happy path on `/documents/upload`
 
 1. Upload `/Volumes/macminiExtern/DevData/Downloads/38c2032c-3acb-4a74-ac58-7ae5b5af820c.pdf`
-2. Process it
-3. Approve if acceptable
-4. Verify a transaction appears
+2. Confirm OCR starts automatically or can be started from the packaged UI as rendered
+3. Capture visible status or timeline states
+4. If the UI exposes `Run OCR again`, use it once
+5. Approve if acceptable
+6. Verify the handoff into `/review-queue`
+7. Verify a downstream transaction appears
 
 ### OCR alternate or review path
 
 1. Upload `/Volumes/macminiExtern/DevData/Downloads/REWE eBon Apr 18 2026.pdf`
-2. Process it
-3. Use `/quality` and `/review-queue` as needed
-4. Edit or approve as appropriate
+2. Use `/quality` and `/review-queue` as needed
+3. Edit, reject, or approve as appropriate
+4. Record whether it lands in review, approves cleanly, or fails
 
 ### OCR rejection path
 
 If a review item is suitable for rejection, test rejection once and verify the rejected state is visible.
 
-## Phase 9: Analytics And Insight Pages
+### OCR compatibility entrypoint
+
+If `/imports/ocr` is still surfaced:
+
+1. Open it explicitly
+2. Verify whether it is a separate flow or an alias to the current document-upload surface
+3. Record what happened in the report
+
+### OCR failure triage
+
+If OCR is broken, determine which layer appears broken instead of stopping at a generic failure:
+
+- document upload
+- OCR job start
+- OCR worker wake-up
+- status polling or timeline updates
+- review queue handoff
+- approval creating a downstream transaction
+
+## Phase 8: Finance Workspace And Insight Pages
 
 Test:
 
 - dashboard
-- receipts list
+- transactions history
+- groceries
+- merchants
+- reports
+- goals
+- cash flow
 - products
 - compare
 - patterns
 - explore
 - sources
+- quality
 
-## Phase 10: Budget And Bills
+## Phase 9: Budget, Bills, Goals, And Cash Flow
 
 Create a synthetic monthly budget and several cashflow entries.
 
@@ -474,7 +528,13 @@ Create recurring bills:
 
 Generate occurrences and reconcile at least one to a manual transaction.
 
-## Phase 11: Backup, Export, And Restore
+Also verify:
+
+- at least one goal can be created and remains visible afterward
+- budget reconciliation candidates reflect available imported or manual data when present
+- reports can export at least one JSON payload
+
+## Phase 10: Backup, Export, And Restore
 
 Test desktop-native:
 
@@ -482,7 +542,7 @@ Test desktop-native:
 - export
 - restore, if safe to do in the fresh test profile
 
-## Phase 12: Users And Permissions
+## Phase 11: Users And Permissions
 
 Create a non-admin user from `/settings/users`.
 
@@ -491,11 +551,32 @@ Verify:
 - admin sees admin controls
 - non-admin does not see restricted details
 
-## Phase 13: Optional AI And Chat
+## Phase 12: Control Center Reachability And Fallback
 
-Only if AI is configured.
+The Control Center is no longer the default success-path shell, but it still needs coverage as a fallback and local-tools surface.
 
-Otherwise verify the page loads and handles missing config cleanly.
+Verify at least one of these:
+
+- open the Control Center from setup, login, or in-app preferences and confirm it loads
+- launch once with a known-bad backend override and confirm fallback Control Center appears with diagnostic messaging
+
+If the fallback Control Center appears, verify:
+
+- desktop runtime diagnostics are visible if exposed
+- the app explains whether it is in reduced fallback mode or control-center-only mode
+- local tool actions that are still owned by the Control Center behave coherently
+
+## Phase 13: AI Settings And Chat
+
+In `/settings/ai`, explicitly verify:
+
+- the ChatGPT / Codex connection area loads
+- chat model selection is separate from item categorization settings
+- item categorization controls render cleanly
+- OCR provider controls render, including primary provider and fallback controls
+- if a safe save round-trip is possible without introducing secrets or unsafe side effects, test one and record the result
+
+For `/chat`, verify it opens from the packaged desktop shell and handles missing AI configuration cleanly when AI is not configured.
 
 ## Failure Logging Requirements
 
@@ -507,6 +588,7 @@ Whenever something fails:
 4. note the packaged app path used
 5. note the fresh profile path used
 6. capture relevant terminal output
+7. if Chrome fallback was used, record that it was limited to connector auth recovery only
 
 ## Minimum Success Bar
 
@@ -515,14 +597,14 @@ At minimum, prove:
 - fresh packaged desktop build
 - fresh profile launch
 - first-user setup on a fresh DB
-- Control Center works
-- main app opens
+- finance app boots directly on the success path
+- finance workspace routes and supporting analysis surfaces load from the packaged app
+- Control Center remains reachable as a fallback/manual tool surface
 - receipt-pack import works
 - usable desktop connectors are genuinely attempted
 - manual import works
 - OCR and review queue work
 - core analytics pages work
-- budget and bills work
+- budget, bills, cash flow, goals, and reports work
 - backup/export works
 - admin vs non-admin behavior is checked
-

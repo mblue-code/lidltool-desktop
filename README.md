@@ -25,7 +25,8 @@ Sprint 16 focuses on product polish instead of new parity scope.
 
 - first-run and control-center copy now frames desktop as a local occasional-use product
 - the control center now explains whether you are in full-app-ready mode, reduced fallback mode, or control-center-only mode
-- desktop now boots into the low-power control center first and starts the Python backend only when the user explicitly opens the main app or starts the local service
+- desktop now boots directly into the finance app on the healthy success path
+- the control center remains available as a fallback surface and explicit local-tools surface
 - receipt pack management is organized around installed packs, trusted optional packs, explicit enable/disable/remove actions, and clearer trust/support labels
 - backup, export, and restore flows now explain what is included, what stays out of scope, and where misunderstandings are most likely
 - regional edition and market profile context is surfaced more clearly from the existing release metadata
@@ -33,7 +34,7 @@ Sprint 16 focuses on product polish instead of new parity scope.
 
 ## Finance workspace shell
 
-The desktop main app now uses a finance-first shell once the user leaves the control center.
+The desktop main app now uses a finance-first shell as the default success-path surface.
 
 Primary navigation:
 - `Dashboard`
@@ -127,13 +128,12 @@ Future backlog note:
 
 Typical desktop flow:
 1. Open the app.
-2. Land in the control center with the backend still off.
-3. Review the installed edition and market profile.
-4. Install, update, enable, disable, or remove receipt packs if needed.
-5. Either keep the session shell-only for one-off export/backup/import work, or explicitly choose **Open main app** when you want the full finance workspace.
-6. Land in the finance shell and use `Dashboard`, `Transactions`, `Groceries`, `Budget`, `Bills`, `Cash Flow`, `Reports`, `Goals`, `Merchants`, or `Settings` depending on the task.
-7. Run a one-off sync from the main app or from the control center using the connector `source_id` entries that the current desktop build exposes.
-8. Review results locally, then export or back up if you want a portable copy.
+2. Land in the finance shell on `/setup`, `/login`, or `/` depending on local profile state.
+3. Use `Dashboard`, `Transactions`, `Groceries`, `Budget`, `Bills`, `Cash Flow`, `Reports`, `Goals`, `Merchants`, or `Settings` depending on the task.
+4. Install, update, enable, disable, or remove receipt packs if needed from the connectors flow.
+5. Run a one-off sync from the main app using the connector `source_id` entries that the current desktop build exposes.
+6. Review results locally, then export or back up if you want a portable copy.
+7. Open the Control Center only when you explicitly want fallback diagnostics or local-tools flows outside the main app.
 
 Release validation performed for the finance shell:
 - packaged mac desktop artifact rebuilt with `npm run dist:mac`
@@ -141,13 +141,13 @@ Release validation performed for the finance shell:
 
 ## Runtime model
 
-- Desktop launches into the Electron control center first.
-- The Python backend stays off at idle until the user explicitly chooses **Open main app** or **Start local service**.
+- Desktop launches into the finance app on the healthy success path.
+- The Python backend is started automatically for the healthy full-app path.
 - Full-app startup runs the backend in desktop-minimal mode, which disables server-style background work such as the automation scheduler and connector live-sync thread.
 - OCR processing is handled by a second Python worker process, separate from the Electron main process and the HTTP server process.
 - The OCR worker is started on demand when the user triggers document OCR, not during normal backend startup.
 - The desktop OCR worker exits after an idle timeout so the bundled OCR runtime does not stay resident in RAM between imports.
-- One-off control-center tasks such as export, backup, restore, and most shell-managed workflows remain short-lived subprocesses instead of depending on a resident backend.
+- The Control Center remains available for fallback diagnostics and short-lived local tool actions that do not require the full app to own the primary experience.
 - Preferred backend executable order:
   1. `LIDLTOOL_EXECUTABLE` env override
   2. bundled backend venv inside packaged app (`resources/backend-venv/...`)
@@ -675,8 +675,7 @@ APP="$PWD/dist_electron/mac-arm64/LidlTool Desktop.app/Contents/MacOS/LidlTool D
 ```
 
 Verified via DevTools target + health probe:
-- desktop launched into the control center first
-- opening the main app transitioned to the full UI on `http://127.0.0.1:18765/setup`
+- desktop launched directly into the full UI on `http://127.0.0.1:18765/setup`
 - backend health endpoint `GET /api/v1/health` returned `200`
 
 Failure fallback command:

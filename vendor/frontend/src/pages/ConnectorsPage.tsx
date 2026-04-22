@@ -104,6 +104,13 @@ function byLocale(locale: SupportedLocale, en: string, de: string): string {
   return locale === "de" ? de : en;
 }
 
+function openExternalUrl(url: string | null | undefined): void {
+  if (!url) {
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 const CONNECTOR_FIELD_LOCALIZATION_OVERRIDES: Record<
   string,
   Record<string, { label?: string; description?: string; placeholder?: string }>
@@ -2133,6 +2140,18 @@ export function ConnectorsPage() {
               <AlertTitle>{bootstrapTitle}</AlertTitle>
               <AlertDescription className="space-y-2">
                 {bootstrapSummary ? <p>{bootstrapSummary}</p> : null}
+                {bootstrapStatus?.status === "running" && bootstrapStatus.remote_login_url ? (
+                  <div className="pt-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openExternalUrl(bootstrapStatus.remote_login_url)}
+                    >
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      {byLocale(locale, "Open sign-in window", "Anmeldefenster öffnen")}
+                    </Button>
+                  </div>
+                ) : null}
                 {viewerIsAdmin && bootstrapLines.length > 0 ? (
                   <details className="rounded-md border border-border/50 bg-background/60 p-3">
                     <summary className="cursor-pointer text-xs font-medium text-foreground">

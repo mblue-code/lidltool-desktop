@@ -1,255 +1,432 @@
-# LidlTool Desktop QA Rerun
+# Desktop QA Report
 
-Date: 2026-04-20
+## Build tested
 
-## Build Tested
-
-- Repo path: `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop`
-- Git revision: `fbb0105602922582e61b32c6251240d256a92d09`
-- Desktop package version: `0.1.0`
+- Repo: `/Volumes/macminiExtern/lidl-receipts-cli`
+- Desktop workspace: `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop`
+- Branch: `main`
+- Commit: `84463bb436ad31ae52fd36112d27537e3ab09c00`
+- Date: `2026-04-22`
 - Packaged app tested: `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/dist_electron/mac-arm64/LidlTool Desktop.app`
-- Fresh profile path: `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data`
-- Pack storage used: `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data/plugins/receipt-packs`
+- Fresh artifact timestamps:
+  - app: `Apr 22 16:26:14 2026`
+  - dmg: `Apr 22 16:27:08 2026`
+  - zip: `Apr 22 16:27:30 2026`
+- Build/install commands run successfully:
+  - `npm run vendor:sync`
+  - `npm run frontend:install`
+  - `npm run build`
+  - `npm run dist:with-backend`
+- Primary packaged launch log:
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/logs/launch.log`
 
-## Fresh-State Prep Performed
+Build result: `PASS`
 
-This rerun was executed from a full local wipe and rebuild. No old build output, desktop profile, SQLite DB, plugin ZIP, Electron userData, or prior `qa-report.md` was reused.
+## Fresh-state prep performed
 
-Deleted before QA:
+- Killed running `LidlTool Desktop` processes
+- Deleted stale desktop state per runbook before the rerun:
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.backend/venv`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/build/frontend-dist`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/build/backend-src`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/build/backend-venv`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/dist_electron`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/dist_plugin_packs`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/out`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/output/playwright`
+- Rebuilt the packaged app from scratch
+- Rebuilt local receipt-pack ZIPs:
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/dist_plugin_packs/local.dm_de-0.1.0-electron.zip`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/dist_plugin_packs/local.rewe_de-0.2.0-electron.zip`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/dist_plugin_packs/local.kaufland_de-0.1.0-electron.zip`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/dist_plugin_packs/local.netto_plus_de-0.1.0-electron.zip`
+- Primary fresh profile used:
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data`
 
-- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp`
-- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.backend`
-- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/build`
-- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/dist_electron`
-- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/dist_plugin_packs`
-- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/out`
-- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/output/playwright`
-- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/node_modules`
-- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/vendor/frontend/node_modules`
-- Previous desktop report and stale evidence files
-- `~/Library/Application Support/lidltool-desktop`
-- `~/Library/Application Support/LidlTool Desktop`
-- `~/Library/Caches/lidltool-desktop`
-- `~/Library/Preferences/com.lidltool.desktop.plist`
-- Related crash / diagnostic artifacts and stale Python cache dirs
+Fresh-state result: `PASS`
 
-Rebuilt from scratch:
+## Credentials and assets used
 
-- `npm ci`
-- `npm run vendor:sync`
-- `npm run frontend:install`
-- `npm run dist:with-backend`
-- Local receipt-pack ZIP rebuilds:
-  - `local.dm_de-0.1.0-electron.zip`
-  - `local.rewe_de-0.2.0-electron.zip`
-  - `local.kaufland_de-0.1.0-electron.zip`
-  - `local.netto_plus_de-0.1.0-electron.zip`
+- Temporary desktop-local admin created:
+  - username: `qaadmin2`
+  - password: not recorded here
+- Merchant credentials from `detailed.md` used only where needed:
+  - `dm DE`
+  - `REWE DE`
+- `Lidl Plus DE` and `Amazon DE` remained under the runbook's intentionally-limited handling when live login or human verification was required
+- `Netto Plus DE` full sync remained blocked because no session bundle file was provided
+- OCR files used:
+  - primary: `/Volumes/macminiExtern/DevData/Downloads/38c2032c-3acb-4a74-ac58-7ae5b5af820c.pdf`
+  - alternate: `/Volumes/macminiExtern/DevData/Downloads/REWE eBon Apr 18 2026.pdf`
+- Chrome fallback used: `Yes`, but only for the REWE merchant-auth recovery step
 
-Launch used:
+## Desktop surfaces passed
 
-- `HOME=/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-home-clean`
-- `TMPDIR=/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-tmp-clean`
-- `LIDLTOOL_DESKTOP_USER_DATA_DIR=/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data`
-- App args included `--user-data-dir=/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data`
+### Passed
 
-Result:
+- Fresh packaged launch reached `/setup`
+- First-user setup succeeded on a fresh profile
+- Success-path redirect reached the finance shell instead of dropping into Control Center
+- Finance shell sidebar rendered and routed for the visible finance workspace:
+  - `/`
+  - `/transactions`
+  - `/groceries`
+  - `/budget`
+  - `/bills`
+  - `/cash-flow`
+  - `/reports`
+  - `/goals`
+  - `/merchants`
+  - `/settings`
+  - `/settings/ai`
+  - `/connectors`
+  - `/add`
+  - `/imports/ocr`
+  - `/review-queue`
+  - `/chat`
+- Manual entry flow from `/add` worked and created a real transaction
+- `/transactions` showed the created manual row
+- `/groceries` showed the new purchase in recent activity
+- `/budget` month save worked
+- `/budget` cashflow entry creation worked
+- `/cash-flow` rendered the created ledger row
+- `/goals` goal creation worked
+- `/reports` rendered templates and exported JSON successfully to:
+  - `/Volumes/macminiExtern/DevData/Downloads/monthly-overview.json`
+- `/settings/ai` loaded correctly and a safe no-secret save round-trip succeeded with:
+  - `Erfolgreich gespeichert`
+  - `Chat model settings saved`
+- `/chat` opened and handled the unconfigured state without crashing; created thread remained `inaktiv`
+- `/settings/users` backup path now succeeds on the fresh profile
 
-- `PASS`: packaged desktop app rebuilt from newest local code and launched against the fresh profile override.
-- `PASS`: fresh Control Center pack storage matched the fresh profile path.
+### Partial / limited
 
-## Credentials And Assets Used
+- `/bills` loaded and opened the recurring-bill modal, but this rerun only verified validation behavior; no successful recurring bill save was confirmed
+- `/review-queue` loaded and stayed coherent, but remained empty because OCR never advanced beyond `queued`
+- `/add` is the visible desktop entrypoint for OCR; `/documents/upload` was not surfaced separately in the packaged UI during this rerun
 
-- Credentials were read from `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/detailed.md` and used without reproducing secrets here.
-- OCR assets used:
-  - `/Volumes/macminiExtern/DevData/Downloads/38c2032c-3acb-4a74-ac58-7ae5b5af820c.pdf`
-  - `/Volumes/macminiExtern/DevData/Downloads/REWE eBon Apr 18 2026.pdf` was not needed after the primary OCR defect reproduced.
-- Temporary local QA users created during this rerun:
-  - `qa-admin-desktop`
-  - `qa-viewer-desktop`
+### Not directly exercised in the packaged UI
 
-## Receipt Packs Imported
+These routes are present in desktop route policy but are non-nav-visible in the current packaged IA, so they were not directly opened through a surfaced desktop path during this rerun:
+
+- `/sources`
+- `/explore`
+- `/products`
+- `/compare`
+- `/quality`
+- `/patterns`
+- `/documents/upload`
+- `/imports/manual`
+
+Diagnostic note:
+
+- `vendor/frontend/src/lib/desktop-route-policy.ts` marks these as `enabled` or `preview`, but `navVisible: false`
+- The user-facing packaged UI surfaced `/imports/ocr` from `/add`, not a distinct `/documents/upload` entry
+
+## Finance workspace regression coverage
+
+Status: `PASS_WITH_FINDINGS`
+
+### Success-path boot
+
+- Healthy packaged launch landed in `/setup`
+- First-user setup completed
+- Redirect into the finance workspace succeeded
+- Control Center was not the default landing screen on the healthy success path
+
+### Finance shell navigation and current layout
+
+- Sidebar rendered the current finance-first desktop destinations
+- Visible shell routing was stable across repeated navigation
+- Dashboard layout matched the intended finance workspace rather than the older Control Center-first shell
+
+### Explicit route coverage
+
+Verified in the real packaged finance shell:
+
+- `/`
+- `/transactions`
+- `/groceries`
+- `/budget`
+- `/bills`
+- `/cash-flow`
+- `/reports`
+- `/goals`
+- `/merchants`
+- `/settings`
+- `/settings/ai`
+- `/connectors`
+- `/add`
+- `/imports/ocr`
+- `/review-queue`
+- `/chat`
+- `/settings/users`
+
+Observed behavior instead of separate route entry:
+
+- `/receipts` was not explicitly opened, but `/transactions` is the canonical history view in the current shell
+- `/documents/upload` was not separately surfaced; the visible OCR path is `/add -> /imports/ocr`
+
+### Current finance-shell findings
+
+- Dashboard, groceries, cashflow, and merchants do not agree on aggregates after local data creation
+- Route loading itself is stable, but several summary cards stay zero while downstream tables/lists update
+
+## Connector matrix
+
+Imported ZIPs:
 
 - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/dist_plugin_packs/local.dm_de-0.1.0-electron.zip`
 - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/dist_plugin_packs/local.rewe_de-0.2.0-electron.zip`
 - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/dist_plugin_packs/local.kaufland_de-0.1.0-electron.zip`
 - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/dist_plugin_packs/local.netto_plus_de-0.1.0-electron.zip`
 
-## Desktop Surfaces Passed
+| Connector | Result | Notes |
+| --- | --- | --- |
+| dm DE | `PARTIAL_PASS_WITH_FINDING` | Pack imported and activated. Merchant login still shows `Es ist ein Fehler aufgetreten, bitte versuche es später erneut.` on the first submit, but the identical second submit succeeds. After packaged-app relaunch the card becomes `Bereit` and a real cookie-backed session file exists. A persisted import is still not proven from the packaged UI in the retest profile. |
+| REWE DE | `PASS_WITH_FINDING` | Pack imported and activated. Chrome recovery path was used exactly per runbook. Normal Chrome reached a real logged-in REWE purchase-history page, and the packaged app created persisted `source`, `source_account`, `receipt`, `transaction`, and `sync_state` rows in the fresh retest profile. The connector card can still look stale and fall back to `Einrichtung nötig` despite the completed import. |
+| Kaufland DE | `PARTIAL_PASS_WITH_FINDING` | Pack imported and activated. Setup collects the connector-local field and now opens a real visible Chrome-for-Testing login window instead of the old invisible auth path. The login page reaches a real submit state, but no authenticated Kaufland state is persisted and no callback/import is proven. |
+| Netto Plus DE | `BLOCKED_EXTERNAL` | Pack imported and setup UX rendered. Full sync remained blocked because the required Android session bundle JSON was not provided. Evidence: `08-netto-pre-activation-modal.png`. |
+| Lidl Plus DE | `BLOCKED_EXTERNAL` | Setup card surfaced, but full autonomous completion remains intentionally out of scope because live verification can require human-only factors. |
+| Amazon DE | `BLOCKED_EXTERNAL` | Setup card surfaced, but full autonomous completion remains intentionally out of scope because live verification can require human-only factors. |
+| Amazon FR | `NOT_IN_SCOPE` | Optional per runbook. |
+| Amazon GB | `NOT_IN_SCOPE` | Optional per runbook. |
+| Rossmann DE | `PARTIAL` | Present as a surfaced merchant chip in the desktop shell, but no dedicated connector flow was exercised in this rerun. |
 
-- `PASS`: fresh Control Center load and pack import on the fresh profile
-- `PASS`: first-user setup on the fresh DB
-- `PASS`: admin login and logout on the fresh DB
-- `PASS`: main supported routes exercised in this rerun:
-  - `/`
-  - `/receipts`
-  - `/add`
-  - `/budget`
-  - `/bills`
-  - `/connectors`
-  - `/imports/ocr`
-  - `/quality`
-  - `/sources`
-  - `/chat`
-  - `/settings/ai`
-  - `/settings/users`
-  - `/explore`
-  - `/products`
-  - `/compare`
-  - `/patterns`
-- `PASS`: manual import flow
-  - Created `QA Grocery Manual` `23,45 €`
-  - Created `QA Internet Provider` `44,99 €`
-  - Created `QA Streaming` `10,99 €`
-- `PASS`: recurring bills CRUD baseline
-  - Created `QA Internet Provider`
-  - Created `QA Streaming`
-  - Created `QA Rent`
-- `PASS`: budget month settings save
-- `PASS`: budget cash-flow entry save
-- `PASS`: budget rule save
-- `PASS`: backup package creation from the packaged desktop UI
-- `PASS`: non-admin main-app restriction baseline
-  - Viewer nav removed the `SYSTEM` section and hid the `Benutzer` surface
+Connector summary:
 
-## Connector Matrix
+- Chrome fallback was used only for REWE auth recovery
+- No Chrome desktop-route validation was used
+- The packaged connector rail is now usable enough to import/activate packs and start merchant flows
+- Live connector completion remains inconsistent and preview-gated
 
-| Surface | Status | Notes |
-|---|---|---|
-| dm | `FAIL_PRODUCT` | Browser handoff did not open the actual auth page from desktop. After manual Chrome login to `Meine Einkäufe`, desktop never consumed the auth state. No `source_accounts` row was created for `dm_de`. |
-| dm cancel path | `FAIL_PRODUCT` | Exact UI text reproduced: `Abbrechen fehlgeschlagen` and `Invalid API payload: [ { "code": "invalid_value", "values": [ "idle", "running", "succeeded", "failed" ], "path": [ "bootstrap", "status" ], "message": "Invalid input" } ]`. |
-| REWE | `FAIL_PRODUCT` | UI reported a saved Chrome-based REWE login as ready, but DB state still showed no usable REWE account/session. `connector_config_state` remained `dm_de|local.dm_de|null` and `rewe_de|local.rewe_de|null`; no REWE `source_accounts` row existed. |
-| Amazon (built-in) | `FAIL_PRODUCT` + `PASS_PARTIAL_EXTERNAL_BLOCKER` | Desktop emitted the same local-browser fallback warning without actually opening a login surface in Chrome. Credentials were intentionally not provided, so full sync remained externally blocked even after the handoff defect reproduced. |
-| Lidl Plus (built-in) | `PASS_PARTIAL_EXTERNAL_BLOCKER` | Desktop surface present. Human-only verification / credentials were intentionally not provided, so full sync was not completed. |
-| Netto Plus | `PASS_PARTIAL_EXTERNAL_BLOCKER` | Pack import and setup UX passed. Full sync was blocked exactly as expected because no Android session bundle was provided. |
-| Kaufland pack presence | `PASS` | Pack installed and enabled in Control Center. No distinct failing setup path reproduced in this rerun. |
+### Connector rerun addendum (`2026-04-22`, fresh packaged profile)
+
+Fresh profile reused for this focused rerun:
+
+- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data-retest`
+
+Focused connectors rerun:
+
+- `dm DE`
+- `REWE DE`
+- `Kaufland DE`
+
+Observed updates versus the earlier matrix:
+
+- `dm DE`
+  - The first login submit still fails at `signin.dm.de` with the exact merchant text:
+    - `Es ist ein Fehler aufgetreten, bitte versuche es später erneut.`
+  - Re-submitting the identical preserved form a second time succeeds and advances past the merchant error.
+  - The packaged app does not finalize that state immediately. It remains stuck in `Anmeldung läuft` until the packaged app is restarted.
+  - After relaunch, `dm` becomes `Bereit` and shows `Belege importieren`.
+  - The retest profile contains a real authenticated session file at:
+    - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data-retest/config/connector_plugin_runtime/dm_de/data/dm_storage_state.json`
+  - That file contains real cookies and origins, so auth is saved.
+  - A downstream persisted import is still not proven in this retest profile; no `dm_de` `source`, `source_account`, `receipt`, `transaction`, or `sync_state` row was created from the packaged UI path during this pass.
+
+- `REWE DE`
+  - Pack import and activation still succeed.
+  - Normal Chrome recovery remains valid and reaches a real logged-in REWE account page with visible `Meine Einkäufe im Markt` eBon entries.
+  - This rerun did complete a real packaged-app import. Fresh-profile SQLite evidence:
+    - `sources = 1`
+    - `source_accounts = 1`
+    - `receipts = 1`
+    - `transactions = 1`
+    - `sync_state` contains:
+      - `rewe_de|2026-04-22 19:31:29.938916|aab80488-47e2-3d9c-987d-551e3fe010c8`
+  - The persisted REWE storage state file exists at:
+    - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data-retest/config/connector_plugin_runtime/rewe_de/data/rewe_storage_state.json`
+  - Remaining finding:
+    - the connector card can still regress visually to `Einrichten` / `Einrichtung nötig` even after the real import completed, so the UI state is less reliable than the persisted data.
+
+- `Kaufland DE`
+  - Pack import and activation succeed.
+  - Setup modal opens and accepts the connector-local country/store field.
+  - After submit, the packaged app moves Kaufland into:
+    - `Anmeldung läuft`
+    - `Import läuft`
+    - technical details text:
+      - `Browser open: complete login in the shared auth session window.`
+  - Unlike the earlier broken runs, this rerun did open a real visible Chrome-for-Testing login page for Kaufland.
+  - The login page reaches a visible submit/disabled state, but it snaps back without redirecting or persisting authenticated state.
+  - The persisted runtime file remains only a stub:
+    - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data-retest/config/connector_plugin_runtime/kaufland_de/data/kaufland_state.json`
+    - keys:
+      - `import_source`
+      - `schema_version`
+      - `tracking_source_id`
+  - No `sources`, `source_accounts`, `receipts`, `transactions`, or `sync_state` row was created for Kaufland in the fresh retest profile.
+  - The desktop app also blocks other connector setups with `Eine andere Anmeldung läuft` while Kaufland remains in this pending state.
+
+Fresh-profile SQLite evidence from the same rerun:
+
+- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data-retest/lidltool.sqlite`
+- `connector_lifecycle_state` contains installed local packs for:
+  - `dm_de`
+  - `rewe_de`
+  - `kaufland_de`
+- Persisted runtime data in the retest profile:
+  - `sources = 1`
+  - `source_accounts = 1`
+  - `receipts = 1`
+  - `transactions = 1`
+  - `sync_state` contains only the successful `rewe_de` row
+
+Rerun conclusion:
+
+- `dm` has a reproducible two-submit auth quirk and only looks ready after app relaunch, but auth itself is real.
+- `REWE` is now proven end-to-end in the packaged app with real persisted downstream data.
+- `Kaufland` is no longer blocked on the invisible-browser regression, but its auth callback still does not persist authenticated state or produce a proven import.
+
+## OCR regression result
+
+Status: `FAIL_PRODUCT`
+
+### `/imports/ocr`
+
+- Present and reachable from `/add`
+- Primary file upload succeeded:
+  - document: `31d4cfc8-f693-4ba2-9f2f-887c5b26036b`
+  - job: `07a122b6-b1bd-447e-af78-65c69fd5191c`
+- Alternate file upload succeeded:
+  - document: `1f5d5161-799a-44af-8433-23aa893ffbef`
+  - job: `de6c0a7d-7c37-4395-9ffb-1dd8016dc192`
+- Both uploads persisted in SQLite
+- Both OCR jobs remained `queued`
+- Neither upload advanced into review or downstream transaction creation
+
+### `/documents/upload`
+
+- Not separately surfaced in the packaged desktop UI during this rerun
+- Current user-facing OCR path is `/add -> /imports/ocr`
+- Route policy still lists `/documents/upload` as desktop `preview`, but hidden from nav
+
+### `/review-queue`
+
+- Reachable and stable
+- Remained empty after both OCR uploads:
+  - `Keine Dokumente entsprechen den ausgewählten Filtern.`
+
+### OCR failing layer
+
+The break is not file selection or upload. The break is after job creation:
+
+- upload: `PASS`
+- document persistence: `PASS`
+- OCR job creation: `PASS`
+- OCR worker/runtime pickup: `FAIL`
+- timeline progression beyond `queued`: `FAIL`
+- review handoff: `FAIL`
+- approval to receipt/transaction: `BLOCKED`
+
+Database evidence:
+
+- `documents.file_name` values present for both PDFs
+- `documents.ocr_status = queued`
+- `ingestion_jobs.status = queued`
 
 ## Failures
 
-### `FAIL_PRODUCT`
+### 1. Aggregation drift across finance surfaces
 
-1. dm auth handoff from desktop to browser is broken.
-   - Desktop warned that the remote browser was unavailable and claimed a local fallback.
-   - Chrome stayed on a blank/new-tab state instead of opening the dm login surface.
-   - Manual completion in Chrome did not cause desktop to finalize auth.
+Severity: `P1`
 
-2. dm cancel flow returns an invalid bootstrap payload error.
-   - Exact UI text:
-     - `Abbrechen fehlgeschlagen`
-     - `Invalid API payload: [ { "code": "invalid_value", "values": [ "idle", "running", "succeeded", "failed" ], "path": [ "bootstrap", "status" ], "message": "Invalid input" } ]`
+Observed:
 
-3. REWE shows false-ready / contradictory setup state.
-   - UI text included:
-     - `Die gespeicherte, Chrome-basierte REWE-Anmeldung ist für den nächsten Import bereit.`
-     - `Nächster Schritt nach der Anmeldung`
-   - DB evidence still showed no usable REWE account/session state afterward.
+- Manual transaction appears in `/transactions`
+- Same row appears in `/groceries` recent purchases
+- Merchant row appears in `/merchants`
+- Report export includes the transaction and merchant correctly
+- But several summary cards stay zero or inconsistent
 
-4. OCR pipeline is stuck in `queued`.
-   - UI after upload:
-     - `Beleg hochgeladen. OCR startet automatisch.`
-     - Job id `c29b314f-5e6b-40c5-966f-d66413b5ae1b`
-     - Document id `fcaa0571-0b1e-46e9-910f-5aefe169f781`
-   - DB evidence:
-     - `ingestion_jobs`: `c29b314f-5e6b-40c5-966f-d66413b5ae1b|ocr_upload|OCR Uploads|queued|manual|2026-04-20 16:50:51.446052|`
-     - `documents`: `fcaa0571-0b1e-46e9-910f-5aefe169f781|38c2032c-3acb-4a74-ac58-7ae5b5af820c.pdf|queued|||`
+Examples:
 
-5. Bills summary cards are disconnected from persisted recurring bills.
-   - After creating three active recurring bills, `/bills` still showed:
-     - `MONATLICH GEBUNDEN` = `-`
-     - `AKTIVE RECHNUNGEN` = `0`
-     - `DIESE WOCHE FÄLLIG` = `0`
-   - DB evidence still contained:
-     - `QA Rent|120000|qa rent|1`
-     - `QA Streaming|1099|qa streaming|1`
-     - `QA Internet Provider|4499|qa internet provider|1`
+- `/groceries` recent purchase table updates while summary cards remain zero
+- `/cash-flow` ledger row updates while top cards remain `0,00 €`
+- `/merchants` directory shows `QA Markt` and `12,34 €`, while top cards still show `0`
+- Dashboard top cards partially update, but not consistently across all sections
 
-6. Budget aggregates ignore persisted recurring bills and manual cash-flow state.
-   - `/budget` accepted and saved month settings, a cash outflow, and a budget rule.
-   - Despite that, top cards and recurring commitments remained zero / empty.
-   - Example UI state after save:
-     - `Saved budget for April 2026`
-     - `RECURRING BILLS 0,00 €`
-     - `No recurring items`
+Evidence:
 
-7. Desktop restore reports success but does not replace the live DB state.
-   - Control Center restore result showed `ok: true`, `command: "desktop:import"`, `exitCode: 0`.
-   - Backup DB users:
-     - `_service|1`
-     - `qa-admin-desktop|1`
-   - Live DB after restore still contained:
-     - `_service|1`
-     - `qa-admin-desktop|1`
-     - `qa-viewer-desktop|0`
-   - This proves the live profile DB was not actually rewound to the backup snapshot.
+- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/14-groceries-stale-summary.png`
+- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/21-merchants-stale-summary.png`
 
-### `PASS_PARTIAL_EXTERNAL_BLOCKER`
+### 2. OCR jobs never leave `queued`
 
-- Lidl Plus: credentials / human verification intentionally unavailable
-- Amazon: credentials intentionally unavailable after browser-handoff defect reproduced
-- Netto Plus: session bundle intentionally unavailable
+Severity: `P1`
 
-### `NOT_PRESENT_IN_DESKTOP_BUILD`
+Observed:
 
-- None newly observed beyond the known unsupported route family below.
+- Both OCR uploads succeed
+- Timeline renders upload and queued-start events
+- No later state appears
+- Review queue remains empty
 
-## Coverage Gaps
+Evidence:
 
-- Unsupported desktop routes were not revalidated end-to-end in this rerun:
-  - `/offers`
-  - `/automations`
-  - `/automation-inbox`
-  - `/reliability`
-- Reason:
-  - The packaged desktop shell exposes no direct route-entry affordance in the webview, and these unsupported routes are not surfaced in the visible desktop navigation.
-  - This rerun therefore covered the supported in-app surfaces and logged the unsupported-route family as an explicit gap rather than fabricating a result.
-- Alternate OCR review-path PDF was not rerun because the primary OCR defect reproduced immediately and kept the OCR pipeline in `queued`.
+- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/16-ocr-primary-stuck-queued.png`
+- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/24-review-queue-still-empty-after-second-ocr.png`
 
-## External Blockers
+### 3. Connector completion remains inconsistent after auth
 
-- `INTENTIONALLY_NOT_PROVIDED` credentials prevented full Lidl Plus and Amazon completion
-- `OPTIONAL_NOT_PROVIDED` Netto Plus Android session bundle prevented full Netto sync
-- Human-only verification paths remain outside agent completion scope when triggered
+Severity: `P1`
 
-## Evidence
+Observed:
 
-- Fresh Control Center: `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-evidence-rerun/phase1-control-center-clean.png`
-- Fresh logout / login state: `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-evidence-rerun/logout-state-check.png`
-- Imported packs: `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-evidence-rerun/control-center-all-packs-imported-20260420.png`
-- Manual imports: `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-evidence-rerun/manual-import-three-transactions-20260420.png`
-- dm stuck / auth evidence:
-  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-evidence-rerun/connectors-dm-stuck-20260420.png`
-  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-evidence-rerun/connectors-dm-auth-succeeded-browser-but-desktop-stuck-20260420.png`
-  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-evidence-rerun/connectors-dm-cancel-api-error-20260420.png`
-- Netto setup evidence: `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-evidence-rerun/connectors-netto-plus-missing-bundle-setup-20260420.png`
-- Amazon bootstrap evidence: `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-evidence-rerun/connectors-amazon-bootstrap-20260420.png`
-- Post-restore viewer still authenticated: `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-evidence-rerun/post-restore-viewer-still-authenticated-20260420.png`
-- Launch logs:
-  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/logs/desktop-launch-clean-20260420-174609.log`
-  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/logs/desktop-relaunch-after-logout-20260420-175024.log`
-  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/logs/desktop-relaunch-control-center-20260420-175821.log`
-  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/logs/desktop-launch-clean-rerun-20260420-180311.log`
-  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/logs/open-launch-20260420-180344.log`
+- `dm` reaches real external auth but returns merchant-side failure text
+- `REWE` can save auth after the allowed Chrome recovery path, but the connector still falls back to `Aktion nötig` before import
+- `Lidl Plus` start warns that remote browser session is unavailable and falls back to local display because virtual-display dependencies are missing
+- Active connector logins still serialize the rest of the connector rail and block other setup attempts
+
+Evidence:
+
+- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/10-dm-login-error.png`
+- `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/25-connectors-lidl-active-rewe-auth-saved.png`
+
+## External blockers
+
+- `Lidl Plus DE`: runbook credentials intentionally not provided for a full autonomous human-verification path
+- `Amazon DE`: runbook credentials intentionally not provided for full autonomous human-verification handling
+- `Netto Plus DE`: required Android session bundle JSON not provided
 
 ## Risks
 
-- Connector setup appears able to claim ready state without creating usable local source-account state.
-- Billing / budget analytics surfaces can silently present zeroed summaries even when their underlying records exist.
-- Backup restore currently gives a false-success signal that could mislead users into believing their desktop profile was recovered when it was not.
-- OCR queue stalling blocks both OCR ingest and review/quality validation downstream.
+- Finance-shell regressions are no longer launch-blocking, but data-confidence regressions remain inside the happy path
+- OCR is currently not useful for real packaged desktop intake because jobs stall after creation
+- Connector state is still preview-like and can mislead users into thinking auth is complete when import is not actually proven
+- Hidden-but-enabled desktop routes still need direct packaged-app coverage if they are expected to ship as supported analysis surfaces
 
-## Suggested Fixes
+## Suggested fixes
 
-1. Fix desktop browser handoff so local fallback actually opens the intended auth URL in the user’s browser and completes state handoff back into desktop.
-2. Validate dm cancel payload generation against the backend bootstrap schema before sending.
-3. Gate REWE “ready” UI on durable state creation, not just transient setup completion.
-4. Trace the packaged OCR worker path and queue consumer startup for the bundled backend build.
-5. Reconcile `/bills` and `/budget` aggregation queries with the persisted `recurring_bills` and manual cash-flow tables.
-6. Make desktop restore verify that the live DB hash / user count / manifest contents actually match the restored backup before reporting success.
-7. Add an internal route test affordance or packaged QA mode for unsupported desktop route validation without requiring hidden navigation.
+1. Fix the shared finance aggregations so dashboard, groceries, merchants, and cashflow cards derive from the same committed transaction source as the tables and report exports.
+2. Instrument the OCR worker path after ingestion job creation and verify why `ocr_upload` jobs remain permanently `queued` on a fresh packaged profile.
+3. Stabilize connector state transitions:
+   - clear or complete active-login state reliably
+   - distinguish `auth saved` from `import proven`
+   - stop showing preview-only success states as if the connector is fully ready
+4. For Lidl browser fallback, either ship the required virtual-display dependencies or degrade more explicitly without trapping the rest of the connector rail.
+5. Expose or explicitly alias the hidden desktop analysis routes that are meant to be supported, or downgrade their support claims in route policy until they are reachable through the packaged UI.
 
-## Overall Result
+## Evidence
 
-- Fresh rebuild from newest local code: `PASS`
-- Fresh profile launch with fresh `userData`: `PASS`
-- Full desktop matrix attempted end to end: `PASS_WITH_RECORDED_GAPS`
-- New report generated from this rerun only: `PASS`
-- Product outcome: multiple reproducible packaged-desktop defects remain in connectors, OCR, bills/budget aggregation, and restore
+- Launch log:
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/logs/launch.log`
+- Screenshots:
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/01-setup.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/02-dashboard.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/03-connectors.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/10-dm-login-error.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/12-manual-entry-saved.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/13-transactions-manual-row.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/14-groceries-stale-summary.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/16-ocr-primary-stuck-queued.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/17-review-queue-empty-after-ocr.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/18-budget-cashflow-entry.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/20-bills-validation-error.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/21-merchants-stale-summary.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/22-settings-ai-save-success.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/23-chat-inactive-thread.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/24-review-queue-still-empty-after-second-ocr.png`
+  - `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/qa-rerun-20260422/screenshots/25-connectors-lidl-active-rewe-auth-saved.png`

@@ -223,6 +223,16 @@ _BUILTIN_AUTH_BRIDGES: dict[str, _BuiltinAuthBridge] = {
 }
 
 
+def _builtin_auth_bridge_for_manifest(
+    *,
+    source_id: str,
+    manifest: ConnectorManifest,
+) -> _BuiltinAuthBridge | None:
+    if manifest.runtime_kind != "builtin":
+        return None
+    return _BUILTIN_AUTH_BRIDGES.get(source_id)
+
+
 def _resolve_optional_path(value: object) -> Path | None:
     if value is None:
         return None
@@ -421,7 +431,7 @@ class ConnectorAuthOrchestrationService:
         )
         manifest = self._registry.require_manifest(source_id)
         capabilities = self.capabilities_for_source(source_id)
-        bridge = _BUILTIN_AUTH_BRIDGES.get(source_id)
+        bridge = _builtin_auth_bridge_for_manifest(source_id=source_id, manifest=manifest)
         bootstrap_session = self._session_registry.sessions.get(source_id)
         bootstrap = (
             serialize_connector_bootstrap(bootstrap_session)
@@ -556,7 +566,7 @@ class ConnectorAuthOrchestrationService:
             connector_options=options,
         )
         manifest = self._registry.require_manifest(source_id)
-        bridge = _BUILTIN_AUTH_BRIDGES.get(source_id)
+        bridge = _builtin_auth_bridge_for_manifest(source_id=source_id, manifest=manifest)
         if bridge is None:
             if self._connector_builder is None:
                 raise RuntimeError(f"connector bootstrap bridge is not registered for source: {source_id}")

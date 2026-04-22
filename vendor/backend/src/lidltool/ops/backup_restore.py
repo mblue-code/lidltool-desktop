@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import shutil
 import time
 from dataclasses import dataclass
@@ -72,25 +71,6 @@ def _sqlite_file_from_url(db_url: str) -> Path:
     return Path(db_url.replace("sqlite:///", "")).expanduser().resolve()
 
 
-def _sqlite_backup_file(source_db: Path, target_db: Path) -> Path:
-    source_path = source_db.expanduser().resolve()
-    target_path = target_db.expanduser().resolve()
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    if target_path.exists():
-        target_path.unlink()
-
-    source_connection = sqlite3.connect(str(source_path))
-    destination_connection = sqlite3.connect(str(target_path))
-    try:
-        destination_connection.execute("PRAGMA journal_mode=DELETE")
-        source_connection.backup(destination_connection)
-        destination_connection.commit()
-    finally:
-        destination_connection.close()
-        source_connection.close()
-    return target_path
-
-
 def backup_database(
     config: AppConfig, output_dir: Path, *, include_documents: bool = True
 ) -> BackupResult:
@@ -105,7 +85,7 @@ def backup_database(
         )
     source_db = _sqlite_file_from_url(db_url)
     db_artifact = output_dir / f"db-backup-{stamp}.sqlite"
-    _sqlite_backup_file(source_db, db_artifact)
+    shutil.copy2(source_db, db_artifact)
 
     token_artifact: Path | None = None
     if config.token_file.exists():
@@ -138,7 +118,7 @@ def restore_database(
         raise RuntimeError(
             f"provider '{provider}' restore adapter not implemented yet; use sqlite or add adapter"
         )
-    _sqlite_backup_file(db_artifact, restore_target)
+    shutil.copy2(db_artifact, restore_target)
     return restore_target
 
 

@@ -17,13 +17,31 @@ import sqlite3
 import sys
 from pathlib import Path
 
-TABLE_QUERIES = {
-    "users": "SELECT username, COALESCE(is_admin, 0) FROM users ORDER BY username",
-    "recurring_bills": "SELECT user_id, name, COALESCE(amount_cents, -1), COALESCE(merchant_canonical, ''), COALESCE(active, 0), anchor_date, frequency, interval_value FROM recurring_bills ORDER BY user_id, name, id",
-    "recurring_bill_occurrences": "SELECT bill_id, due_date, status, COALESCE(expected_amount_cents, -1), COALESCE(actual_amount_cents, -1) FROM recurring_bill_occurrences ORDER BY bill_id, due_date, id",
-    "cashflow_entries": "SELECT user_id, effective_date, direction, category, amount_cents, COALESCE(source_type, ''), COALESCE(linked_transaction_id, '') FROM cashflow_entries ORDER BY user_id, effective_date, id",
-    "budget_months": "SELECT user_id, year, month, COALESCE(planned_income_cents, -1), COALESCE(target_savings_cents, -1), COALESCE(opening_balance_cents, -1) FROM budget_months ORDER BY user_id, year, month, id",
-    "budget_rules": "SELECT user_id, scope_type, scope_value, period, amount_cents, COALESCE(active, 0) FROM budget_rules ORDER BY user_id, scope_type, scope_value, id",
+TABLE_SPECS = {
+    "users": {
+        "select": "username, COALESCE(is_admin, 0)",
+        "order_by": ("username",),
+    },
+    "recurring_bills": {
+        "select": "user_id, name, COALESCE(amount_cents, -1), COALESCE(merchant_canonical, ''), COALESCE(active, 0), anchor_date, frequency, interval_value",
+        "order_by": ("user_id", "name", "id"),
+    },
+    "recurring_bill_occurrences": {
+        "select": "bill_id, due_date, status, COALESCE(expected_amount_cents, -1), COALESCE(actual_amount_cents, -1)",
+        "order_by": ("bill_id", "due_date", "id"),
+    },
+    "cashflow_entries": {
+        "select": "user_id, effective_date, direction, category, amount_cents, COALESCE(source_type, ''), COALESCE(linked_transaction_id, '')",
+        "order_by": ("user_id", "effective_date", "id"),
+    },
+    "budget_months": {
+        "select": "user_id, year, month, COALESCE(planned_income_cents, -1), COALESCE(target_savings_cents, -1), COALESCE(opening_balance_cents, -1)",
+        "order_by": ("user_id", "year", "month", "id"),
+    },
+    "budget_rules": {
+        "select": "user_id, scope_type, scope_value, period, amount_cents, COALESCE(active, 0)",
+        "order_by": ("user_id", "scope_type", "scope_value", "rule_id", "id"),
+    },
 }
 
 
@@ -33,6 +51,11 @@ def table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
         (table_name,),
     ).fetchone()
     return row is not None
+
+
+def table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return {str(row[1]) for row in rows if len(row) > 1 and row[1]}
 
 
 def file_sha256(path: Path) -> str:
@@ -70,9 +93,14 @@ def snapshot_sqlite(path: Path) -> dict[str, object]:
     try:
         table_counts = {}
         table_rows = {}
-        for table_name, query in TABLE_QUERIES.items():
+        for table_name, spec in TABLE_SPECS.items():
             if not table_exists(connection, table_name):
                 continue
+            available_columns = table_columns(connection, table_name)
+            order_columns = [column for column in spec["order_by"] if column in available_columns]
+            query = f"SELECT {spec['select']} FROM {table_name}"
+            if order_columns:
+                query = f"{query} ORDER BY {', '.join(order_columns)}"
             count = int(connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0] or 0)
             rows = normalize_rows(connection.execute(query).fetchall())
             table_counts[table_name] = count
