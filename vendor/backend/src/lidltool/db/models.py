@@ -160,6 +160,12 @@ class User(Base):
     offer_source_configs: Mapped[list[OfferSourceConfig]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    shared_group_memberships: Mapped[list[SharedGroupMember]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    created_shared_groups: Mapped[list[SharedGroup]] = relationship(
+        back_populates="created_by_user"
+    )
 
 
 class UserApiKey(Base):
@@ -250,6 +256,9 @@ class ChatThread(Base):
 
     thread_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
     title: Mapped[str] = mapped_column(String, nullable=False, default="New chat")
     stream_status: Mapped[str] = mapped_column(String, nullable=False, default="idle")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -314,16 +323,62 @@ class ChatRun(Base):
     message: Mapped[ChatMessage | None] = relationship(back_populates="runs")
 
 
+class SharedGroup(Base):
+    __tablename__ = "shared_groups"
+
+    group_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    group_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active", index=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    memberships: Mapped[list[SharedGroupMember]] = relationship(
+        back_populates="group", cascade="all, delete-orphan"
+    )
+    created_by_user: Mapped[User | None] = relationship(back_populates="created_shared_groups")
+
+
+class SharedGroupMember(Base):
+    __tablename__ = "shared_group_members"
+
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("shared_groups.group_id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(String, nullable=False, default="member", index=True)
+    membership_status: Mapped[str] = mapped_column(
+        String, nullable=False, default="active", index=True
+    )
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    group: Mapped[SharedGroup] = relationship(back_populates="memberships")
+    user: Mapped[User] = relationship(back_populates="shared_group_memberships")
+
+
 class Source(Base):
     __tablename__ = "sources"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"), nullable=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
     kind: Mapped[str] = mapped_column(String, nullable=False)
     display_name: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="healthy")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    family_share_mode: Mapped[str] = mapped_column(String, nullable=False, default="none")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -435,6 +490,9 @@ class Transaction(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), index=True)
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"), nullable=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
     source_account_id: Mapped[str | None] = mapped_column(
         ForeignKey("source_accounts.id"), nullable=True, index=True
     )
@@ -444,7 +502,6 @@ class Transaction(Base):
     total_gross_cents: Mapped[int] = mapped_column(Integer, nullable=False)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="EUR")
     discount_total_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    family_share_mode: Mapped[str] = mapped_column(String, nullable=False, default="inherit")
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
     fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     raw_payload: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
@@ -472,6 +529,9 @@ class TransactionItem(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     transaction_id: Mapped[str] = mapped_column(ForeignKey("transactions.id"), index=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
     source_item_id: Mapped[str | None] = mapped_column(String, nullable=True)
     line_no: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -492,7 +552,6 @@ class TransactionItem(Base):
     product_id: Mapped[str | None] = mapped_column(
         ForeignKey("products.product_id"), nullable=True, index=True
     )
-    family_shared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_deposit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
     raw_payload: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
@@ -507,6 +566,9 @@ class RecurringBill(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String, nullable=False)
     merchant_canonical: Mapped[str | None] = mapped_column(String, nullable=True)
     merchant_alias_pattern: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -576,12 +638,18 @@ class RecurringBillMatch(Base):
 
 Index("idx_sources_user_id", Source.user_id)
 Index("idx_transactions_user_id", Transaction.user_id)
-Index("idx_transactions_family_mode", Transaction.family_share_mode)
-Index("idx_ti_family_shared", TransactionItem.family_shared)
 Index("idx_user_api_keys_user_id", UserApiKey.user_id)
 Index("idx_user_api_keys_active", UserApiKey.is_active)
 Index("ix_user_sessions_user_created", UserSession.user_id, UserSession.created_at)
+Index("ix_shared_groups_type_status", SharedGroup.group_type, SharedGroup.status)
+Index("ix_shared_groups_creator", SharedGroup.created_by_user_id, SharedGroup.created_at)
+Index(
+    "ix_shared_group_members_user_status",
+    SharedGroupMember.user_id,
+    SharedGroupMember.membership_status,
+)
 Index("ix_recurring_bills_user_active", RecurringBill.user_id, RecurringBill.active)
+Index("ix_recurring_bills_group_active", RecurringBill.shared_group_id, RecurringBill.active)
 Index(
     "ux_recurring_bill_occurrences_bill_due_date",
     RecurringBillOccurrence.bill_id,
@@ -632,6 +700,9 @@ class Document(Base):
     )
     source_id: Mapped[str | None] = mapped_column(
         ForeignKey("sources.id"), nullable=True, index=True
+    )
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
     )
     storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
     mime_type: Mapped[str] = mapped_column(String, nullable=False)
@@ -851,6 +922,9 @@ class OfferSourceConfig(Base):
     user_id: Mapped[str] = mapped_column(
         ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
     )
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id", ondelete="SET NULL"), nullable=True, index=True
+    )
     source_id: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String, nullable=False)
     merchant_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
@@ -970,6 +1044,9 @@ class ProductWatchlist(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
     product_id: Mapped[str | None] = mapped_column(
         ForeignKey("products.product_id"), nullable=True, index=True
     )
@@ -1001,6 +1078,9 @@ class OfferMatch(Base):
         ForeignKey("offer_items.id", ondelete="CASCADE"), nullable=True, index=True
     )
     user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
     watchlist_id: Mapped[str | None] = mapped_column(
         ForeignKey("product_watchlists.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -1031,6 +1111,9 @@ class AlertEvent(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
     offer_match_id: Mapped[str] = mapped_column(
         ForeignKey("offer_matches.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -1056,6 +1139,9 @@ class OfferRefreshRun(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"), nullable=True, index=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
     rule_id: Mapped[str | None] = mapped_column(
         ForeignKey("automation_rules.id", ondelete="SET NULL"),
         nullable=True,
@@ -1107,6 +1193,10 @@ class SavedQuery(Base):
     __tablename__ = "saved_queries"
 
     query_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"), nullable=True, index=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     query_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
@@ -1163,6 +1253,9 @@ class BudgetRule(Base):
     user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.user_id"), nullable=True, index=True
     )
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
     scope_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
     scope_value: Mapped[str] = mapped_column(String, nullable=False, index=True)
     period: Mapped[str] = mapped_column(String, nullable=False, default="monthly")
@@ -1182,6 +1275,9 @@ class BudgetMonth(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
     year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     month: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     planned_income_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -1202,6 +1298,9 @@ class CashflowEntry(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), nullable=False, index=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
     effective_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     direction: Mapped[str] = mapped_column(String, nullable=False, index=True)
     category: Mapped[str] = mapped_column(String, nullable=False, default="uncategorized")
@@ -1230,6 +1329,9 @@ class Goal(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(
         ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id", ondelete="SET NULL"), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     goal_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
@@ -1260,6 +1362,9 @@ class Notification(Base):
     user_id: Mapped[str] = mapped_column(
         ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
     )
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id", ondelete="SET NULL"), nullable=True, index=True
+    )
     kind: Mapped[str] = mapped_column(String, nullable=False, index=True)
     severity: Mapped[str] = mapped_column(String, nullable=False, default="info", index=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
@@ -1279,11 +1384,35 @@ class Notification(Base):
 
 
 Index("ix_budget_rules_user_active", BudgetRule.user_id, BudgetRule.active)
+Index("ix_budget_rules_group_active", BudgetRule.shared_group_id, BudgetRule.active)
 Index("ux_budget_months_user_period", BudgetMonth.user_id, BudgetMonth.year, BudgetMonth.month, unique=True)
+Index(
+    "ux_budget_months_group_period",
+    BudgetMonth.shared_group_id,
+    BudgetMonth.year,
+    BudgetMonth.month,
+    unique=True,
+)
 Index("ix_cashflow_entries_user_date", CashflowEntry.user_id, CashflowEntry.effective_date)
 Index("ix_cashflow_entries_user_direction", CashflowEntry.user_id, CashflowEntry.direction)
+Index("ix_cashflow_entries_group_date", CashflowEntry.shared_group_id, CashflowEntry.effective_date)
+Index(
+    "ix_cashflow_entries_group_direction",
+    CashflowEntry.shared_group_id,
+    CashflowEntry.direction,
+)
 Index("ix_goals_user_active", Goal.user_id, Goal.active)
 Index("ix_goals_user_type", Goal.user_id, Goal.goal_type)
+Index("ix_goals_group_active", Goal.shared_group_id, Goal.active)
+Index("ix_goals_group_type", Goal.shared_group_id, Goal.goal_type)
 Index("ix_notifications_user_unread", Notification.user_id, Notification.unread)
 Index("ix_notifications_user_occurred", Notification.user_id, Notification.occurred_at)
+Index("ix_notifications_group_unread", Notification.shared_group_id, Notification.unread)
+Index("ix_notifications_group_occurred", Notification.shared_group_id, Notification.occurred_at)
 Index("ux_notifications_user_fingerprint", Notification.user_id, Notification.fingerprint, unique=True)
+Index(
+    "ux_notifications_group_fingerprint",
+    Notification.shared_group_id,
+    Notification.fingerprint,
+    unique=True,
+)

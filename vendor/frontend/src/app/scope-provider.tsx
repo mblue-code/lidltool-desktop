@@ -2,15 +2,19 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createContext, ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  ActiveWorkspace,
   RequestScope,
-  getRequestScope,
+  getActiveWorkspace,
+  setActiveWorkspace,
   setRequestScope,
-  subscribeRequestScope
+  subscribeActiveWorkspace
 } from "@/lib/request-scope";
 
 type AccessScopeContextValue = {
   scope: RequestScope;
+  workspace: ActiveWorkspace;
   setScope: (scope: RequestScope) => void;
+  setWorkspace: (workspace: ActiveWorkspace) => void;
 };
 
 const AccessScopeContext = createContext<AccessScopeContextValue | null>(null);
@@ -20,11 +24,11 @@ type AccessScopeProviderProps = {
 };
 
 export function AccessScopeProvider({ children }: AccessScopeProviderProps) {
-  const [scope, setScopeState] = useState<RequestScope>(() => getRequestScope());
+  const [workspace, setWorkspaceState] = useState<ActiveWorkspace>(() => getActiveWorkspace());
   const queryClient = useQueryClient();
   const didMountRef = useRef(false);
 
-  useEffect(() => subscribeRequestScope(setScopeState), []);
+  useEffect(() => subscribeActiveWorkspace(setWorkspaceState), []);
 
   useEffect(() => {
     if (!didMountRef.current) {
@@ -32,14 +36,18 @@ export function AccessScopeProvider({ children }: AccessScopeProviderProps) {
       return;
     }
     void queryClient.invalidateQueries();
-  }, [scope, queryClient]);
+  }, [queryClient, workspace]);
+
+  const scope: RequestScope = workspace.kind === "personal" ? "personal" : "group";
 
   const value = useMemo<AccessScopeContextValue>(
     () => ({
       scope,
-      setScope: setRequestScope
+      workspace,
+      setScope: setRequestScope,
+      setWorkspace: setActiveWorkspace
     }),
-    [scope]
+    [scope, workspace]
   );
 
   return <AccessScopeContext.Provider value={value}>{children}</AccessScopeContext.Provider>;

@@ -331,6 +331,21 @@ from lidltool.notifications.service import (
 from lidltool.recurring.service import RecurringBillsService
 from lidltool.reliability.metrics import compute_endpoint_slo_summary, record_endpoint_metric
 from lidltool.reports.service import build_report_templates
+from lidltool.shared_groups import (
+    add_shared_group_member,
+    create_shared_group,
+    get_shared_group_detail,
+    list_shared_group_user_directory,
+    list_shared_groups,
+    remove_shared_group_member,
+    update_shared_group,
+    update_shared_group_member,
+)
+from lidltool.shared_groups.ownership import (
+    assign_owner,
+    ownership_filter,
+    resource_belongs_to_workspace,
+)
 from lidltool.storage.document_storage import DocumentStorage, DocumentStorageError
 
 LOGGER = logging.getLogger(__name__)
@@ -1152,10 +1167,23 @@ def _resolve_request_user_identity(
 
 
 def _visibility_for_scope(user: User, scope: str | None) -> VisibilityContext:
+    parsed_scope = parse_scope(scope)
+    if (
+        parsed_scope.shared_group_id is not None
+        and user.username != SERVICE_USERNAME
+        and not any(
+            membership.group_id == parsed_scope.shared_group_id
+            and membership.membership_status == "active"
+            for membership in user.shared_group_memberships
+        )
+    ):
+        raise HTTPException(status_code=403, detail="shared group access denied")
     return VisibilityContext(
         user_id=user.user_id,
         is_service=(user.username == SERVICE_USERNAME),
-        scope=parse_scope(scope),
+        scope=parsed_scope.scope,
+        workspace_kind=parsed_scope.workspace_kind,
+        shared_group_id=parsed_scope.shared_group_id,
     )
 
 
@@ -1175,9 +1203,11 @@ def _document_is_visible(
     source = session.get(Source, document.source_id)
     if source is None:
         return False
-    if visibility.is_service:
-        return source.user_id in {None, visibility.user_id}
-    return source.user_id == visibility.user_id
+    return resource_belongs_to_workspace(
+        visibility=visibility,
+        resource_user_id=source.user_id,
+        resource_shared_group_id=source.shared_group_id,
+    )
 
 
 def _source_is_visible(
@@ -1189,9 +1219,11 @@ def _source_is_visible(
     source = session.get(Source, source_id)
     if source is None:
         return False
-    if visibility.is_service:
-        return source.user_id in {None, visibility.user_id}
-    return source.user_id == visibility.user_id
+    return resource_belongs_to_workspace(
+        visibility=visibility,
+        resource_user_id=source.user_id,
+        resource_shared_group_id=source.shared_group_id,
+    )
 
 
 def _dashboard_summary_payload(
@@ -1525,10 +1557,22 @@ def _dashboard_overview_payload(
     }
 
 
-def _owns_user_resource(user: User, *, resource_user_id: str | None) -> bool:
-    if user.username == SERVICE_USERNAME:
-        return resource_user_id in {None, user.user_id}
-    return resource_user_id == user.user_id
+def _owns_user_resource(
+    user: User,
+    *,
+    resource_user_id: str | None,
+    resource_shared_group_id: str | None = None,
+) -> bool:
+    return resource_belongs_to_workspace(
+        visibility=VisibilityContext(
+            user_id=user.user_id,
+            is_service=(user.username == SERVICE_USERNAME),
+            scope="personal",
+            workspace_kind="personal",
+        ),
+        resource_user_id=resource_user_id,
+        resource_shared_group_id=resource_shared_group_id,
+    )
 
 
 def _require_admin(user: User) -> None:
@@ -1607,6 +1651,8 @@ def _serialize_chat_thread(thread: ChatThread) -> dict[str, Any]:
     return {
         "thread_id": thread.thread_id,
         "user_id": thread.user_id,
+        "shared_group_id": thread.shared_group_id,
+        "workspace_kind": "shared_group" if thread.shared_group_id else "personal",
         "title": thread.title,
         "stream_status": thread.stream_status,
         "created_at": thread.created_at.isoformat(),
@@ -1674,11 +1720,28 @@ def _normalize_runtime_content_json(content: Any) -> dict[str, Any] | list[dict[
     return _chat_parts_from_text("")
 
 
-def _load_owned_chat_thread(*, session: Session, user: User, thread_id: str) -> ChatThread:
+def _load_owned_chat_thread(
+    *,
+    session: Session,
+    user: User,
+    visibility: VisibilityContext,
+    thread_id: str,
+) -> ChatThread:
     thread = session.get(ChatThread, thread_id)
     if thread is None or thread.archived_at is not None:
         raise RuntimeError("chat thread not found")
-    if not _owns_user_resource(user, resource_user_id=thread.user_id):
+    if not (
+        _owns_user_resource(
+            user,
+            resource_user_id=thread.user_id,
+            resource_shared_group_id=thread.shared_group_id,
+        )
+        or resource_belongs_to_workspace(
+            visibility=visibility,
+            resource_user_id=thread.user_id,
+            resource_shared_group_id=thread.shared_group_id,
+        )
+    ):
         raise HTTPException(status_code=404, detail="chat thread not found")
     return thread
 
@@ -2138,13 +2201,6 @@ def _connector_process_env(app: FastAPI, *, config: AppConfig) -> dict[str, str]
         env["DISPLAY"] = runtime.display
     env["PYTHONUNBUFFERED"] = "1"
     return env
-
-
-def _prefer_local_auth_browser_for_desktop() -> bool:
-    return (
-        os.getenv("LIDLTOOL_DESKTOP_MODE", "").strip().lower() == "true"
-        or os.getenv("LIDLTOOL_CONNECTOR_HOST_KIND", "").strip().lower() == "electron"
-    )
 
 
 def _start_connector_command_session(
@@ -3260,7 +3316,7 @@ class ManualTransactionItemRequest(BaseModel):
     category: str | None = None
     line_no: int | None = None
     source_item_id: str | None = None
-    family_shared: bool = False
+    shared: bool = False
     raw_payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -3288,7 +3344,7 @@ class ManualTransactionCreateRequest(BaseModel):
     idempotency_key: str | None = None
     currency: str = "EUR"
     discount_total_cents: int | None = None
-    family_share_mode: Literal["receipt", "items", "none", "inherit"] = "inherit"
+    allocation_mode: Literal["personal", "shared_receipt", "split_items"] = "personal"
     confidence: float | None = None
     items: list[ManualTransactionItemRequest] = Field(default_factory=list)
     discounts: list[ManualTransactionDiscountRequest] = Field(default_factory=list)
@@ -3693,6 +3749,27 @@ class UserLocalePreferenceUpdateRequest(BaseModel):
     preferred_locale: Literal["en", "de"] | None = None
 
 
+class SharedGroupCreateRequest(BaseModel):
+    name: str
+    group_type: Literal["household", "community"]
+
+
+class SharedGroupUpdateRequest(BaseModel):
+    name: str | None = None
+    group_type: Literal["household", "community"] | None = None
+    status: Literal["active", "archived"] | None = None
+
+
+class SharedGroupMemberCreateRequest(BaseModel):
+    user_id: str
+    role: Literal["owner", "manager", "member"] = "member"
+
+
+class SharedGroupMemberUpdateRequest(BaseModel):
+    role: Literal["owner", "manager", "member"] | None = None
+    membership_status: Literal["active", "removed"] | None = None
+
+
 class MobileDeviceRegisterRequest(BaseModel):
     installation_id: str = Field(min_length=8, max_length=128)
     client_platform: Literal["ios", "android"]
@@ -3705,8 +3782,9 @@ class MobileDeviceRegisterRequest(BaseModel):
     locale: Literal["en", "de"] | None = None
 
 
-class SourceSharingRequest(BaseModel):
-    family_share_mode: Literal["all", "manual", "none"]
+class SourceWorkspaceUpdateRequest(BaseModel):
+    workspace_kind: Literal["personal", "shared_group"]
+    shared_group_id: str | None = None
 
 
 class ConnectorCascadeStartRequest(BaseModel):
@@ -3728,12 +3806,13 @@ class ConnectorUninstallRequest(BaseModel):
     purge_config: bool = False
 
 
-class TransactionSharingRequest(BaseModel):
-    family_share_mode: Literal["receipt", "items", "none", "inherit"]
+class TransactionWorkspaceUpdateRequest(BaseModel):
+    allocation_mode: Literal["personal", "shared_receipt", "split_items"]
+    shared_group_id: str | None = None
 
 
-class TransactionItemSharingRequest(BaseModel):
-    family_shared: bool
+class TransactionItemAllocationUpdateRequest(BaseModel):
+    shared: bool
 
 
 class SystemBackupRequest(BaseModel):
@@ -3806,7 +3885,11 @@ def _to_utc_datetime(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
-def _manual_item_payload(items: list[ManualTransactionItemRequest]) -> list[ManualItemInput]:
+def _manual_item_payload(
+    items: list[ManualTransactionItemRequest],
+    *,
+    shared_group_id: str | None = None,
+) -> list[ManualItemInput]:
     parsed: list[ManualItemInput] = []
     for item in items:
         qty = Decimal(str(item.qty))
@@ -3824,7 +3907,8 @@ def _manual_item_payload(items: list[ManualTransactionItemRequest]) -> list[Manu
                 category=item.category.strip() if item.category else None,
                 line_no=item.line_no,
                 source_item_id=item.source_item_id.strip() if item.source_item_id else None,
-                family_shared=item.family_shared,
+                shared=item.shared,
+                shared_group_id=shared_group_id if item.shared else None,
                 raw_payload=item.raw_payload,
             )
         )
@@ -4759,6 +4843,183 @@ def create_app(
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
+    @app.get("/api/v1/shared-groups/user-directory")
+    def get_shared_group_user_directory(
+        request: Request,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                result = list_shared_group_user_directory(session)
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/shared-groups")
+    def get_shared_groups(
+        request: Request,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                result = list_shared_groups(session, user=auth_context.user)
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/shared-groups")
+    def post_shared_group(
+        request: Request,
+        payload: SharedGroupCreateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                result = create_shared_group(
+                    session,
+                    creator=auth_context.user,
+                    name=payload.name,
+                    group_type=payload.group_type,
+                )
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/shared-groups/{group_id}")
+    def get_shared_group(
+        request: Request,
+        group_id: str,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                result = get_shared_group_detail(session, user=auth_context.user, group_id=group_id)
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.patch("/api/v1/shared-groups/{group_id}")
+    def patch_shared_group(
+        request: Request,
+        group_id: str,
+        payload: SharedGroupUpdateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                result = update_shared_group(
+                    session,
+                    actor=auth_context.user,
+                    group_id=group_id,
+                    name=payload.name,
+                    group_type=payload.group_type,
+                    status=payload.status,
+                )
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/shared-groups/{group_id}/members")
+    def post_shared_group_member(
+        request: Request,
+        group_id: str,
+        payload: SharedGroupMemberCreateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                result = add_shared_group_member(
+                    session,
+                    actor=auth_context.user,
+                    group_id=group_id,
+                    user_id=payload.user_id,
+                    role=payload.role,
+                )
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.patch("/api/v1/shared-groups/{group_id}/members/{user_id}")
+    def patch_shared_group_member(
+        request: Request,
+        group_id: str,
+        user_id: str,
+        payload: SharedGroupMemberUpdateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                result = update_shared_group_member(
+                    session,
+                    actor=auth_context.user,
+                    group_id=group_id,
+                    user_id=user_id,
+                    role=payload.role,
+                    membership_status=payload.membership_status,
+                )
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.delete("/api/v1/shared-groups/{group_id}/members/{user_id}")
+    def delete_shared_group_member(
+        request: Request,
+        group_id: str,
+        user_id: str,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                result = remove_shared_group_member(
+                    session,
+                    actor=auth_context.user,
+                    group_id=group_id,
+                    user_id=user_id,
+                )
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
     @app.post("/api/v1/system/backup")
     def run_system_backup(
         request: Request,
@@ -4878,6 +5139,7 @@ def create_app(
         request: Request,
         file: UploadFormFile,
         source: str | None = Form(default=None),
+        scope: str = Form(default="personal"),
         metadata_json: str | None = Form(default=None),
         legacy_api_key: str | None = Form(default=None, alias="api_key"),
     ) -> Any:
@@ -4905,17 +5167,15 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                visibility = VisibilityContext(
-                    user_id=current_user.user_id,
-                    is_service=(current_user.username == SERVICE_USERNAME),
-                    scope="personal",
-                )
+                visibility = _visibility_for_scope(current_user, scope)
                 normalized_source = (source or "").strip() or None
                 if normalized_source == OCR_SOURCE_ID:
                     ensured_source, _ = ensure_ocr_source(
                         session,
                         owner_user_id=current_user.user_id,
                     )
+                    if visibility.shared_group_id and ensured_source.shared_group_id is None:
+                        ensured_source.shared_group_id = visibility.shared_group_id
                     validated_source = ensured_source.id
                 else:
                     validated_source = _validate_upload_source(session, normalized_source)
@@ -4931,6 +5191,7 @@ def create_app(
                 document = Document(
                     transaction_id=None,
                     source_id=validated_source,
+                    shared_group_id=visibility.shared_group_id,
                     storage_uri=storage_uri,
                     mime_type=mime_type,
                     sha256=sha256,
@@ -4977,11 +5238,7 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                visibility = VisibilityContext(
-                    user_id=current_user.user_id,
-                    is_service=(current_user.username == SERVICE_USERNAME),
-                    scope="personal",
-                )
+                visibility = _visibility_for_scope(current_user, scope)
                 document = session.get(Document, document_id)
                 if document is None:
                     raise RuntimeError("document not found")
@@ -5365,6 +5622,7 @@ def create_app(
     def create_manual_transaction(
         request: Request,
         payload: ManualTransactionCreateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -5387,12 +5645,7 @@ def create_app(
                     request=request, session=session, config=app_config
                 )
                 current_user_id = current_user.user_id
-                current_user_is_service = current_user.username == SERVICE_USERNAME
-                visibility = VisibilityContext(
-                    user_id=current_user_id,
-                    is_service=current_user_is_service,
-                    scope="personal",
-                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = ManualIngestService(session_factory=sessions)
             manual_input = ManualTransactionInput(
                 purchased_at=_to_utc_datetime(payload.purchased_at),
@@ -5405,11 +5658,15 @@ def create_app(
                 source_transaction_id=payload.source_transaction_id,
                 idempotency_key=payload.idempotency_key,
                 user_id=current_user_id,
+                shared_group_id=visibility.shared_group_id,
                 currency=payload.currency.strip().upper(),
                 discount_total_cents=payload.discount_total_cents,
-                family_share_mode=payload.family_share_mode,
+                allocation_mode=payload.allocation_mode,
                 confidence=payload.confidence,
-                items=_manual_item_payload(payload.items),
+                items=_manual_item_payload(
+                    payload.items,
+                    shared_group_id=visibility.shared_group_id,
+                ),
                 discounts=_manual_discount_payload(payload.discounts),
                 raw_payload=payload.raw_payload,
                 ingest_channel="manual_api",
@@ -5535,6 +5792,7 @@ def create_app(
         request: Request,
         transaction_id: str,
         payload: TransactionOverrideRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -5548,13 +5806,9 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                personal_visibility = VisibilityContext(
-                    user_id=current_user.user_id,
-                    is_service=(current_user.username == SERVICE_USERNAME),
-                    scope="personal",
-                )
+                visibility = _visibility_for_scope(current_user, scope)
                 details = transaction_detail(
-                    session, transaction_id=transaction_id, visibility=personal_visibility
+                    session, transaction_id=transaction_id, visibility=visibility
                 )
                 if details is None:
                     raise RuntimeError("transaction not found")
@@ -5624,6 +5878,7 @@ def create_app(
         limit: int = 50,
         offset: int = 0,
         include_archived: bool = False,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -5637,7 +5892,8 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                where_conditions = [ChatThread.user_id == current_user.user_id]
+                visibility = _visibility_for_scope(current_user, scope)
+                where_conditions = [ownership_filter(ChatThread, visibility=visibility)]
                 if not include_archived:
                     where_conditions.append(ChatThread.archived_at.is_(None))
                 query = (
@@ -5670,6 +5926,7 @@ def create_app(
     def get_chat_thread(
         request: Request,
         thread_id: str,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -5681,7 +5938,13 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                thread = _load_owned_chat_thread(session=session, user=current_user, thread_id=thread_id)
+                visibility = _visibility_for_scope(current_user, scope)
+                thread = _load_owned_chat_thread(
+                    session=session,
+                    user=current_user,
+                    visibility=visibility,
+                    thread_id=thread_id,
+                )
                 result = _serialize_chat_thread(thread)
             return _response(
                 True,
@@ -5697,6 +5960,7 @@ def create_app(
         request: Request,
         thread_id: str,
         payload: ChatThreadUpdateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -5708,7 +5972,13 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                thread = _load_owned_chat_thread(session=session, user=current_user, thread_id=thread_id)
+                visibility = _visibility_for_scope(current_user, scope)
+                thread = _load_owned_chat_thread(
+                    session=session,
+                    user=current_user,
+                    visibility=visibility,
+                    thread_id=thread_id,
+                )
                 if payload.title is not None:
                     thread.title = _normalize_chat_title(payload.title)
                 if payload.archived is not None:
@@ -5730,6 +6000,7 @@ def create_app(
     def delete_chat_thread(
         request: Request,
         thread_id: str,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -5741,7 +6012,13 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                thread = _load_owned_chat_thread(session=session, user=current_user, thread_id=thread_id)
+                visibility = _visibility_for_scope(current_user, scope)
+                thread = _load_owned_chat_thread(
+                    session=session,
+                    user=current_user,
+                    visibility=visibility,
+                    thread_id=thread_id,
+                )
                 thread.archived_at = datetime.now(tz=UTC)
                 thread.stream_status = "idle"
                 thread.updated_at = datetime.now(tz=UTC)
@@ -5757,6 +6034,7 @@ def create_app(
         thread_id: str,
         limit: int = 200,
         offset: int = 0,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -5770,7 +6048,13 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                _load_owned_chat_thread(session=session, user=current_user, thread_id=thread_id)
+                visibility = _visibility_for_scope(current_user, scope)
+                _load_owned_chat_thread(
+                    session=session,
+                    user=current_user,
+                    visibility=visibility,
+                    thread_id=thread_id,
+                )
                 query = (
                     select(ChatMessage)
                     .where(ChatMessage.thread_id == thread_id)
@@ -5802,6 +6086,7 @@ def create_app(
         request: Request,
         thread_id: str,
         payload: ChatMessageCreateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -5822,17 +6107,30 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
+                visibility = _visibility_for_scope(current_user, scope)
                 thread = session.get(ChatThread, thread_id)
                 if thread is None:
                     thread = ChatThread(
                         thread_id=thread_id,
                         user_id=current_user.user_id,
+                        shared_group_id=visibility.shared_group_id,
                         title=_default_chat_title_for_message(content),
                         stream_status="idle",
                     )
                     session.add(thread)
                     session.flush()
-                if not _owns_user_resource(current_user, resource_user_id=thread.user_id):
+                if not (
+                    _owns_user_resource(
+                        current_user,
+                        resource_user_id=thread.user_id,
+                        resource_shared_group_id=thread.shared_group_id,
+                    )
+                    or resource_belongs_to_workspace(
+                        visibility=visibility,
+                        resource_user_id=thread.user_id,
+                        resource_shared_group_id=thread.shared_group_id,
+                    )
+                ):
                     raise HTTPException(status_code=404, detail="chat thread not found")
                 if thread.archived_at is not None:
                     raise RuntimeError("chat thread not found")
@@ -5874,7 +6172,18 @@ def create_app(
                     thread = session.get(ChatThread, thread_id)
                     if thread is None or thread.archived_at is not None:
                         raise exc
-                    if not _owns_user_resource(current_user, resource_user_id=thread.user_id):
+                    if not (
+                        _owns_user_resource(
+                            current_user,
+                            resource_user_id=thread.user_id,
+                            resource_shared_group_id=thread.shared_group_id,
+                        )
+                        or resource_belongs_to_workspace(
+                            visibility=visibility,
+                            resource_user_id=thread.user_id,
+                            resource_shared_group_id=thread.shared_group_id,
+                        )
+                    ):
                         raise HTTPException(
                             status_code=404,
                             detail="chat thread not found",
@@ -5926,6 +6235,7 @@ def create_app(
         request: Request,
         thread_id: str,
         payload: ChatStreamRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -5938,7 +6248,13 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                thread = _load_owned_chat_thread(session=session, user=current_user, thread_id=thread_id)
+                visibility = _visibility_for_scope(current_user, scope)
+                thread = _load_owned_chat_thread(
+                    session=session,
+                    user=current_user,
+                    visibility=visibility,
+                    thread_id=thread_id,
+                )
                 if thread.stream_status == "streaming":
                     raise HTTPException(status_code=409, detail="thread is already generating")
                 stored_messages = session.scalars(
@@ -6145,6 +6461,7 @@ def create_app(
         request: Request,
         thread_id: str,
         payload: ChatRunPersistRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -6156,7 +6473,13 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                thread = _load_owned_chat_thread(session=session, user=current_user, thread_id=thread_id)
+                visibility = _visibility_for_scope(current_user, scope)
+                thread = _load_owned_chat_thread(
+                    session=session,
+                    user=current_user,
+                    visibility=visibility,
+                    thread_id=thread_id,
+                )
 
                 created_messages: list[ChatMessage] = []
                 last_assistant_message: ChatMessage | None = None
@@ -6725,20 +7048,22 @@ def create_app(
         include_inactive: bool = False,
         limit: int = 100,
         offset: int = 0,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            user_id, _ = _resolve_request_user_identity(
-                request=request,
-                app_config=app_config,
-                sessions=sessions,
-            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
             result = service.list_bills(
-                user_id=user_id,
+                user_id=current_user.user_id,
+                visibility=visibility,
                 include_inactive=include_inactive,
                 limit=limit,
                 offset=offset,
@@ -6751,20 +7076,22 @@ def create_app(
     def create_recurring_bill(
         request: Request,
         payload: RecurringBillCreateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            user_id, _ = _resolve_request_user_identity(
-                request=request,
-                app_config=app_config,
-                sessions=sessions,
-            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
             result = service.create_bill(
-                user_id=user_id,
+                user_id=current_user.user_id,
+                visibility=visibility,
                 name=payload.name,
                 merchant_canonical=payload.merchant_canonical,
                 merchant_alias_pattern=payload.merchant_alias_pattern,
@@ -6785,19 +7112,20 @@ def create_app(
     @app.get("/api/v1/recurring-bills/analytics/overview")
     def get_recurring_overview(
         request: Request,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            user_id, _ = _resolve_request_user_identity(
-                request=request,
-                app_config=app_config,
-                sessions=sessions,
-            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
-            result = service.get_overview(user_id=user_id)
+            result = service.get_overview(user_id=current_user.user_id, visibility=visibility)
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -6807,21 +7135,23 @@ def create_app(
         request: Request,
         year: int | None = None,
         month: int | None = None,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            user_id, _ = _resolve_request_user_identity(
-                request=request,
-                app_config=app_config,
-                sessions=sessions,
-            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             now = datetime.now(tz=UTC)
             service = RecurringBillsService(session_factory=sessions)
             result = service.get_calendar(
-                user_id=user_id,
+                user_id=current_user.user_id,
+                visibility=visibility,
                 year=year or now.year,
                 month=month or now.month,
             )
@@ -6833,19 +7163,24 @@ def create_app(
     def get_recurring_forecast(
         request: Request,
         months: int = 6,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            user_id, _ = _resolve_request_user_identity(
-                request=request,
-                app_config=app_config,
-                sessions=sessions,
-            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
-            result = service.get_forecast(user_id=user_id, months=months)
+            result = service.get_forecast(
+                user_id=current_user.user_id,
+                visibility=visibility,
+                months=months,
+            )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -6853,19 +7188,20 @@ def create_app(
     @app.get("/api/v1/recurring-bills/analytics/gaps")
     def get_recurring_gaps(
         request: Request,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            user_id, _ = _resolve_request_user_identity(
-                request=request,
-                app_config=app_config,
-                sessions=sessions,
-            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
-            result = service.get_gaps(user_id=user_id)
+            result = service.get_gaps(user_id=current_user.user_id, visibility=visibility)
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -6875,20 +7211,22 @@ def create_app(
         request: Request,
         occ_id: str,
         payload: RecurringOccurrenceStatusUpdateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            user_id, _ = _resolve_request_user_identity(
-                request=request,
-                app_config=app_config,
-                sessions=sessions,
-            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
             result = service.update_occurrence_status(
-                user_id=user_id,
+                user_id=current_user.user_id,
+                visibility=visibility,
                 occurrence_id=occ_id,
                 status=payload.status,
                 notes=payload.notes,
@@ -6902,20 +7240,22 @@ def create_app(
         request: Request,
         occ_id: str,
         payload: RecurringOccurrenceSkipRequest | None = None,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            user_id, _ = _resolve_request_user_identity(
-                request=request,
-                app_config=app_config,
-                sessions=sessions,
-            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
             result = service.skip_occurrence(
-                user_id=user_id,
+                user_id=current_user.user_id,
+                visibility=visibility,
                 occurrence_id=occ_id,
                 notes=payload.notes if payload is not None else None,
             )
@@ -6928,6 +7268,7 @@ def create_app(
         request: Request,
         occ_id: str,
         payload: RecurringOccurrenceReconcileRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -6939,9 +7280,15 @@ def create_app(
                 app_config=app_config,
                 sessions=sessions,
             )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
             result = service.reconcile_occurrence(
                 user_id=user_id,
+                visibility=visibility,
                 occurrence_id=occ_id,
                 transaction_id=payload.transaction_id,
                 include_unowned_transactions=is_service_user,
@@ -6962,20 +7309,22 @@ def create_app(
         status: str | None = None,
         limit: int = 200,
         offset: int = 0,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            user_id, _ = _resolve_request_user_identity(
-                request=request,
-                app_config=app_config,
-                sessions=sessions,
-            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
             result = service.list_occurrences(
-                user_id=user_id,
+                user_id=current_user.user_id,
+                visibility=visibility,
                 bill_id=bill_id,
                 from_date=_parse_optional_iso_date(from_date),
                 to_date=_parse_optional_iso_date(to_date),
@@ -6992,20 +7341,22 @@ def create_app(
         request: Request,
         bill_id: str,
         payload: RecurringGenerateOccurrencesRequest | None = None,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            user_id, _ = _resolve_request_user_identity(
-                request=request,
-                app_config=app_config,
-                sessions=sessions,
-            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
             result = service.generate_occurrences(
-                user_id=user_id,
+                user_id=current_user.user_id,
+                visibility=visibility,
                 bill_id=bill_id,
                 from_date=payload.from_date if payload is not None else None,
                 to_date=payload.to_date if payload is not None else None,
@@ -7020,6 +7371,7 @@ def create_app(
         request: Request,
         bill_id: str,
         payload: RecurringRunMatchingRequest | None = None,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -7031,9 +7383,15 @@ def create_app(
                 app_config=app_config,
                 sessions=sessions,
             )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
             result = service.run_matching(
                 user_id=user_id,
+                visibility=visibility,
                 bill_id=bill_id,
                 include_unowned_transactions=is_service_user,
                 auto_match_threshold=(
@@ -7049,19 +7407,24 @@ def create_app(
     def get_recurring_bill(
         request: Request,
         bill_id: str,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            user_id, _ = _resolve_request_user_identity(
-                request=request,
-                app_config=app_config,
-                sessions=sessions,
-            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
-            result = service.get_bill(user_id=user_id, bill_id=bill_id)
+            result = service.get_bill(
+                user_id=current_user.user_id,
+                visibility=visibility,
+                bill_id=bill_id,
+            )
             if result is None:
                 raise RuntimeError("recurring bill not found")
             return _response(True, result=result, warnings=warnings, error=None)
@@ -7073,20 +7436,22 @@ def create_app(
         request: Request,
         bill_id: str,
         payload: RecurringBillUpdateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            user_id, _ = _resolve_request_user_identity(
-                request=request,
-                app_config=app_config,
-                sessions=sessions,
-            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
             result = service.update_bill(
-                user_id=user_id,
+                user_id=current_user.user_id,
+                visibility=visibility,
                 bill_id=bill_id,
                 payload=payload.model_dump(exclude_unset=True),
             )
@@ -7098,19 +7463,24 @@ def create_app(
     def delete_recurring_bill(
         request: Request,
         bill_id: str,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            user_id, _ = _resolve_request_user_identity(
-                request=request,
-                app_config=app_config,
-                sessions=sessions,
-            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
             service = RecurringBillsService(session_factory=sessions)
-            result = service.delete_bill(user_id=user_id, bill_id=bill_id)
+            result = service.delete_bill(
+                user_id=current_user.user_id,
+                visibility=visibility,
+                bill_id=bill_id,
+            )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -7327,6 +7697,7 @@ def create_app(
     @app.get("/api/v1/sources")
     def get_sources(
         request: Request,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -7337,11 +7708,7 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                visibility = VisibilityContext(
-                    user_id=current_user.user_id,
-                    is_service=(current_user.username == SERVICE_USERNAME),
-                    scope="personal",
-                )
+                visibility = _visibility_for_scope(current_user, scope)
                 result = list_sources(
                     session,
                     config=app_config,
@@ -7356,6 +7723,7 @@ def create_app(
     @app.get("/api/v1/sources/status")
     def get_sources_status(
         request: Request,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -7366,17 +7734,13 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                visibility = VisibilityContext(
-                    user_id=current_user.user_id,
-                    is_service=(current_user.username == SERVICE_USERNAME),
-                    scope="personal",
-                )
+                visibility = _visibility_for_scope(current_user, scope)
                 auth_service = _connector_auth_service(app, config=app_config)
-                stmt = select(Source).order_by(Source.display_name.asc(), Source.id.asc())
-                if not visibility.is_service:
-                    stmt = stmt.where(Source.user_id == visibility.user_id)
-                else:
-                    stmt = stmt.where((Source.user_id == visibility.user_id) | Source.user_id.is_(None))
+                stmt = (
+                    select(Source)
+                    .where(ownership_filter(Source, visibility=visibility, include_service_unowned=True))
+                    .order_by(Source.display_name.asc(), Source.id.asc())
+                )
                 items = [
                     _source_status_payload(
                         app,
@@ -7401,6 +7765,7 @@ def create_app(
     def get_source_status(
         request: Request,
         source_id: str,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -7412,11 +7777,7 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                visibility = VisibilityContext(
-                    user_id=current_user.user_id,
-                    is_service=(current_user.username == SERVICE_USERNAME),
-                    scope="personal",
-                )
+                visibility = _visibility_for_scope(current_user, scope)
                 if not _source_is_visible(session=session, source_id=source_id, visibility=visibility):
                     raise RuntimeError("source not found")
                 source = session.get(Source, source_id)
@@ -7439,6 +7800,7 @@ def create_app(
     def get_source_auth_status(
         request: Request,
         source_id: str,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -7449,11 +7811,7 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                visibility = VisibilityContext(
-                    user_id=current_user.user_id,
-                    is_service=(current_user.username == SERVICE_USERNAME),
-                    scope="personal",
-                )
+                visibility = _visibility_for_scope(current_user, scope)
                 if not _source_is_visible(session=session, source_id=source_id, visibility=visibility):
                     raise RuntimeError("source not found")
                 auth_service = _connector_auth_service(app, config=app_config)
@@ -7988,23 +8346,22 @@ def create_app(
 
             remote_login_url: str | None = None
             env: dict[str, str] | None = None
-            if not _prefer_local_auth_browser_for_desktop():
-                try:
-                    _ensure_vnc_runtime(app)
-                    remote_login_url = _novnc_login_url(request)
-                    runtime = get_vnc_runtime(app)
-                    if runtime is not None:
-                        env = {
-                            "DISPLAY": runtime.display,
-                            "LIDLTOOL_AUTH_BROWSER_MODE": "remote_vnc",
-                        }
-                except Exception as exc:  # noqa: BLE001
-                    warnings.append(
-                        _warning(
-                            f"remote browser session unavailable; falling back to local display ({exc})",
-                            code="connector_remote_browser_session_unavailable",
-                        )
+            try:
+                _ensure_vnc_runtime(app)
+                remote_login_url = _novnc_login_url(request)
+                runtime = get_vnc_runtime(app)
+                if runtime is not None:
+                    env = {
+                        "DISPLAY": runtime.display,
+                        "LIDLTOOL_AUTH_BROWSER_MODE": "remote_vnc",
+                    }
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(
+                    _warning(
+                        f"remote browser session unavailable; falling back to local display ({exc})",
+                        code="connector_remote_browser_session_unavailable",
                     )
+                )
 
             started = service.start_bootstrap(
                 source_id=source_id,
@@ -8256,6 +8613,7 @@ def create_app(
     def get_source_sync_status(
         request: Request,
         source_id: str,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -8266,11 +8624,7 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                visibility = VisibilityContext(
-                    user_id=current_user.user_id,
-                    is_service=(current_user.username == SERVICE_USERNAME),
-                    scope="personal",
-                )
+                visibility = _visibility_for_scope(current_user, scope)
                 if not _source_is_visible(session=session, source_id=source_id, visibility=visibility):
                     raise RuntimeError("source not found")
                 result = _serialize_source_sync_status(app, session, source_id=source_id)
@@ -8278,11 +8632,12 @@ def create_app(
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
-    @app.patch("/api/v1/sources/{source_id}/sharing")
-    def patch_source_sharing(
+    @app.patch("/api/v1/sources/{source_id}/workspace")
+    def patch_source_workspace(
         request: Request,
         source_id: str,
-        payload: SourceSharingRequest,
+        payload: SourceWorkspaceUpdateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -8293,29 +8648,52 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
+                visibility = _visibility_for_scope(current_user, scope)
                 source = session.get(Source, source_id)
-                if source is None or not _owns_user_resource(
-                    current_user, resource_user_id=source.user_id
-                ):
+                if source is None:
                     raise RuntimeError("source not found")
-                source.family_share_mode = payload.family_share_mode
+                can_manage = _owns_user_resource(
+                    current_user,
+                    resource_user_id=source.user_id,
+                    resource_shared_group_id=source.shared_group_id,
+                ) or resource_belongs_to_workspace(
+                    visibility=visibility,
+                    resource_user_id=source.user_id,
+                    resource_shared_group_id=source.shared_group_id,
+                )
+                if not can_manage:
+                    raise RuntimeError("source not found")
+                target_shared_group_id: str | None = None
+                if payload.workspace_kind == "shared_group":
+                    target_shared_group_id = payload.shared_group_id or visibility.shared_group_id
+                    if (
+                        visibility.workspace_kind != "shared_group"
+                        or visibility.shared_group_id is None
+                        or target_shared_group_id != visibility.shared_group_id
+                    ):
+                        raise RuntimeError(
+                            "shared workspace updates require the target workspace to be active"
+                        )
+                source.shared_group_id = target_shared_group_id
                 source.updated_at = datetime.now(tz=UTC)
                 session.flush()
                 result = {
                     "source_id": source.id,
                     "user_id": source.user_id,
-                    "family_share_mode": source.family_share_mode,
+                    "shared_group_id": source.shared_group_id,
+                    "workspace_kind": "shared_group" if source.shared_group_id else "personal",
                     "updated_at": source.updated_at.isoformat(),
                 }
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
-    @app.patch("/api/v1/transactions/{transaction_id}/sharing")
-    def patch_transaction_sharing(
+    @app.patch("/api/v1/transactions/{transaction_id}/workspace")
+    def patch_transaction_workspace(
         request: Request,
         transaction_id: str,
-        payload: TransactionSharingRequest,
+        payload: TransactionWorkspaceUpdateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -8326,36 +8704,77 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
+                visibility = _visibility_for_scope(current_user, scope)
                 transaction = session.get(Transaction, transaction_id)
-                if transaction is None or not _owns_user_resource(
-                    current_user, resource_user_id=transaction.user_id
-                ):
+                if transaction is None:
                     raise RuntimeError("transaction not found")
-                transaction.family_share_mode = payload.family_share_mode
+                can_manage = _owns_user_resource(
+                    current_user,
+                    resource_user_id=transaction.user_id,
+                    resource_shared_group_id=transaction.shared_group_id,
+                ) or resource_belongs_to_workspace(
+                    visibility=visibility,
+                    resource_user_id=transaction.user_id,
+                    resource_shared_group_id=transaction.shared_group_id,
+                )
+                if not can_manage:
+                    raise RuntimeError("transaction not found")
+                items = (
+                    session.execute(
+                        select(TransactionItem)
+                        .where(TransactionItem.transaction_id == transaction.id)
+                        .order_by(TransactionItem.line_no.asc(), TransactionItem.id.asc())
+                    )
+                    .scalars()
+                    .all()
+                )
+                target_shared_group_id: str | None = None
+                if payload.allocation_mode != "personal":
+                    target_shared_group_id = payload.shared_group_id or visibility.shared_group_id
+                    if (
+                        visibility.workspace_kind != "shared_group"
+                        or visibility.shared_group_id is None
+                        or target_shared_group_id != visibility.shared_group_id
+                    ):
+                        raise RuntimeError(
+                            "shared workspace allocations require the target workspace to be active"
+                        )
+                if payload.allocation_mode == "personal":
+                    transaction.shared_group_id = None
+                    for item in items:
+                        item.shared_group_id = None
+                elif payload.allocation_mode == "shared_receipt":
+                    transaction.shared_group_id = target_shared_group_id
+                    for item in items:
+                        item.shared_group_id = target_shared_group_id
+                else:
+                    transaction.shared_group_id = None
                 transaction.updated_at = datetime.now(tz=UTC)
                 session.flush()
+                allocation_mode = "personal"
+                if transaction.shared_group_id:
+                    allocation_mode = "shared_receipt"
+                elif any(item.shared_group_id for item in items):
+                    allocation_mode = "split_items"
                 result = {
                     "transaction_id": transaction.id,
                     "user_id": transaction.user_id,
+                    "shared_group_id": transaction.shared_group_id,
                     "source_id": transaction.source_id,
-                    "family_share_mode": transaction.family_share_mode,
-                    "source_family_share_mode": (
-                        transaction.source.family_share_mode
-                        if transaction.source is not None
-                        else None
-                    ),
+                    "allocation_mode": allocation_mode,
                     "updated_at": transaction.updated_at.isoformat(),
                 }
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
-    @app.patch("/api/v1/transactions/{transaction_id}/items/{item_id}/sharing")
-    def patch_transaction_item_sharing(
+    @app.patch("/api/v1/transactions/{transaction_id}/items/{item_id}/allocation")
+    def patch_transaction_item_allocation(
         request: Request,
         transaction_id: str,
         item_id: str,
-        payload: TransactionItemSharingRequest,
+        payload: TransactionItemAllocationUpdateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -8366,20 +8785,51 @@ def create_app(
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
+                visibility = _visibility_for_scope(current_user, scope)
                 transaction = session.get(Transaction, transaction_id)
-                if transaction is None or not _owns_user_resource(
-                    current_user, resource_user_id=transaction.user_id
-                ):
+                if transaction is None:
                     raise RuntimeError("transaction not found")
+                can_manage = _owns_user_resource(
+                    current_user,
+                    resource_user_id=transaction.user_id,
+                    resource_shared_group_id=transaction.shared_group_id,
+                ) or resource_belongs_to_workspace(
+                    visibility=visibility,
+                    resource_user_id=transaction.user_id,
+                    resource_shared_group_id=transaction.shared_group_id,
+                )
+                if not can_manage:
+                    raise RuntimeError("transaction not found")
+                if visibility.workspace_kind != "shared_group" or visibility.shared_group_id is None:
+                    raise RuntimeError(
+                        "item allocations can only be updated from an active shared workspace"
+                    )
                 item = session.get(TransactionItem, item_id)
                 if item is None or item.transaction_id != transaction.id:
                     raise RuntimeError("transaction item not found")
-                item.family_shared = payload.family_shared
+                target_shared_group_id = visibility.shared_group_id
+                if not payload.shared and transaction.shared_group_id == target_shared_group_id:
+                    siblings = (
+                        session.execute(
+                            select(TransactionItem).where(
+                                TransactionItem.transaction_id == transaction.id,
+                                TransactionItem.id != item.id,
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    for sibling in siblings:
+                        if sibling.shared_group_id is None:
+                            sibling.shared_group_id = target_shared_group_id
+                    transaction.shared_group_id = None
+                item.shared_group_id = target_shared_group_id if payload.shared else None
                 session.flush()
                 result = {
                     "transaction_id": transaction.id,
                     "item_id": item.id,
-                    "family_shared": item.family_shared,
+                    "shared": item.shared_group_id is not None,
+                    "shared_group_id": item.shared_group_id,
                 }
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -8702,14 +9152,22 @@ finally:
     @app.get("/api/v1/analytics/budget-rules")
     def get_budget_rules(
         request: Request,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                result = list_budget_rules(session, user_id=current_user.user_id)
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                result = list_budget_rules(
+                    session,
+                    user_id=current_user.user_id,
+                    visibility=visibility,
+                )
             return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -8718,16 +9176,21 @@ finally:
     def post_budget_rule(
         request: Request,
         payload: BudgetRuleCreateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
                 result = create_budget_rule(
                     session,
                     user_id=current_user.user_id,
+                    visibility=visibility,
                     scope_type=payload.scope_type,
                     scope_value=payload.scope_value,
                     period=payload.period,
@@ -8772,6 +9235,7 @@ finally:
         request: Request,
         year: int,
         month: int,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -8782,9 +9246,11 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
+                visibility = _visibility_for_scope(current_user, scope)
                 result = get_budget_month(
                     session,
                     user_id=current_user.user_id,
+                    visibility=visibility,
                     year=year,
                     month=month,
                 )
@@ -8798,6 +9264,7 @@ finally:
         year: int,
         month: int,
         payload: BudgetMonthUpdateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -8808,9 +9275,11 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
+                visibility = _visibility_for_scope(current_user, scope)
                 result = upsert_budget_month(
                     session,
                     user_id=current_user.user_id,
+                    visibility=visibility,
                     year=year,
                     month=month,
                     planned_income_cents=payload.planned_income_cents,
@@ -8859,6 +9328,7 @@ finally:
         direction: str | None = None,
         category: str | None = None,
         reconciled: bool | None = None,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -8869,9 +9339,11 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
+                visibility = _visibility_for_scope(current_user, scope)
                 result = list_cashflow_entries(
                     session,
                     user_id=current_user.user_id,
+                    visibility=visibility,
                     year=year,
                     month=month,
                     direction=direction,
@@ -8886,6 +9358,7 @@ finally:
     def post_cashflow_entry(
         request: Request,
         payload: CashflowEntryCreateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -8896,9 +9369,11 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
+                visibility = _visibility_for_scope(current_user, scope)
                 result = create_cashflow_entry(
                     session,
                     user_id=current_user.user_id,
+                    visibility=visibility,
                     effective_date=payload.effective_date,
                     direction=payload.direction,
                     category=payload.category,
@@ -8919,6 +9394,7 @@ finally:
         request: Request,
         entry_id: str,
         payload: CashflowEntryUpdateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -8929,9 +9405,11 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
+                visibility = _visibility_for_scope(current_user, scope)
                 result = update_cashflow_entry(
                     session,
                     user_id=current_user.user_id,
+                    visibility=visibility,
                     entry_id=entry_id,
                     payload=payload.model_dump(exclude_unset=True),
                 )
@@ -8943,6 +9421,7 @@ finally:
     def remove_cashflow_entry(
         request: Request,
         entry_id: str,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -8953,9 +9432,11 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
+                visibility = _visibility_for_scope(current_user, scope)
                 result = delete_cashflow_entry(
                     session,
                     user_id=current_user.user_id,
+                    visibility=visibility,
                     entry_id=entry_id,
                 )
             return _response(True, result=result, warnings=warnings, error=None)
@@ -9115,6 +9596,7 @@ finally:
     def post_goal(
         request: Request,
         payload: GoalCreateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -9125,9 +9607,11 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
+                visibility = _visibility_for_scope(current_user, scope)
                 result = create_goal(
                     session,
                     user_id=current_user.user_id,
+                    visibility=visibility,
                     name=payload.name,
                     goal_type=payload.goal_type,
                     target_amount_cents=payload.target_amount_cents,
@@ -9148,6 +9632,7 @@ finally:
         request: Request,
         goal_id: str,
         payload: GoalUpdateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -9158,9 +9643,11 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
+                visibility = _visibility_for_scope(current_user, scope)
                 result = update_goal(
                     session,
                     user_id=current_user.user_id,
+                    visibility=visibility,
                     goal_id=goal_id,
                     payload=payload.model_dump(exclude_unset=True),
                 )
@@ -9172,6 +9659,7 @@ finally:
     def remove_goal(
         request: Request,
         goal_id: str,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -9182,7 +9670,13 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                result = delete_goal(session, user_id=current_user.user_id, goal_id=goal_id)
+                visibility = _visibility_for_scope(current_user, scope)
+                result = delete_goal(
+                    session,
+                    user_id=current_user.user_id,
+                    visibility=visibility,
+                    goal_id=goal_id,
+                )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -9218,6 +9712,7 @@ finally:
         request: Request,
         notification_id: str,
         payload: NotificationUpdateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -9228,9 +9723,11 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
+                visibility = _visibility_for_scope(current_user, scope)
                 result = update_notification(
                     session,
                     user_id=current_user.user_id,
+                    visibility=visibility,
                     notification_id=notification_id,
                     unread=payload.unread,
                 )
@@ -9241,6 +9738,7 @@ finally:
     @app.post("/api/v1/notifications/mark-all-read")
     def post_mark_all_notifications_read(
         request: Request,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -9251,7 +9749,12 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                result = mark_all_notifications_read(session, user_id=current_user.user_id)
+                visibility = _visibility_for_scope(current_user, scope)
+                result = mark_all_notifications_read(
+                    session,
+                    user_id=current_user.user_id,
+                    visibility=visibility,
+                )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -9286,14 +9789,18 @@ finally:
     @app.get("/api/v1/query/saved")
     def get_saved_queries(
         request: Request,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             with session_scope(sessions) as session:
-                _resolve_request_user(request=request, session=session, config=app_config)
-                result = list_saved_queries(session)
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                result = list_saved_queries(session, visibility=visibility)
             return _response(True, result=result, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -9302,15 +9809,21 @@ finally:
     def post_saved_query(
         request: Request,
         payload: SavedQueryCreateRequest,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             with session_scope(sessions) as session:
-                _resolve_request_user(request=request, session=session, config=app_config)
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
                 result = create_saved_query(
                     session,
+                    visibility=visibility,
+                    user_id=current_user.user_id,
                     name=payload.name,
                     description=payload.description,
                     query_json=payload.query_json,
@@ -9323,14 +9836,18 @@ finally:
     def get_saved_query_by_id(
         request: Request,
         query_id: str,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             with session_scope(sessions) as session:
-                _resolve_request_user(request=request, session=session, config=app_config)
-                result = get_saved_query(session, query_id=query_id)
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                result = get_saved_query(session, query_id=query_id, visibility=visibility)
             if result is None:
                 raise RuntimeError("saved query not found")
             return _response(True, result=result, error=None)
@@ -9341,14 +9858,18 @@ finally:
     def delete_saved_query_by_id(
         request: Request,
         query_id: str,
+        scope: str = "personal",
     ) -> Any:
         try:
             context = _resolve_request_context(request)
             app_config = context.config
             sessions = context.sessions
             with session_scope(sessions) as session:
-                _resolve_request_user(request=request, session=session, config=app_config)
-                deleted = delete_saved_query(session, query_id=query_id)
+                current_user = _resolve_request_user(
+                    request=request, session=session, config=app_config
+                )
+                visibility = _visibility_for_scope(current_user, scope)
+                deleted = delete_saved_query(session, query_id=query_id, visibility=visibility)
             if not deleted:
                 raise RuntimeError("saved query not found")
             return _response(True, result={"query_id": query_id, "deleted": True}, error=None)
@@ -10753,11 +11274,7 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                visibility = VisibilityContext(
-                    user_id=current_user.user_id,
-                    is_service=(current_user.username == SERVICE_USERNAME),
-                    scope="personal",
-                )
+                visibility = _visibility_for_scope(current_user, scope)
                 details = review_queue_detail(
                     session, document_id=document_id, visibility=visibility
                 )
@@ -10789,11 +11306,7 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                visibility = VisibilityContext(
-                    user_id=current_user.user_id,
-                    is_service=(current_user.username == SERVICE_USERNAME),
-                    scope="personal",
-                )
+                visibility = _visibility_for_scope(current_user, scope)
                 details = review_queue_detail(
                     session, document_id=document_id, visibility=visibility
                 )
@@ -10825,11 +11338,7 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                visibility = VisibilityContext(
-                    user_id=current_user.user_id,
-                    is_service=(current_user.username == SERVICE_USERNAME),
-                    scope="personal",
-                )
+                visibility = _visibility_for_scope(current_user, scope)
                 details = review_queue_detail(
                     session, document_id=document_id, visibility=visibility
                 )
@@ -10863,11 +11372,7 @@ finally:
                 current_user = _resolve_request_user(
                     request=request, session=session, config=app_config
                 )
-                visibility = VisibilityContext(
-                    user_id=current_user.user_id,
-                    is_service=(current_user.username == SERVICE_USERNAME),
-                    scope="personal",
-                )
+                visibility = _visibility_for_scope(current_user, scope)
                 details = review_queue_detail(
                     session, document_id=document_id, visibility=visibility
                 )

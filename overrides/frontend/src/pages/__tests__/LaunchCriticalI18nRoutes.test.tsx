@@ -15,6 +15,7 @@ import { UsersSettingsPage } from "../UsersSettingsPage";
 const mocks = vi.hoisted(() => ({
   checkSetupRequiredMock: vi.fn(),
   loginMock: vi.fn(),
+  logoutMock: vi.fn(),
   fetchConnectorsMock: vi.fn(),
   fetchConnectorConfigMock: vi.fn(),
   reloadConnectorsMock: vi.fn(),
@@ -36,8 +37,17 @@ const mocks = vi.hoisted(() => ({
   disconnectAISettingsMock: vi.fn(),
   fetchAIAgentConfigMock: vi.fn(),
   fetchCurrentUserMock: vi.fn(),
+  fetchAuthSessionsMock: vi.fn(),
+  revokeAuthSessionMock: vi.fn(),
   updateCurrentUserLocaleMock: vi.fn(),
   fetchUsersMock: vi.fn(),
+  fetchSharedGroupsMock: vi.fn(),
+  fetchSharedGroupUserDirectoryMock: vi.fn(),
+  createSharedGroupMock: vi.fn(),
+  updateSharedGroupMock: vi.fn(),
+  addSharedGroupMemberMock: vi.fn(),
+  updateSharedGroupMemberMock: vi.fn(),
+  removeSharedGroupMemberMock: vi.fn(),
   fetchAgentKeysMock: vi.fn(),
   createUserMock: vi.fn(),
   updateUserMock: vi.fn(),
@@ -56,7 +66,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/api/auth", () => ({
   checkSetupRequired: mocks.checkSetupRequiredMock,
-  login: mocks.loginMock
+  login: mocks.loginMock,
+  logout: mocks.logoutMock
 }));
 
 vi.mock("@/api/connectors", () => ({
@@ -90,6 +101,8 @@ vi.mock("@/api/aiSettings", () => ({
 
 vi.mock("@/api/users", () => ({
   fetchCurrentUser: mocks.fetchCurrentUserMock,
+  fetchAuthSessions: mocks.fetchAuthSessionsMock,
+  revokeAuthSession: mocks.revokeAuthSessionMock,
   updateCurrentUserLocale: mocks.updateCurrentUserLocaleMock,
   fetchUsers: mocks.fetchUsersMock,
   fetchAgentKeys: mocks.fetchAgentKeysMock,
@@ -98,6 +111,16 @@ vi.mock("@/api/users", () => ({
   deleteUser: mocks.deleteUserMock,
   createAgentKey: mocks.createAgentKeyMock,
   revokeAgentKey: mocks.revokeAgentKeyMock
+}));
+
+vi.mock("@/api/shared-groups", () => ({
+  fetchSharedGroups: mocks.fetchSharedGroupsMock,
+  fetchSharedGroupUserDirectory: mocks.fetchSharedGroupUserDirectoryMock,
+  createSharedGroup: mocks.createSharedGroupMock,
+  updateSharedGroup: mocks.updateSharedGroupMock,
+  addSharedGroupMember: mocks.addSharedGroupMemberMock,
+  updateSharedGroupMember: mocks.updateSharedGroupMemberMock,
+  removeSharedGroupMember: mocks.removeSharedGroupMemberMock
 }));
 
 vi.mock("@/api/systemBackup", () => ({
@@ -397,7 +420,36 @@ describe("launch-critical route i18n smoke", () => {
       user_id: "u1",
       username: "admin",
       display_name: "Admin",
-      is_admin: true
+      is_admin: true,
+      preferred_locale: null,
+      session: null,
+      session_mode: null,
+      available_auth_transports: [],
+      auth_transport: null
+    });
+    mocks.fetchAuthSessionsMock.mockResolvedValue({
+      sessions: [
+        {
+          session_id: "s1",
+          user_id: "u1",
+          device_label: "Mac mini",
+          client_name: "Desktop",
+          client_platform: "macOS",
+          auth_transport: "cookie_session",
+          session_mode: "human",
+          available_auth_transports: ["cookie_session"],
+          user_agent: null,
+          last_seen_ip: null,
+          created_at: "2026-03-08T12:00:00Z",
+          last_seen_at: "2026-03-08T12:00:00Z",
+          expires_at: "2026-04-08T12:00:00Z",
+          revoked_at: null,
+          revoked_reason: null,
+          current: true
+        }
+      ],
+      count: 1,
+      current_session_id: "s1"
     });
     mocks.fetchUsersMock.mockResolvedValue({
       users: [
@@ -408,6 +460,55 @@ describe("launch-critical route i18n smoke", () => {
           is_admin: true,
           created_at: "2026-03-08T12:00:00Z",
           updated_at: "2026-03-08T12:00:00Z"
+        }
+      ],
+      count: 1
+    });
+    mocks.fetchSharedGroupsMock.mockResolvedValue({
+      groups: [
+        {
+          group_id: "g1",
+          name: "Miller Household",
+          group_type: "household",
+          status: "active",
+          created_at: "2026-03-08T12:00:00Z",
+          updated_at: "2026-03-08T12:00:00Z",
+          created_by_user: null,
+          viewer_role: "owner",
+          viewer_membership_status: "active",
+          can_manage: true,
+          owner_count: 1,
+          member_count: 1,
+          members: [
+            {
+              group_id: "g1",
+              user_id: "u1",
+              role: "owner",
+              membership_status: "active",
+              joined_at: "2026-03-08T12:00:00Z",
+              created_at: "2026-03-08T12:00:00Z",
+              updated_at: "2026-03-08T12:00:00Z",
+              user: {
+                user_id: "u1",
+                username: "admin",
+                display_name: "Admin",
+                is_admin: true,
+                preferred_locale: null
+              }
+            }
+          ]
+        }
+      ],
+      count: 1
+    });
+    mocks.fetchSharedGroupUserDirectoryMock.mockResolvedValue({
+      users: [
+        {
+          user_id: "u2",
+          username: "anna",
+          display_name: null,
+          is_admin: true,
+          preferred_locale: null
         }
       ],
       count: 1
@@ -430,6 +531,32 @@ describe("launch-critical route i18n smoke", () => {
     mocks.createUserMock.mockResolvedValue({});
     mocks.updateUserMock.mockResolvedValue({});
     mocks.deleteUserMock.mockResolvedValue({ user_id: "u2", deleted: true });
+    mocks.revokeAuthSessionMock.mockResolvedValue({
+      revoked: true,
+      session: {
+        session_id: "s1",
+        user_id: "u1",
+        device_label: "Mac mini",
+        client_name: "Desktop",
+        client_platform: "macOS",
+        auth_transport: "cookie_session",
+        session_mode: "human",
+        available_auth_transports: ["cookie_session"],
+        user_agent: null,
+        last_seen_ip: null,
+        created_at: "2026-03-08T12:00:00Z",
+        last_seen_at: "2026-03-08T12:00:00Z",
+        expires_at: "2026-04-08T12:00:00Z",
+        revoked_at: null,
+        revoked_reason: null,
+        current: true
+      }
+    });
+    mocks.createSharedGroupMock.mockResolvedValue({});
+    mocks.updateSharedGroupMock.mockResolvedValue({});
+    mocks.addSharedGroupMemberMock.mockResolvedValue({});
+    mocks.updateSharedGroupMemberMock.mockResolvedValue({});
+    mocks.removeSharedGroupMemberMock.mockResolvedValue({});
     mocks.createAgentKeyMock.mockResolvedValue({
       api_key: "secret",
       key: {
@@ -615,15 +742,18 @@ describe("launch-critical route i18n smoke", () => {
 
     expect(await screen.findByText("KI-Assistent")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "API-Schlüssel" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Anmelden mit..." })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "ChatGPT / Codex" })).toBeInTheDocument();
   });
 
   it("renders user settings copy in german", async () => {
     renderGerman(<UsersSettingsPage />);
 
     expect(await screen.findByText("Benutzer und Agent-Schlüssel")).toBeInTheDocument();
-    expect(await screen.findByText("Benutzer hinzufügen")).toBeInTheDocument();
-    expect(screen.getByText("Schlüssel erstellen")).toBeInTheDocument();
+    expect(await screen.findByText("Konto")).toBeInTheDocument();
+    expect(screen.getByText("Aktive Sitzungen")).toBeInTheDocument();
+    expect(screen.getByText("Geteilte Gruppen")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Benutzer hinzufügen" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Schlüssel erstellen" })).toBeInTheDocument();
     expect(screen.getByText("System-Backup")).toBeInTheDocument();
     expect(screen.getByText("Desktop-Wiederherstellung")).toBeInTheDocument();
   });

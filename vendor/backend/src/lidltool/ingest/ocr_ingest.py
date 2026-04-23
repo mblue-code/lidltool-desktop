@@ -67,6 +67,7 @@ class OcrIngestService:
                 session=session,
                 source=source,
                 source_account=account,
+                document=document,
                 config=self._config,
                 canonical=canonical,
                 raw_payload={
@@ -144,6 +145,7 @@ def _upsert_ocr_transaction(
     session: Session,
     source: Source,
     source_account: SourceAccount,
+    document: Document,
     config: AppConfig,
     canonical: dict[str, object],
     raw_payload: dict[str, object],
@@ -177,6 +179,7 @@ def _upsert_ocr_transaction(
     tx = Transaction(
         source_id=source.id,
         user_id=source.user_id,
+        shared_group_id=document.shared_group_id or source.shared_group_id,
         source_account_id=source_account.id,
         source_transaction_id=source_transaction_id,
         purchased_at=datetime.fromisoformat(str(canonical["purchased_at"])),
@@ -201,6 +204,7 @@ def _upsert_ocr_transaction(
         score = item_confidence_scores[idx - 1] if idx - 1 < len(item_confidence_scores) else 0.7
         item_row = TransactionItem(
             transaction_id=tx.id,
+            shared_group_id=tx.shared_group_id,
             source_item_id=str(item.get("source_item_id") or f"{source_transaction_id}:{idx}"),
             line_no=int(item.get("line_no") or idx),
             name=str(item.get("name") or f"item_{idx}"),

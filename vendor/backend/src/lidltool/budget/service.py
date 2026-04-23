@@ -17,6 +17,7 @@ from lidltool.db.models import (
     Transaction,
 )
 from lidltool.recurring.service import sync_recurring_occurrences_for_window
+from lidltool.shared_groups.ownership import assign_owner, ownership_filter, resource_belongs_to_workspace
 
 _VALID_DIRECTIONS = {"inflow", "outflow"}
 
@@ -44,6 +45,8 @@ def _serialize_budget_month(
         return {
             "id": None,
             "user_id": user_id,
+            "shared_group_id": None,
+            "workspace_kind": "personal",
             "year": year,
             "month": month,
             "planned_income_cents": None,
@@ -57,6 +60,8 @@ def _serialize_budget_month(
     return {
         "id": budget_month.id,
         "user_id": budget_month.user_id,
+        "shared_group_id": budget_month.shared_group_id,
+        "workspace_kind": "shared_group" if budget_month.shared_group_id else "personal",
         "year": budget_month.year,
         "month": budget_month.month,
         "planned_income_cents": budget_month.planned_income_cents,
@@ -77,6 +82,8 @@ def _serialize_cashflow_entry(
     return {
         "id": entry.id,
         "user_id": entry.user_id,
+        "shared_group_id": entry.shared_group_id,
+        "workspace_kind": "shared_group" if entry.shared_group_id else "personal",
         "effective_date": entry.effective_date.isoformat(),
         "direction": entry.direction,
         "category": entry.category,
@@ -115,22 +122,23 @@ def _get_budget_month_row(
     session: Session,
     *,
     user_id: str,
+    visibility: VisibilityContext | None,
     year: int,
     month: int,
 ) -> BudgetMonth | None:
-    return session.execute(
-        select(BudgetMonth).where(
-            BudgetMonth.user_id == user_id,
-            BudgetMonth.year == year,
-            BudgetMonth.month == month,
-        )
-    ).scalar_one_or_none()
+    stmt = select(BudgetMonth).where(BudgetMonth.year == year, BudgetMonth.month == month)
+    if visibility is not None:
+        stmt = stmt.where(ownership_filter(BudgetMonth, visibility=visibility))
+    else:
+        stmt = stmt.where(BudgetMonth.user_id == user_id)
+    return session.execute(stmt).scalar_one_or_none()
 
 
 def _resolve_linked_transaction(
     session: Session,
     *,
     user_id: str,
+    visibility: VisibilityContext | None,
     linked_transaction_id: str | None,
 ) -> Transaction | None:
     if linked_transaction_id is None:
@@ -138,7 +146,15 @@ def _resolve_linked_transaction(
     transaction = session.get(Transaction, linked_transaction_id)
     if transaction is None:
         raise ValueError("linked_transaction_id does not reference an existing transaction")
-    if transaction.user_id not in (None, user_id):
+    if visibility is not None:
+        allowed = resource_belongs_to_workspace(
+            visibility=visibility,
+            resource_user_id=transaction.user_id,
+            resource_shared_group_id=transaction.shared_group_id,
+        )
+        if not allowed:
+            raise ValueError("linked_transaction_id is not accessible to the current workspace")
+    elif transaction.user_id not in (None, user_id):
         raise ValueError("linked_transaction_id is not accessible to the current user")
     return transaction
 
@@ -149,10 +165,11 @@ def get_budget_month(
     user_id: str,
     year: int,
     month: int,
+    visibility: VisibilityContext | None = None,
 ) -> dict[str, Any]:
     _month_bounds(year, month)
     return _serialize_budget_month(
-        _get_budget_month_row(session, user_id=user_id, year=year, month=month),
+        _get_budget_month_row(session, user_id=user_id, visibility=visibility, year=year, month=month),
         year=year,
         month=month,
         user_id=user_id,
@@ -170,15 +187,24 @@ def upsert_budget_month(
     opening_balance_cents: int | None = None,
     currency: str = "EUR",
     notes: str | None = None,
+    visibility: VisibilityContext | None = None,
 ) -> dict[str, Any]:
     _month_bounds(year, month)
-    budget_month = _get_budget_month_row(session, user_id=user_id, year=year, month=month)
+    budget_month = _get_budget_month_row(
+        session,
+        user_id=user_id,
+        visibility=visibility,
+        year=year,
+        month=month,
+    )
     if budget_month is None:
         budget_month = BudgetMonth(
             user_id=user_id,
             year=year,
             month=month,
         )
+        if visibility is not None:
+            assign_owner(budget_month, visibility=visibility, user_id=user_id)
         session.add(budget_month)
 
     budget_month.planned_income_cents = planned_income_cents
@@ -200,13 +226,17 @@ def list_cashflow_entries(
     direction: str | None = None,
     category: str | None = None,
     reconciled: bool | None = None,
+    visibility: VisibilityContext | None = None,
 ) -> dict[str, Any]:
     start, end = _month_bounds(year, month)
     stmt = select(CashflowEntry).where(
-        CashflowEntry.user_id == user_id,
         CashflowEntry.effective_date >= start,
         CashflowEntry.effective_date < end,
     )
+    if visibility is not None:
+        stmt = stmt.where(ownership_filter(CashflowEntry, visibility=visibility))
+    else:
+        stmt = stmt.where(CashflowEntry.user_id == user_id)
     if direction is not None:
         stmt = stmt.where(CashflowEntry.direction == _normalize_direction(direction))
     if category is not None and category.strip():
@@ -261,6 +291,7 @@ def create_cashflow_entry(
     linked_transaction_id: str | None = None,
     linked_recurring_occurrence_id: str | None = None,
     notes: str | None = None,
+    visibility: VisibilityContext | None = None,
 ) -> dict[str, Any]:
     normalized_direction = _normalize_direction(direction)
     if amount_cents < 0:
@@ -268,6 +299,7 @@ def create_cashflow_entry(
     linked_transaction = _resolve_linked_transaction(
         session,
         user_id=user_id,
+        visibility=visibility,
         linked_transaction_id=linked_transaction_id,
     )
 
@@ -284,6 +316,8 @@ def create_cashflow_entry(
         linked_recurring_occurrence_id=linked_recurring_occurrence_id,
         notes=notes.strip() if notes else None,
     )
+    if visibility is not None:
+        assign_owner(entry, visibility=visibility, user_id=user_id)
     session.add(entry)
     session.flush()
     return _serialize_cashflow_entry(entry, linked_transaction=linked_transaction)
@@ -295,13 +329,14 @@ def update_cashflow_entry(
     user_id: str,
     entry_id: str,
     payload: dict[str, Any],
+    visibility: VisibilityContext | None = None,
 ) -> dict[str, Any]:
-    entry = session.execute(
-        select(CashflowEntry).where(
-            CashflowEntry.id == entry_id,
-            CashflowEntry.user_id == user_id,
-        )
-    ).scalar_one_or_none()
+    stmt = select(CashflowEntry).where(CashflowEntry.id == entry_id)
+    if visibility is not None:
+        stmt = stmt.where(ownership_filter(CashflowEntry, visibility=visibility))
+    else:
+        stmt = stmt.where(CashflowEntry.user_id == user_id)
+    entry = session.execute(stmt).scalar_one_or_none()
     if entry is None:
         raise RuntimeError("cashflow entry not found")
 
@@ -329,6 +364,7 @@ def update_cashflow_entry(
         linked_transaction = _resolve_linked_transaction(
             session,
             user_id=user_id,
+            visibility=visibility,
             linked_transaction_id=str(linked_transaction_id) if linked_transaction_id else None,
         )
         entry.linked_transaction_id = linked_transaction.id if linked_transaction is not None else None
@@ -357,13 +393,14 @@ def delete_cashflow_entry(
     *,
     user_id: str,
     entry_id: str,
+    visibility: VisibilityContext | None = None,
 ) -> dict[str, Any]:
-    entry = session.execute(
-        select(CashflowEntry).where(
-            CashflowEntry.id == entry_id,
-            CashflowEntry.user_id == user_id,
-        )
-    ).scalar_one_or_none()
+    stmt = select(CashflowEntry).where(CashflowEntry.id == entry_id)
+    if visibility is not None:
+        stmt = stmt.where(ownership_filter(CashflowEntry, visibility=visibility))
+    else:
+        stmt = stmt.where(CashflowEntry.user_id == user_id)
+    entry = session.execute(stmt).scalar_one_or_none()
     if entry is None:
         raise RuntimeError("cashflow entry not found")
     session.delete(entry)
@@ -380,7 +417,13 @@ def monthly_budget_summary(
     visibility: VisibilityContext | None = None,
 ) -> dict[str, Any]:
     start, end = _month_bounds(year, month)
-    budget_month = _get_budget_month_row(session, user_id=user_id, year=year, month=month)
+    budget_month = _get_budget_month_row(
+        session,
+        user_id=user_id,
+        visibility=visibility,
+        year=year,
+        month=month,
+    )
     budget_month_payload = _serialize_budget_month(
         budget_month,
         year=year,
@@ -394,21 +437,25 @@ def monthly_budget_summary(
     actual_income_cents = int(
         session.execute(
             select(func.coalesce(func.sum(CashflowEntry.amount_cents), 0)).where(
-                CashflowEntry.user_id == user_id,
                 CashflowEntry.direction == "inflow",
                 CashflowEntry.effective_date >= start,
                 CashflowEntry.effective_date < end,
+                ownership_filter(CashflowEntry, visibility=visibility)
+                if visibility is not None
+                else CashflowEntry.user_id == user_id,
             )
         ).scalar_one()
     )
     manual_outflow_cents = int(
         session.execute(
             select(func.coalesce(func.sum(CashflowEntry.amount_cents), 0)).where(
-                CashflowEntry.user_id == user_id,
                 CashflowEntry.direction == "outflow",
                 CashflowEntry.linked_transaction_id.is_(None),
                 CashflowEntry.effective_date >= start,
                 CashflowEntry.effective_date < end,
+                ownership_filter(CashflowEntry, visibility=visibility)
+                if visibility is not None
+                else CashflowEntry.user_id == user_id,
             )
         ).scalar_one()
     )
@@ -432,6 +479,7 @@ def monthly_budget_summary(
     sync_recurring_occurrences_for_window(
         session=session,
         user_id=user_id,
+        visibility=visibility,
         start_date=start,
         end_date=end - date.resolution,
     )
@@ -439,10 +487,12 @@ def monthly_budget_summary(
         select(RecurringBillOccurrence, RecurringBill)
         .join(RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id)
         .where(
-            RecurringBill.user_id == user_id,
             RecurringBill.active.is_(True),
             RecurringBillOccurrence.due_date >= start,
             RecurringBillOccurrence.due_date < end,
+            ownership_filter(RecurringBill, visibility=visibility)
+            if visibility is not None
+            else RecurringBill.user_id == user_id,
         )
         .order_by(RecurringBillOccurrence.due_date.asc(), RecurringBill.name.asc())
     ).all()
@@ -477,9 +527,11 @@ def monthly_budget_summary(
     cashflow_counts = session.execute(
         select(CashflowEntry.direction, func.count())
         .where(
-            CashflowEntry.user_id == user_id,
             CashflowEntry.effective_date >= start,
             CashflowEntry.effective_date < end,
+            ownership_filter(CashflowEntry, visibility=visibility)
+            if visibility is not None
+            else CashflowEntry.user_id == user_id,
         )
         .group_by(CashflowEntry.direction)
     ).all()
@@ -489,10 +541,12 @@ def monthly_budget_summary(
             select(func.count())
             .select_from(CashflowEntry)
             .where(
-                CashflowEntry.user_id == user_id,
                 CashflowEntry.effective_date >= start,
                 CashflowEntry.effective_date < end,
                 CashflowEntry.linked_transaction_id.is_not(None),
+                ownership_filter(CashflowEntry, visibility=visibility)
+                if visibility is not None
+                else CashflowEntry.user_id == user_id,
             )
         ).scalar_one()
     )

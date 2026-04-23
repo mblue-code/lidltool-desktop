@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session, selectinload
 
 from lidltool.analytics.scope import (
     VisibilityContext,
-    family_item_filter,
     visible_transaction_ids_subquery,
 )
 from lidltool.db.models import DiscountEvent, Document, Source, Transaction, TransactionItem
@@ -116,6 +115,32 @@ def _apply_transaction_visibility(stmt: Any, visibility: VisibilityContext | Non
     return stmt.where(Transaction.id.in_(visible_transaction_ids_subquery(visibility)))
 
 
+def _workspace_owner_payload(
+    *,
+    user_id: str | None,
+    shared_group_id: str | None,
+) -> dict[str, Any]:
+    return {
+        "workspace_kind": "shared_group" if shared_group_id else "personal",
+        "shared_group_id": shared_group_id,
+        "user_id": user_id,
+    }
+
+
+def _transaction_allocation_mode(
+    transaction: Transaction,
+    *,
+    items: list[TransactionItem] | None = None,
+) -> str:
+    if transaction.shared_group_id:
+        return "shared_receipt"
+    if items is None:
+        return "personal"
+    if any(item.shared_group_id for item in items):
+        return "split_items"
+    return "personal"
+
+
 def _normalize_source_ids(source_ids: list[str] | None) -> list[str] | None:
     if source_ids is None:
         return None
@@ -158,9 +183,15 @@ def _timing_window_utc_bounds(
     )
 
 
-def _is_owner(user_id: str | None, visibility: VisibilityContext | None) -> bool | None:
+def _is_owner(
+    user_id: str | None,
+    shared_group_id: str | None,
+    visibility: VisibilityContext | None,
+) -> bool | None:
     if visibility is None:
         return None
+    if visibility.workspace_kind == "shared_group" and visibility.shared_group_id is not None:
+        return shared_group_id == visibility.shared_group_id
     if visibility.is_service:
         return user_id in {None, visibility.user_id}
     return user_id == visibility.user_id
@@ -321,6 +352,7 @@ def export_receipts(
         out.append(
             {
                 "id": receipt.id,
+                "shared_group_id": receipt.shared_group_id,
                 "purchased_at": receipt.purchased_at.isoformat(),
                 "store_id": receipt.source_id,
                 "store_name": receipt.merchant_name,
@@ -331,6 +363,7 @@ def export_receipts(
                 "items": [
                     {
                         "id": item.id,
+                        "shared_group_id": item.shared_group_id,
                         "line_no": item.line_no,
                         "name": item.name,
                         "qty": float(item.qty),
@@ -1110,20 +1143,19 @@ def search_transactions(
             "purchased_at": receipt.purchased_at.isoformat(),
             "source_id": receipt.source_id,
             "user_id": receipt.user_id,
+            "shared_group_id": receipt.shared_group_id,
             "store_name": receipt.merchant_name,
             "total_gross_cents": receipt.total_gross_cents,
             "currency": receipt.currency,
             "discount_total_cents": receipt.discount_total_cents,
             "source_transaction_id": receipt.source_transaction_id,
-            "family_share_mode": receipt.family_share_mode,
-            "source_family_share_mode": (
-                receipt.source.family_share_mode if receipt.source is not None else None
-            ),
+            "allocation_mode": "shared_receipt" if receipt.shared_group_id else "personal",
             "owner_username": receipt.user.username if receipt.user is not None else None,
             "owner_display_name": (
                 receipt.user.display_name if receipt.user is not None else None
             ),
-            "is_owner": _is_owner(receipt.user_id, visibility),
+            "workspace_kind": "shared_group" if receipt.shared_group_id else "personal",
+            "is_owner": _is_owner(receipt.user_id, receipt.shared_group_id, visibility),
         }
         for receipt in rows
     ]
@@ -1178,46 +1210,38 @@ def transaction_detail(
     transaction = session.execute(tx_stmt.limit(1)).scalar_one_or_none()
     if transaction is None:
         return None
-    is_owner = _is_owner(transaction.user_id, visibility)
+    is_owner = _is_owner(transaction.user_id, transaction.shared_group_id, visibility)
     items_stmt = (
         select(TransactionItem)
         .where(TransactionItem.transaction_id == transaction.id)
         .order_by(TransactionItem.line_no.asc(), TransactionItem.id.asc())
     )
-    if visibility is not None and visibility.scope == "family":
-        items_stmt = (
-            items_stmt.join(Transaction, Transaction.id == TransactionItem.transaction_id)
-            .join(Source, Source.id == Transaction.source_id)
-            .where(family_item_filter())
-        )
+    if (
+        visibility is not None
+        and visibility.workspace_kind == "shared_group"
+        and visibility.shared_group_id is not None
+        and transaction.shared_group_id != visibility.shared_group_id
+        and (transaction.source is None or transaction.source.shared_group_id != visibility.shared_group_id)
+    ):
+        items_stmt = items_stmt.where(TransactionItem.shared_group_id == visibility.shared_group_id)
     items = session.execute(items_stmt).scalars().all()
     discounts_stmt = (
         select(DiscountEvent)
         .where(DiscountEvent.transaction_id == transaction.id)
         .order_by(DiscountEvent.scope.asc(), DiscountEvent.id.asc())
     )
-    if visibility is not None and visibility.scope == "family":
-        discounts_stmt = (
-            discounts_stmt.join(Transaction, Transaction.id == DiscountEvent.transaction_id)
-            .join(Source, Source.id == Transaction.source_id)
-            .join(
-                TransactionItem,
-                TransactionItem.id == DiscountEvent.transaction_item_id,
-                isouter=True,
-            )
-            .where(
-                (
-                    (Source.family_share_mode == "all")
-                    & (Transaction.family_share_mode == "inherit")
-                    & (Transaction.family_share_mode != "none")
-                )
-                | ((Transaction.family_share_mode == "receipt") & (Transaction.family_share_mode != "none"))
-                | (
-                    (Transaction.family_share_mode == "items")
-                    & TransactionItem.family_shared.is_(True)
+    if visibility is not None and visibility.workspace_kind == "shared_group" and visibility.shared_group_id is not None:
+        if transaction.shared_group_id != visibility.shared_group_id and (
+            transaction.source is None or transaction.source.shared_group_id != visibility.shared_group_id
+        ):
+            discounts_stmt = discounts_stmt.where(
+                DiscountEvent.transaction_item_id.in_(
+                    select(TransactionItem.id).where(
+                        TransactionItem.transaction_id == transaction.id,
+                        TransactionItem.shared_group_id == visibility.shared_group_id,
+                    )
                 )
             )
-        )
     discounts = session.execute(discounts_stmt).scalars().all()
     documents = (
         session.execute(
@@ -1233,6 +1257,7 @@ def transaction_detail(
             "id": transaction.id,
             "source_id": transaction.source_id,
             "user_id": transaction.user_id,
+            "shared_group_id": transaction.shared_group_id,
             "source_account_id": transaction.source_account_id,
             "source_transaction_id": transaction.source_transaction_id,
             "purchased_at": transaction.purchased_at.isoformat(),
@@ -1240,14 +1265,12 @@ def transaction_detail(
             "total_gross_cents": transaction.total_gross_cents,
             "currency": transaction.currency,
             "discount_total_cents": transaction.discount_total_cents,
-            "family_share_mode": transaction.family_share_mode,
-            "source_family_share_mode": (
-                transaction.source.family_share_mode if transaction.source is not None else None
-            ),
+            "allocation_mode": _transaction_allocation_mode(transaction, items=items),
             "owner_username": transaction.user.username if transaction.user is not None else None,
             "owner_display_name": (
                 transaction.user.display_name if transaction.user is not None else None
             ),
+            "workspace_kind": "shared_group" if transaction.shared_group_id else "personal",
             "is_owner": is_owner,
             "confidence": (
                 float(transaction.confidence) if transaction.confidence is not None else None
@@ -1257,6 +1280,7 @@ def transaction_detail(
         "items": [
             {
                 "id": item.id,
+                "shared_group_id": item.shared_group_id,
                 "source_item_id": item.source_item_id,
                 "line_no": item.line_no,
                 "name": item.name,
@@ -1274,7 +1298,7 @@ def transaction_detail(
                 ),
                 "category_source_value": item.category_source_value,
                 "category_version": item.category_version,
-                "family_shared": item.family_shared,
+                "is_shared_allocation": item.shared_group_id is not None,
                 "confidence": float(item.confidence) if item.confidence is not None else None,
                 "raw_payload": item.raw_payload,
             }
@@ -1305,6 +1329,7 @@ def transaction_detail(
             {
                 "id": document.id,
                 "source_id": document.source_id,
+                "shared_group_id": document.shared_group_id,
                 "storage_uri": document.storage_uri,
                 "mime_type": document.mime_type,
                 "file_name": document.file_name,
@@ -1348,6 +1373,7 @@ def review_queue(
             "document_id": document.id,
             "transaction_id": transaction.id,
             "source_id": document.source_id,
+            "shared_group_id": document.shared_group_id,
             "review_status": document.review_status,
             "ocr_status": document.ocr_status,
             "merchant_name": transaction.merchant_name,
@@ -1429,6 +1455,7 @@ def review_queue_detail(
         "transaction": {
             "id": transaction.id,
             "source_id": transaction.source_id,
+            "shared_group_id": transaction.shared_group_id,
             "source_transaction_id": transaction.source_transaction_id,
             "purchased_at": transaction.purchased_at.isoformat(),
             "merchant_name": transaction.merchant_name,

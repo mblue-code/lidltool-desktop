@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from lidltool.analytics.queries import dashboard_window_totals
 from lidltool.analytics.scope import VisibilityContext, visible_transaction_ids_subquery
 from lidltool.db.models import CashflowEntry, Goal, RecurringBillOccurrence, Transaction, TransactionItem
+from lidltool.shared_groups.ownership import assign_owner, ownership_filter
 
 GOAL_TYPES = {
     "monthly_spend_cap",
@@ -39,6 +40,8 @@ def _serialize_goal(goal: Goal, progress: dict[str, Any] | None = None) -> dict[
     payload = {
         "id": goal.id,
         "user_id": goal.user_id,
+        "shared_group_id": goal.shared_group_id,
+        "workspace_kind": "shared_group" if goal.shared_group_id else "personal",
         "name": goal.name,
         "goal_type": goal.goal_type,
         "target_amount_cents": goal.target_amount_cents,
@@ -75,9 +78,9 @@ def _goal_progress(
     if goal.goal_type == "savings_target":
         entries = session.execute(
             select(CashflowEntry).where(
-                CashflowEntry.user_id == goal.user_id,
                 CashflowEntry.effective_date >= window_from,
                 CashflowEntry.effective_date <= window_to,
+                ownership_filter(CashflowEntry, visibility=visibility),
             )
         ).scalars().all()
         inflow_cents = sum(entry.amount_cents for entry in entries if entry.direction == "inflow")
@@ -157,7 +160,7 @@ def list_goals(
     to_date: date,
     include_inactive: bool = False,
 ) -> dict[str, Any]:
-    stmt = select(Goal).where(Goal.user_id == user_id)
+    stmt = select(Goal).where(ownership_filter(Goal, visibility=visibility))
     if not include_inactive:
         stmt = stmt.where(Goal.active.is_(True))
     goals = session.execute(stmt.order_by(Goal.active.desc(), Goal.created_at.asc())).scalars().all()
@@ -210,6 +213,7 @@ def create_goal(
     session: Session,
     *,
     user_id: str,
+    visibility: VisibilityContext,
     name: str,
     goal_type: str,
     target_amount_cents: int,
@@ -236,6 +240,7 @@ def create_goal(
         notes=notes.strip() if notes else None,
         active=True,
     )
+    assign_owner(goal, visibility=visibility, user_id=user_id)
     session.add(goal)
     session.flush()
     return _serialize_goal(goal)
@@ -245,11 +250,14 @@ def update_goal(
     session: Session,
     *,
     user_id: str,
+    visibility: VisibilityContext,
     goal_id: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    goal = session.get(Goal, goal_id)
-    if goal is None or goal.user_id != user_id:
+    goal = session.execute(
+        select(Goal).where(Goal.id == goal_id, ownership_filter(Goal, visibility=visibility))
+    ).scalar_one_or_none()
+    if goal is None:
         raise ValueError("goal not found")
 
     if "name" in payload and payload["name"] is not None:
@@ -286,10 +294,13 @@ def delete_goal(
     session: Session,
     *,
     user_id: str,
+    visibility: VisibilityContext,
     goal_id: str,
 ) -> dict[str, Any]:
-    goal = session.get(Goal, goal_id)
-    if goal is None or goal.user_id != user_id:
+    goal = session.execute(
+        select(Goal).where(Goal.id == goal_id, ownership_filter(Goal, visibility=visibility))
+    ).scalar_one_or_none()
+    if goal is None:
         raise ValueError("goal not found")
     session.delete(goal)
     session.flush()

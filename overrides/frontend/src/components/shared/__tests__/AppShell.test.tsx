@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as aiSettingsApi from "@/api/aiSettings";
 import * as connectorsApi from "@/api/connectors";
 import * as notificationsApi from "@/api/notifications";
+import * as sharedGroupsApi from "@/api/shared-groups";
 import { DateRangeProvider } from "@/app/date-range-context";
 import * as pageLoaders from "@/app/page-loaders";
 import { AccessScopeProvider } from "@/app/scope-provider";
@@ -15,14 +16,24 @@ import {
   createDesktopRedirectNotice,
   getDefaultDesktopCapabilities
 } from "@/lib/desktop-capabilities";
-import { setRequestScope } from "@/lib/request-scope";
+import { setActiveWorkspace, setRequestScope } from "@/lib/request-scope";
 import { AppShell } from "../AppShell";
 
 vi.mock("@/components/ChatPanel", () => ({
   ChatPanel: ({ open }: { open: boolean }) => (open ? <div role="dialog" aria-label="AI Assistant" /> : null)
 }));
 
-const STUB_USER = { user_id: "u1", username: "admin", display_name: null, is_admin: true, preferred_locale: null };
+const STUB_USER = {
+  user_id: "u1",
+  username: "admin",
+  display_name: null,
+  is_admin: true,
+  preferred_locale: null,
+  session: null,
+  session_mode: null,
+  available_auth_transports: [],
+  auth_transport: null
+};
 
 function RouteLocationState() {
   const location = useLocation();
@@ -164,6 +175,26 @@ describe("AppShell", () => {
       unread_count: 0,
       items: []
     });
+    vi.spyOn(sharedGroupsApi, "fetchSharedGroups").mockResolvedValue({
+      count: 1,
+      groups: [
+        {
+          group_id: "group-1",
+          name: "Miller Household",
+          group_type: "household",
+          status: "active",
+          created_at: "2026-04-12T12:00:00Z",
+          updated_at: "2026-04-12T12:00:00Z",
+          created_by_user: null,
+          viewer_role: "owner",
+          viewer_membership_status: "active",
+          can_manage: true,
+          owner_count: 1,
+          member_count: 2,
+          members: []
+        }
+      ]
+    });
   });
 
   afterEach(() => {
@@ -183,6 +214,18 @@ describe("AppShell", () => {
     expect(screen.getByRole("link", { name: "Purchases" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Cash Flow" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByText("Personal")).toBeInTheDocument();
+  });
+
+  it("lists shared workspaces in preferences and keeps the active workspace visible", async () => {
+    setActiveWorkspace({ kind: "shared-group", groupId: "group-1" });
+    renderShell();
+
+    expect(await screen.findByText("Miller Household")).toBeInTheDocument();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Preferences" }));
+    expect(screen.getByText("Household workspace · Miller Household")).toBeInTheDocument();
+    expect(screen.getByRole("menuitemradio", { name: "Miller Household" })).toHaveAttribute("data-state", "checked");
   });
 
   it("offers a signed-in path back to the control center from preferences", () => {

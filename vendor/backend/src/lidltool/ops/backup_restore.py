@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import shutil
 import time
 from dataclasses import dataclass
@@ -85,7 +86,9 @@ def backup_database(
         )
     source_db = _sqlite_file_from_url(db_url)
     db_artifact = output_dir / f"db-backup-{stamp}.sqlite"
-    shutil.copy2(source_db, db_artifact)
+    with sqlite3.connect(source_db) as source_connection:
+        with sqlite3.connect(db_artifact) as target_connection:
+            source_connection.backup(target_connection)
 
     token_artifact: Path | None = None
     if config.token_file.exists():

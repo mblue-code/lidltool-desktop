@@ -77,7 +77,8 @@ async function mockAuthenticatedSession(page: Page): Promise<void> {
             display_name: "Lidl",
             status: "connected",
             enabled: true,
-            family_share_mode: "all"
+            workspace_kind: "personal",
+            shared_group_id: null
           }
         ]
       })

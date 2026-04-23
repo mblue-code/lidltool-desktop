@@ -8,13 +8,14 @@ const TransactionListItemSchema = z.object({
   purchased_at: z.string(),
   source_id: z.string(),
   user_id: z.string().nullable().optional(),
+  shared_group_id: z.string().nullable().optional(),
+  workspace_kind: z.string().nullable().optional(),
   source_transaction_id: z.string(),
   store_name: z.string().nullable(),
   total_gross_cents: z.number(),
   discount_total_cents: z.number().nullable(),
   currency: z.string(),
-  family_share_mode: z.enum(["receipt", "items", "none", "inherit"]).optional(),
-  source_family_share_mode: z.enum(["all", "manual", "none"]).nullable().optional(),
+  allocation_mode: z.enum(["personal", "shared_receipt", "split_items"]).optional(),
   owner_username: z.string().nullable().optional(),
   owner_display_name: z.string().nullable().optional(),
   is_owner: z.boolean().nullable().optional()
@@ -33,6 +34,8 @@ const TransactionDetailResponseSchema = z.object({
     id: z.string(),
     source_id: z.string(),
     user_id: z.string().nullable().optional(),
+    shared_group_id: z.string().nullable().optional(),
+    workspace_kind: z.string().nullable().optional(),
     source_transaction_id: z.string(),
     source_account_id: z.string().nullable().optional(),
     purchased_at: z.string(),
@@ -40,8 +43,7 @@ const TransactionDetailResponseSchema = z.object({
     total_gross_cents: z.number(),
     currency: z.string().optional(),
     discount_total_cents: z.number().nullable(),
-    family_share_mode: z.enum(["receipt", "items", "none", "inherit"]).optional(),
-    source_family_share_mode: z.enum(["all", "manual", "none"]).nullable().optional(),
+    allocation_mode: z.enum(["personal", "shared_receipt", "split_items"]).optional(),
     owner_username: z.string().nullable().optional(),
     owner_display_name: z.string().nullable().optional(),
     is_owner: z.boolean().nullable().optional(),
@@ -51,6 +53,7 @@ const TransactionDetailResponseSchema = z.object({
     z.object({
       id: z.string(),
       source_item_id: z.string().nullable().optional(),
+      shared_group_id: z.string().nullable().optional(),
       line_no: z.number(),
       name: z.string(),
       qty: z.number(),
@@ -58,7 +61,7 @@ const TransactionDetailResponseSchema = z.object({
       unit_price_cents: z.number().nullable().optional(),
       line_total_cents: z.number(),
       category: z.string().nullable(),
-      family_shared: z.boolean().optional()
+      is_shared_allocation: z.boolean().optional()
     })
   ),
   discounts: z.array(
@@ -74,6 +77,7 @@ const TransactionDetailResponseSchema = z.object({
   documents: z.array(
     z.object({
       id: z.string(),
+      shared_group_id: z.string().nullable().optional(),
       mime_type: z.string(),
       file_name: z.string().nullable(),
       created_at: z.string()
@@ -136,19 +140,20 @@ const TransactionOverrideResponseSchema = z.object({
   })
 });
 
-const TransactionSharingResponseSchema = z.object({
+const TransactionWorkspaceResponseSchema = z.object({
   transaction_id: z.string(),
   user_id: z.string().nullable(),
+  shared_group_id: z.string().nullable().optional(),
   source_id: z.string(),
-  family_share_mode: z.enum(["receipt", "items", "none", "inherit"]),
-  source_family_share_mode: z.enum(["all", "manual", "none"]).nullable(),
+  allocation_mode: z.enum(["personal", "shared_receipt", "split_items"]),
   updated_at: z.string()
 });
 
-const TransactionItemSharingResponseSchema = z.object({
+const TransactionItemAllocationResponseSchema = z.object({
   transaction_id: z.string(),
   item_id: z.string(),
-  family_shared: z.boolean()
+  shared: z.boolean(),
+  shared_group_id: z.string().nullable().optional()
 });
 
 const ManualTransactionResponseSchema = z.object({
@@ -160,6 +165,8 @@ const ManualTransactionResponseSchema = z.object({
     .object({
       id: z.string(),
       source_id: z.string(),
+      shared_group_id: z.string().nullable().optional(),
+      workspace_kind: z.string().nullable().optional(),
       source_transaction_id: z.string(),
       purchased_at: z.string(),
       merchant_name: z.string().nullable(),
@@ -176,8 +183,8 @@ export type TransactionListItem = z.infer<typeof TransactionListItemSchema>;
 export type TransactionDetailResponse = z.infer<typeof TransactionDetailResponseSchema>;
 export type TransactionHistoryResponse = z.infer<typeof TransactionHistoryResponseSchema>;
 export type TransactionOverrideResponse = z.infer<typeof TransactionOverrideResponseSchema>;
-export type TransactionSharingResponse = z.infer<typeof TransactionSharingResponseSchema>;
-export type TransactionItemSharingResponse = z.infer<typeof TransactionItemSharingResponseSchema>;
+export type TransactionWorkspaceResponse = z.infer<typeof TransactionWorkspaceResponseSchema>;
+export type TransactionItemAllocationResponse = z.infer<typeof TransactionItemAllocationResponseSchema>;
 export type ManualTransactionResponse = z.infer<typeof ManualTransactionResponseSchema>;
 
 export type TransactionOverrideRequest = {
@@ -199,7 +206,7 @@ export type ManualTransactionRequest = {
   source_account_ref?: string;
   currency?: string;
   discount_total_cents?: number;
-  family_share_mode?: "receipt" | "items" | "none" | "inherit";
+  allocation_mode?: "personal" | "shared_receipt" | "split_items";
   confidence?: number;
   reason?: string;
   actor_id?: string;
@@ -213,7 +220,7 @@ export type ManualTransactionRequest = {
     category?: string;
     line_no?: number;
     source_item_id?: string;
-    family_shared?: boolean;
+    shared?: boolean;
     raw_payload?: Record<string, unknown>;
   }>;
   discounts?: Array<{
@@ -290,29 +297,33 @@ export async function patchTransactionOverrides(
   );
 }
 
-export async function patchTransactionSharing(
+export async function patchTransactionWorkspace(
   transactionId: string,
-  familyShareMode: "receipt" | "items" | "none" | "inherit"
-): Promise<TransactionSharingResponse> {
+  payload: {
+    allocation_mode: "personal" | "shared_receipt" | "split_items";
+    shared_group_id?: string;
+  }
+): Promise<TransactionWorkspaceResponse> {
   return apiClient.patch(
-    `/api/v1/transactions/${transactionId}/sharing`,
-    TransactionSharingResponseSchema,
+    `/api/v1/transactions/${transactionId}/workspace`,
+    TransactionWorkspaceResponseSchema,
     {
-      family_share_mode: familyShareMode
+      allocation_mode: payload.allocation_mode,
+      shared_group_id: payload.shared_group_id
     }
   );
 }
 
-export async function patchTransactionItemSharing(
+export async function patchTransactionItemAllocation(
   transactionId: string,
   itemId: string,
-  familyShared: boolean
-): Promise<TransactionItemSharingResponse> {
+  shared: boolean
+): Promise<TransactionItemAllocationResponse> {
   return apiClient.patch(
-    `/api/v1/transactions/${transactionId}/items/${itemId}/sharing`,
-    TransactionItemSharingResponseSchema,
+    `/api/v1/transactions/${transactionId}/items/${itemId}/allocation`,
+    TransactionItemAllocationResponseSchema,
     {
-      family_shared: familyShared
+      shared
     }
   );
 }

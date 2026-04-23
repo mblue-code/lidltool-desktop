@@ -669,6 +669,7 @@ def _upsert_canonical_transaction(
     transaction = Transaction(
         source_id=source.id,
         user_id=source.user_id,
+        shared_group_id=source.shared_group_id,
         source_account_id=source_account.id if source_account is not None else None,
         source_transaction_id=source_transaction_id,
         purchased_at=purchased_at,
@@ -701,6 +702,7 @@ def _upsert_canonical_transaction(
         current_category = str(item.get("category")) if item.get("category") is not None else None
         item_row = TransactionItem(
             transaction_id=transaction.id,
+            shared_group_id=transaction.shared_group_id,
             source_item_id=(
                 str(source_item_id) if source_item_id else f"{source_transaction_id}:{line_no}"
             ),

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { fetchSources, patchSourceSharing } from "@/api/sources";
+import { fetchSources, patchSourceWorkspace } from "@/api/sources";
+import { useAccessScope } from "@/app/scope-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,9 +27,25 @@ import { useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import { useState } from "react";
 
+function sourceWorkspaceLabel(source: {
+  shared_group_id?: string | null;
+  workspace_kind?: string;
+  owner_display_name?: string | null;
+  owner_username?: string | null;
+}): string {
+  if (source.shared_group_id) {
+    return `Shared group (${source.shared_group_id})`;
+  }
+  if (source.workspace_kind === "shared_group") {
+    return "Shared group";
+  }
+  return `Personal (${source.owner_display_name || source.owner_username || "unassigned"})`;
+}
+
 export function SourcesPage() {
   const queryClient = useQueryClient();
   const { t } = useI18n();
+  const { workspace } = useAccessScope();
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const sourcesQuery = useQuery({
     queryKey: ["sources"],
@@ -37,11 +54,17 @@ export function SourcesPage() {
   const sharingMutation = useMutation({
     mutationFn: ({
       sourceId,
-      mode
+      workspaceKind,
+      sharedGroupId
     }: {
       sourceId: string;
-      mode: "all" | "manual" | "none";
-    }) => patchSourceSharing(sourceId, mode)
+      workspaceKind: "personal" | "shared_group";
+      sharedGroupId?: string;
+    }) =>
+      patchSourceWorkspace(sourceId, {
+        workspace_kind: workspaceKind,
+        shared_group_id: sharedGroupId
+      })
   });
 
   const sources = sourcesQuery.data?.sources ?? [];
@@ -49,14 +72,18 @@ export function SourcesPage() {
     ? resolveApiErrorMessage(sourcesQuery.error, t, t("pages.sources.loadErrorTitle"))
     : null;
 
-  async function updateSharing(sourceId: string, mode: "all" | "manual" | "none"): Promise<void> {
+  async function updateWorkspace(sourceId: string, workspaceKind: "personal" | "shared_group"): Promise<void> {
     setStatusMessage(null);
     try {
-      await sharingMutation.mutateAsync({ sourceId, mode });
+      await sharingMutation.mutateAsync({
+        sourceId,
+        workspaceKind,
+        sharedGroupId: workspace.kind === "shared-group" ? workspace.groupId : undefined
+      });
       await queryClient.invalidateQueries({ queryKey: ["sources"] });
-      setStatusMessage(t("pages.sources.sharingUpdated"));
+      setStatusMessage(t("pages.sources.workspaceUpdated"));
     } catch (error) {
-      setStatusMessage(resolveApiErrorMessage(error, t, t("pages.sources.sharingUpdateFailed")));
+      setStatusMessage(resolveApiErrorMessage(error, t, t("pages.sources.workspaceUpdateFailed")));
     }
   }
 
@@ -85,10 +112,11 @@ export function SourcesPage() {
                 <TableRow>
                   <TableHead className={STICKY_TABLE_COLUMN_CLASS}>{t("pages.sources.displayName")}</TableHead>
                   <TableHead>{t("pages.sources.owner")}</TableHead>
+                  <TableHead>Workspace</TableHead>
                   <TableHead>{t("pages.sources.kind")}</TableHead>
                   <TableHead>{t("common.status")}</TableHead>
                   <TableHead>{t("pages.sources.enabled")}</TableHead>
-                  <TableHead>{t("pages.sources.familySharing")}</TableHead>
+                  <TableHead>{t("pages.sources.workspaceDestination")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -96,6 +124,7 @@ export function SourcesPage() {
                   <TableRow key={source.id}>
                     <TableCell className={STICKY_TABLE_COLUMN_CLASS}>{source.display_name}</TableCell>
                     <TableCell>{source.owner_display_name || source.owner_username || "—"}</TableCell>
+                    <TableCell>{sourceWorkspaceLabel(source)}</TableCell>
                     <TableCell>{source.kind}</TableCell>
                     <TableCell>
                       <Badge variant={source.status === "healthy" ? "default" : "secondary"}>
@@ -105,19 +134,23 @@ export function SourcesPage() {
                     <TableCell>{source.enabled ? t("common.yes") : t("common.no")}</TableCell>
                     <TableCell>
                       <Select
-                        value={source.family_share_mode || "none"}
+                        value={source.shared_group_id ? "shared_group" : "personal"}
                         onValueChange={(value) =>
-                          void updateSharing(source.id, value as "all" | "manual" | "none")
+                          void updateWorkspace(source.id, value as "personal" | "shared_group")
                         }
-                        disabled={sharingMutation.isPending}
+                        disabled={
+                          sharingMutation.isPending ||
+                          (workspace.kind !== "shared-group" && !source.shared_group_id)
+                        }
                       >
                         <SelectTrigger className="w-[170px]">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="none">{t("pages.sources.sharing.off")}</SelectItem>
-                          <SelectItem value="all">{t("pages.sources.sharing.all")}</SelectItem>
-                          <SelectItem value="manual">{t("pages.sources.sharing.manual")}</SelectItem>
+                          <SelectItem value="personal">{t("pages.sources.workspace.personal")}</SelectItem>
+                          {workspace.kind === "shared-group" ? (
+                            <SelectItem value="shared_group">{t("pages.sources.workspace.sharedCurrent")}</SelectItem>
+                          ) : null}
                         </SelectContent>
                       </Select>
                     </TableCell>

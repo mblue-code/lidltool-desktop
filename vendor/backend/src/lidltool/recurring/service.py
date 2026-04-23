@@ -8,6 +8,7 @@ from dateutil.relativedelta import relativedelta
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
+from lidltool.analytics.scope import VisibilityContext
 from lidltool.db.engine import session_scope
 from lidltool.db.models import (
     RecurringBill,
@@ -17,6 +18,7 @@ from lidltool.db.models import (
 )
 from lidltool.recurring.matcher import find_match_candidates
 from lidltool.recurring.scheduler import SUPPORTED_FREQUENCIES, generate_occurrence_dates
+from lidltool.shared_groups.ownership import assign_owner, ownership_filter, resource_belongs_to_workspace
 
 RECURRING_STATUSES = {"upcoming", "due", "paid", "overdue", "skipped", "unmatched"}
 RESOLVED_STATUSES = {"paid", "skipped"}
@@ -191,11 +193,16 @@ def sync_recurring_occurrences_for_window(
     end_date: date,
     bill_id: str | None = None,
     include_inactive_bills: bool = False,
+    visibility: VisibilityContext | None = None,
 ) -> dict[str, int]:
     if start_date > end_date:
         raise RuntimeError("from_date must be <= to_date")
 
-    stmt = select(RecurringBill).where(RecurringBill.user_id == user_id)
+    stmt = select(RecurringBill)
+    if visibility is not None:
+        stmt = stmt.where(ownership_filter(RecurringBill, visibility=visibility))
+    else:
+        stmt = stmt.where(RecurringBill.user_id == user_id)
     if bill_id is not None:
         stmt = stmt.where(RecurringBill.id == bill_id)
     if not include_inactive_bills:
@@ -228,6 +235,7 @@ class RecurringBillsService:
         self,
         *,
         user_id: str,
+        visibility: VisibilityContext | None = None,
         include_inactive: bool = False,
         limit: int = 100,
         offset: int = 0,
@@ -235,7 +243,11 @@ class RecurringBillsService:
         clamped_limit = min(max(limit, 1), 200)
         clamped_offset = max(offset, 0)
         with session_scope(self._session_factory) as session:
-            stmt = select(RecurringBill).where(RecurringBill.user_id == user_id)
+            stmt = select(RecurringBill)
+            if visibility is not None:
+                stmt = stmt.where(ownership_filter(RecurringBill, visibility=visibility))
+            else:
+                stmt = stmt.where(RecurringBill.user_id == user_id)
             if not include_inactive:
                 stmt = stmt.where(RecurringBill.active.is_(True))
             total = int(
@@ -258,9 +270,20 @@ class RecurringBillsService:
                 "items": [self._serialize_bill(bill) for bill in bills],
             }
 
-    def get_bill(self, *, user_id: str, bill_id: str) -> dict[str, Any] | None:
+    def get_bill(
+        self,
+        *,
+        user_id: str,
+        bill_id: str,
+        visibility: VisibilityContext | None = None,
+    ) -> dict[str, Any] | None:
         with session_scope(self._session_factory) as session:
-            bill = self._get_scoped_bill(session=session, user_id=user_id, bill_id=bill_id)
+            bill = self._get_scoped_bill(
+                session=session,
+                user_id=user_id,
+                visibility=visibility,
+                bill_id=bill_id,
+            )
             if bill is None:
                 return None
             return self._serialize_bill(bill)
@@ -281,6 +304,7 @@ class RecurringBillsService:
         currency: str = "EUR",
         active: bool = True,
         notes: str | None = None,
+        visibility: VisibilityContext | None = None,
     ) -> dict[str, Any]:
         normalized_frequency = self._normalize_frequency(frequency)
         normalized_name = name.strip()
@@ -309,6 +333,8 @@ class RecurringBillsService:
                 active=active,
                 notes=notes.strip() if notes else None,
             )
+            if visibility is not None:
+                assign_owner(bill, visibility=visibility, user_id=user_id)
             session.add(bill)
             session.flush()
             if bill.active:
@@ -328,9 +354,15 @@ class RecurringBillsService:
         user_id: str,
         bill_id: str,
         payload: dict[str, Any],
+        visibility: VisibilityContext | None = None,
     ) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
-            bill = self._require_scoped_bill(session=session, user_id=user_id, bill_id=bill_id)
+            bill = self._require_scoped_bill(
+                session=session,
+                user_id=user_id,
+                visibility=visibility,
+                bill_id=bill_id,
+            )
             should_sync_occurrences = False
             if "name" in payload and payload["name"] is not None:
                 next_name = str(payload["name"]).strip()
@@ -398,9 +430,20 @@ class RecurringBillsService:
                 session.flush()
             return self._serialize_bill(bill)
 
-    def delete_bill(self, *, user_id: str, bill_id: str) -> dict[str, Any]:
+    def delete_bill(
+        self,
+        *,
+        user_id: str,
+        bill_id: str,
+        visibility: VisibilityContext | None = None,
+    ) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
-            bill = self._require_scoped_bill(session=session, user_id=user_id, bill_id=bill_id)
+            bill = self._require_scoped_bill(
+                session=session,
+                user_id=user_id,
+                visibility=visibility,
+                bill_id=bill_id,
+            )
             bill.active = False
             bill.updated_at = _utcnow()
             session.flush()
@@ -414,9 +457,15 @@ class RecurringBillsService:
         from_date: date | None = None,
         to_date: date | None = None,
         horizon_months: int = 6,
+        visibility: VisibilityContext | None = None,
     ) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
-            bill = self._require_scoped_bill(session=session, user_id=user_id, bill_id=bill_id)
+            bill = self._require_scoped_bill(
+                session=session,
+                user_id=user_id,
+                visibility=visibility,
+                bill_id=bill_id,
+            )
             today = date.today()
             start_date = from_date or (_month_start(today) - relativedelta(months=1))
             end_date = to_date or _month_end(
@@ -454,6 +503,7 @@ class RecurringBillsService:
         self,
         *,
         user_id: str,
+        visibility: VisibilityContext | None = None,
         bill_id: str | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
@@ -467,12 +517,15 @@ class RecurringBillsService:
         clamped_offset = max(offset, 0)
 
         with session_scope(self._session_factory) as session:
-            self._roll_occurrence_statuses(session=session, user_id=user_id)
+            self._roll_occurrence_statuses(session=session, user_id=user_id, visibility=visibility)
             stmt = select(RecurringBillOccurrence).join(
                 RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id
             )
             stmt = stmt.options(selectinload(RecurringBillOccurrence.matches))
-            stmt = stmt.where(RecurringBill.user_id == user_id)
+            if visibility is not None:
+                stmt = stmt.where(ownership_filter(RecurringBill, visibility=visibility))
+            else:
+                stmt = stmt.where(RecurringBill.user_id == user_id)
             if not include_inactive_bills:
                 stmt = stmt.where(RecurringBill.active.is_(True))
             if bill_id is not None:
@@ -508,24 +561,28 @@ class RecurringBillsService:
         self,
         *,
         user_id: str,
+        visibility: VisibilityContext | None = None,
         bill_id: str | None = None,
         include_unowned_transactions: bool = False,
         auto_match_threshold: float = 0.9,
         review_threshold: float = 0.7,
     ) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
-            self._roll_occurrence_statuses(session=session, user_id=user_id)
+            self._roll_occurrence_statuses(session=session, user_id=user_id, visibility=visibility)
 
             occ_stmt = (
                 select(RecurringBillOccurrence)
                 .join(RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id)
                 .where(
-                    RecurringBill.user_id == user_id,
                     RecurringBill.active.is_(True),
                     RecurringBillOccurrence.status.in_(UNRESOLVED_STATUSES),
                 )
                 .order_by(RecurringBillOccurrence.due_date.asc(), RecurringBillOccurrence.id.asc())
             )
+            if visibility is not None:
+                occ_stmt = occ_stmt.where(ownership_filter(RecurringBill, visibility=visibility))
+            else:
+                occ_stmt = occ_stmt.where(RecurringBill.user_id == user_id)
             if bill_id is not None:
                 occ_stmt = occ_stmt.where(RecurringBillOccurrence.bill_id == bill_id)
             occurrences = session.execute(occ_stmt).scalars().all()
@@ -640,16 +697,19 @@ class RecurringBillsService:
         match_confidence: float = 1.0,
         match_method: str = "manual",
         notes: str | None = None,
+        visibility: VisibilityContext | None = None,
     ) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
             occurrence = self._require_scoped_occurrence(
                 session=session,
                 user_id=user_id,
+                visibility=visibility,
                 occurrence_id=occurrence_id,
             )
             tx = self._get_scoped_transaction(
                 session=session,
                 user_id=user_id,
+                visibility=visibility,
                 transaction_id=transaction_id,
                 include_unowned_transactions=include_unowned_transactions,
             )
@@ -681,6 +741,7 @@ class RecurringBillsService:
             refreshed = self._require_scoped_occurrence(
                 session=session,
                 user_id=user_id,
+                visibility=visibility,
                 occurrence_id=occurrence.id,
             )
             return self._serialize_occurrence(refreshed)
@@ -691,9 +752,11 @@ class RecurringBillsService:
         user_id: str,
         occurrence_id: str,
         notes: str | None = None,
+        visibility: VisibilityContext | None = None,
     ) -> dict[str, Any]:
         return self.update_occurrence_status(
             user_id=user_id,
+            visibility=visibility,
             occurrence_id=occurrence_id,
             status="skipped",
             notes=notes,
@@ -706,6 +769,7 @@ class RecurringBillsService:
         occurrence_id: str,
         status: str,
         notes: str | None = None,
+        visibility: VisibilityContext | None = None,
     ) -> dict[str, Any]:
         normalized_status = status.strip().lower()
         if normalized_status not in RECURRING_STATUSES:
@@ -714,6 +778,7 @@ class RecurringBillsService:
             occurrence = self._require_scoped_occurrence(
                 session=session,
                 user_id=user_id,
+                visibility=visibility,
                 occurrence_id=occurrence_id,
             )
             self._validate_status_transition(current=occurrence.status, next_status=normalized_status)
@@ -728,18 +793,25 @@ class RecurringBillsService:
             session.flush()
             return self._serialize_occurrence(occurrence)
 
-    def get_overview(self, *, user_id: str) -> dict[str, Any]:
+    def get_overview(
+        self,
+        *,
+        user_id: str,
+        visibility: VisibilityContext | None = None,
+    ) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
             today = date.today()
-            self._roll_occurrence_statuses(session=session, user_id=user_id)
+            self._roll_occurrence_statuses(session=session, user_id=user_id, visibility=visibility)
 
             active_bills = int(
                 session.execute(
                     select(func.count())
                     .select_from(RecurringBill)
+                    .where(RecurringBill.active.is_(True))
                     .where(
-                        RecurringBill.user_id == user_id,
-                        RecurringBill.active.is_(True),
+                        ownership_filter(RecurringBill, visibility=visibility)
+                        if visibility is not None
+                        else RecurringBill.user_id == user_id
                     )
                 ).scalar_one()
             )
@@ -748,8 +820,12 @@ class RecurringBillsService:
                 select(RecurringBillOccurrence.status, func.count())
                 .join(RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id)
                 .where(
-                    RecurringBill.user_id == user_id,
                     RecurringBill.active.is_(True),
+                )
+                .where(
+                    ownership_filter(RecurringBill, visibility=visibility)
+                    if visibility is not None
+                    else RecurringBill.user_id == user_id
                 )
                 .group_by(RecurringBillOccurrence.status)
             ).all()
@@ -769,6 +845,9 @@ class RecurringBillsService:
                         RecurringBillOccurrence.status.in_(UNRESOLVED_STATUSES),
                         RecurringBillOccurrence.due_date >= today,
                         RecurringBillOccurrence.due_date <= (today + relativedelta(days=7)),
+                        ownership_filter(RecurringBill, visibility=visibility)
+                        if visibility is not None
+                        else RecurringBill.user_id == user_id,
                     )
                 ).scalar_one()
             )
@@ -782,6 +861,9 @@ class RecurringBillsService:
                         RecurringBill.user_id == user_id,
                         RecurringBill.active.is_(True),
                         RecurringBillOccurrence.status.in_(["overdue", "unmatched"]),
+                        ownership_filter(RecurringBill, visibility=visibility)
+                        if visibility is not None
+                        else RecurringBill.user_id == user_id,
                     )
                 ).scalar_one()
             )
@@ -789,8 +871,10 @@ class RecurringBillsService:
             bills = (
                 session.execute(
                     select(RecurringBill).where(
-                        RecurringBill.user_id == user_id,
                         RecurringBill.active.is_(True),
+                        ownership_filter(RecurringBill, visibility=visibility)
+                        if visibility is not None
+                        else RecurringBill.user_id == user_id,
                     )
                 )
                 .scalars()
@@ -819,6 +903,7 @@ class RecurringBillsService:
         year: int,
         month: int,
         include_inactive_bills: bool = False,
+        visibility: VisibilityContext | None = None,
     ) -> dict[str, Any]:
         if month < 1 or month > 12:
             raise RuntimeError("month must be between 1 and 12")
@@ -826,17 +911,20 @@ class RecurringBillsService:
         last_day = _month_end(first_day)
 
         with session_scope(self._session_factory) as session:
-            self._roll_occurrence_statuses(session=session, user_id=user_id)
+            self._roll_occurrence_statuses(session=session, user_id=user_id, visibility=visibility)
             stmt = (
                 select(RecurringBillOccurrence, RecurringBill)
                 .join(RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id)
                 .where(
-                    RecurringBill.user_id == user_id,
                     RecurringBillOccurrence.due_date >= first_day,
                     RecurringBillOccurrence.due_date <= last_day,
                 )
                 .order_by(RecurringBillOccurrence.due_date.asc(), RecurringBill.name.asc())
             )
+            if visibility is not None:
+                stmt = stmt.where(ownership_filter(RecurringBill, visibility=visibility))
+            else:
+                stmt = stmt.where(RecurringBill.user_id == user_id)
             if not include_inactive_bills:
                 stmt = stmt.where(RecurringBill.active.is_(True))
 
@@ -877,6 +965,7 @@ class RecurringBillsService:
         self,
         *,
         user_id: str,
+        visibility: VisibilityContext | None = None,
         months: int = 6,
     ) -> dict[str, Any]:
         clamped_months = min(max(months, 1), 24)
@@ -888,8 +977,10 @@ class RecurringBillsService:
             bills = (
                 session.execute(
                     select(RecurringBill).where(
-                        RecurringBill.user_id == user_id,
                         RecurringBill.active.is_(True),
+                        ownership_filter(RecurringBill, visibility=visibility)
+                        if visibility is not None
+                        else RecurringBill.user_id == user_id,
                     )
                 )
                 .scalars()
@@ -936,17 +1027,20 @@ class RecurringBillsService:
         self,
         *,
         user_id: str,
+        visibility: VisibilityContext | None = None,
     ) -> dict[str, Any]:
         with session_scope(self._session_factory) as session:
-            self._roll_occurrence_statuses(session=session, user_id=user_id)
+            self._roll_occurrence_statuses(session=session, user_id=user_id, visibility=visibility)
             rows = (
                 session.execute(
                     select(RecurringBillOccurrence)
                     .join(RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id)
                     .where(
-                        RecurringBill.user_id == user_id,
                         RecurringBill.active.is_(True),
                         RecurringBillOccurrence.status.in_(["overdue", "unmatched"]),
+                        ownership_filter(RecurringBill, visibility=visibility)
+                        if visibility is not None
+                        else RecurringBill.user_id == user_id,
                     )
                     .order_by(RecurringBillOccurrence.due_date.asc(), RecurringBillOccurrence.id.asc())
                 )
@@ -962,6 +1056,8 @@ class RecurringBillsService:
         return {
             "id": bill.id,
             "user_id": bill.user_id,
+            "shared_group_id": bill.shared_group_id,
+            "workspace_kind": "shared_group" if bill.shared_group_id else "personal",
             "name": bill.name,
             "merchant_canonical": bill.merchant_canonical,
             "merchant_alias_pattern": bill.merchant_alias_pattern,
@@ -1014,23 +1110,30 @@ class RecurringBillsService:
         *,
         session: Session,
         user_id: str,
+        visibility: VisibilityContext | None,
         bill_id: str,
     ) -> RecurringBill | None:
-        return session.execute(
-            select(RecurringBill).where(
-                RecurringBill.id == bill_id,
-                RecurringBill.user_id == user_id,
-            )
-        ).scalar_one_or_none()
+        stmt = select(RecurringBill).where(RecurringBill.id == bill_id)
+        if visibility is not None:
+            stmt = stmt.where(ownership_filter(RecurringBill, visibility=visibility))
+        else:
+            stmt = stmt.where(RecurringBill.user_id == user_id)
+        return session.execute(stmt).scalar_one_or_none()
 
     def _require_scoped_bill(
         self,
         *,
         session: Session,
         user_id: str,
+        visibility: VisibilityContext | None,
         bill_id: str,
     ) -> RecurringBill:
-        bill = self._get_scoped_bill(session=session, user_id=user_id, bill_id=bill_id)
+        bill = self._get_scoped_bill(
+            session=session,
+            user_id=user_id,
+            visibility=visibility,
+            bill_id=bill_id,
+        )
         if bill is None:
             raise RuntimeError("recurring bill not found")
         return bill
@@ -1040,16 +1143,19 @@ class RecurringBillsService:
         *,
         session: Session,
         user_id: str,
+        visibility: VisibilityContext | None,
         occurrence_id: str,
     ) -> RecurringBillOccurrence:
-        occurrence = session.execute(
+        stmt = (
             select(RecurringBillOccurrence)
             .join(RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id)
-            .where(
-                RecurringBillOccurrence.id == occurrence_id,
-                RecurringBill.user_id == user_id,
-            )
-        ).scalar_one_or_none()
+            .where(RecurringBillOccurrence.id == occurrence_id)
+        )
+        if visibility is not None:
+            stmt = stmt.where(ownership_filter(RecurringBill, visibility=visibility))
+        else:
+            stmt = stmt.where(RecurringBill.user_id == user_id)
+        occurrence = session.execute(stmt).scalar_one_or_none()
         if occurrence is None:
             raise RuntimeError("recurring occurrence not found")
         return occurrence
@@ -1059,11 +1165,20 @@ class RecurringBillsService:
         *,
         session: Session,
         user_id: str,
+        visibility: VisibilityContext | None,
         transaction_id: str,
         include_unowned_transactions: bool,
     ) -> Transaction | None:
         stmt = select(Transaction).where(Transaction.id == transaction_id)
-        if include_unowned_transactions:
+        if visibility is not None:
+            stmt = stmt.where(
+                or_(
+                    ownership_filter(Transaction, visibility=visibility),
+                    Transaction.shared_group_id.is_(None)
+                    & (Transaction.user_id == user_id if not include_unowned_transactions else or_(Transaction.user_id == user_id, Transaction.user_id.is_(None))),
+                )
+            )
+        elif include_unowned_transactions:
             stmt = stmt.where(or_(Transaction.user_id == user_id, Transaction.user_id.is_(None)))
         else:
             stmt = stmt.where(Transaction.user_id == user_id)
@@ -1076,20 +1191,24 @@ class RecurringBillsService:
         if next_status not in allowed:
             raise RuntimeError(f"invalid occurrence status transition: {current} -> {next_status}")
 
-    def _roll_occurrence_statuses(self, *, session: Session, user_id: str) -> None:
+    def _roll_occurrence_statuses(
+        self,
+        *,
+        session: Session,
+        user_id: str,
+        visibility: VisibilityContext | None,
+    ) -> None:
         today = date.today()
-        rows = (
-            session.execute(
-                select(RecurringBillOccurrence)
-                .join(RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id)
-                .where(
-                    RecurringBill.user_id == user_id,
-                    RecurringBillOccurrence.status.in_(UNRESOLVED_STATUSES),
-                )
-            )
-            .scalars()
-            .all()
+        stmt = (
+            select(RecurringBillOccurrence)
+            .join(RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id)
+            .where(RecurringBillOccurrence.status.in_(UNRESOLVED_STATUSES))
         )
+        if visibility is not None:
+            stmt = stmt.where(ownership_filter(RecurringBill, visibility=visibility))
+        else:
+            stmt = stmt.where(RecurringBill.user_id == user_id)
+        rows = session.execute(stmt).scalars().all()
         changed = False
         for occurrence in rows:
             next_status = occurrence.status

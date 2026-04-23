@@ -81,46 +81,48 @@ export const demoSources = ok({
     {
       id: "lidl_plus_de",
       user_id: "demo-user",
+      shared_group_id: "demo-household",
+      workspace_kind: "shared_group",
       owner_username: "demo",
       owner_display_name: "Demo Snapshot",
       kind: "grocery",
       display_name: "Lidl Plus",
       status: "connected",
-      enabled: true,
-      family_share_mode: "all"
+      enabled: true
     },
     {
       id: "rewe_de",
       user_id: "demo-user",
+      shared_group_id: "demo-household",
+      workspace_kind: "shared_group",
       owner_username: "demo",
       owner_display_name: "Demo Snapshot",
       kind: "grocery",
       display_name: "REWE",
       status: "connected",
-      enabled: true,
-      family_share_mode: "manual"
+      enabled: true
     },
     {
       id: "amazon_de",
       user_id: "demo-user",
+      workspace_kind: "personal",
       owner_username: "demo",
       owner_display_name: "Demo Snapshot",
       kind: "marketplace",
       display_name: "Amazon",
       status: "connected",
-      enabled: true,
-      family_share_mode: "none"
+      enabled: true
     },
     {
       id: "dm_de",
       user_id: "demo-user",
+      workspace_kind: "personal",
       owner_username: "demo",
       owner_display_name: "Demo Snapshot",
       kind: "drugstore",
       display_name: "dm",
       status: "review",
-      enabled: true,
-      family_share_mode: "manual"
+      enabled: true
     }
   ]
 });
@@ -259,12 +261,12 @@ export const demoTransactionsList = ok({
   limit: 25,
   offset: 0,
   items: [
-    { id: "tx-demo-1", purchased_at: "2026-03-28T09:14:00", source_id: "lidl_plus_de", user_id: "demo-user", source_transaction_id: "lidl-2026-03-28", store_name: "Lidl Wasbuettel Nord", total_gross_cents: 4892, discount_total_cents: 840, currency: "EUR", family_share_mode: "inherit", source_family_share_mode: "all", owner_username: "demo", owner_display_name: "Demo Snapshot", is_owner: false },
-    { id: "tx-demo-2", purchased_at: "2026-03-24T18:42:00", source_id: "rewe_de", user_id: "demo-user", source_transaction_id: "rewe-2026-03-24", store_name: "REWE Braunschweig", total_gross_cents: 3718, discount_total_cents: 279, currency: "EUR", family_share_mode: "inherit", source_family_share_mode: "manual", owner_username: "demo", owner_display_name: "Demo Snapshot", is_owner: false },
-    { id: "tx-demo-3", purchased_at: "2026-03-19T11:08:00", source_id: "amazon_de", user_id: "demo-user", source_transaction_id: "amazon-2026-03-19", store_name: "Amazon EU", total_gross_cents: 2999, discount_total_cents: 0, currency: "EUR", family_share_mode: "inherit", source_family_share_mode: "none", owner_username: "demo", owner_display_name: "Demo Snapshot", is_owner: false },
-    { id: "tx-demo-4", purchased_at: "2026-03-13T16:21:00", source_id: "dm_de", user_id: "demo-user", source_transaction_id: "dm-2026-03-13", store_name: "dm Wolfsburg", total_gross_cents: 2364, discount_total_cents: 135, currency: "EUR", family_share_mode: "inherit", source_family_share_mode: "manual", owner_username: "demo", owner_display_name: "Demo Snapshot", is_owner: false },
-    { id: "tx-demo-5", purchased_at: "2026-03-08T10:04:00", source_id: "lidl_plus_de", user_id: "demo-user", source_transaction_id: "lidl-2026-03-08", store_name: "Lidl Wasbuettel Nord", total_gross_cents: 5644, discount_total_cents: 910, currency: "EUR", family_share_mode: "inherit", source_family_share_mode: "all", owner_username: "demo", owner_display_name: "Demo Snapshot", is_owner: false },
-    { id: "tx-demo-6", purchased_at: "2026-03-03T19:11:00", source_id: "rewe_de", user_id: "demo-user", source_transaction_id: "rewe-2026-03-03", store_name: "REWE Braunschweig", total_gross_cents: 4180, discount_total_cents: 230, currency: "EUR", family_share_mode: "inherit", source_family_share_mode: "manual", owner_username: "demo", owner_display_name: "Demo Snapshot", is_owner: false }
+    { id: "tx-demo-1", purchased_at: "2026-03-28T09:14:00", source_id: "lidl_plus_de", user_id: "demo-user", shared_group_id: "demo-household", workspace_kind: "shared_group", source_transaction_id: "lidl-2026-03-28", store_name: "Lidl Wasbuettel Nord", total_gross_cents: 4892, discount_total_cents: 840, currency: "EUR", allocation_mode: "shared_receipt", owner_username: "demo", owner_display_name: "Demo Snapshot", is_owner: false },
+    { id: "tx-demo-2", purchased_at: "2026-03-24T18:42:00", source_id: "rewe_de", user_id: "demo-user", workspace_kind: "personal", source_transaction_id: "rewe-2026-03-24", store_name: "REWE Braunschweig", total_gross_cents: 3718, discount_total_cents: 279, currency: "EUR", allocation_mode: "split_items", owner_username: "demo", owner_display_name: "Demo Snapshot", is_owner: false },
+    { id: "tx-demo-3", purchased_at: "2026-03-19T11:08:00", source_id: "amazon_de", user_id: "demo-user", workspace_kind: "personal", source_transaction_id: "amazon-2026-03-19", store_name: "Amazon EU", total_gross_cents: 2999, discount_total_cents: 0, currency: "EUR", allocation_mode: "personal", owner_username: "demo", owner_display_name: "Demo Snapshot", is_owner: false },
+    { id: "tx-demo-4", purchased_at: "2026-03-13T16:21:00", source_id: "dm_de", user_id: "demo-user", workspace_kind: "personal", source_transaction_id: "dm-2026-03-13", store_name: "dm Wolfsburg", total_gross_cents: 2364, discount_total_cents: 135, currency: "EUR", allocation_mode: "personal", owner_username: "demo", owner_display_name: "Demo Snapshot", is_owner: false },
+    { id: "tx-demo-5", purchased_at: "2026-03-08T10:04:00", source_id: "lidl_plus_de", user_id: "demo-user", shared_group_id: "demo-household", workspace_kind: "shared_group", source_transaction_id: "lidl-2026-03-08", store_name: "Lidl Wasbuettel Nord", total_gross_cents: 5644, discount_total_cents: 910, currency: "EUR", allocation_mode: "shared_receipt", owner_username: "demo", owner_display_name: "Demo Snapshot", is_owner: false },
+    { id: "tx-demo-6", purchased_at: "2026-03-03T19:11:00", source_id: "rewe_de", user_id: "demo-user", workspace_kind: "personal", source_transaction_id: "rewe-2026-03-03", store_name: "REWE Braunschweig", total_gross_cents: 4180, discount_total_cents: 230, currency: "EUR", allocation_mode: "split_items", owner_username: "demo", owner_display_name: "Demo Snapshot", is_owner: false }
   ]
 });
 
@@ -281,8 +283,9 @@ export const demoTransactionDetails = {
       total_gross_cents: 4892,
       currency: "EUR",
       discount_total_cents: 840,
-      family_share_mode: "inherit",
-      source_family_share_mode: "all",
+      shared_group_id: "demo-household",
+      workspace_kind: "shared_group",
+      allocation_mode: "shared_receipt",
       owner_username: "demo",
       owner_display_name: "Demo Snapshot",
       is_owner: false,
@@ -292,10 +295,10 @@ export const demoTransactionDetails = {
       }
     },
     items: [
-      { id: "tx-demo-1-item-1", source_item_id: "1", line_no: 1, name: "Bio Bananen", qty: 1, unit: "kg", unit_price_cents: 229, line_total_cents: 229, category: "produce", family_shared: true },
-      { id: "tx-demo-1-item-2", source_item_id: "2", line_no: 2, name: "Milbona Vollmilch 3.5%", qty: 1, unit: "l", unit_price_cents: 139, line_total_cents: 139, category: "dairy", family_shared: true },
-      { id: "tx-demo-1-item-3", source_item_id: "3", line_no: 3, name: "Junger Gouda 400g", qty: 1, unit: "pack", unit_price_cents: 279, line_total_cents: 279, category: "dairy", family_shared: true },
-      { id: "tx-demo-1-item-4", source_item_id: "4", line_no: 4, name: "Parkside Kuechenpapier", qty: 1, unit: "pack", unit_price_cents: 499, line_total_cents: 499, category: "household", family_shared: true }
+      { id: "tx-demo-1-item-1", source_item_id: "1", shared_group_id: "demo-household", line_no: 1, name: "Bio Bananen", qty: 1, unit: "kg", unit_price_cents: 229, line_total_cents: 229, category: "produce", is_shared_allocation: true },
+      { id: "tx-demo-1-item-2", source_item_id: "2", shared_group_id: "demo-household", line_no: 2, name: "Milbona Vollmilch 3.5%", qty: 1, unit: "l", unit_price_cents: 139, line_total_cents: 139, category: "dairy", is_shared_allocation: true },
+      { id: "tx-demo-1-item-3", source_item_id: "3", shared_group_id: "demo-household", line_no: 3, name: "Junger Gouda 400g", qty: 1, unit: "pack", unit_price_cents: 279, line_total_cents: 279, category: "dairy", is_shared_allocation: true },
+      { id: "tx-demo-1-item-4", source_item_id: "4", shared_group_id: "demo-household", line_no: 4, name: "Parkside Kuechenpapier", qty: 1, unit: "pack", unit_price_cents: 499, line_total_cents: 499, category: "household", is_shared_allocation: true }
     ],
     discounts: [
       { id: "tx-demo-1-disc-1", transaction_item_id: null, source_label: "Lidl Plus", scope: "transaction", kind: "member_discount", amount_cents: 510 },
@@ -318,17 +321,17 @@ export const demoTransactionDetails = {
       total_gross_cents: 3718,
       currency: "EUR",
       discount_total_cents: 279,
-      family_share_mode: "inherit",
-      source_family_share_mode: "manual",
+      workspace_kind: "personal",
+      allocation_mode: "split_items",
       owner_username: "demo",
       owner_display_name: "Demo Snapshot",
       is_owner: false,
       raw_payload: { source: "demo" }
     },
     items: [
-      { id: "tx-demo-2-item-1", source_item_id: "1", line_no: 1, name: "Mineralwasser 6x1.5L", qty: 1, unit: "crate", unit_price_cents: 349, line_total_cents: 349, category: "beverages", family_shared: true },
-      { id: "tx-demo-2-item-2", source_item_id: "2", line_no: 2, name: "Ja! Fusilli", qty: 2, unit: "pack", unit_price_cents: 89, line_total_cents: 178, category: "pantry", family_shared: true },
-      { id: "tx-demo-2-item-3", source_item_id: "3", line_no: 3, name: "Hummus Pikant", qty: 1, unit: "cup", unit_price_cents: 199, line_total_cents: 199, category: "snacks", family_shared: true }
+      { id: "tx-demo-2-item-1", source_item_id: "1", shared_group_id: "demo-household", line_no: 1, name: "Mineralwasser 6x1.5L", qty: 1, unit: "crate", unit_price_cents: 349, line_total_cents: 349, category: "beverages", is_shared_allocation: true },
+      { id: "tx-demo-2-item-2", source_item_id: "2", shared_group_id: "demo-household", line_no: 2, name: "Ja! Fusilli", qty: 2, unit: "pack", unit_price_cents: 89, line_total_cents: 178, category: "pantry", is_shared_allocation: true },
+      { id: "tx-demo-2-item-3", source_item_id: "3", line_no: 3, name: "Hummus Pikant", qty: 1, unit: "cup", unit_price_cents: 199, line_total_cents: 199, category: "snacks", is_shared_allocation: false }
     ],
     discounts: [{ id: "tx-demo-2-disc-1", transaction_item_id: null, source_label: "Promo", scope: "transaction", kind: "promotion", amount_cents: 279 }],
     documents: [{ id: "doc-demo-2", mime_type: "image/svg+xml", file_name: "rewe-demo-receipt.svg", created_at: "2026-03-24T18:43:00" }]

@@ -13,6 +13,7 @@ from lidltool.analytics.scope import (
     visible_transaction_ids_subquery,
 )
 from lidltool.db.models import BudgetRule, ItemObservation, Transaction, TransactionItem
+from lidltool.shared_groups.ownership import assign_owner, ownership_filter
 
 
 def _today() -> date:
@@ -577,9 +578,16 @@ def basket_compare(
     }
 
 
-def list_budget_rules(session: Session, *, user_id: str | None = None) -> dict[str, Any]:
+def list_budget_rules(
+    session: Session,
+    *,
+    user_id: str | None = None,
+    visibility: VisibilityContext | None = None,
+) -> dict[str, Any]:
     stmt = select(BudgetRule)
-    if user_id is not None:
+    if visibility is not None:
+        stmt = stmt.where(ownership_filter(BudgetRule, visibility=visibility))
+    elif user_id is not None:
         stmt = stmt.where(BudgetRule.user_id == user_id)
     rows = session.execute(stmt.order_by(BudgetRule.created_at.desc())).scalars().all()
     return {
@@ -587,6 +595,7 @@ def list_budget_rules(session: Session, *, user_id: str | None = None) -> dict[s
             {
                 "rule_id": row.rule_id,
                 "user_id": row.user_id,
+                "shared_group_id": row.shared_group_id,
                 "scope_type": row.scope_type,
                 "scope_value": row.scope_value,
                 "period": row.period,
@@ -606,6 +615,7 @@ def create_budget_rule(
     session: Session,
     *,
     user_id: str,
+    visibility: VisibilityContext | None,
     scope_type: str,
     scope_value: str,
     period: str,
@@ -626,11 +636,14 @@ def create_budget_rule(
         currency=currency.strip() or "EUR",
         active=active,
     )
+    if visibility is not None:
+        assign_owner(rule, visibility=visibility, user_id=user_id)
     session.add(rule)
     session.flush()
     return {
         "rule_id": rule.rule_id,
         "user_id": rule.user_id,
+        "shared_group_id": rule.shared_group_id,
         "scope_type": rule.scope_type,
         "scope_value": rule.scope_value,
         "period": rule.period,
@@ -655,7 +668,9 @@ def budget_utilization(
     target_month = month or today.month
 
     rules_stmt = select(BudgetRule).where(BudgetRule.active.is_(True))
-    if user_id is not None:
+    if visibility is not None:
+        rules_stmt = rules_stmt.where(ownership_filter(BudgetRule, visibility=visibility))
+    elif user_id is not None:
         rules_stmt = rules_stmt.where(BudgetRule.user_id == user_id)
     rules = session.execute(rules_stmt.order_by(BudgetRule.scope_type.asc())).scalars().all()
     rows: list[dict[str, Any]] = []

@@ -1,4 +1,4 @@
-"""Add user_id and family sharing columns to existing tables
+"""Add multi-user ownership columns to existing tables
 
 Revision ID: 0005_multi_user_columns
 Revises: 0004_multi_user_auth
@@ -24,34 +24,15 @@ def _has_column(conn: sa.engine.Connection, table: str, column: str) -> bool:
 def upgrade() -> None:
     conn = op.get_bind()
 
-    # sources: user_id (nullable FK), family_share_mode
+    # sources: user_id (nullable FK)
     if not _has_column(conn, "sources", "user_id"):
         op.add_column("sources", sa.Column("user_id", sa.String(), nullable=True))
         op.create_index("idx_sources_user_id", "sources", ["user_id"], unique=False)
-    if not _has_column(conn, "sources", "family_share_mode"):
-        op.add_column(
-            "sources",
-            sa.Column("family_share_mode", sa.String(), nullable=False, server_default=sa.text("'none'")),
-        )
 
-    # transactions: user_id (nullable FK), family_share_mode
+    # transactions: user_id (nullable FK)
     if not _has_column(conn, "transactions", "user_id"):
         op.add_column("transactions", sa.Column("user_id", sa.String(), nullable=True))
         op.create_index("idx_transactions_user_id", "transactions", ["user_id"], unique=False)
-    if not _has_column(conn, "transactions", "family_share_mode"):
-        op.add_column(
-            "transactions",
-            sa.Column("family_share_mode", sa.String(), nullable=False, server_default=sa.text("'inherit'")),
-        )
-        op.create_index("idx_transactions_family_mode", "transactions", ["family_share_mode"], unique=False)
-
-    # transaction_items: family_shared
-    if not _has_column(conn, "transaction_items", "family_shared"):
-        op.add_column(
-            "transaction_items",
-            sa.Column("family_shared", sa.Boolean(), nullable=False, server_default=sa.text("0")),
-        )
-        op.create_index("idx_ti_family_shared", "transaction_items", ["family_shared"], unique=False)
 
 
 def downgrade() -> None:

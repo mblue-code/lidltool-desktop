@@ -65,7 +65,7 @@ const MANUAL_LITERAL_DE_TRANSLATIONS: Record<string, string> = {
   "Basket Builder": "Warenkorb-Builder",
   "Bill created.": "Rechnung erstellt.",
   "Drop a receipt here, or choose a file": "Beleg hier ablegen oder Datei auswählen",
-  "Receipt sharing mode": "Beleg-Freigabemodus",
+  "Receipt allocation": "Belegzuordnung",
   Receipt: "Beleg",
   Indicator: "Indikator",
   Group: "Gruppe",

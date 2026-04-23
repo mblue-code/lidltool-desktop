@@ -7,6 +7,7 @@ import { Link, useParams } from "react-router-dom";
 import { z } from "zod";
 
 import { transactionDetailQueryOptions } from "@/app/queries";
+import { useAccessScope } from "@/app/scope-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,8 +41,8 @@ import { resolveApiErrorMessage } from "@/lib/backend-messages";
 import {
   TransactionOverrideRequest,
   buildDocumentPreviewUrl,
-  patchTransactionItemSharing,
-  patchTransactionSharing,
+  patchTransactionItemAllocation,
+  patchTransactionWorkspace,
   patchTransactionOverrides
 } from "../api/transactions";
 import { formatDateTime, formatEurFromCents } from "../utils/format";
@@ -69,9 +70,17 @@ function supportsInlinePreview(mimeType: string): boolean {
   );
 }
 
+function workspaceLabel(workspaceKind?: string | null, sharedGroupId?: string | null): string {
+  if (workspaceKind === "shared_group" || sharedGroupId) {
+    return sharedGroupId ? `Shared group (${sharedGroupId})` : "Shared group";
+  }
+  return "Personal";
+}
+
 export function TransactionDetailPage() {
   const { transactionId } = useParams();
   const { locale, t } = useI18n();
+  const { workspace } = useAccessScope();
   const txId = transactionId ?? null;
   const [mutationStatus, setMutationStatus] = useState<string | null>(null);
   const [sharingStatus, setSharingStatus] = useState<string | null>(null);
@@ -94,7 +103,8 @@ export function TransactionDetailPage() {
   const loading = isPending || isFetching;
   const errorMessage = error ? resolveApiErrorMessage(error, t, t("pages.transactionDetail.loadError")) : null;
   const isOwner = detail?.transaction.is_owner !== false;
-  const currentFamilyShareMode = detail?.transaction.family_share_mode ?? "inherit";
+  const currentAllocationMode = detail?.transaction.allocation_mode ?? "personal";
+  const canTargetSharedWorkspace = workspace.kind === "shared-group";
 
   const overridesMutation = useMutation({
     mutationFn: ({
@@ -106,19 +116,30 @@ export function TransactionDetailPage() {
     }) => patchTransactionOverrides(transactionId, payload)
   });
   const sharingMutation = useMutation({
-    mutationFn: ({ transactionId, mode }: { transactionId: string; mode: "receipt" | "items" | "none" | "inherit" }) =>
-      patchTransactionSharing(transactionId, mode)
+    mutationFn: ({
+      transactionId,
+      allocationMode,
+      sharedGroupId
+    }: {
+      transactionId: string;
+      allocationMode: "personal" | "shared_receipt" | "split_items";
+      sharedGroupId?: string;
+    }) =>
+      patchTransactionWorkspace(transactionId, {
+        allocation_mode: allocationMode,
+        shared_group_id: sharedGroupId
+      })
   });
   const itemSharingMutation = useMutation({
     mutationFn: ({
       transactionId,
       itemId,
-      familyShared
+      shared
     }: {
       transactionId: string;
       itemId: string;
-      familyShared: boolean;
-    }) => patchTransactionItemSharing(transactionId, itemId, familyShared)
+      shared: boolean;
+    }) => patchTransactionItemAllocation(transactionId, itemId, shared)
   });
 
   const form = useForm<OverrideFormValues>({
@@ -279,31 +300,37 @@ export function TransactionDetailPage() {
     }
   }
 
-  async function updateTransactionSharing(mode: "receipt" | "items" | "none" | "inherit"): Promise<void> {
+  async function updateTransactionWorkspace(
+    allocationMode: "personal" | "shared_receipt" | "split_items"
+  ): Promise<void> {
     if (!detail || !txId || !isOwner) {
       return;
     }
-    setSharingStatus(t("pages.transactionDetail.sharingUpdating"));
+    setSharingStatus(t("pages.transactionDetail.allocationUpdating"));
     try {
-      await sharingMutation.mutateAsync({ transactionId: txId, mode });
+      await sharingMutation.mutateAsync({
+        transactionId: txId,
+        allocationMode,
+        sharedGroupId: workspace.kind === "shared-group" ? workspace.groupId : undefined
+      });
       void refetch();
-      setSharingStatus(t("pages.transactionDetail.sharingUpdated"));
+      setSharingStatus(t("pages.transactionDetail.allocationUpdated"));
     } catch (error) {
-      setSharingStatus(resolveApiErrorMessage(error, t, t("pages.transactionDetail.sharingFailed")));
+      setSharingStatus(resolveApiErrorMessage(error, t, t("pages.transactionDetail.allocationFailed")));
     }
   }
 
-  async function updateItemSharing(itemId: string, familyShared: boolean): Promise<void> {
+  async function updateItemAllocation(itemId: string, shared: boolean): Promise<void> {
     if (!detail || !txId || !isOwner) {
       return;
     }
-    setSharingStatus(t("pages.transactionDetail.itemSharingUpdating"));
+    setSharingStatus(t("pages.transactionDetail.itemAllocationUpdating"));
     try {
-      await itemSharingMutation.mutateAsync({ transactionId: txId, itemId, familyShared });
+      await itemSharingMutation.mutateAsync({ transactionId: txId, itemId, shared });
       void refetch();
-      setSharingStatus(t("pages.transactionDetail.itemSharingUpdated"));
+      setSharingStatus(t("pages.transactionDetail.itemAllocationUpdated"));
     } catch (error) {
-      setSharingStatus(resolveApiErrorMessage(error, t, t("pages.transactionDetail.itemSharingFailed")));
+      setSharingStatus(resolveApiErrorMessage(error, t, t("pages.transactionDetail.itemAllocationFailed")));
     }
   }
 
@@ -354,6 +381,13 @@ export function TransactionDetailPage() {
                   <p>
                     <strong>{t("pages.transactionDetail.field.owner")}:</strong>{" "}
                     {detail.transaction.owner_display_name || detail.transaction.owner_username || t("pages.transactionDetail.unknownOwner")}
+                  </p>
+                  <p>
+                    <strong>Workspace:</strong>{" "}
+                    {workspaceLabel(
+                      detail.transaction.workspace_kind,
+                      detail.transaction.shared_group_id
+                    )}
                   </p>
                   <p>
                     <strong>{t("pages.transactionDetail.field.purchased")}:</strong> {formatDateTime(detail.transaction.purchased_at)}
@@ -419,28 +453,47 @@ export function TransactionDetailPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>{t("pages.transactionDetail.familySharing")}</CardTitle>
+                <CardTitle>{t("pages.transactionDetail.workspaceOwnership")}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="space-y-2">
-                  <Label htmlFor="family-share-mode">{t("pages.transactionDetail.receiptSharingMode")}</Label>
+                  <Label htmlFor="transaction-allocation-mode">{t("pages.transactionDetail.receiptAllocationMode")}</Label>
                   <Select
-                    value={currentFamilyShareMode}
+                    value={currentAllocationMode}
                     onValueChange={(value) =>
-                      void updateTransactionSharing(value as "receipt" | "items" | "none" | "inherit")
+                      void updateTransactionWorkspace(
+                        value as "personal" | "shared_receipt" | "split_items"
+                      )
                     }
-                    disabled={!isOwner || sharingMutation.isPending || itemSharingMutation.isPending}
+                    disabled={
+                      !isOwner ||
+                      sharingMutation.isPending ||
+                      itemSharingMutation.isPending ||
+                      (!canTargetSharedWorkspace && currentAllocationMode === "personal")
+                    }
                   >
-                    <SelectTrigger id="family-share-mode" className="w-[240px]">
+                    <SelectTrigger id="transaction-allocation-mode" className="w-[240px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="inherit">{t("pages.transactionDetail.share.inherit")}</SelectItem>
-                      <SelectItem value="none">{t("pages.transactionDetail.share.none")}</SelectItem>
-                      <SelectItem value="receipt">{t("pages.transactionDetail.share.receipt")}</SelectItem>
-                      <SelectItem value="items">{t("pages.transactionDetail.share.items")}</SelectItem>
+                      <SelectItem value="personal">{t("pages.transactionDetail.allocation.personal")}</SelectItem>
+                      {canTargetSharedWorkspace || currentAllocationMode !== "personal" ? (
+                        <>
+                          <SelectItem value="shared_receipt">
+                            {t("pages.transactionDetail.allocation.sharedReceipt")}
+                          </SelectItem>
+                          <SelectItem value="split_items">
+                            {t("pages.transactionDetail.allocation.splitItems")}
+                          </SelectItem>
+                        </>
+                      ) : null}
                     </SelectContent>
                   </Select>
+                  {!canTargetSharedWorkspace && currentAllocationMode === "personal" ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t("pages.transactionDetail.switchWorkspaceHint")}
+                    </p>
+                  ) : null}
                   {!isOwner ? (
                     <p className="text-xs text-muted-foreground">
                       {t("pages.transactionDetail.readOnly")}
@@ -448,11 +501,11 @@ export function TransactionDetailPage() {
                   ) : null}
                 </div>
 
-                {currentFamilyShareMode === "items" ? (
+                {currentAllocationMode === "split_items" ? (
                   <div className="space-y-2">
-                    <p className="text-sm font-medium">{t("pages.transactionDetail.sharedItems")}</p>
+                    <p className="text-sm font-medium">{t("pages.transactionDetail.allocatedItems")}</p>
                     {detail.items.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">{t("pages.transactionDetail.noShareableItems")}</p>
+                      <p className="text-sm text-muted-foreground">{t("pages.transactionDetail.noAllocatableItems")}</p>
                     ) : (
                       <div className="space-y-2">
                         {detail.items.map((item) => (
@@ -464,10 +517,10 @@ export function TransactionDetailPage() {
                               </span>
                             </span>
                             <Checkbox
-                              checked={Boolean(item.family_shared)}
-                              disabled={!isOwner || itemSharingMutation.isPending}
+                              checked={Boolean(item.is_shared_allocation)}
+                              disabled={!isOwner || itemSharingMutation.isPending || !canTargetSharedWorkspace}
                               onCheckedChange={(checked) =>
-                                void updateItemSharing(item.id, Boolean(checked))
+                                void updateItemAllocation(item.id, Boolean(checked))
                               }
                             />
                           </label>
@@ -644,6 +697,7 @@ export function TransactionDetailPage() {
                     <TableRow>
                       <TableHead>#</TableHead>
                       <TableHead>Name</TableHead>
+                      <TableHead>Workspace</TableHead>
                       <TableHead>Qty</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead>Total</TableHead>
@@ -654,6 +708,12 @@ export function TransactionDetailPage() {
                       <TableRow key={item.id}>
                         <TableCell className="tabular-nums">{item.line_no}</TableCell>
                         <TableCell>{item.name}</TableCell>
+                        <TableCell>
+                          {workspaceLabel(
+                            item.shared_group_id ? "shared_group" : detail.transaction.workspace_kind,
+                            item.shared_group_id
+                          )}
+                        </TableCell>
                         <TableCell className="tabular-nums">{item.qty}</TableCell>
                         <TableCell>
                           <CategoryPresentation category={item.category} locale={locale} />
@@ -663,7 +723,7 @@ export function TransactionDetailPage() {
                     ))}
                     {detail.items.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5}>{t("pages.transactionDetail.lineItem.none")}</TableCell>
+                        <TableCell colSpan={6}>{t("pages.transactionDetail.lineItem.none")}</TableCell>
                       </TableRow>
                     ) : null}
                   </TableBody>

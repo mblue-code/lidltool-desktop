@@ -14,7 +14,6 @@ from lidltool.analytics.query_engine import run_query
 from lidltool.analytics.scope import (
     VisibilityContext,
     observation_visibility_filter,
-    personal_source_filter,
     visible_transaction_ids_subquery,
 )
 from lidltool.analytics.item_categorizer import ensure_category_taxonomy
@@ -40,6 +39,7 @@ from lidltool.db.models import (
     Transaction,
     TransactionItem,
 )
+from lidltool.shared_groups.ownership import assign_owner, ownership_filter
 
 
 def _to_float(value: Decimal | None) -> float | None:
@@ -149,20 +149,21 @@ def list_sources(
     registry = get_connector_registry(config)
     stmt = select(Source).options(selectinload(Source.user)).order_by(Source.display_name.asc())
     if visibility is not None:
-        stmt = stmt.where(personal_source_filter(visibility))
+        stmt = stmt.where(ownership_filter(Source, visibility=visibility, include_service_unowned=True))
     rows = session.execute(stmt).scalars().all()
     return {
         "sources": [
             {
                 "id": source.id,
                 "user_id": source.user_id,
+                "shared_group_id": source.shared_group_id,
                 "owner_username": source.user.username if source.user is not None else None,
                 "owner_display_name": source.user.display_name if source.user is not None else None,
                 "kind": source.kind,
                 "display_name": source.display_name,
                 "status": source.status,
                 "enabled": source.enabled,
-                "family_share_mode": source.family_share_mode,
+                "workspace_kind": "shared_group" if source.shared_group_id else "personal",
                 "plugin": source_manifest_payload(
                     source.id,
                     config=config,
@@ -237,11 +238,18 @@ def list_product_categories(session: Session) -> dict[str, Any]:
     }
 
 
-def list_saved_queries(session: Session) -> dict[str, Any]:
+def list_saved_queries(
+    session: Session,
+    *,
+    visibility: VisibilityContext | None = None,
+) -> dict[str, Any]:
     ensure_saved_query_presets(session)
-    rows = session.execute(
-        select(SavedQuery).order_by(SavedQuery.is_preset.desc(), SavedQuery.name.asc())
-    ).scalars().all()
+    stmt = select(SavedQuery).order_by(SavedQuery.is_preset.desc(), SavedQuery.name.asc())
+    if visibility is not None:
+        stmt = stmt.where(
+            SavedQuery.is_preset.is_(True) | ownership_filter(SavedQuery, visibility=visibility)
+        )
+    rows = session.execute(stmt).scalars().all()
     return {
         "items": [
             {
@@ -250,6 +258,8 @@ def list_saved_queries(session: Session) -> dict[str, Any]:
                 "description": row.description,
                 "query_json": row.query_json,
                 "is_preset": row.is_preset,
+                "user_id": row.user_id,
+                "shared_group_id": row.shared_group_id,
                 "created_at": row.created_at.isoformat(),
             }
             for row in rows
@@ -261,6 +271,8 @@ def list_saved_queries(session: Session) -> dict[str, Any]:
 def create_saved_query(
     session: Session,
     *,
+    visibility: VisibilityContext | None,
+    user_id: str,
     name: str,
     description: str | None,
     query_json: dict[str, Any],
@@ -271,6 +283,10 @@ def create_saved_query(
         query_json=query_json,
         is_preset=False,
     )
+    if visibility is not None:
+        assign_owner(row, visibility=visibility, user_id=user_id)
+    else:
+        row.user_id = user_id
     session.add(row)
     session.flush()
     return {
@@ -279,30 +295,62 @@ def create_saved_query(
         "description": row.description,
         "query_json": row.query_json,
         "is_preset": row.is_preset,
+        "user_id": row.user_id,
+        "shared_group_id": row.shared_group_id,
         "created_at": row.created_at.isoformat(),
     }
 
 
-def get_saved_query(session: Session, *, query_id: str) -> dict[str, Any] | None:
+def get_saved_query(
+    session: Session,
+    *,
+    query_id: str,
+    visibility: VisibilityContext | None = None,
+) -> dict[str, Any] | None:
     row = session.get(SavedQuery, query_id)
     if row is None:
         return None
+    if visibility is not None and not row.is_preset:
+        matches_workspace = session.execute(
+            select(SavedQuery.query_id).where(
+                SavedQuery.query_id == query_id,
+                ownership_filter(SavedQuery, visibility=visibility),
+            )
+        ).scalar_one_or_none()
+        if matches_workspace is None:
+            return None
     return {
         "query_id": row.query_id,
         "name": row.name,
         "description": row.description,
         "query_json": row.query_json,
         "is_preset": row.is_preset,
+        "user_id": row.user_id,
+        "shared_group_id": row.shared_group_id,
         "created_at": row.created_at.isoformat(),
     }
 
 
-def delete_saved_query(session: Session, *, query_id: str) -> bool:
+def delete_saved_query(
+    session: Session,
+    *,
+    query_id: str,
+    visibility: VisibilityContext | None = None,
+) -> bool:
     row = session.get(SavedQuery, query_id)
     if row is None:
         return False
     if row.is_preset:
         raise ValueError("preset queries cannot be deleted")
+    if visibility is not None:
+        matches_workspace = session.execute(
+            select(SavedQuery.query_id).where(
+                SavedQuery.query_id == query_id,
+                ownership_filter(SavedQuery, visibility=visibility),
+            )
+        ).scalar_one_or_none()
+        if matches_workspace is None:
+            return False
     session.delete(row)
     return True
 

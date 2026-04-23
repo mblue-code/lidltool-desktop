@@ -33,7 +33,8 @@ class ManualItemInput:
     category: str | None = None
     line_no: int | None = None
     source_item_id: str | None = None
-    family_shared: bool = False
+    shared: bool = False
+    shared_group_id: str | None = None
     raw_payload: dict[str, object] = field(default_factory=dict)
 
 
@@ -63,9 +64,10 @@ class ManualTransactionInput:
     source_transaction_id: str | None = None
     idempotency_key: str | None = None
     user_id: str | None = None
+    shared_group_id: str | None = None
     currency: str = "EUR"
     discount_total_cents: int | None = None
-    family_share_mode: str = "inherit"
+    allocation_mode: str = "personal"
     confidence: float | None = None
     items: list[ManualItemInput] = field(default_factory=list)
     discounts: list[ManualDiscountInput] = field(default_factory=list)
@@ -94,6 +96,7 @@ class ManualIngestService:
                 source_display_name=payload.source_display_name,
                 source_account_ref=payload.source_account_ref,
                 source_user_id=payload.user_id,
+                source_shared_group_id=payload.shared_group_id,
             )
 
             source_transaction_id = _resolve_source_transaction_id(payload)
@@ -144,10 +147,17 @@ class ManualIngestService:
                 merged_raw_payload["idempotency_key"] = payload.idempotency_key
             if reason:
                 merged_raw_payload["ingest_reason"] = reason
+            target_shared_group_id = payload.shared_group_id or source.shared_group_id
+            if payload.allocation_mode in {"shared_receipt", "split_items"} and not target_shared_group_id:
+                raise ValueError("shared allocations require a shared_group_id")
+            transaction_shared_group_id = (
+                target_shared_group_id if payload.allocation_mode == "shared_receipt" else None
+            )
 
             transaction = Transaction(
                 source_id=source.id,
                 user_id=payload.user_id,
+                shared_group_id=transaction_shared_group_id,
                 source_account_id=account.id,
                 source_transaction_id=source_transaction_id,
                 purchased_at=_to_utc(payload.purchased_at),
@@ -155,7 +165,6 @@ class ManualIngestService:
                 total_gross_cents=payload.total_gross_cents,
                 currency=payload.currency.upper().strip() or "EUR",
                 discount_total_cents=discount_total_cents,
-                family_share_mode=payload.family_share_mode,
                 confidence=_to_decimal(payload.confidence),
                 fingerprint=fingerprint,
                 raw_payload=merged_raw_payload,
@@ -169,8 +178,12 @@ class ManualIngestService:
                 if line_no in item_id_by_line_no:
                     raise ValueError(f"duplicate item line_no: {line_no}")
                 source_item_id = item.source_item_id or f"{source_transaction_id}:{line_no}"
+                item_shared_group_id = transaction.shared_group_id
+                if item_shared_group_id is None and payload.allocation_mode == "split_items" and item.shared:
+                    item_shared_group_id = item.shared_group_id or target_shared_group_id
                 row = TransactionItem(
                     transaction_id=transaction.id,
+                    shared_group_id=item_shared_group_id,
                     source_item_id=source_item_id,
                     line_no=line_no,
                     name=item.name,
@@ -179,7 +192,6 @@ class ManualIngestService:
                     unit_price_cents=item.unit_price_cents,
                     line_total_cents=item.line_total_cents,
                     category=item.category,
-                    family_shared=item.family_shared,
                     confidence=None,
                     raw_payload=item.raw_payload,
                 )
@@ -304,12 +316,14 @@ def _ensure_source_account(
     source_display_name: str,
     source_account_ref: str | None,
     source_user_id: str | None,
+    source_shared_group_id: str | None,
 ) -> tuple[Source, SourceAccount]:
     source = session.get(Source, source_id)
     if source is None:
         source = Source(
             id=source_id,
             user_id=source_user_id,
+            shared_group_id=source_shared_group_id,
             kind=source_kind,
             display_name=source_display_name,
             status="healthy",
@@ -317,6 +331,8 @@ def _ensure_source_account(
         )
         session.add(source)
         session.flush()
+    elif source.shared_group_id is None and source_shared_group_id is not None:
+        source.shared_group_id = source_shared_group_id
 
     account_stmt = select(SourceAccount).where(SourceAccount.source_id == source.id)
     if source_account_ref:

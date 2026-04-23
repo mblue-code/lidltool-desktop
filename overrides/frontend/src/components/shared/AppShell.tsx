@@ -31,6 +31,7 @@ import {
   type ConnectorDiscoveryRow,
   type ConnectorSyncStatus
 } from "@/api/connectors";
+import { fetchSharedGroups, type SharedGroup } from "@/api/shared-groups";
 import { logout } from "@/api/auth";
 import {
   fetchNotifications,
@@ -804,7 +805,7 @@ export function AppShell({ user }: AppShellProps) {
         .filter((item) => isDesktopNavRouteVisible(desktopCapabilities, item.to)),
     [desktopCapabilities]
   );
-  const { scope, setScope } = useAccessScope();
+  const { workspace, setWorkspace } = useAccessScope();
   const { locale, setLocale, t } = useI18n();
   const { preset, fromDate, toDate, setPreset } = useDateRangeContext();
   const canOpenControlCenter = hasDesktopControlCenterBridge();
@@ -841,6 +842,10 @@ export function AppShell({ user }: AppShellProps) {
   const connectorsQuery = useQuery({
     queryKey: ["connectors"],
     queryFn: fetchConnectors
+  });
+  const sharedGroupsQuery = useQuery({
+    queryKey: ["shared-groups", "shell"],
+    queryFn: fetchSharedGroups
   });
   const notificationsQuery = useQuery({
     queryKey: ["notifications", "header"],
@@ -899,6 +904,34 @@ export function AppShell({ user }: AppShellProps) {
       : location.pathname === item.to || location.pathname.startsWith(`${item.to}/`)
   );
   const sidePanelPageContext = getSidePanelPageContext(location.pathname);
+  const sharedWorkspaceOptions = useMemo(
+    () =>
+      (sharedGroupsQuery.data?.groups ?? []).filter(
+        (group) => group.status === "active" && group.viewer_membership_status === "active"
+      ),
+    [sharedGroupsQuery.data?.groups]
+  );
+  const activeSharedGroup = useMemo(
+    () =>
+      workspace.kind === "shared-group"
+        ? sharedWorkspaceOptions.find((group) => group.group_id === workspace.groupId) ?? null
+        : null,
+    [sharedWorkspaceOptions, workspace]
+  );
+  const activeWorkspaceTitle =
+    workspace.kind === "personal"
+      ? t("app.workspace.personal")
+      : activeSharedGroup?.name ?? t("app.workspace.sharedFallback");
+  const activeWorkspaceDescription =
+    workspace.kind === "personal"
+      ? t("app.workspace.type.personal")
+      : activeSharedGroup?.group_type === "community"
+        ? t("app.workspace.type.community")
+        : activeSharedGroup?.group_type === "household"
+          ? t("app.workspace.type.household")
+          : t("app.workspace.type.shared");
+  const workspaceSelectionValue =
+    workspace.kind === "personal" ? "personal" : `group:${workspace.groupId}`;
   const aiReady =
     aiSettingsQuery.data?.enabled === true &&
     (aiSettingsQuery.data.api_key_set || aiSettingsQuery.data.oauth_connected);
@@ -996,6 +1029,18 @@ export function AppShell({ user }: AppShellProps) {
   }, [dismissedSyncRun, globalSyncStatus?.status.status]);
 
   useEffect(() => {
+    if (workspace.kind !== "shared-group" || sharedGroupsQuery.isPending) {
+      return;
+    }
+    if (activeSharedGroup) {
+      return;
+    }
+    if (sharedWorkspaceOptions.length === 0) {
+      setWorkspace({ kind: "personal" });
+    }
+  }, [activeSharedGroup, setWorkspace, sharedGroupsQuery.isPending, sharedWorkspaceOptions, workspace]);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
@@ -1074,9 +1119,12 @@ export function AppShell({ user }: AppShellProps) {
                   <h1 className="truncate text-base font-semibold tracking-[-0.02em]">
                     {t(activeNavItem?.labelKey ?? "app.defaultPageTitle")}
                   </h1>
+                  <Badge variant="secondary" className="hidden max-w-[16rem] truncate rounded-full md:inline-flex">
+                    {activeWorkspaceTitle}
+                  </Badge>
                 </div>
                 <p className="mt-1 hidden text-sm text-muted-foreground lg:block">
-                  {t("app.header.desktopSubtitle")}
+                  {`${t("app.header.desktopSubtitle")} • ${activeWorkspaceDescription}`}
                 </p>
               </div>
 
@@ -1178,6 +1226,14 @@ export function AppShell({ user }: AppShellProps) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" sideOffset={8} className="w-72 sm:w-80">
+                    <DropdownMenuLabel className="space-y-1">
+                      <div className="text-sm font-medium">{user.display_name ?? user.username}</div>
+                      <div className="text-xs font-normal text-muted-foreground">{user.username}</div>
+                      <div className="text-xs font-normal text-muted-foreground">
+                        {`${activeWorkspaceDescription} · ${activeWorkspaceTitle}`}
+                      </div>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
                     <DropdownMenuLabel>{t("app.header.preferences")}</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>{t("app.header.language")}</DropdownMenuLabel>
@@ -1207,18 +1263,29 @@ export function AppShell({ user }: AppShellProps) {
                       <DropdownMenuRadioItem value="dark">{t("app.theme.dark")}</DropdownMenuRadioItem>
                     </DropdownMenuRadioGroup>
                     <DropdownMenuSeparator />
-                    <DropdownMenuLabel>{t("app.header.scope")}</DropdownMenuLabel>
+                    <DropdownMenuLabel>{t("app.header.workspace")}</DropdownMenuLabel>
                     <DropdownMenuRadioGroup
-                      value={scope}
-                      onValueChange={(nextScope) => {
-                        if (nextScope === "personal" || nextScope === "family") {
-                          setScope(nextScope);
+                      value={workspaceSelectionValue}
+                      onValueChange={(nextWorkspace) => {
+                        if (nextWorkspace === "personal") {
+                          setWorkspace({ kind: "personal" });
+                          return;
+                        }
+                        if (nextWorkspace.startsWith("group:")) {
+                          setWorkspace({ kind: "shared-group", groupId: nextWorkspace.slice("group:".length) });
                         }
                       }}
                     >
-                      <DropdownMenuRadioItem value="personal">{t("app.scope.personal")}</DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="family">{t("app.scope.family")}</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="personal">{t("app.workspace.personal")}</DropdownMenuRadioItem>
+                      {sharedWorkspaceOptions.map((group: SharedGroup) => (
+                        <DropdownMenuRadioItem key={group.group_id} value={`group:${group.group_id}`}>
+                          {group.name}
+                        </DropdownMenuRadioItem>
+                      ))}
                     </DropdownMenuRadioGroup>
+                    {sharedWorkspaceOptions.length === 0 ? (
+                      <DropdownMenuItem disabled>{t("app.workspace.none")}</DropdownMenuItem>
+                    ) : null}
                     <DropdownMenuSeparator />
                     {canOpenControlCenter ? (
                       <>
@@ -1228,6 +1295,10 @@ export function AppShell({ user }: AppShellProps) {
                         <DropdownMenuSeparator />
                       </>
                     ) : null}
+                    <DropdownMenuItem asChild>
+                      <Link to="/settings/users">{t("app.header.manageAccount")}</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={handleLogout}>{t("action.signOut")}</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

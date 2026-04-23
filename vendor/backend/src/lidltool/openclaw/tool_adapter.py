@@ -364,10 +364,10 @@ def _manual_items_from_params(value: Any) -> list[ManualItemInput]:
             raise ActionValidationError(
                 "manual_ingest params.items[].source_item_id must be a string"
             )
-        family_shared_raw = raw_item.get("family_shared", False)
-        if not isinstance(family_shared_raw, bool):
+        shared_raw = raw_item.get("shared", False)
+        if not isinstance(shared_raw, bool):
             raise ActionValidationError(
-                "manual_ingest params.items[].family_shared must be a boolean"
+                "manual_ingest params.items[].shared must be a boolean"
             )
         raw_payload = raw_item.get("raw_payload", {})
         if not isinstance(raw_payload, dict):
@@ -399,7 +399,7 @@ def _manual_items_from_params(value: Any) -> list[ManualItemInput]:
                     if isinstance(source_item_id_raw, str) and source_item_id_raw.strip()
                     else None
                 ),
-                family_shared=family_shared_raw,
+                shared=shared_raw,
                 raw_payload=raw_payload,
             )
         )
@@ -729,14 +729,14 @@ def _handle_manual_ingest(
         "manual_ingest params.discount_total_cents must be an integer",
         params.get("discount_total_cents"),
     )
-    family_share_mode = _validate_optional_str(
-        "manual_ingest params.family_share_mode must be a string",
-        params.get("family_share_mode"),
+    allocation_mode = _validate_optional_str(
+        "manual_ingest params.allocation_mode must be a string",
+        params.get("allocation_mode"),
     )
-    resolved_family_share_mode = family_share_mode or "inherit"
-    if resolved_family_share_mode not in {"receipt", "items", "none", "inherit"}:
+    resolved_allocation_mode = allocation_mode or "personal"
+    if resolved_allocation_mode not in {"personal", "shared_receipt", "split_items"}:
         raise ActionValidationError(
-            "manual_ingest params.family_share_mode must be one of: receipt, items, none, inherit"
+            "manual_ingest params.allocation_mode must be one of: personal, shared_receipt, split_items"
         )
 
     confidence_raw = params.get("confidence")
@@ -770,7 +770,7 @@ def _handle_manual_ingest(
             user_id=user_id,
             currency=(currency or "EUR").strip().upper(),
             discount_total_cents=discount_total_cents,
-            family_share_mode=resolved_family_share_mode,
+            allocation_mode=resolved_allocation_mode,
             confidence=confidence,
             items=items,
             discounts=discounts,

@@ -92,7 +92,6 @@ class SourceStatusPayload(TypedDict):
     kind: str
     enabled: bool
     status: str
-    family_share_mode: str | None
     created_at: str
     updated_at: str
     plugin: Mapping[str, object] | None
@@ -256,7 +255,6 @@ def build_source_status_payload(
         "kind": source.kind,
         "enabled": source.enabled,
         "status": health,
-        "family_share_mode": source.family_share_mode,
         "created_at": source.created_at.isoformat(),
         "updated_at": source.updated_at.isoformat(),
         "plugin": source_manifest_payload(

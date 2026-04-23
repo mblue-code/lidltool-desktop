@@ -3,6 +3,9 @@
 LidlTool Desktop is the standalone occasional-use desktop product. It is local-first, receipt-oriented, and
 plugin-capable, but it is intentionally narrower than the self-hosted server deployment.
 
+Planning note:
+- Multi-user personal + household finance direction is tracked in `docs/multi-user-household-finance-vision.md`.
+
 ## Desktop product scope
 
 Desktop is for:
@@ -35,6 +38,19 @@ Sprint 16 focuses on product polish instead of new parity scope.
 ## Finance workspace shell
 
 The desktop main app now uses a finance-first shell as the default success-path surface.
+
+Current shared-finance foundation inside desktop:
+- the shell shows the active workspace explicitly and can switch between `Personal` and named shared groups
+- the preferences menu shows the signed-in user and current workspace together instead of hiding scope changes
+- main finance APIs now resolve ownership by workspace using `user_id` for personal data and `shared_group_id` for shared-group-owned data
+- core planning domains (`budget`, `cash flow`, `recurring bills`, `goals`, `notifications`, `reports`) now bind to the active workspace instead of personal-only service filters
+- source, transaction, item, document, review-queue, saved-query, and chat-thread flows now carry workspace ownership metadata in the desktop runtime
+- `Settings -> Users` now acts as the desktop account center for:
+  - current account/session management
+  - shared-group creation and membership management
+  - local user administration
+  - agent keys
+  - desktop backup/restore
 
 Primary navigation:
 - `Dashboard`

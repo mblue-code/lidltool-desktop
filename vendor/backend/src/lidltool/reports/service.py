@@ -16,6 +16,7 @@ from lidltool.analytics.queries import (
 from lidltool.analytics.scope import VisibilityContext
 from lidltool.db.models import RecurringBill, RecurringBillOccurrence
 from lidltool.goals.service import goals_summary
+from lidltool.shared_groups.ownership import ownership_filter
 
 
 def _month_window(value: date) -> tuple[datetime, datetime]:
@@ -66,9 +67,9 @@ def build_report_templates(
             select(RecurringBillOccurrence, RecurringBill)
             .join(RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id)
             .where(
-                RecurringBill.user_id == user_id,
                 RecurringBillOccurrence.due_date >= from_date,
                 RecurringBillOccurrence.due_date <= to_date,
+                ownership_filter(RecurringBill, visibility=visibility),
             )
             .order_by(RecurringBillOccurrence.due_date.asc())
         )

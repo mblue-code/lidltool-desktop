@@ -11,6 +11,7 @@ from lidltool.analytics.advanced import budget_utilization
 from lidltool.analytics.scope import VisibilityContext
 from lidltool.db.models import Goal, IngestionJob, Notification, RecurringBill, RecurringBillOccurrence, Source
 from lidltool.goals.service import goals_summary
+from lidltool.shared_groups.ownership import assign_owner, ownership_filter
 
 
 def _utcnow() -> datetime:
@@ -21,6 +22,8 @@ def _serialize_notification(notification: Notification) -> dict[str, Any]:
     return {
         "id": notification.id,
         "user_id": notification.user_id,
+        "shared_group_id": notification.shared_group_id,
+        "workspace_kind": "shared_group" if notification.shared_group_id else "personal",
         "kind": notification.kind,
         "severity": notification.severity,
         "title": notification.title,
@@ -39,6 +42,7 @@ def _upsert_notification(
     session: Session,
     *,
     user_id: str,
+    visibility: VisibilityContext,
     kind: str,
     severity: str,
     title: str,
@@ -50,25 +54,25 @@ def _upsert_notification(
 ) -> None:
     existing = session.execute(
         select(Notification).where(
-            Notification.user_id == user_id,
             Notification.fingerprint == fingerprint,
+            ownership_filter(Notification, visibility=visibility),
         )
     ).scalar_one_or_none()
     if existing is None:
-        session.add(
-            Notification(
-                user_id=user_id,
-                kind=kind,
-                severity=severity,
-                title=title,
-                body=body,
-                href=href,
-                fingerprint=fingerprint,
-                unread=True,
-                occurred_at=occurred_at,
-                metadata_json=metadata_json,
-            )
+        notification = Notification(
+            user_id=user_id,
+            kind=kind,
+            severity=severity,
+            title=title,
+            body=body,
+            href=href,
+            fingerprint=fingerprint,
+            unread=True,
+            occurred_at=occurred_at,
+            metadata_json=metadata_json,
         )
+        assign_owner(notification, visibility=visibility, user_id=user_id)
+        session.add(notification)
         try:
             session.flush()
         except IntegrityError:
@@ -98,7 +102,7 @@ def refresh_notifications(
         session.execute(
             select(IngestionJob)
             .join(Source, Source.id == IngestionJob.source_id)
-            .where(Source.user_id.in_((None, user_id)))
+            .where(ownership_filter(Source, visibility=visibility, include_service_unowned=True))
             .order_by(IngestionJob.created_at.desc())
             .limit(8)
         )
@@ -115,6 +119,7 @@ def refresh_notifications(
         _upsert_notification(
             session,
             user_id=user_id,
+            visibility=visibility,
             kind=f"sync_{job.status}",
             severity="critical" if job.status == "failed" else "info",
             title=f"{job.source_id} sync {job.status}",
@@ -130,9 +135,9 @@ def refresh_notifications(
             select(RecurringBillOccurrence, RecurringBill)
             .join(RecurringBill, RecurringBill.id == RecurringBillOccurrence.bill_id)
             .where(
-                RecurringBill.user_id == user_id,
                 RecurringBillOccurrence.status.in_(("upcoming", "due", "overdue")),
                 RecurringBillOccurrence.due_date <= horizon,
+                ownership_filter(RecurringBill, visibility=visibility),
             )
             .order_by(RecurringBillOccurrence.due_date.asc())
             .limit(12)
@@ -148,6 +153,7 @@ def refresh_notifications(
         _upsert_notification(
             session,
             user_id=user_id,
+            visibility=visibility,
             kind="bill_due" if occurrence.due_date >= effective_today else "bill_overdue",
             severity=severity,
             title=title,
@@ -171,6 +177,7 @@ def refresh_notifications(
         _upsert_notification(
             session,
             user_id=user_id,
+            visibility=visibility,
             kind="budget_risk",
             severity="warning",
             title=f"Budget risk: {row['scope_value']}",
@@ -197,6 +204,7 @@ def refresh_notifications(
         _upsert_notification(
             session,
             user_id=user_id,
+            visibility=visibility,
             kind="goal_risk",
             severity="warning",
             title=f"Goal risk: {goal['name']}",
@@ -212,9 +220,9 @@ def refresh_notifications(
     stale_sources = (
         session.execute(
             select(Source).where(
-                Source.user_id.in_((None, user_id)),
                 Source.enabled.is_(True),
                 Source.status.in_(("error", "needs_attention")),
+                ownership_filter(Source, visibility=visibility, include_service_unowned=True),
             )
         )
         .scalars()
@@ -224,6 +232,7 @@ def refresh_notifications(
         _upsert_notification(
             session,
             user_id=user_id,
+            visibility=visibility,
             kind="connector_attention",
             severity="warning",
             title=f"{source.display_name} needs attention",
@@ -246,7 +255,7 @@ def list_notifications(
     rows = (
         session.execute(
             select(Notification)
-            .where(Notification.user_id == user_id)
+            .where(ownership_filter(Notification, visibility=visibility))
             .order_by(Notification.unread.desc(), Notification.occurred_at.desc())
             .limit(limit)
         )
@@ -265,11 +274,17 @@ def update_notification(
     session: Session,
     *,
     user_id: str,
+    visibility: VisibilityContext,
     notification_id: str,
     unread: bool,
 ) -> dict[str, Any]:
-    row = session.get(Notification, notification_id)
-    if row is None or row.user_id != user_id:
+    row = session.execute(
+        select(Notification).where(
+            Notification.id == notification_id,
+            ownership_filter(Notification, visibility=visibility),
+        )
+    ).scalar_one_or_none()
+    if row is None:
         raise ValueError("notification not found")
     row.unread = unread
     row.read_at = None if unread else _utcnow()
@@ -282,10 +297,14 @@ def mark_all_notifications_read(
     session: Session,
     *,
     user_id: str,
+    visibility: VisibilityContext,
 ) -> dict[str, Any]:
     now = _utcnow()
     rows = session.execute(
-        select(Notification).where(Notification.user_id == user_id, Notification.unread.is_(True))
+        select(Notification).where(
+            Notification.unread.is_(True),
+            ownership_filter(Notification, visibility=visibility),
+        )
     ).scalars().all()
     for row in rows:
         row.unread = False

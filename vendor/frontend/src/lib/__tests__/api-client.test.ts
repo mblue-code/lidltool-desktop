@@ -4,7 +4,7 @@ import { z } from "zod";
 import { ApiDomainError } from "@/lib/api-errors";
 import { apiClient } from "@/lib/api-client";
 import { subscribeApiWarnings } from "@/lib/api-warnings";
-import { setRequestScope } from "@/lib/request-scope";
+import { setActiveWorkspace, setRequestScope } from "@/lib/request-scope";
 
 afterEach(() => {
   setRequestScope("personal");
@@ -103,8 +103,8 @@ describe("apiClient warning handling", () => {
 });
 
 describe("apiClient scope wiring", () => {
-  it("adds family scope query param automatically", async () => {
-    setRequestScope("family");
+  it("encodes a concrete shared workspace as a group scope selector", async () => {
+    setActiveWorkspace({ kind: "shared-group", groupId: "group-123" });
 
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -123,7 +123,31 @@ describe("apiClient scope wiring", () => {
     });
 
     const calledUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
-    expect(calledUrl.searchParams.get("scope")).toBe("family");
+    expect(calledUrl.searchParams.get("scope")).toBe("group:group-123");
+    expect(calledUrl.searchParams.get("year")).toBe("2026");
+  });
+
+  it("encodes group scope query params from the request scope helper", async () => {
+    setRequestScope("group", "group-xyz");
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        result: { value: 7 },
+        warnings: [],
+        error: null
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const schema = z.object({ value: z.number() });
+    await expect(apiClient.get("/api/v1/dashboard/cards", schema, { year: 2026 })).resolves.toEqual({
+      value: 7
+    });
+
+    const calledUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(calledUrl.searchParams.get("scope")).toBe("group:group-xyz");
     expect(calledUrl.searchParams.get("year")).toBe("2026");
   });
 

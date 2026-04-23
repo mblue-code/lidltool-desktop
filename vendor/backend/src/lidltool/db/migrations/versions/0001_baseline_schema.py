@@ -202,7 +202,6 @@ def upgrade() -> None:
         sa.Column("display_name", sa.String(), nullable=False),
         sa.Column("status", sa.String(), nullable=False),
         sa.Column("enabled", sa.Boolean(), nullable=False),
-        sa.Column("family_share_mode", sa.String(), nullable=False, server_default=sa.text("'none'")),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
@@ -369,12 +368,6 @@ def upgrade() -> None:
         sa.Column("total_gross_cents", sa.Integer(), nullable=False),
         sa.Column("currency", sa.String(length=8), nullable=False),
         sa.Column("discount_total_cents", sa.Integer(), nullable=True),
-        sa.Column(
-            "family_share_mode",
-            sa.String(),
-            nullable=False,
-            server_default=sa.text("'inherit'"),
-        ),
         sa.Column("confidence", sa.Numeric(precision=4, scale=3), nullable=True),
         sa.Column("fingerprint", sa.String(length=64), nullable=True),
         sa.Column("raw_payload", sa.JSON(), nullable=True),
@@ -400,7 +393,6 @@ def upgrade() -> None:
     op.create_index(
         op.f("ix_transactions_purchased_at"), "transactions", ["purchased_at"], unique=False
     )
-    op.create_index("idx_transactions_family_mode", "transactions", ["family_share_mode"], unique=False)
     op.create_index(
         op.f("ix_transactions_source_account_id"),
         "transactions",
@@ -465,7 +457,6 @@ def upgrade() -> None:
         sa.Column("unit_price_cents", sa.Integer(), nullable=True),
         sa.Column("line_total_cents", sa.Integer(), nullable=False),
         sa.Column("category", sa.String(), nullable=True),
-        sa.Column("family_shared", sa.Boolean(), nullable=False, server_default=sa.text("0")),
         sa.Column("confidence", sa.Numeric(precision=4, scale=3), nullable=True),
         sa.Column("raw_payload", sa.JSON(), nullable=True),
         sa.ForeignKeyConstraint(
@@ -480,7 +471,6 @@ def upgrade() -> None:
         ["transaction_id"],
         unique=False,
     )
-    op.create_index("idx_ti_family_shared", "transaction_items", ["family_shared"], unique=False)
     op.create_table(
         "discount_events",
         sa.Column("id", sa.String(), nullable=False),
@@ -570,7 +560,6 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_discount_events_transaction_item_id"), table_name="discount_events")
     op.drop_index(op.f("ix_discount_events_transaction_id"), table_name="discount_events")
     op.drop_table("discount_events")
-    op.drop_index("idx_ti_family_shared", table_name="transaction_items")
     op.drop_index(op.f("ix_transaction_items_transaction_id"), table_name="transaction_items")
     op.drop_table("transaction_items")
     op.drop_index(op.f("ix_documents_transaction_id"), table_name="documents")
@@ -583,7 +572,6 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_transactions_source_id"), table_name="transactions")
     op.drop_index(op.f("ix_transactions_source_account_id"), table_name="transactions")
     op.drop_index("idx_transactions_user_id", table_name="transactions")
-    op.drop_index("idx_transactions_family_mode", table_name="transactions")
     op.drop_index(op.f("ix_transactions_purchased_at"), table_name="transactions")
     op.drop_index(op.f("ix_transactions_fingerprint"), table_name="transactions")
     op.drop_table("transactions")

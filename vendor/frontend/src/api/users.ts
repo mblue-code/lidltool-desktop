@@ -7,7 +7,32 @@ const CurrentUserSchema = z.object({
   username: z.string(),
   display_name: z.string().nullable(),
   is_admin: z.boolean(),
-  preferred_locale: z.enum(["en", "de"]).nullable().optional().default(null)
+  preferred_locale: z.enum(["en", "de"]).nullable().optional().default(null),
+  session: z
+    .object({
+      session_id: z.string(),
+      user_id: z.string().nullable(),
+      device_label: z.string().nullable(),
+      client_name: z.string().nullable(),
+      client_platform: z.string().nullable(),
+      auth_transport: z.string(),
+      session_mode: z.string(),
+      available_auth_transports: z.array(z.string()).default([]),
+      user_agent: z.string().nullable(),
+      last_seen_ip: z.string().nullable(),
+      created_at: z.string(),
+      last_seen_at: z.string(),
+      expires_at: z.string(),
+      revoked_at: z.string().nullable(),
+      revoked_reason: z.string().nullable(),
+      current: z.boolean()
+    })
+    .nullable()
+    .optional()
+    .default(null),
+  session_mode: z.string().nullable().optional().default(null),
+  available_auth_transports: z.array(z.string()).optional().default([]),
+  auth_transport: z.string().nullable().optional().default(null)
 });
 
 const UserSchema = z.object({
@@ -51,15 +76,55 @@ const AgentKeyRevokeSchema = z.object({
   revoked: z.boolean()
 });
 
+const AuthSessionSchema = z.object({
+  session_id: z.string(),
+  user_id: z.string().nullable(),
+  device_label: z.string().nullable(),
+  client_name: z.string().nullable(),
+  client_platform: z.string().nullable(),
+  auth_transport: z.string(),
+  session_mode: z.string(),
+  available_auth_transports: z.array(z.string()).default([]),
+  user_agent: z.string().nullable(),
+  last_seen_ip: z.string().nullable(),
+  created_at: z.string(),
+  last_seen_at: z.string(),
+  expires_at: z.string(),
+  revoked_at: z.string().nullable(),
+  revoked_reason: z.string().nullable(),
+  current: z.boolean()
+});
+
+const AuthSessionsListSchema = z.object({
+  sessions: z.array(AuthSessionSchema),
+  count: z.number(),
+  current_session_id: z.string().nullable().optional().default(null)
+});
+
+const AuthSessionRevokeSchema = z.object({
+  revoked: z.boolean(),
+  session: AuthSessionSchema
+});
+
 export type CurrentUser = z.infer<typeof CurrentUserSchema>;
 export type User = z.infer<typeof UserSchema>;
 export type UsersList = z.infer<typeof UsersListSchema>;
 export type AgentKey = z.infer<typeof AgentKeySchema>;
 export type AgentKeysList = z.infer<typeof AgentKeysListSchema>;
 export type AgentKeyCreateResponse = z.infer<typeof AgentKeyCreateSchema>;
+export type AuthSession = z.infer<typeof AuthSessionSchema>;
+export type AuthSessionsList = z.infer<typeof AuthSessionsListSchema>;
 
 export async function fetchCurrentUser(): Promise<CurrentUser> {
   return apiClient.get("/api/v1/auth/me", CurrentUserSchema);
+}
+
+export async function fetchAuthSessions(): Promise<AuthSessionsList> {
+  return apiClient.get("/api/v1/auth/sessions", AuthSessionsListSchema);
+}
+
+export async function revokeAuthSession(sessionId: string): Promise<{ revoked: boolean; session: AuthSession }> {
+  return apiClient.delete(`/api/v1/auth/sessions/${sessionId}`, AuthSessionRevokeSchema);
 }
 
 export async function updateCurrentUserLocale(

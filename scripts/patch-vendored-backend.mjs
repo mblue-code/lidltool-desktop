@@ -359,8 +359,8 @@ function patchHttpServer(current) {
   if (!next.includes("class SystemBackupRequest(BaseModel):")) {
     next = replaceOnce(
       next,
-      "class TransactionItemSharingRequest(BaseModel):\n    family_shared: bool\n\n\nUploadFormFile = Annotated[UploadFile, File(...)]\n",
-      `class TransactionItemSharingRequest(BaseModel):\n    family_shared: bool\n\n\nclass SystemBackupRequest(BaseModel):\n    output_dir: str | None = None\n    include_documents: bool = True\n    include_export_json: bool = True\n\n\nUploadFormFile = Annotated[UploadFile, File(...)]\n`,
+      "class TransactionItemAllocationUpdateRequest(BaseModel):\n    shared: bool\n\n\nUploadFormFile = Annotated[UploadFile, File(...)]\n",
+      `class TransactionItemAllocationUpdateRequest(BaseModel):\n    shared: bool\n\n\nclass SystemBackupRequest(BaseModel):\n    output_dir: str | None = None\n    include_documents: bool = True\n    include_export_json: bool = True\n\n\nUploadFormFile = Annotated[UploadFile, File(...)]\n`,
       httpServerPath
     );
   }
