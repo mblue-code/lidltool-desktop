@@ -1,5 +1,5 @@
-import { cpSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { cpSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -8,6 +8,7 @@ const __dirname = dirname(__filename);
 const desktopDir = resolve(process.env.LIDLTOOL_DESKTOP_DIR?.trim() || resolve(__dirname, ".."));
 const frontendDir = resolve(desktopDir, "vendor", "frontend");
 const frontendOverridesDir = resolve(desktopDir, "overrides", "frontend");
+const vendorManifestPath = resolve(desktopDir, "vendor", "vendor-manifest.json");
 const sharedDesktopRoutePolicyPath = resolve(desktopDir, "src", "shared", "desktop-route-policy.ts");
 const frontendDesktopRoutePolicyPath = resolve(frontendDir, "src", "lib", "desktop-route-policy.ts");
 const connectorsApiPath = resolve(frontendDir, "src", "api", "connectors.ts");
@@ -36,29 +37,30 @@ function applyPiAiAlias(viteConfigPath) {
   return { changed: true, skipped: false };
 }
 
-function applyOverrides(sourceDir, destDir) {
+function loadRuntimeFrontendOverrides() {
+  if (!existsSync(vendorManifestPath)) {
+    throw new Error(`Desktop vendor manifest not found at ${vendorManifestPath}`);
+  }
+  const manifest = JSON.parse(readFileSync(vendorManifestPath, "utf-8"));
+  return manifest.frontend?.runtimeOverrideFiles ?? [];
+}
+
+function applyOverrides(sourceDir, destDir, relativePaths) {
   if (!existsSync(sourceDir)) {
     return [];
   }
 
   const copied = [];
-
-  function visit(currentSourceDir) {
-    for (const entry of readdirSync(currentSourceDir)) {
-      const sourcePath = resolve(currentSourceDir, entry);
-      const relativePath = relative(sourceDir, sourcePath);
-      const destPath = resolve(destDir, relativePath);
-      const stats = statSync(sourcePath);
-      if (stats.isDirectory()) {
-        visit(sourcePath);
-        continue;
-      }
-      cpSync(sourcePath, destPath, { force: true });
-      copied.push(relativePath);
+  for (const relativePath of relativePaths) {
+    const sourcePath = resolve(sourceDir, "src", relativePath);
+    const destPath = resolve(destDir, "src", relativePath);
+    if (!existsSync(sourcePath) || statSync(sourcePath).isDirectory()) {
+      throw new Error(`Declared desktop override not found: ${sourcePath}`);
     }
+    mkdirSync(dirname(destPath), { recursive: true });
+    cpSync(sourcePath, destPath, { force: true });
+    copied.push(relativePath);
   }
-
-  visit(sourceDir);
   return copied.sort();
 }
 
@@ -187,7 +189,7 @@ if (!authStatusContractResult.skipped) {
   );
 }
 
-const overrideFiles = applyOverrides(frontendOverridesDir, frontendDir);
+const overrideFiles = applyOverrides(frontendOverridesDir, frontendDir, loadRuntimeFrontendOverrides());
 if (overrideFiles.length > 0) {
   console.log(`Applied desktop frontend overrides (${overrideFiles.length}):`);
   for (const file of overrideFiles) {

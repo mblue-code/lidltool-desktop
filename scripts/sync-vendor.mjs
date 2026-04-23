@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +13,7 @@ const frontendSource = resolve(sourceRepoRoot, "frontend");
 const frontendDest = resolve(vendorDir, "frontend");
 const frontendOverrides = resolve(overridesDir, "frontend");
 const backendDest = resolve(vendorDir, "backend");
+const vendorManifestPath = resolve(vendorDir, "vendor-manifest.json");
 
 function resetDir(path) {
   rmSync(path, { recursive: true, force: true });
@@ -29,11 +30,32 @@ function copyTreeFiltered(source, dest, excludedNames) {
   });
 }
 
+function loadRuntimeFrontendOverrides() {
+  if (!existsSync(vendorManifestPath)) {
+    throw new Error(`Desktop vendor manifest not found at ${vendorManifestPath}`);
+  }
+  const manifest = JSON.parse(readFileSync(vendorManifestPath, "utf-8"));
+  return manifest.frontend?.runtimeOverrideFiles ?? [];
+}
+
+function applyDeclaredOverrides(sourceRoot, destRoot, relativePaths) {
+  for (const relativePath of relativePaths) {
+    const from = resolve(sourceRoot, "src", relativePath);
+    if (!existsSync(from)) {
+      throw new Error(`Declared desktop override not found: ${from}`);
+    }
+    const to = resolve(destRoot, "src", relativePath);
+    mkdirSync(dirname(to), { recursive: true });
+    cpSync(from, to, { force: true, recursive: true });
+  }
+}
+
 if (!existsSync(frontendSource)) {
   throw new Error(`Main frontend source not found at ${frontendSource}`);
 }
 
 mkdirSync(vendorDir, { recursive: true });
+const runtimeFrontendOverrides = loadRuntimeFrontendOverrides();
 
 resetDir(frontendDest);
 copyTreeFiltered(
@@ -42,7 +64,7 @@ copyTreeFiltered(
   new Set(["node_modules", "dist", ".vite", ".qa-screenshots", "playwright-report", "test-results"])
 );
 if (existsSync(frontendOverrides)) {
-  cpSync(frontendOverrides, frontendDest, { recursive: true });
+  applyDeclaredOverrides(frontendOverrides, frontendDest, runtimeFrontendOverrides);
 }
 
 resetDir(backendDest);

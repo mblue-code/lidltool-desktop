@@ -1,3 +1,8 @@
+> Archived note: this file is kept as a historical snapshot.
+> For current manual QA guidance, use `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/docs/desktop-qa-agent-prompt.md`
+> together with `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/docs/desktop-qa-runbook.md`.
+> The path references and execution details below are obsolete for current runs.
+
 # Desktop QA Agent Prompt
 
 You are executing a full end-to-end QA run for the newest LidlTool Desktop build.

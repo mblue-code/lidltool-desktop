@@ -1,8 +1,6 @@
 import { app, BrowserWindow, dialog } from "electron";
-import { randomBytes } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type {
   BackendConfig,
@@ -12,7 +10,6 @@ import type {
   CommandResult,
   DesktopRuntimeDiagnostics,
   ConnectorCatalogEntry,
-  ConnectorSourceId,
   DesktopReleaseMetadata,
   ExportRequest,
   ImportRequest,
@@ -31,12 +28,51 @@ import {
   type ValidatedManifestSnapshot,
 } from "./plugins/receipt-plugin-packs";
 import { resolveDesktopReleaseContext, resolveDesktopReleaseMetadata } from "./release-metadata";
+import { buildBackendServeArgs } from "./runtime-contract";
+import { buildExportArgs, buildSyncArgs } from "./runtime-cli-args";
 import {
-  buildBackendServeArgs,
-  normalizeDesktopOcrProvider,
-  resolveManagedPlaywrightBrowsersPath,
-  shouldManagePlaywrightBrowsers
-} from "./runtime-contract";
+  resolveCredentialKeyArtifact,
+  resolveDbArtifact,
+  resolveDocumentsArtifact,
+  resolveTokenArtifact
+} from "./runtime-backup-artifacts";
+import {
+  applyPluginRuntimePolicyToEnv,
+  buildDesktopBackendEnv,
+  ensureManagedPlaywrightBrowsers,
+  resolveCredentialEncryptionKey
+} from "./runtime-backend-env";
+import {
+  nowIso,
+  runCommandCapture,
+  runCommandWithLogs,
+  splitLines,
+  waitUntilHealthy
+} from "./runtime-command-runner";
+import {
+  findCatalogDesktopPackEntry,
+  inspectBackendCommand,
+  isPathLike,
+  readJsonOverrideFromPath,
+  resolveBackendInvocation,
+  resolveConfigDirPath,
+  resolveConfigFilePath,
+  resolveDesktopConfigDir,
+  resolveBundledExecutable,
+  resolveDocumentsPath,
+  resolveFrontendDist,
+  resolveManagedDevExecutable,
+  resolveOcrIdleTimeoutSeconds,
+  resolvePythonExecutable,
+  resolveRemoteCatalogUrl,
+  resolveRepoRootHint,
+  resolveTokenFilePath,
+  resolveTrustedCatalogOverride,
+  resolveTrustRootsOverride,
+  resolveUserPath,
+  type BackendInvocation,
+  type RuntimePathContext
+} from "./runtime-paths";
 import {
   copySqliteArtifact,
   describeSqliteSnapshotMismatch,
@@ -60,32 +96,12 @@ function resolveApiPort(defaultPort = DEFAULT_PORT): number {
   return parsedPort;
 }
 
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
-function splitLines(chunk: string): string[] {
-  return chunk
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter((line) => line.length > 0);
-}
-
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
-}
-
 interface StartBackendOptions {
   strictOverride?: boolean;
 }
 
 interface BackendEnvOptions {
   includePluginRuntimePolicy?: boolean;
-}
-
-interface BackendInvocation {
-  command: string;
-  argsPrefix: string[];
 }
 
 export class DesktopRuntime {
@@ -125,6 +141,16 @@ export class DesktopRuntime {
       },
       emitLog: (payload) => this.emitLog(payload),
     });
+  }
+
+  private runtimePathContext(): RuntimePathContext {
+    return {
+      appPath: app.getAppPath(),
+      resourcesPath: process.resourcesPath,
+      isPackaged: app.isPackaged,
+      homeDir: app.getPath("home"),
+      platform: process.platform
+    };
   }
 
   getConfig(): BackendConfig {
@@ -239,7 +265,7 @@ export class DesktopRuntime {
         if (spawnError) {
           break;
         }
-        await sleep(50);
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
       }
       if (spawnError) {
         throw spawnError;
@@ -271,7 +297,7 @@ export class DesktopRuntime {
 
     const proc = this.backendProcess;
     proc.kill("SIGTERM");
-    await sleep(500);
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
     if (this.backendProcess !== null) {
       this.backendProcess.kill("SIGKILL");
       this.backendProcess = null;
@@ -289,7 +315,7 @@ export class DesktopRuntime {
     const cfg = this.getConfig();
     const invocation = this.resolveBackendInvocation(false);
     const command = invocation.command;
-    const args = [...invocation.argsPrefix, ...this.mapSyncArgs(payload, cfg.dbPath)];
+    const args = [...invocation.argsPrefix, ...buildSyncArgs(payload, cfg.dbPath)];
     return await this.runCommand(command, args, "sync");
   }
 
@@ -301,7 +327,7 @@ export class DesktopRuntime {
     }
     const invocation = this.resolveBackendInvocation(false);
     const command = invocation.command;
-    const args = [...invocation.argsPrefix, ...this.mapExportArgs(payload, cfg.dbPath)];
+    const args = [...invocation.argsPrefix, ...buildExportArgs(payload, cfg.dbPath)];
     return await this.runCommand(command, args, "export");
   }
 
@@ -380,7 +406,7 @@ export class DesktopRuntime {
       const invocation = this.resolveBackendInvocation(false);
       const command = invocation.command;
       const exportPath = join(backupDir, "receipts-export.json");
-      const exportArgs = [...invocation.argsPrefix, ...this.mapExportArgs({ outPath: exportPath, format: "json" }, cfg.dbPath)];
+      const exportArgs = [...invocation.argsPrefix, ...buildExportArgs({ outPath: exportPath, format: "json" }, cfg.dbPath)];
       exportResult = await this.runCommand(command, exportArgs, "backup");
       if (exportResult.ok) {
         copied.push(exportPath);
@@ -458,7 +484,7 @@ export class DesktopRuntime {
       await this.stopBackend();
     }
 
-    const dbSource = this.resolveDbArtifact(backupDir);
+    const dbSource = resolveDbArtifact(backupDir, (value) => this.resolveUserPath(value));
     if (!dbSource) {
       throw new Error(
         `No database artifact found in backup directory '${backupDir}'. Expected 'lidltool.sqlite' or 'db-backup-*.sqlite'.`
@@ -496,7 +522,7 @@ export class DesktopRuntime {
     this.emitLog({ stream: "stdout", source: "restore", line: `Restored DB <- ${dbSource}` });
 
     if (includeCredentialKey) {
-      const keySource = this.resolveCredentialKeyArtifact(backupDir);
+      const keySource = resolveCredentialKeyArtifact(backupDir, (value) => this.resolveUserPath(value));
       const keyTarget = join(cfg.userDataDir, "credential_encryption_key.txt");
       if (keySource) {
         copyFileSync(keySource, keyTarget);
@@ -508,7 +534,7 @@ export class DesktopRuntime {
     }
 
     if (includeToken) {
-      const tokenSource = this.resolveTokenArtifact(backupDir);
+      const tokenSource = resolveTokenArtifact(backupDir, (value) => this.resolveUserPath(value));
       const tokenTarget = this.resolveTokenFilePath();
       if (tokenSource) {
         mkdirSync(dirname(tokenTarget), { recursive: true });
@@ -521,7 +547,7 @@ export class DesktopRuntime {
     }
 
     if (includeDocuments) {
-      const docsSource = this.resolveDocumentsArtifact(backupDir);
+      const docsSource = resolveDocumentsArtifact(backupDir, (value) => this.resolveUserPath(value));
       const docsTarget = this.resolveDocumentsPath();
       if (docsSource) {
         rmSync(docsTarget, { recursive: true, force: true });
@@ -659,214 +685,28 @@ export class DesktopRuntime {
     await this.stopBackend();
   }
 
-  private mapSyncArgs(payload: SyncRequest, dbPath: string): string[] {
-    const globalOptions: string[] = ["--db", dbPath, "--json", "connectors", "sync", "--source-id", payload.source];
-    return [...globalOptions, ...this.connectorArgs(payload.source, payload)];
-  }
-
-  private connectorArgs(source: ConnectorSourceId, payload: SyncRequest): string[] {
-    const args: string[] = [];
-
-    if (source.startsWith("lidl_plus_")) {
-      if (payload.full) {
-        args.push("--full");
-      }
-      return args;
-    }
-
-    const headless = payload.headless ?? true;
-    args.push("--option", `headless=${headless ? "true" : "false"}`);
-
-    if (payload.domain?.trim()) {
-      args.push("--option", `domain=${payload.domain.trim()}`);
-    }
-
-    if (source.startsWith("amazon_")) {
-      if (payload.years && payload.years > 0) {
-        args.push("--option", `years=${String(payload.years)}`);
-      }
-      if (payload.maxPages && payload.maxPages > 0) {
-        args.push("--option", `max_pages_per_year=${String(payload.maxPages)}`);
-      }
-      return args;
-    }
-
-    if (payload.maxPages && payload.maxPages > 0) {
-      args.push("--option", `max_pages=${String(payload.maxPages)}`);
-    }
-
-    return args;
-  }
-
-  private mapExportArgs(payload: ExportRequest, dbPath: string): string[] {
-    const formatName = payload.format ?? "json";
-    return ["--db", dbPath, "--json", "export", "--out", payload.outPath.trim(), "--format", formatName];
-  }
-
   private resolveDesktopConfigDir(): string {
-    return join(this.getConfig().userDataDir, "config");
+    return resolveDesktopConfigDir(this.getConfig().userDataDir);
   }
 
   private resolveConfigDirPath(): string {
-    const configDirRaw = process.env.LIDLTOOL_CONFIG_DIR?.trim();
-    if (configDirRaw) {
-      return this.resolveUserPath(configDirRaw);
-    }
-    return this.resolveDesktopConfigDir();
+    return resolveConfigDirPath(this.getConfig().userDataDir, process.env, this.runtimePathContext().homeDir);
   }
 
   private resolveConfigFilePath(): string {
-    return join(this.resolveConfigDirPath(), "config.toml");
+    return resolveConfigFilePath(this.getConfig().userDataDir, process.env, this.runtimePathContext().homeDir);
   }
 
   private resolveTokenFilePath(): string {
-    return join(this.resolveConfigDirPath(), "token.json");
+    return resolveTokenFilePath(this.getConfig().userDataDir, process.env, this.runtimePathContext().homeDir);
   }
 
   private resolveDocumentsPath(): string {
-    const documentsPathRaw = process.env.LIDLTOOL_DOCUMENT_STORAGE_PATH?.trim();
-    if (documentsPathRaw) {
-      return this.resolveUserPath(documentsPathRaw);
-    }
-    return join(this.getConfig().userDataDir, "documents");
+    return resolveDocumentsPath(this.getConfig().userDataDir, process.env, this.runtimePathContext().homeDir);
   }
 
   private resolveUserPath(value: string): string {
-    if (value === "~") {
-      return homedir();
-    }
-    if (value.startsWith("~/") || value.startsWith("~\\")) {
-      return resolve(homedir(), value.slice(2));
-    }
-    return resolve(value);
-  }
-
-  private resolveDbArtifact(backupDir: string): string | null {
-    const manifest = this.readBackupManifest(backupDir);
-    const manifestCandidate = this.resolveManifestArtifactCandidate(backupDir, manifest, [
-      "db_artifact",
-      "dbArtifact"
-    ]);
-    if (manifestCandidate) {
-      return manifestCandidate;
-    }
-    const direct = this.resolveBackupArtifact(backupDir, "lidltool.sqlite");
-    if (direct) {
-      return direct;
-    }
-    const timestamped = this.resolveLatestPatternMatch(backupDir, /^db-backup-.*\.sqlite$/);
-    if (timestamped) {
-      return timestamped;
-    }
-    return this.resolveLatestPatternMatch(backupDir, /\.sqlite$/);
-  }
-
-  private resolveTokenArtifact(backupDir: string): string | null {
-    const manifest = this.readBackupManifest(backupDir);
-    const manifestCandidate = this.resolveManifestArtifactCandidate(backupDir, manifest, [
-      "token_artifact",
-      "tokenArtifact"
-    ]);
-    if (manifestCandidate) {
-      return manifestCandidate;
-    }
-    const direct = this.resolveBackupArtifact(backupDir, "token.json");
-    if (direct) {
-      return direct;
-    }
-    return this.resolveLatestPatternMatch(backupDir, /^token-backup-.*\.json$/);
-  }
-
-  private resolveDocumentsArtifact(backupDir: string): string | null {
-    const manifest = this.readBackupManifest(backupDir);
-    const manifestCandidate = this.resolveManifestArtifactCandidate(backupDir, manifest, [
-      "documents_artifact",
-      "documentsArtifact"
-    ]);
-    if (manifestCandidate && statSync(manifestCandidate).isDirectory()) {
-      return manifestCandidate;
-    }
-    const direct = this.resolveBackupArtifact(backupDir, "documents");
-    if (direct && statSync(direct).isDirectory()) {
-      return direct;
-    }
-    const pattern = this.resolveLatestPatternMatch(backupDir, /^documents-backup-.*/);
-    if (pattern && statSync(pattern).isDirectory()) {
-      return pattern;
-    }
-    return null;
-  }
-
-  private resolveCredentialKeyArtifact(backupDir: string): string | null {
-    const manifest = this.readBackupManifest(backupDir);
-    const manifestCandidate = this.resolveManifestArtifactCandidate(backupDir, manifest, [
-      "credential_key_artifact",
-      "credentialKeyArtifact"
-    ]);
-    if (manifestCandidate) {
-      return manifestCandidate;
-    }
-    return this.resolveBackupArtifact(backupDir, "credential_encryption_key.txt");
-  }
-
-  private readBackupManifest(backupDir: string): Record<string, unknown> | null {
-    const manifestPath = join(backupDir, "backup-manifest.json");
-    if (!existsSync(manifestPath)) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(readFileSync(manifestPath, "utf-8"));
-      if (parsed && typeof parsed === "object") {
-        return parsed as Record<string, unknown>;
-      }
-    } catch {
-      return null;
-    }
-    return null;
-  }
-
-  private resolveManifestArtifactCandidate(
-    backupDir: string,
-    manifest: Record<string, unknown> | null,
-    keys: string[]
-  ): string | null {
-    if (!manifest) {
-      return null;
-    }
-    for (const key of keys) {
-      const value = manifest[key];
-      if (typeof value !== "string" || !value.trim()) {
-        continue;
-      }
-      const direct = this.resolveUserPath(value.trim());
-      if (existsSync(direct)) {
-        return direct;
-      }
-      const moved = join(backupDir, basename(value.trim()));
-      if (existsSync(moved)) {
-        return moved;
-      }
-    }
-    return null;
-  }
-
-  private resolveBackupArtifact(backupDir: string, fileName: string): string | null {
-    const candidate = join(backupDir, fileName);
-    return existsSync(candidate) ? candidate : null;
-  }
-
-  private resolveLatestPatternMatch(backupDir: string, pattern: RegExp): string | null {
-    const matches = readdirSync(backupDir)
-      .filter((entry) => pattern.test(entry))
-      .sort()
-      .reverse();
-    for (const entry of matches) {
-      const candidate = join(backupDir, entry);
-      if (existsSync(candidate)) {
-        return candidate;
-      }
-    }
-    return null;
+    return resolveUserPath(value, this.runtimePathContext().homeDir);
   }
 
   private async sqliteHelperContext(): Promise<{
@@ -908,46 +748,12 @@ export class DesktopRuntime {
     source: CommandLogEvent["source"]
   ): Promise<CommandResult> {
     const env = await this.backendProcessEnv(command);
-
-    return await new Promise<CommandResult>((resolve, reject) => {
-      const proc = spawn(command, args, {
-        env,
-        stdio: "pipe"
-      });
-
-      let stdout = "";
-      let stderr = "";
-
-      proc.on("error", (err) => {
-        reject(err);
-      });
-
-      proc.stdout.on("data", (chunk) => {
-        const text = chunk.toString("utf-8");
-        stdout += text;
-        for (const line of splitLines(text)) {
-          this.emitLog({ stream: "stdout", line, source });
-        }
-      });
-
-      proc.stderr.on("data", (chunk) => {
-        const text = chunk.toString("utf-8");
-        stderr += text;
-        for (const line of splitLines(text)) {
-          this.emitLog({ stream: "stderr", line, source });
-        }
-      });
-
-      proc.on("close", (code) => {
-        resolve({
-          ok: code === 0,
-          command,
-          args,
-          exitCode: code,
-          stdout: stdout.trim(),
-          stderr: stderr.trim()
-        });
-      });
+    return await runCommandWithLogs({
+      command,
+      args,
+      env,
+      source,
+      emitLog: (payload) => this.emitLog(payload)
     });
   }
 
@@ -957,58 +763,11 @@ export class DesktopRuntime {
     options: BackendEnvOptions = {}
   ): Promise<CommandResult> {
     const env = await this.backendProcessEnv(command, options);
-
-    return await new Promise<CommandResult>((resolve, reject) => {
-      const proc = spawn(command, args, {
-        env,
-        stdio: "pipe"
-      });
-
-      let stdout = "";
-      let stderr = "";
-
-      proc.on("error", (err) => {
-        reject(err);
-      });
-
-      proc.stdout.on("data", (chunk) => {
-        stdout += chunk.toString("utf-8");
-      });
-
-      proc.stderr.on("data", (chunk) => {
-        stderr += chunk.toString("utf-8");
-      });
-
-      proc.on("close", (code) => {
-        resolve({
-          ok: code === 0,
-          command,
-          args,
-          exitCode: code,
-          stdout: stdout.trim(),
-          stderr: stderr.trim()
-        });
-      });
-    });
+    return await runCommandCapture({ command, args, env });
   }
 
   private async waitUntilHealthy(baseUrl: string, timeoutMs: number): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
-    let lastErr: unknown;
-
-    while (Date.now() < deadline) {
-      try {
-        const response = await fetch(`${baseUrl}/api/v1/health`);
-        if (response.ok) {
-          return;
-        }
-      } catch (err) {
-        lastErr = err;
-      }
-      await sleep(350);
-    }
-
-    throw new Error(`Backend did not become healthy in ${timeoutMs}ms. Last error: ${String(lastErr)}`);
+    await waitUntilHealthy(baseUrl, timeoutMs);
   }
 
   private emitLog(payload: Omit<CommandLogEvent, "timestamp">): void {
@@ -1024,123 +783,48 @@ export class DesktopRuntime {
 
   private async backendProcessEnv(command: string, options: BackendEnvOptions = {}): Promise<NodeJS.ProcessEnv> {
     const cfg = this.getConfig();
-    const env: NodeJS.ProcessEnv = { ...process.env };
     const repoRootHint = this.resolveRepoRootHint();
     const configDir = this.resolveConfigDirPath();
     const documentsPath = this.resolveDocumentsPath();
-    env.LIDLTOOL_FRONTEND_DIST = this.resolveFrontendDist();
-    env.LIDLTOOL_REPO_ROOT = repoRootHint;
-    env.LIDLTOOL_DB = cfg.dbPath;
-    env.LIDLTOOL_CONFIG_DIR = configDir;
-    env.LIDLTOOL_DOCUMENT_STORAGE_PATH = documentsPath;
-    env.LIDLTOOL_DESKTOP_MODE = "true";
-    env.LIDLTOOL_CONNECTOR_HOST_KIND = "electron";
-    env.LIDLTOOL_OCR_DEFAULT_PROVIDER = normalizeDesktopOcrProvider(env.LIDLTOOL_OCR_DEFAULT_PROVIDER);
-    env.LIDLTOOL_OCR_FALLBACK_ENABLED = env.LIDLTOOL_OCR_FALLBACK_ENABLED || "false";
-    env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY =
-      env.LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY || this.resolveCredentialEncryptionKey(cfg.userDataDir);
-    if (!env.LIDLTOOL_AUTH_BROWSER_MODE && app.isPackaged && (process.platform === "darwin" || process.platform === "win32")) {
-      env.LIDLTOOL_AUTH_BROWSER_MODE = "local_display";
-    }
-    if (app.isPackaged) {
-      const packagedSrc = join(repoRootHint, "src");
-      env.PYTHONPATH = env.PYTHONPATH?.trim() ? `${packagedSrc}:${env.PYTHONPATH}` : packagedSrc;
-    }
+    const env = buildDesktopBackendEnv({
+      env: process.env,
+      userDataDir: cfg.userDataDir,
+      dbPath: cfg.dbPath,
+      repoRootHint,
+      configDir,
+      documentsPath,
+      frontendDist: this.resolveFrontendDist(),
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      credentialEncryptionKey: resolveCredentialEncryptionKey(cfg.userDataDir)
+    });
     if (options.includePluginRuntimePolicy === false) {
-      env.LIDLTOOL_CONNECTOR_PLUGIN_PATHS = "";
-      env.LIDLTOOL_CONNECTOR_EXTERNAL_RUNTIME_ENABLED = "false";
-      env.LIDLTOOL_CONNECTOR_EXTERNAL_RECEIPT_PLUGINS_ENABLED = "false";
-      env.LIDLTOOL_CONNECTOR_EXTERNAL_OFFER_PLUGINS_ENABLED = "false";
-      env.LIDLTOOL_CONNECTOR_EXTERNAL_ALLOWED_TRUST_CLASSES = "";
+      applyPluginRuntimePolicyToEnv({
+        env,
+        includePluginRuntimePolicy: false
+      });
     } else {
       const releaseContext = await this.resolveReleaseContext();
       const runtimePolicy = await this.receiptPluginPackManager.getRuntimePolicy({
         trustPolicy: releaseContext.trustPolicy,
         catalogEntries: releaseContext.metadata.discovery_catalog.entries
       });
-      env.LIDLTOOL_CONNECTOR_PLUGIN_PATHS = runtimePolicy.activePluginSearchPaths.join(",");
-      env.LIDLTOOL_CONNECTOR_EXTERNAL_RUNTIME_ENABLED = runtimePolicy.activePluginSearchPaths.length > 0 ? "true" : "false";
-      env.LIDLTOOL_CONNECTOR_EXTERNAL_RECEIPT_PLUGINS_ENABLED =
-        runtimePolicy.activePluginSearchPaths.length > 0 ? "true" : "false";
-      env.LIDLTOOL_CONNECTOR_EXTERNAL_OFFER_PLUGINS_ENABLED = "false";
-      env.LIDLTOOL_CONNECTOR_EXTERNAL_ALLOWED_TRUST_CLASSES = runtimePolicy.allowedTrustClasses.join(",");
-    }
-    const managedPlaywrightBrowsersPath = resolveManagedPlaywrightBrowsersPath(
-      cfg.userDataDir,
-      command,
-      env.PLAYWRIGHT_BROWSERS_PATH
-    );
-    if (managedPlaywrightBrowsersPath) {
-      env.PLAYWRIGHT_BROWSERS_PATH = managedPlaywrightBrowsersPath;
-      await this.ensureManagedPlaywrightBrowsers(command, managedPlaywrightBrowsersPath, env);
-    }
-    return env;
-  }
-
-  private shouldUseInVenvPlaywrightBrowsers(command: string): boolean {
-    return shouldManagePlaywrightBrowsers(command);
-  }
-
-  private async ensureManagedPlaywrightBrowsers(
-    command: string,
-    browsersPath: string,
-    baseEnv: NodeJS.ProcessEnv
-  ): Promise<void> {
-    if (!this.shouldUseInVenvPlaywrightBrowsers(command)) {
-      return;
-    }
-
-    mkdirSync(browsersPath, { recursive: true });
-    if (this.hasInstalledPlaywrightBrowsers(browsersPath)) {
-      return;
-    }
-
-    const pythonExecutable = this.resolvePythonExecutable();
-    if (!this.isPathLike(pythonExecutable) || !existsSync(pythonExecutable)) {
-      this.emitLog({
-        stream: "stderr",
-        source: "backend",
-        line:
-          "Skipping Playwright browser install because no managed Python runtime was found. " +
-          "Set PLAYWRIGHT_BROWSERS_PATH manually if you are using an external backend."
+      applyPluginRuntimePolicyToEnv({
+        env,
+        runtimePolicy
       });
-      return;
     }
-
-    this.emitLog({
-      stream: "stdout",
-      source: "backend",
-      line: `Installing Playwright Chromium into ${browsersPath}`
+    await ensureManagedPlaywrightBrowsers({
+      command,
+      userDataDir: cfg.userDataDir,
+      env,
+      pythonExecutable: this.resolvePythonExecutable(),
+      isPathLike: (candidate) => this.isPathLike(candidate),
+      emitLog: (payload) => this.emitLog(payload),
+      runRawCommandCapture: async (captureCommand, captureArgs, captureEnv) =>
+        await this.runRawCommandCapture(captureCommand, captureArgs, captureEnv)
     });
-
-    const result = await this.runRawCommandCapture(
-      pythonExecutable,
-      ["-m", "playwright", "install", "chromium"],
-      {
-        ...baseEnv,
-        PLAYWRIGHT_BROWSERS_PATH: browsersPath
-      }
-    );
-
-    for (const line of splitLines(result.stdout)) {
-      this.emitLog({ stream: "stdout", source: "backend", line });
-    }
-    for (const line of splitLines(result.stderr)) {
-      this.emitLog({ stream: "stderr", source: "backend", line });
-    }
-
-    if (!result.ok || !this.hasInstalledPlaywrightBrowsers(browsersPath)) {
-      throw new Error(
-        `Failed to install managed Playwright browsers into '${browsersPath}'. ${result.stderr || result.stdout}`.trim()
-      );
-    }
-  }
-
-  private hasInstalledPlaywrightBrowsers(browsersPath: string): boolean {
-    if (!existsSync(browsersPath)) {
-      return false;
-    }
-    return readdirSync(browsersPath).some((entry) => /^chromium-|^chromium_headless_shell-/.test(entry));
+    return env;
   }
 
   private async runRawCommandCapture(
@@ -1148,52 +832,7 @@ export class DesktopRuntime {
     args: string[],
     env: NodeJS.ProcessEnv
   ): Promise<CommandResult> {
-    return await new Promise<CommandResult>((resolve, reject) => {
-      const proc = spawn(command, args, {
-        env,
-        stdio: "pipe"
-      });
-
-      let stdout = "";
-      let stderr = "";
-
-      proc.on("error", (err) => {
-        reject(err);
-      });
-
-      proc.stdout.on("data", (chunk) => {
-        stdout += chunk.toString("utf-8");
-      });
-
-      proc.stderr.on("data", (chunk) => {
-        stderr += chunk.toString("utf-8");
-      });
-
-      proc.on("close", (code) => {
-        resolve({
-          ok: code === 0,
-          command,
-          args,
-          exitCode: code,
-          stdout: stdout.trim(),
-          stderr: stderr.trim()
-        });
-      });
-    });
-  }
-
-  private resolveCredentialEncryptionKey(userDataDir: string): string {
-    const keyFile = join(userDataDir, "credential_encryption_key.txt");
-    if (existsSync(keyFile)) {
-      const existing = readFileSync(keyFile, "utf-8").trim();
-      if (existing.length >= 32) {
-        return existing;
-      }
-    }
-
-    const generated = randomBytes(32).toString("hex");
-    writeFileSync(keyFile, `${generated}\n`, { encoding: "utf-8", mode: 0o600 });
-    return generated;
+    return await runCommandCapture({ command, args, env });
   }
 
   private receiptPluginStorageDir(): string {
@@ -1285,71 +924,34 @@ print(json.dumps({
   }
 
   private resolveRepoRootHint(): string {
-    const override = process.env.LIDLTOOL_REPO_ROOT?.trim();
-    if (override) {
-      return override;
-    }
-
-    if (app.isPackaged) {
-      return join(process.resourcesPath, "backend-src");
-    }
-
-    return resolve(app.getAppPath(), "vendor", "backend");
+    return resolveRepoRootHint(this.runtimePathContext(), process.env);
   }
 
   private resolveRemoteCatalogUrl(): string | null {
-    const raw = process.env.LIDLTOOL_DESKTOP_CATALOG_URL?.trim();
-    return raw ? raw : null;
+    return resolveRemoteCatalogUrl(process.env);
   }
 
   private resolveTrustRootsOverride(): unknown | undefined {
-    return this.readJsonOverrideFromPath("LIDLTOOL_DESKTOP_TRUST_ROOTS_PATH", "Desktop trust roots override");
+    return resolveTrustRootsOverride(process.env);
   }
 
   private resolveTrustedCatalogOverride(): unknown | undefined {
-    return this.readJsonOverrideFromPath("LIDLTOOL_DESKTOP_TRUSTED_CATALOG_PATH", "Desktop trusted catalog override");
+    return resolveTrustedCatalogOverride(process.env);
   }
 
   private readJsonOverrideFromPath(envName: string, label: string): unknown | undefined {
-    const overridePath = process.env[envName]?.trim();
-    if (!overridePath) {
-      return undefined;
-    }
-    try {
-      return JSON.parse(readFileSync(overridePath, "utf-8"));
-    } catch (error) {
-      throw new Error(`${label} could not be loaded from ${overridePath}. ${String(error)}`);
-    }
+    return readJsonOverrideFromPath(process.env, envName, label);
   }
 
   private findCatalogDesktopPackEntry(
     entries: DesktopReleaseMetadata["discovery_catalog"]["entries"],
     entryId: string
   ): ConnectorCatalogEntry {
-    const entry = entries.find((candidate) => candidate.entry_id === entryId);
-    if (!entry || entry.entry_type !== "desktop_pack") {
-      throw new Error(`Trusted desktop pack catalog entry was not found: ${entryId}`);
-    }
-    if (entry.availability.blocked_by_policy) {
-      throw new Error(entry.availability.block_reason ?? `Catalog entry ${entryId} is blocked.`);
-    }
-    if (entry.install_methods.includes("download_url") === false || !entry.download_url) {
-      throw new Error(`Catalog entry ${entryId} does not support trusted URL install.`);
-    }
-    return entry;
+    return findCatalogDesktopPackEntry(entries, entryId);
   }
 
   private resolveFrontendDist(): string {
-    const override = process.env.LIDLTOOL_FRONTEND_DIST?.trim();
-    if (override) {
-      return override;
-    }
-
-    if (app.isPackaged) {
-      return join(process.resourcesPath, "frontend-dist");
-    }
-
-    return resolve(app.getAppPath(), "vendor", "frontend", "dist");
+    return resolveFrontendDist(this.runtimePathContext(), process.env);
   }
 
   private inspectBackendCommand(): {
@@ -1357,90 +959,11 @@ print(json.dumps({
     source: DesktopRuntimeDiagnostics["backendCommandSource"];
     status: DesktopRuntimeDiagnostics["backendCommandStatus"];
   } {
-    const override = process.env.LIDLTOOL_EXECUTABLE?.trim();
-    if (override) {
-      if (this.isPathLike(override)) {
-        return {
-          command: override,
-          source: "env_override",
-          status: existsSync(override) ? "ready" : "missing"
-        };
-      }
-      return {
-        command: override,
-        source: "env_override",
-        status: "lookup"
-      };
-    }
-
-    if (app.isPackaged) {
-      const bundledPython = this.resolvePythonExecutable();
-      if (this.isPathLike(bundledPython) && existsSync(bundledPython)) {
-        return {
-          command: `${bundledPython} -m lidltool.cli`,
-          source: "bundled",
-          status: "ready"
-        };
-      }
-    }
-
-    const bundledExecutable = this.resolveBundledExecutable();
-    if (bundledExecutable) {
-      return {
-        command: bundledExecutable,
-        source: "bundled",
-        status: "ready"
-      };
-    }
-
-    const managedDevExecutable = this.resolveManagedDevExecutable();
-    if (managedDevExecutable) {
-      return {
-        command: managedDevExecutable,
-        source: "managed_dev",
-        status: "ready"
-      };
-    }
-
-    return {
-      command: process.platform === "win32" ? "lidltool.exe" : "lidltool",
-      source: "path_lookup",
-      status: "lookup"
-    };
+    return inspectBackendCommand(this.runtimePathContext(), process.env);
   }
 
   private resolveBackendInvocation(strictOverride: boolean): BackendInvocation {
-    const override = process.env.LIDLTOOL_EXECUTABLE?.trim();
-    if (override) {
-      if (strictOverride || !this.isPathLike(override) || existsSync(override)) {
-        return { command: override, argsPrefix: [] };
-      }
-    }
-
-    if (app.isPackaged) {
-      const bundledPython = this.resolvePythonExecutable();
-      if (this.isPathLike(bundledPython) && existsSync(bundledPython)) {
-        return {
-          command: bundledPython,
-          argsPrefix: ["-m", "lidltool.cli"]
-        };
-      }
-    }
-
-    const bundledExecutable = this.resolveBundledExecutable();
-    if (bundledExecutable) {
-      return { command: bundledExecutable, argsPrefix: [] };
-    }
-
-    const managedDevExecutable = this.resolveManagedDevExecutable();
-    if (managedDevExecutable) {
-      return { command: managedDevExecutable, argsPrefix: [] };
-    }
-
-    return {
-      command: process.platform === "win32" ? "lidltool.exe" : "lidltool",
-      argsPrefix: []
-    };
+    return resolveBackendInvocation(this.runtimePathContext(), process.env, strictOverride);
   }
 
   private resolveLidltoolExecutable(strictOverride: boolean): string {
@@ -1448,66 +971,22 @@ print(json.dumps({
   }
 
   private resolvePythonExecutable(): string {
-    if (app.isPackaged) {
-      const bundled =
-        process.platform === "win32"
-          ? join(process.resourcesPath, "backend-venv", "Scripts", "python.exe")
-          : join(process.resourcesPath, "backend-venv", "bin", "python");
-      if (existsSync(bundled)) {
-        return bundled;
-      }
-    }
-
-    const managedDev =
-      process.platform === "win32"
-        ? join(app.getAppPath(), ".backend", "venv", "Scripts", "python.exe")
-        : join(app.getAppPath(), ".backend", "venv", "bin", "python");
-    if (existsSync(managedDev)) {
-      return managedDev;
-    }
-
-    return process.platform === "win32" ? "python" : "python3";
+    return resolvePythonExecutable(this.runtimePathContext());
   }
 
   private isPathLike(command: string): boolean {
-    return command.startsWith(".") || command.startsWith("/") || command.includes("\\") || command.includes("/");
+    return isPathLike(command);
   }
 
   private resolveBundledExecutable(): string | null {
-    if (!app.isPackaged) {
-      return null;
-    }
-
-    const candidate =
-      process.platform === "win32"
-        ? join(process.resourcesPath, "backend-venv", "Scripts", "lidltool.exe")
-        : join(process.resourcesPath, "backend-venv", "bin", "lidltool");
-
-    return existsSync(candidate) ? candidate : null;
+    return resolveBundledExecutable(this.runtimePathContext());
   }
 
   private resolveManagedDevExecutable(): string | null {
-    if (app.isPackaged) {
-      return null;
-    }
-
-    const candidate =
-      process.platform === "win32"
-        ? join(app.getAppPath(), ".backend", "venv", "Scripts", "lidltool.exe")
-        : join(app.getAppPath(), ".backend", "venv", "bin", "lidltool");
-
-    return existsSync(candidate) ? candidate : null;
+    return resolveManagedDevExecutable(this.runtimePathContext());
   }
 
   private resolveOcrIdleTimeoutSeconds(): number {
-    const raw = process.env.LIDLTOOL_DESKTOP_OCR_IDLE_TIMEOUT_S?.trim();
-    if (!raw) {
-      return 600;
-    }
-    const parsed = Number.parseInt(raw, 10);
-    if (!Number.isFinite(parsed) || parsed < 60) {
-      return 600;
-    }
-    return parsed;
+    return resolveOcrIdleTimeoutSeconds(process.env);
   }
 }

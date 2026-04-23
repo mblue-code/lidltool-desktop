@@ -1,3 +1,7 @@
+> Archived note: this file is kept as a historical snapshot.
+> For the current manual QA runbook, use `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/docs/desktop-qa-runbook.md`.
+> The cleanup commands, output paths, and pack-build locations below are obsolete for current runs.
+
 # Desktop End-to-End Test Playbook
 
 This file is for an agent using Computer Use plus terminal access to test the newest desktop app build only.

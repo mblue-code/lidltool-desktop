@@ -1,252 +1,123 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 
-import type {
-  BackupRequest,
-  BackendConfig,
-  BackendStatus,
-  CommandLogEvent,
-  CommandResult,
-  DesktopRuntimeDiagnostics,
-  ExportRequest,
-  ImportRequest,
-  ReceiptPluginPackInfo,
-  SyncRequest,
-  SyncSourceId
-} from "@shared/contracts";
+import type { SyncSourceId } from "@shared/contracts";
 import { useDesktopI18n } from "./i18n";
 import {
-  catalogProfileSummary,
-  catalogSupportSummary,
-  compareVersions,
   describeBackendCommand,
-  describeCatalogEntry,
   describeControlCenterMode,
-  describeInstalledPack,
-  findCatalogDesktopPackEntry,
-  formatCatalogEntryType,
   formatCatalogVerification,
   formatEditionKind,
-  formatInstallMethods,
-  formatPluginTrust,
-  formatTrustClassLabel,
-  packInstallSource,
-  packOriginSummary,
-  packSupportSummary
 } from "./control-center-model";
+import { buildControlCenterViewModel } from "./control-center-view-model";
+import {
+  prettyJson,
+  sourceJourneySummary,
+  sourceSyncNotice
+} from "./control-center-helpers";
+import { useControlCenterActions } from "./use-control-center-actions";
+import { useControlCenterState } from "./use-control-center-state";
 import logoMark from "./assets/logo-mark.svg";
-
-type SyncSourceOption = {
-  id: SyncSourceId;
-  label: string;
-  defaultDomain?: string;
-  syncFamily: "lidl_plus" | "amazon" | "browser" | "generic";
-};
-
-const DEFAULT_SOURCE_OPTIONS: SyncSourceOption[] = [
-  { id: "lidl_plus_de", label: "Lidl Plus (DE)", syncFamily: "lidl_plus" },
-  { id: "lidl_plus_gb", label: "Lidl Plus (GB)", syncFamily: "lidl_plus" },
-  { id: "lidl_plus_fr", label: "Lidl Plus (FR)", syncFamily: "lidl_plus" },
-  { id: "amazon_de", label: "Amazon (DE)", defaultDomain: "amazon.de", syncFamily: "amazon" },
-  { id: "amazon_fr", label: "Amazon (FR)", defaultDomain: "amazon.fr", syncFamily: "amazon" },
-  { id: "amazon_gb", label: "Amazon (UK)", defaultDomain: "amazon.co.uk", syncFamily: "amazon" },
-  { id: "kaufland_de", label: "Kaufland (DE)", defaultDomain: "www.kaufland.de", syncFamily: "browser" },
-  { id: "dm_de", label: "dm (DE)", defaultDomain: "www.dm.de", syncFamily: "browser" }
-];
-
-function sourceLabelFromId(sourceId: string, displayName?: string, supportedMarkets?: string[]): string {
-  const rawMarket = supportedMarkets?.[0] ?? sourceId.split("_").at(-1)?.toUpperCase();
-  const market = rawMarket === "GB" ? "UK" : rawMarket;
-  if (displayName && market) {
-    return `${displayName} (${market})`;
-  }
-  if (displayName) {
-    return displayName;
-  }
-  return sourceId;
-}
-
-function defaultDomainForSource(sourceId: string): string | undefined {
-  switch (sourceId) {
-    case "amazon_de":
-      return "amazon.de";
-    case "amazon_fr":
-      return "amazon.fr";
-    case "amazon_gb":
-      return "amazon.co.uk";
-    case "rewe_de":
-      return "shop.rewe.de";
-    case "kaufland_de":
-      return "www.kaufland.de";
-    case "dm_de":
-      return "www.dm.de";
-    default:
-      return undefined;
-  }
-}
-
-function syncFamilyForSource(sourceId: string): SyncSourceOption["syncFamily"] {
-  if (sourceId.startsWith("lidl_plus_")) {
-    return "lidl_plus";
-  }
-  if (sourceId.startsWith("amazon_")) {
-    return "amazon";
-  }
-  if (["rewe_de", "kaufland_de", "dm_de"].includes(sourceId)) {
-    return "browser";
-  }
-  return "generic";
-}
-
-function buildSyncSourceOptions(
-  releaseMetadata: Awaited<ReturnType<typeof window.desktopApi.getReleaseMetadata>> | null,
-  pluginPacks: ReceiptPluginPackInfo[]
-): SyncSourceOption[] {
-  const byId = new Map<string, SyncSourceOption>();
-  for (const option of DEFAULT_SOURCE_OPTIONS) {
-    byId.set(option.id, option);
-  }
-
-  for (const entry of releaseMetadata?.discovery_catalog.entries ?? []) {
-    if (entry.entry_type !== "connector" || !entry.supported_products.includes("desktop") || !entry.source_id) {
-      continue;
-    }
-    byId.set(entry.source_id, {
-      id: entry.source_id,
-      label: sourceLabelFromId(entry.source_id, entry.display_name, entry.supported_markets),
-      defaultDomain: defaultDomainForSource(entry.source_id),
-      syncFamily: syncFamilyForSource(entry.source_id)
-    });
-  }
-
-  for (const pack of pluginPacks) {
-    if (!pack.enabled || pack.status !== "enabled") {
-      continue;
-    }
-    byId.set(pack.sourceId, {
-      id: pack.sourceId,
-      label: sourceLabelFromId(pack.sourceId, pack.displayName),
-      defaultDomain: defaultDomainForSource(pack.sourceId),
-      syncFamily: syncFamilyForSource(pack.sourceId)
-    });
-  }
-
-  return Array.from(byId.values()).sort((left, right) => left.label.localeCompare(right.label));
-}
-
-function defaultYearMonth(): { year: number; month: number } {
-  const now = new Date();
-  return { year: now.getFullYear(), month: now.getMonth() + 1 };
-}
-
-function prettyJson(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function defaultExportPath(userDataDir: string): string {
-  const separator = userDataDir.includes("\\") ? "\\" : "/";
-  const trimmed = userDataDir.endsWith(separator) ? userDataDir.slice(0, -1) : userDataDir;
-  const stamp = new Date().toISOString().replaceAll(":", "-");
-  return `${trimmed}${separator}exports${separator}receipts-${stamp}.json`;
-}
-
-function defaultBackupDir(userDataDir: string): string {
-  const separator = userDataDir.includes("\\") ? "\\" : "/";
-  const trimmed = userDataDir.endsWith(separator) ? userDataDir.slice(0, -1) : userDataDir;
-  const stamp = new Date().toISOString().replaceAll(":", "-");
-  return `${trimmed}${separator}backups${separator}backup-${stamp}`;
-}
-
-function defaultImportDir(userDataDir: string): string {
-  const separator = userDataDir.includes("\\") ? "\\" : "/";
-  const trimmed = userDataDir.endsWith(separator) ? userDataDir.slice(0, -1) : userDataDir;
-  return `${trimmed}${separator}backups`;
-}
-
-function bundleLabelsForIds(
-  releaseMetadata: NonNullable<Awaited<ReturnType<typeof window.desktopApi.getReleaseMetadata>>> | null,
-  bundleIds: string[]
-): string[] {
-  if (!releaseMetadata) {
-    return [];
-  }
-  return bundleIds.map((bundleId) => {
-    const match = releaseMetadata.official_bundles.find((bundle) => bundle.bundle_id === bundleId);
-    return match?.display_name ?? bundleId;
-  });
-}
-
-function sourceJourneySummary(source: SyncSourceId, locale: "en" | "de"): string {
-  if (source.startsWith("lidl_plus_")) {
-    return locale === "de"
-      ? "Verwenden Sie den integrierten Lidl-Pfad, wenn Sie nur eine einmalige lokale Aktualisierung des aktuellen oder vollständigen Belegverlaufs möchten."
-      : "Use the built-in Lidl path when you just want a one-off local refresh of recent or full receipt history.";
-  }
-  if (source.startsWith("amazon_")) {
-    return locale === "de"
-      ? "Die Amazon-Synchronisierung verwendet die gespeicherte Desktop-Sitzung für den gewählten Markt und kann mehrere Jahre durchsuchen, wenn Sie einen breiteren lokalen Import benötigen."
-      : "Amazon sync uses the saved desktop session for the selected market and can scan multiple years when you need a broader local import.";
-  }
-  return locale === "de"
-    ? "Verwenden Sie ein Belegpaket, wenn Sie eine gelegentliche lokale Synchronisierung für einen anderen Händler möchten, und prüfen oder exportieren Sie die Ergebnisse anschließend auf diesem Computer."
-    : "Use a receipt pack when you want an occasional local sync for another retailer, then review or export the results on this computer.";
-}
-
-function sourceSyncNotice(source: SyncSourceId, locale: string): string | null {
-  if (source !== "dm_de") {
-    return null;
-  }
-  if (locale === "de") {
-    return "dm-Syncs können sichtbar länger dauern. Die Desktop-App hält dabei absichtliche Wartephasen ein, damit Login, Session und Detailseiten stabil bleiben.";
-  }
-  return "dm sync can take noticeably longer. The desktop app keeps intentional wait phases so login, session refresh, and receipt detail pages stay stable.";
-}
 
 export default function App() {
   const { locale, setLocale, t } = useDesktopI18n();
-  const [{ year, month }] = useState(defaultYearMonth);
-  const [config, setConfig] = useState<BackendConfig | null>(null);
-  const [backend, setBackend] = useState<BackendStatus | null>(null);
-  const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<DesktopRuntimeDiagnostics | null>(null);
-  const [releaseMetadata, setReleaseMetadata] = useState<Awaited<ReturnType<typeof window.desktopApi.getReleaseMetadata>> | null>(null);
-  const [releaseMetadataError, setReleaseMetadataError] = useState<string | null>(null);
-  const [pluginLoadError, setPluginLoadError] = useState<string | null>(null);
-  const [source, setSource] = useState<SyncSourceId>("lidl_plus_de");
-  const [fullSync, setFullSync] = useState(false);
-  const [headless, setHeadless] = useState(true);
-  const [domain, setDomain] = useState("");
-  const [years, setYears] = useState(2);
-  const [maxPages, setMaxPages] = useState(8);
-  const [busy, setBusy] = useState(false);
-  const [syncResult, setSyncResult] = useState<CommandResult | null>(null);
-  const [exportResult, setExportResult] = useState<CommandResult | null>(null);
-  const [exportOutPath, setExportOutPath] = useState("");
-  const [backupResult, setBackupResult] = useState<CommandResult | null>(null);
-  const [backupOutDir, setBackupOutDir] = useState("");
-  const [backupIncludeExportJson, setBackupIncludeExportJson] = useState(true);
-  const [backupIncludeDocuments, setBackupIncludeDocuments] = useState(true);
-  const [importResult, setImportResult] = useState<CommandResult | null>(null);
-  const [importBackupDir, setImportBackupDir] = useState("");
-  const [importIncludeDocuments, setImportIncludeDocuments] = useState(true);
-  const [importIncludeToken, setImportIncludeToken] = useState(true);
-  const [importIncludeCredentialKey, setImportIncludeCredentialKey] = useState(true);
-  const [importRestartBackend, setImportRestartBackend] = useState(true);
-  const [pluginPacks, setPluginPacks] = useState<ReceiptPluginPackInfo[]>([]);
-  const [pluginSearchPaths, setPluginSearchPaths] = useState<string[]>([]);
-  const [pluginStatusMessage, setPluginStatusMessage] = useState<string | null>(null);
-  const [cardsResult, setCardsResult] = useState<unknown>(null);
-  const [logs, setLogs] = useState<CommandLogEvent[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [bootError, setBootError] = useState<string | null>(null);
+  const state = useControlCenterState({ t });
+  const {
+    backend,
+    backupIncludeDocuments,
+    backupIncludeExportJson,
+    backupOutDir,
+    backupResult,
+    bootError,
+    busy,
+    cardsResult,
+    config,
+    domain,
+    error,
+    exportOutPath,
+    exportResult,
+    fullSync,
+    headless,
+    importBackupDir,
+    importIncludeCredentialKey,
+    importIncludeDocuments,
+    importIncludeToken,
+    importRestartBackend,
+    importResult,
+    logs,
+    maxPages,
+    pluginLoadError,
+    pluginStatusMessage,
+    releaseMetadata,
+    releaseMetadataError,
+    runtimeDiagnostics,
+    setBackupIncludeDocuments,
+    setBackupIncludeExportJson,
+    setBackupOutDir,
+    setDomain,
+    setExportOutPath,
+    setFullSync,
+    setHeadless,
+    setImportBackupDir,
+    setImportIncludeCredentialKey,
+    setImportIncludeDocuments,
+    setImportIncludeToken,
+    setImportRestartBackend,
+    setMaxPages,
+    setSource,
+    setYears,
+    source,
+    syncResult,
+    years
+  } = state;
 
-  const sourceOptions = useMemo(
-    () => buildSyncSourceOptions(releaseMetadata, pluginPacks),
-    [pluginPacks, releaseMetadata]
+  const controlCenterViewModel = useMemo(
+    () => buildControlCenterViewModel(releaseMetadata, state.pluginPacks, locale),
+    [locale, releaseMetadata, state.pluginPacks]
   );
-  const selectedSourceMeta = useMemo(() => sourceOptions.find((option) => option.id === source), [source, sourceOptions]);
+  const {
+    sourceOptions,
+    defaultBundleLabels,
+    recommendedBundleLabels,
+    installedEnabledCount,
+    installedPackRows,
+    trustedPackRows
+  } = controlCenterViewModel;
+  const selectedSourceMeta = useMemo(
+    () => sourceOptions.find((option) => option.id === source) ?? sourceOptions[0]!,
+    [source, sourceOptions]
+  );
+
+  const {
+    handleInstallReceiptPlugin,
+    handleInstallReceiptPluginFromCatalog,
+    handleLoadCards,
+    handleOpenFullApp,
+    handleRefreshPluginState,
+    handleRunBackup,
+    handleRunExport,
+    handleRunImport,
+    handleRunSync,
+    handleStartBackend,
+    handleStopBackend,
+    handleToggleReceiptPlugin,
+    handleUninstallReceiptPlugin
+  } = useControlCenterActions({
+    locale,
+    t,
+    selectedSourceMeta,
+    state
+  });
+
+  useEffect(() => {
+    const nextDomain = selectedSourceMeta.defaultDomain ?? "";
+    setDomain(nextDomain);
+  }, [selectedSourceMeta, setDomain, source]);
+
+  useEffect(() => {
+    if (!sourceOptions.some((option) => option.id === source)) {
+      setSource(sourceOptions[0]!.id);
+    }
+  }, [setSource, source, sourceOptions]);
 
   const backendStatusText = useMemo(() => {
     if (!backend) {
@@ -262,487 +133,6 @@ export default function App() {
     () => describeControlCenterMode(bootError, runtimeDiagnostics, locale),
     [bootError, locale, runtimeDiagnostics]
   );
-
-  const curatedDesktopEntries = useMemo(
-    () => releaseMetadata?.discovery_catalog.entries ?? [],
-    [releaseMetadata]
-  );
-  const curatedDesktopPackEntries = useMemo(
-    () => curatedDesktopEntries.filter((entry) => entry.entry_type === "desktop_pack"),
-    [curatedDesktopEntries]
-  );
-  const defaultBundleLabels = useMemo(
-    () => bundleLabelsForIds(releaseMetadata, releaseMetadata?.selected_market_profile.default_bundle_ids ?? []),
-    [releaseMetadata]
-  );
-  const recommendedBundleLabels = useMemo(
-    () => bundleLabelsForIds(releaseMetadata, releaseMetadata?.selected_market_profile.recommended_bundle_ids ?? []),
-    [releaseMetadata]
-  );
-  const installedEnabledCount = useMemo(
-    () => pluginPacks.filter((pack) => pack.status === "enabled").length,
-    [pluginPacks]
-  );
-
-  useEffect(() => {
-    let disposeLogs: (() => void) | null = null;
-    let disposeBootError: (() => void) | null = null;
-
-    async function boot(): Promise<void> {
-      const results = await Promise.allSettled([
-        window.desktopApi.getConfig(),
-        window.desktopApi.getBootError(),
-        window.desktopApi.getBackendStatus(),
-        window.desktopApi.getRuntimeDiagnostics(),
-        window.desktopApi.listReceiptPlugins(),
-        window.desktopApi.getReleaseMetadata()
-      ]);
-
-      const [cfgResult, bootErrorResult, statusResult, runtimeResult, receiptPluginsResult, metadataResult] = results;
-
-      if (cfgResult.status === "fulfilled") {
-        setConfig(cfgResult.value);
-      } else {
-        setError(t("shell.error.desktopApiInit", { detail: String(cfgResult.reason) }));
-      }
-
-      if (bootErrorResult.status === "fulfilled") {
-        setBootError(bootErrorResult.value);
-      }
-
-      if (statusResult.status === "fulfilled") {
-        setBackend(statusResult.value);
-      }
-
-      if (runtimeResult.status === "fulfilled") {
-        setRuntimeDiagnostics(runtimeResult.value);
-      }
-
-      if (receiptPluginsResult.status === "fulfilled") {
-        setPluginPacks(receiptPluginsResult.value.packs);
-        setPluginSearchPaths(receiptPluginsResult.value.activePluginSearchPaths);
-        setPluginLoadError(null);
-      } else {
-        setPluginLoadError(String(receiptPluginsResult.reason));
-      }
-
-      if (metadataResult.status === "fulfilled") {
-        setReleaseMetadata(metadataResult.value);
-        setReleaseMetadataError(null);
-      } else {
-        setReleaseMetadataError(String(metadataResult.reason));
-      }
-
-      disposeLogs = window.desktopApi.onLog((event) => {
-        setLogs((prev) => [...prev.slice(-399), event]);
-      });
-      disposeBootError = window.desktopApi.onBootError((message) => {
-        setBootError(message);
-      });
-    }
-
-    void boot();
-
-    return () => {
-      disposeLogs?.();
-      disposeBootError?.();
-    };
-  }, [t]);
-
-  useEffect(() => {
-    const nextDomain = selectedSourceMeta?.defaultDomain ?? "";
-    setDomain(nextDomain);
-  }, [source, selectedSourceMeta]);
-
-  useEffect(() => {
-    if (sourceOptions.length === 0) {
-      return;
-    }
-    if (!sourceOptions.some((option) => option.id === source)) {
-      setSource(sourceOptions[0]!.id);
-    }
-  }, [source, sourceOptions]);
-
-  useEffect(() => {
-    if (config && !exportOutPath) {
-      setExportOutPath(defaultExportPath(config.userDataDir));
-    }
-  }, [config, exportOutPath]);
-
-  useEffect(() => {
-    if (config && !backupOutDir) {
-      setBackupOutDir(defaultBackupDir(config.userDataDir));
-    }
-  }, [config, backupOutDir]);
-
-  useEffect(() => {
-    if (config && !importBackupDir) {
-      setImportBackupDir(defaultImportDir(config.userDataDir));
-    }
-  }, [config, importBackupDir]);
-
-  async function refreshReleaseMetadata(): Promise<void> {
-    try {
-      const nextMetadata = await window.desktopApi.getReleaseMetadata();
-      setReleaseMetadata(nextMetadata);
-      setReleaseMetadataError(null);
-    } catch (err) {
-      setReleaseMetadataError(String(err));
-    }
-  }
-
-  async function refreshReceiptPlugins(): Promise<void> {
-    try {
-      const result = await window.desktopApi.listReceiptPlugins();
-      setPluginPacks(result.packs);
-      setPluginSearchPaths(result.activePluginSearchPaths);
-      setPluginLoadError(null);
-    } catch (err) {
-      setPluginLoadError(String(err));
-    }
-  }
-
-  async function handleStartBackend(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    try {
-      const status = await window.desktopApi.startBackend();
-      setBackend(status);
-    } catch (err) {
-      setError(t("shell.error.backendStart", { detail: String(err) }));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleStopBackend(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    try {
-      const status = await window.desktopApi.stopBackend();
-      setBackend(status);
-    } catch (err) {
-      setError(t("shell.error.backendStop", { detail: String(err) }));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleRunSync(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    setSyncResult(null);
-
-    const payload: SyncRequest = {
-      source,
-      full: selectedSourceMeta?.syncFamily === "lidl_plus" ? fullSync : undefined,
-      headless:
-        selectedSourceMeta?.syncFamily === "amazon" || selectedSourceMeta?.syncFamily === "browser"
-          ? headless
-          : undefined,
-      domain:
-        selectedSourceMeta?.syncFamily === "amazon" || selectedSourceMeta?.syncFamily === "browser"
-          ? domain || undefined
-          : undefined,
-      years: selectedSourceMeta?.syncFamily === "amazon" ? years : undefined,
-      maxPages:
-        selectedSourceMeta?.syncFamily === "amazon" || selectedSourceMeta?.syncFamily === "browser"
-          ? maxPages
-          : undefined
-    };
-
-    try {
-      const result = await window.desktopApi.runSync(payload);
-      setSyncResult(result);
-      setBackend(await window.desktopApi.getBackendStatus());
-    } catch (err) {
-      setError(t("shell.error.sync", { detail: String(err) }));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleLoadCards(): Promise<void> {
-    if (!config) {
-      setError(t("shell.error.configUnavailable"));
-      return;
-    }
-
-    setBusy(true);
-    setError(null);
-    try {
-      if (!backend?.running) {
-        const status = await window.desktopApi.startBackend();
-        setBackend(status);
-      }
-      const url = new URL("/api/v1/dashboard/cards", config.apiBaseUrl);
-      url.searchParams.set("db", config.dbPath);
-      url.searchParams.set("year", String(year));
-      url.searchParams.set("month", String(month));
-      const response = await fetch(url.toString());
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      setCardsResult(await response.json());
-    } catch (err) {
-      setError(t("shell.error.cards", { detail: String(err) }));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleOpenFullApp(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    try {
-      const url = await window.desktopApi.openFullApp();
-      window.location.assign(url);
-    } catch (err) {
-      setError(t("shell.error.openFullApp", { detail: String(err) }));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleRunExport(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    setExportResult(null);
-
-    const outPath = exportOutPath.trim();
-    if (!outPath) {
-      setBusy(false);
-      setError(t("shell.error.exportRequired"));
-      return;
-    }
-
-    const payload: ExportRequest = {
-      outPath,
-      format: "json"
-    };
-
-    try {
-      const result = await window.desktopApi.runExport(payload);
-      setExportResult(result);
-    } catch (err) {
-      setError(t("shell.error.export", { detail: String(err) }));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleRunBackup(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    setBackupResult(null);
-
-    const outDir = backupOutDir.trim();
-    if (!outDir) {
-      setBusy(false);
-      setError(t("shell.error.backupRequired"));
-      return;
-    }
-
-    const payload: BackupRequest = {
-      outDir,
-      includeExportJson: backupIncludeExportJson,
-      includeDocuments: backupIncludeDocuments
-    };
-
-    try {
-      const result = await window.desktopApi.runBackup(payload);
-      setBackupResult(result);
-    } catch (err) {
-      setError(t("shell.error.backup", { detail: String(err) }));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleRunImport(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    setImportResult(null);
-
-    const backupDir = importBackupDir.trim();
-    if (!backupDir) {
-      setBusy(false);
-      setError(t("shell.error.importRequired"));
-      return;
-    }
-
-    const payload: ImportRequest = {
-      backupDir,
-      includeDocuments: importIncludeDocuments,
-      includeToken: importIncludeToken,
-      includeCredentialKey: importIncludeCredentialKey,
-      restartBackend: importRestartBackend
-    };
-
-    try {
-      const result = await window.desktopApi.runImport(payload);
-      setImportResult(result);
-      setBackend(await window.desktopApi.getBackendStatus());
-    } catch (err) {
-      setError(t("shell.error.import", { detail: String(err) }));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleRefreshPluginState(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    setPluginStatusMessage(null);
-    try {
-      await Promise.all([refreshReceiptPlugins(), refreshReleaseMetadata()]);
-      setPluginStatusMessage(
-        locale === "de"
-          ? "Lokale Plugin-Pakete und Editionskatalogdetails wurden aktualisiert."
-          : "Refreshed local plugin packs and edition catalog details."
-      );
-    } catch (err) {
-      setError(
-        locale === "de"
-          ? `Belegpaket-Details konnten nicht aktualisiert werden. ${String(err)}`
-          : `Could not refresh receipt pack details. ${String(err)}`
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleInstallReceiptPlugin(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    setPluginStatusMessage(null);
-    try {
-      const result = await window.desktopApi.installReceiptPluginFromDialog();
-      if (!result) {
-        setPluginStatusMessage(
-          locale === "de" ? "Es wurde kein lokales Paket ausgewählt." : "No local pack was selected."
-        );
-        return;
-      }
-      setPluginStatusMessage(
-        result.action === "installed"
-          ? locale === "de"
-            ? `${result.pack.displayName} ${result.pack.version} importiert. Prüfen Sie die Vertrauenskennzeichnung und aktivieren Sie das Paket, wenn Sie bereit sind.`
-            : `Imported ${result.pack.displayName} ${result.pack.version}. Review the trust label, then enable it when you are ready.`
-          : result.action === "updated"
-            ? locale === "de"
-              ? `${result.pack.displayName} auf ${result.pack.version} aktualisiert.`
-              : `Updated ${result.pack.displayName} to ${result.pack.version}.`
-            : locale === "de"
-              ? `${result.pack.displayName} ${result.pack.version} erneut installiert.`
-              : `Reinstalled ${result.pack.displayName} ${result.pack.version}.`
-      );
-      if (result.backendStatus) {
-        setBackend(result.backendStatus);
-      }
-      await refreshReceiptPlugins();
-    } catch (err) {
-      setError(
-        locale === "de"
-          ? `Das lokale Belegpaket konnte nicht importiert werden. ${String(err)}`
-          : `Could not import the local receipt pack. ${String(err)}`
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleInstallReceiptPluginFromCatalog(entryId: string): Promise<void> {
-    setBusy(true);
-    setError(null);
-    setPluginStatusMessage(null);
-    try {
-      const result = await window.desktopApi.installReceiptPluginFromCatalogEntry({ entryId });
-      setPluginStatusMessage(
-        result.action === "installed"
-          ? locale === "de"
-            ? `Vertrauenswürdiges Paket ${result.pack.displayName} ${result.pack.version} installiert. Aktivieren Sie es, wenn es im nächsten Backend-Start aktiv sein soll.`
-            : `Installed trusted pack ${result.pack.displayName} ${result.pack.version}. Enable it when you want it active in the next backend run.`
-          : result.action === "updated"
-            ? locale === "de"
-              ? `Vertrauenswürdiges Paket ${result.pack.displayName} auf ${result.pack.version} aktualisiert.`
-              : `Updated trusted pack ${result.pack.displayName} to ${result.pack.version}.`
-            : locale === "de"
-              ? `Vertrauenswürdiges Paket ${result.pack.displayName} ${result.pack.version} erneut installiert.`
-              : `Reinstalled trusted pack ${result.pack.displayName} ${result.pack.version}.`
-      );
-      if (result.backendStatus) {
-        setBackend(result.backendStatus);
-      }
-      await Promise.all([refreshReleaseMetadata(), refreshReceiptPlugins()]);
-    } catch (err) {
-      setError(
-        locale === "de"
-          ? `Das vertrauenswürdige Belegpaket konnte nicht installiert werden. ${String(err)}`
-          : `Could not install the trusted receipt pack. ${String(err)}`
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleToggleReceiptPlugin(pluginId: string, enabled: boolean): Promise<void> {
-    setBusy(true);
-    setError(null);
-    setPluginStatusMessage(null);
-    try {
-      const result = enabled
-        ? await window.desktopApi.enableReceiptPlugin(pluginId)
-        : await window.desktopApi.disableReceiptPlugin(pluginId);
-      setPluginStatusMessage(
-        enabled
-          ? locale === "de"
-            ? `${result.pack.displayName} aktiviert.`
-            : `Enabled ${result.pack.displayName}.`
-          : locale === "de"
-            ? `${result.pack.displayName} deaktiviert.`
-            : `Disabled ${result.pack.displayName}.`
-      );
-      if (result.backendStatus) {
-        setBackend(result.backendStatus);
-      }
-      await refreshReceiptPlugins();
-    } catch (err) {
-      setError(
-        locale === "de"
-          ? `Der Status des Belegpakets konnte nicht aktualisiert werden. ${String(err)}`
-          : `Could not update the receipt pack state. ${String(err)}`
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleUninstallReceiptPlugin(pluginId: string): Promise<void> {
-    setBusy(true);
-    setError(null);
-    setPluginStatusMessage(null);
-    try {
-      const result = await window.desktopApi.uninstallReceiptPlugin(pluginId);
-      setPluginStatusMessage(
-        locale === "de"
-          ? `${result.pluginId} aus dem lokalen Desktop-Speicher entfernt.`
-          : `Removed ${result.pluginId} from local desktop storage.`
-      );
-      if (result.backendStatus) {
-        setBackend(result.backendStatus);
-      }
-      await refreshReceiptPlugins();
-    } catch (err) {
-      setError(
-        locale === "de"
-          ? `Das Belegpaket konnte nicht entfernt werden. ${String(err)}`
-          : `Could not remove the receipt pack. ${String(err)}`
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <main className="shell">
@@ -899,7 +289,7 @@ export default function App() {
               <p className="section-kicker">Quick import</p>
               <h2>{t("shell.sync.title")}</h2>
             </div>
-            <span className="status-chip status-disabled">{selectedSourceMeta?.label ?? source}</span>
+            <span className="status-chip status-disabled">{selectedSourceMeta.label}</span>
           </div>
           <p>{sourceJourneySummary(source, locale)}</p>
           {sourceSyncNotice(source, locale) ? (
@@ -921,12 +311,12 @@ export default function App() {
           <details>
             <summary>Import options</summary>
             <div className="stack-fields">
-              {selectedSourceMeta?.syncFamily === "lidl_plus" ? (
+              {selectedSourceMeta.syncFamily === "lidl_plus" ? (
                 <label className="inline-checkbox">
                   <input type="checkbox" checked={fullSync} onChange={(event) => setFullSync(event.target.checked)} />
                   {t("shell.sync.fullHistory")}
                 </label>
-              ) : selectedSourceMeta?.syncFamily === "amazon" || selectedSourceMeta?.syncFamily === "browser" ? (
+              ) : selectedSourceMeta.syncFamily === "amazon" || selectedSourceMeta.syncFamily === "browser" ? (
                 <>
                   <label className="inline-checkbox">
                     <input type="checkbox" checked={headless} onChange={(event) => setHeadless(event.target.checked)} />
@@ -936,7 +326,7 @@ export default function App() {
                     {t("shell.sync.domain")}
                     <input value={domain} onChange={(event) => setDomain(event.target.value)} />
                   </label>
-                  {selectedSourceMeta?.syncFamily === "amazon" ? (
+                  {selectedSourceMeta.syncFamily === "amazon" ? (
                     <label>
                       {t("shell.sync.years")}
                       <input type="number" min={1} max={10} value={years} onChange={(event) => setYears(Number(event.target.value) || 1)} />
@@ -973,7 +363,7 @@ export default function App() {
             <h2>Stores and packs on this desktop</h2>
           </div>
           <span className="status-chip status-disabled">
-            {pluginPacks.length} installed / {installedEnabledCount} enabled
+            {installedPackRows.length} installed / {installedEnabledCount} enabled
           </span>
         </div>
         <p>
@@ -987,19 +377,19 @@ export default function App() {
             Refresh connector list
           </button>
         </div>
-        <div className="key-value-grid">
-          <div>
-            <span className="label">Installed packs</span>
-            <strong>{pluginPacks.length}</strong>
-          </div>
-          <div>
-            <span className="label">Ready to use</span>
-            <strong>{installedEnabledCount}</strong>
-          </div>
-          <div>
-            <span className="label">Trusted optional packs</span>
-            <strong>{curatedDesktopPackEntries.length}</strong>
-          </div>
+          <div className="key-value-grid">
+            <div>
+              <span className="label">Installed packs</span>
+              <strong>{installedPackRows.length}</strong>
+            </div>
+            <div>
+              <span className="label">Ready to use</span>
+              <strong>{installedEnabledCount}</strong>
+            </div>
+            <div>
+              <span className="label">Trusted optional packs</span>
+              <strong>{trustedPackRows.length}</strong>
+            </div>
           <div>
             <span className="label">Pack storage</span>
             <strong>{config?.receiptPluginStorageDir ?? t("common.loading")}</strong>
@@ -1020,26 +410,15 @@ export default function App() {
                 Packs stay local to this computer, and activation is always explicit.
               </p>
             </div>
-            {pluginPacks.length === 0 ? (
+            {installedPackRows.length === 0 ? (
               <div className="empty-state">
                 <h3>No local receipt packs installed yet.</h3>
                 <p>Start with a connector file, or add a trusted optional pack listed for this build.</p>
               </div>
             ) : (
               <div className="plugin-list">
-                {pluginPacks.map((pack) => {
-                  const catalogEntry = releaseMetadata
-                    ? findCatalogDesktopPackEntry(releaseMetadata.discovery_catalog.entries, pack.pluginId)
-                    : null;
-                  const packStatus = describeInstalledPack(pack, locale);
-                  const updateTarget =
-                    catalogEntry &&
-                    !!catalogEntry.current_version &&
-                    compareVersions(pack.version, catalogEntry.current_version) < 0 &&
-                    !catalogEntry.availability.blocked_by_policy
-                      ? catalogEntry
-                      : null;
-
+                {installedPackRows.map((row) => {
+                  const { pack, catalogEntry, packStatus, profileSummary, supportSummary, trustLabel, supportLabel, installSourceLabel, originSummary, updateTarget } = row;
                   return (
                     <article key={pack.pluginId} className="plugin-pack">
                       <div className="plugin-pack-header">
@@ -1077,15 +456,15 @@ export default function App() {
                         <dl className="plugin-meta">
                           <div>
                             <dt>Trust</dt>
-                            <dd>{formatPluginTrust(pack, locale)}</dd>
+                            <dd>{trustLabel}</dd>
                           </div>
                           <div>
                             <dt>Support</dt>
-                            <dd>{formatTrustClassLabel(pack.trustClass, locale)}</dd>
+                            <dd>{supportLabel}</dd>
                           </div>
                           <div>
                             <dt>Installed via</dt>
-                            <dd>{packInstallSource(pack, locale)}</dd>
+                            <dd>{installSourceLabel}</dd>
                           </div>
                           <div>
                             <dt>Retailer</dt>
@@ -1100,9 +479,9 @@ export default function App() {
                             <dd>{pack.installPath}</dd>
                           </div>
                         </dl>
-                        <p className="muted">{packOriginSummary(pack, locale)}</p>
-                        <p className="muted">{packSupportSummary(pack, catalogEntry, locale)}</p>
-                        {catalogEntry ? <p className="muted">{catalogProfileSummary(catalogEntry, releaseMetadata, locale)}</p> : null}
+                        <p className="muted">{originSummary}</p>
+                        <p className="muted">{supportSummary}</p>
+                        {profileSummary ? <p className="muted">{profileSummary}</p> : null}
                         {pack.diagnostics.length > 0 ? <pre>{prettyJson(pack.diagnostics)}</pre> : null}
                       </details>
                     </article>
@@ -1119,35 +498,22 @@ export default function App() {
                 Add more supported stores when you need them. Manual connector-file import always stays available too.
               </p>
             </div>
-            {curatedDesktopPackEntries.length === 0 ? (
+            {trustedPackRows.length === 0 ? (
               <div className="empty-state">
                 <h3>No optional trusted receipt packs are listed for this build.</h3>
                 <p>Manual connector-file import remains the fallback path.</p>
               </div>
             ) : (
               <div className="plugin-list">
-                {curatedDesktopPackEntries.map((entry) => {
-                  const installedPack = entry.plugin_id
-                    ? (pluginPacks.find((pack) => pack.pluginId === entry.plugin_id) ?? null)
-                    : null;
-                  const availability = describeCatalogEntry(entry, installedPack, locale);
-                  const updateAvailable =
-                    installedPack &&
-                    !!entry.current_version &&
-                    compareVersions(installedPack.version, entry.current_version) < 0;
-                  const trustedUrlInstallAllowed =
-                    releaseMetadata?.discovery_catalog.verification_status === "trusted" &&
-                    entry.install_methods.includes("download_url") &&
-                    !!entry.download_url &&
-                    !entry.availability.blocked_by_policy;
-
+                {trustedPackRows.map((row) => {
+                  const { availability, entry, entryTypeLabel, installMethodsLabel, installedPack, profileSummary, supportLabel, supportSummary, trustedUrlInstallAllowed, updateAvailable } = row;
                   return (
                     <article key={entry.entry_id} className="plugin-pack">
                       <div className="plugin-pack-header">
                         <div>
                           <h3>{entry.display_name}</h3>
                           <p className="muted">
-                            {formatCatalogEntryType(entry.entry_type, locale)} · {entry.current_version ?? "version not declared"}
+                            {entryTypeLabel} · {entry.current_version ?? "version not declared"}
                           </p>
                         </div>
                         <span className={`status-chip ${availability.chipClass}`}>{availability.label}</span>
@@ -1175,11 +541,11 @@ export default function App() {
                         <dl className="plugin-meta">
                           <div>
                             <dt>Support</dt>
-                            <dd>{formatTrustClassLabel(entry.trust_class, locale)}</dd>
+                            <dd>{supportLabel}</dd>
                           </div>
                           <div>
                             <dt>Install path</dt>
-                            <dd>{formatInstallMethods(entry.install_methods, locale)}</dd>
+                            <dd>{installMethodsLabel}</dd>
                           </div>
                           <div>
                             <dt>Maintainer</dt>
@@ -1190,8 +556,8 @@ export default function App() {
                             <dd>{entry.supported_markets.length > 0 ? entry.supported_markets.join(", ") : "Unspecified"}</dd>
                           </div>
                         </dl>
-                        <p className="muted">{catalogSupportSummary(entry, locale)}</p>
-                        <p className="muted">{catalogProfileSummary(entry, releaseMetadata, locale)}</p>
+                        <p className="muted">{supportSummary}</p>
+                        <p className="muted">{profileSummary}</p>
                         {entry.release_notes_summary ? <p className="muted">{entry.release_notes_summary}</p> : null}
                         {entry.homepage_url ? (
                           <a className="button-link secondary" href={entry.homepage_url} target="_blank" rel="noreferrer">

@@ -9,6 +9,7 @@ import test from "node:test";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const desktopDir = resolve(__dirname, "..");
+const vendorManifestPath = join(desktopDir, "vendor", "vendor-manifest.json");
 
 function withTempDesktopFixture(run: (fixtureDir: string) => void): void {
   const fixtureDir = mkdtempSync(join(tmpdir(), "lidltool-desktop-patcher-"));
@@ -32,6 +33,29 @@ function runNodeScript(scriptPath: string, fixtureDir: string): void {
   if (result.status !== 0) {
     throw new Error(result.stderr || result.stdout || `Script failed: ${scriptPath}`);
   }
+}
+
+function writeVendorManifestFixture(
+  fixtureDir: string,
+  overrides: {
+    runtimeOverrideFiles?: string[];
+    testOverrideFiles?: string[];
+    requiredFiles?: string[];
+    requiredLoaderKeys?: string[];
+    requiredTranslationKeys?: string[];
+  } = {}
+): void {
+  const baseManifest = JSON.parse(readFileSync(vendorManifestPath, "utf-8"));
+  baseManifest.frontend = {
+    ...baseManifest.frontend,
+    ...overrides
+  };
+  mkdirSync(join(fixtureDir, "vendor"), { recursive: true });
+  writeFileSync(
+    join(fixtureDir, "vendor", "vendor-manifest.json"),
+    JSON.stringify(baseManifest, null, 2),
+    "utf-8"
+  );
 }
 
 test("backend patcher stays green against the current vendored backend shape", () => {
@@ -78,9 +102,15 @@ test("backend patcher stays green against the current vendored backend shape", (
 test("frontend patcher repairs the connector auth-status contract drift", () => {
   withTempDesktopFixture((fixtureDir) => {
     const frontendFixtureDir = join(fixtureDir, "vendor", "frontend");
+    const overridesFixtureDir = join(fixtureDir, "overrides", "frontend", "src");
     const sharedDir = join(fixtureDir, "src", "shared");
     mkdirSync(join(frontendFixtureDir, "src", "api"), { recursive: true });
     mkdirSync(sharedDir, { recursive: true });
+    mkdirSync(join(overridesFixtureDir, "api"), { recursive: true });
+    writeVendorManifestFixture(fixtureDir, {
+      runtimeOverrideFiles: ["api/dashboard.ts"],
+      testOverrideFiles: []
+    });
 
     writeFileSync(
       join(frontendFixtureDir, "vite.config.ts"),
@@ -143,6 +173,7 @@ test("frontend patcher repairs the connector auth-status contract drift", () => 
       ].join("\n"),
       "utf-8"
     );
+    writeFileSync(join(overridesFixtureDir, "api", "dashboard.ts"), "export {};\n", "utf-8");
 
     runNodeScript(join(desktopDir, "scripts", "patch-vendored-frontend.mjs"), fixtureDir);
     runNodeScript(join(desktopDir, "scripts", "patch-vendored-frontend.mjs"), fixtureDir);
@@ -163,5 +194,52 @@ test("frontend patcher repairs the connector auth-status contract drift", () => 
     );
     assert.match(patchedConnectorsApi, /\/api\/v1\/sources\/\$\{sourceId\}\/auth/);
     assert.doesNotMatch(patchedConnectorsApi, /\/api\/v1\/connectors\/\$\{sourceId\}\/auth\/status/);
+  });
+});
+
+test("frontend validator enforces the declared override surface from the vendor manifest", () => {
+  withTempDesktopFixture((fixtureDir) => {
+    const frontendSrcDir = join(fixtureDir, "vendor", "frontend", "src");
+    const overridesSrcDir = join(fixtureDir, "overrides", "frontend", "src");
+    mkdirSync(join(frontendSrcDir, "app"), { recursive: true });
+    mkdirSync(join(frontendSrcDir, "i18n"), { recursive: true });
+    mkdirSync(join(overridesSrcDir, "api"), { recursive: true });
+    writeVendorManifestFixture(fixtureDir, {
+      requiredFiles: ["app/page-loaders.ts", "i18n/messages.ts", "main.tsx"],
+      runtimeOverrideFiles: ["api/dashboard.ts"],
+      testOverrideFiles: [],
+      requiredLoaderKeys: ["groceries"],
+      requiredTranslationKeys: ["nav.item.dashboard"]
+    });
+
+    writeFileSync(
+      join(frontendSrcDir, "app", "page-loaders.ts"),
+      "export const pageLoaders = { groceries: () => import(\"../pages/GroceriesPage\") };\n",
+      "utf-8"
+    );
+    writeFileSync(
+      join(frontendSrcDir, "i18n", "messages.ts"),
+      "export const messages = { \"nav.item.dashboard\": \"Dashboard\" };\n",
+      "utf-8"
+    );
+    writeFileSync(
+      join(frontendSrcDir, "main.tsx"),
+      "pageLoaders.groceries();\n",
+      "utf-8"
+    );
+    writeFileSync(join(overridesSrcDir, "api", "dashboard.ts"), "export {};\n", "utf-8");
+    writeFileSync(join(overridesSrcDir, "api", "rogue.ts"), "export {};\n", "utf-8");
+
+    const result = spawnSync(process.execPath, [join(desktopDir, "scripts", "validate-vendored-frontend.mjs")], {
+      cwd: desktopDir,
+      env: {
+        ...process.env,
+        LIDLTOOL_DESKTOP_DIR: fixtureDir
+      },
+      encoding: "utf-8"
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Undeclared desktop frontend override file: api\/rogue\.ts/);
   });
 });

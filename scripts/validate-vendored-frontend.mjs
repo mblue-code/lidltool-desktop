@@ -1,99 +1,58 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const desktopDir = resolve(__dirname, "..");
+const desktopDir = resolve(process.env.LIDLTOOL_DESKTOP_DIR?.trim() || resolve(__dirname, ".."));
 const frontendSrcDir = resolve(desktopDir, "vendor", "frontend", "src");
 const frontendOverridesSrcDir = resolve(desktopDir, "overrides", "frontend", "src");
+const vendorManifestPath = resolve(desktopDir, "vendor", "vendor-manifest.json");
 
-const REQUIRED_FILES = [
-  "api/goals.ts",
-  "api/groceries.ts",
-  "api/merchants.ts",
-  "api/notifications.ts",
-  "api/reports.ts",
-  "api/dashboard.ts",
-  "api/documents.ts",
-  "api/systemBackup.ts",
-  "app/date-range-context.tsx",
-  "app/page-loaders.ts",
-  "components/shared/AppShell.tsx",
-  "i18n/messages.ts",
-  "main.tsx",
-  "pages/CashFlowPage.tsx",
-  "pages/GoalsPage.tsx",
-  "pages/GroceriesPage.tsx",
-  "pages/MerchantsPage.tsx",
-  "pages/ReportsPage.tsx",
-  "pages/SettingsPage.tsx"
-];
+function loadVendorManifest() {
+  if (!existsSync(vendorManifestPath)) {
+    throw new Error(`Desktop vendor manifest not found: ${vendorManifestPath}`);
+  }
 
-const REQUIRED_OVERRIDE_FILES = [
-  "api/goals.ts",
-  "api/groceries.ts",
-  "api/merchants.ts",
-  "api/notifications.ts",
-  "api/reports.ts",
-  "api/dashboard.ts",
-  "api/documents.ts",
-  "api/systemBackup.ts",
-  "app/date-range-context.tsx",
-  "app/page-loaders.ts",
-  "app/providers.tsx",
-  "components/shared/AppShell.tsx",
-  "i18n/literals.de.json",
-  "i18n/messages.ts",
-  "lib/api-client.ts",
-  "lib/backend-messages.ts",
-  "lib/desktop-api.ts",
-  "lib/desktop-capabilities.tsx",
-  "lib/desktop-shell.ts",
-  "main.tsx",
-  "pages/AISettingsPage.tsx",
-  "pages/BillsPage.tsx",
-  "pages/BudgetPage.tsx",
-  "pages/CashFlowPage.tsx",
-  "pages/DashboardPage.tsx",
-  "pages/DocumentsUploadPage.tsx",
-  "pages/GoalsPage.tsx",
-  "pages/GroceriesPage.tsx",
-  "pages/MerchantsPage.tsx",
-  "pages/ReportsPage.tsx",
-  "pages/SettingsPage.tsx",
-  "pages/TransactionsPage.tsx"
-];
+  const manifest = JSON.parse(readFileSync(vendorManifestPath, "utf-8"));
+  if (!manifest.frontend || typeof manifest.frontend !== "object") {
+    throw new Error(`Desktop vendor manifest is missing the "frontend" section: ${vendorManifestPath}`);
+  }
 
-const REQUIRED_LOADER_KEYS = ["groceries", "cashFlow", "reports", "goals", "merchants", "settings"];
-const REQUIRED_TRANSLATION_KEYS = [
-  "nav.group.workspace",
-  "nav.group.shortcuts",
-  "nav.item.dashboard",
-  "nav.item.transactions",
-  "nav.item.groceries",
-  "nav.item.cashFlow",
-  "nav.item.reports",
-  "nav.item.goals",
-  "nav.item.merchants",
-  "nav.item.settings",
-  "app.sidebar.connectedMerchants",
-  "app.sidebar.connectedMerchantsHint",
-  "app.sidebar.connectedMerchantsEmpty",
-  "app.sidebar.localData",
-  "app.sidebar.localDataHint",
-  "app.header.desktopSubtitle",
-  "app.header.notifications"
-];
+  return manifest.frontend;
+}
 
 function readFrontendFile(relativePath) {
   const fullPath = resolve(frontendSrcDir, relativePath);
   return readFileSync(fullPath, "utf-8");
 }
 
-function validateRequiredFiles(errors) {
-  for (const relativePath of REQUIRED_FILES) {
+function collectRelativeFiles(rootDir) {
+  if (!existsSync(rootDir)) {
+    return [];
+  }
+
+  const files = [];
+
+  function visit(currentDir) {
+    for (const entry of readdirSync(currentDir)) {
+      const fullPath = resolve(currentDir, entry);
+      const stats = statSync(fullPath);
+      if (stats.isDirectory()) {
+        visit(fullPath);
+        continue;
+      }
+      files.push(relative(rootDir, fullPath));
+    }
+  }
+
+  visit(rootDir);
+  return files.sort();
+}
+
+function validateRequiredFiles(errors, requiredFiles) {
+  for (const relativePath of requiredFiles) {
     const fullPath = resolve(frontendSrcDir, relativePath);
     if (!existsSync(fullPath)) {
       errors.push(`Missing required vendored frontend file: ${relativePath}`);
@@ -101,19 +60,28 @@ function validateRequiredFiles(errors) {
   }
 }
 
-function validateRequiredOverrides(errors) {
-  for (const relativePath of REQUIRED_OVERRIDE_FILES) {
+function validateDeclaredOverrides(errors, runtimeOverrideFiles, testOverrideFiles) {
+  const declaredOverrides = new Set([...runtimeOverrideFiles, ...testOverrideFiles]);
+  for (const relativePath of declaredOverrides) {
     const fullPath = resolve(frontendOverridesSrcDir, relativePath);
     if (!existsSync(fullPath)) {
-      errors.push(`Missing required desktop frontend override: ${relativePath}`);
+      errors.push(`Missing declared desktop frontend override: ${relativePath}`);
+    }
+  }
+
+  const actualOverrides = collectRelativeFiles(frontendOverridesSrcDir);
+  for (const relativePath of actualOverrides) {
+    if (!declaredOverrides.has(relativePath)) {
+      errors.push(`Undeclared desktop frontend override file: ${relativePath}`);
     }
   }
 }
 
-function validateLoaderKeys(errors) {
+function validateLoaderKeys(errors, requiredLoaderKeys) {
   const pageLoadersSource = readFrontendFile("app/page-loaders.ts");
-  for (const key of REQUIRED_LOADER_KEYS) {
-    if (!pageLoadersSource.includes(`${key}: () => import(`)) {
+  for (const key of requiredLoaderKeys) {
+    const loaderPattern = new RegExp(`\\b${key}\\s*:\\s*\\(\\)\\s*=>\\s*import\\(`);
+    if (!loaderPattern.test(pageLoadersSource)) {
       errors.push(`Missing required page loader "${key}" in src/app/page-loaders.ts`);
     }
   }
@@ -125,31 +93,38 @@ function validateMainRouteReferences(errors) {
   const loaderMatches = [...mainSource.matchAll(/pageLoaders\.(\w+)\(\)/g)];
 
   for (const [, key] of loaderMatches) {
-    if (!pageLoadersSource.includes(`${key}: () => import(`)) {
+    const loaderPattern = new RegExp(`\\b${key}\\s*:\\s*\\(\\)\\s*=>\\s*import\\(`);
+    if (!loaderPattern.test(pageLoadersSource)) {
       errors.push(`src/main.tsx references pageLoaders.${key}(), but that loader is missing in src/app/page-loaders.ts`);
     }
   }
 }
 
-function validateI18nKeys(errors) {
+function validateI18nKeys(errors, requiredTranslationKeys) {
   const messagesSource = readFrontendFile("i18n/messages.ts");
-  for (const key of REQUIRED_TRANSLATION_KEYS) {
-    if (!messagesSource.includes(`"${key}"`)) {
+  for (const key of requiredTranslationKeys) {
+    const keyPattern = new RegExp(`["']${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`);
+    if (!keyPattern.test(messagesSource)) {
       errors.push(`Missing required translation key "${key}" in src/i18n/messages.ts`);
     }
   }
 }
 
 function main() {
+  const frontendManifest = loadVendorManifest();
   const errors = [];
 
-  validateRequiredOverrides(errors);
-  validateRequiredFiles(errors);
+  validateDeclaredOverrides(
+    errors,
+    frontendManifest.runtimeOverrideFiles ?? [],
+    frontendManifest.testOverrideFiles ?? []
+  );
+  validateRequiredFiles(errors, frontendManifest.requiredFiles ?? []);
 
   if (errors.length === 0) {
-    validateLoaderKeys(errors);
+    validateLoaderKeys(errors, frontendManifest.requiredLoaderKeys ?? []);
     validateMainRouteReferences(errors);
-    validateI18nKeys(errors);
+    validateI18nKeys(errors, frontendManifest.requiredTranslationKeys ?? []);
   }
 
   if (errors.length > 0) {

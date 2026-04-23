@@ -6,6 +6,21 @@ plugin-capable, but it is intentionally narrower than the self-hosted server dep
 Planning note:
 - Multi-user personal + household finance direction is tracked in `docs/multi-user-household-finance-vision.md`.
 
+## Maintenance rules
+
+Desktop-specific docs live under `apps/desktop/README.md` plus `apps/desktop/docs/`.
+
+Retention:
+- durable product, packaging, and implementation docs stay in `docs/`
+- dated QA/task artifacts are archived under `docs/archive/`
+- local one-off audit outputs such as `i18n-audit-report.md` should stay out of git unless there is an explicit reason to preserve them
+- the current full manual desktop QA prompt and runbook live in `docs/desktop-qa-agent-prompt.md` and `docs/desktop-qa-runbook.md`
+
+Vendored frontend policy:
+- the allowed frontend override surface is declared in `vendor/vendor-manifest.json`
+- only `frontend.runtimeOverrideFiles` are overlaid into `vendor/frontend` during sync/patch
+- test-only overrides remain under `overrides/frontend/src` and are validated, but they are no longer copied into the vendored app during build flows
+
 ## Desktop product scope
 
 Desktop is for:
