@@ -2,6 +2,7 @@
 
 import type {
   DesktopApiBridge,
+  DesktopLocale,
   DesktopReceiptPluginPackInstallResult,
   DesktopReceiptPluginPackListResult,
   DesktopReceiptPluginPackToggleResult,
@@ -22,6 +23,9 @@ interface ImportMeta {
 declare global {
   interface Window {
     desktopApi?: DesktopApiBridge & {
+      getLocale?: () => Promise<DesktopLocale>;
+      setLocale?: (locale: DesktopLocale) => Promise<DesktopLocale>;
+      onLocaleChanged?: (handler: (locale: DesktopLocale) => void) => (() => void);
       getCapabilities?: () => Promise<import("@/lib/desktop-api").DesktopCapabilities>;
       getReleaseMetadata?: () => Promise<DesktopReleaseMetadata>;
       wakeOcrWorker?: () => Promise<{ running: boolean; started: boolean; idleTimeoutSeconds: number }>;

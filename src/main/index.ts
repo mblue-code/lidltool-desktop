@@ -188,6 +188,8 @@ async function loadControlCenter(window: BrowserWindow, bootError?: string): Pro
     await window.loadFile(join(__dirname, "../renderer/index.html"));
   }
 
+  window.webContents.send("desktop:locale-changed", currentLocale);
+
   if (bootError) {
     window.webContents.send("desktop:boot-error", bootError);
   }

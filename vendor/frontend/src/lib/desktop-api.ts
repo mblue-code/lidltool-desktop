@@ -18,6 +18,8 @@ export type DesktopCapabilities = {
   routes: DesktopRouteCapability[];
 };
 
+export type DesktopLocale = "en" | "de";
+
 export type DesktopConnectorTrustClass =
   | "official"
   | "community_verified"
@@ -134,6 +136,12 @@ type DesktopImportBridge = {
   }) => Promise<DesktopImportResult>;
 };
 
+type DesktopLocaleBridge = {
+  getLocale: () => Promise<DesktopLocale>;
+  setLocale: (locale: DesktopLocale) => Promise<DesktopLocale>;
+  onLocaleChanged: (handler: (locale: DesktopLocale) => void) => () => void;
+};
+
 type DesktopCapabilityBridge = {
   getCapabilities: () => Promise<DesktopCapabilities>;
 };
@@ -154,6 +162,7 @@ type DesktopConnectorBridge = {
 
 export type DesktopApiBridge = (
   DesktopImportBridge &
+  Partial<DesktopLocaleBridge> &
   Partial<DesktopCapabilityBridge> &
   Partial<DesktopOcrBridge>
 ) | null;

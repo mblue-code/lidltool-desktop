@@ -34,6 +34,14 @@ function sectionTitle(title: string, actionHref?: string, actionLabel?: string) 
   );
 }
 
+function goalProgressStatusLabel(status: string, locale: "en" | "de"): string {
+  if (status === "completed") return locale === "de" ? "Abgeschlossen" : "Completed";
+  if (status === "at_risk") return locale === "de" ? "Gefährdet" : "At risk";
+  if (status === "on_track") return locale === "de" ? "Im Plan" : "On track";
+  if (status === "paused") return locale === "de" ? "Pausiert" : "Paused";
+  return status.replace(/_/g, " ");
+}
+
 function deltaLabel(deltaPct: number | null, locale: "en" | "de"): string {
   if (deltaPct === null) {
     return locale === "de" ? "Kein Vergleichszeitraum" : "No previous comparison";
@@ -145,7 +153,7 @@ function CashFlowBars({
       <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
         <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /> {locale === "de" ? "Einnahmen" : "Inflow"}</span>
         <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-rose-400" /> {locale === "de" ? "Ausgaben" : "Outflow"}</span>
-        <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-slate-900" /> Net</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-slate-900" /> {locale === "de" ? "Netto" : "Net"}</span>
       </div>
     </div>
   );
@@ -180,7 +188,54 @@ function ProgressRow({
 
 export function DashboardPage() {
   const { fromDate, toDate } = useDateRangeContext();
-  const { locale, tText } = useI18n();
+  const { locale } = useI18n();
+  const copy = locale === "de"
+    ? {
+        pageTitle: "Ihre Finanzübersicht",
+        pageDescription: "Verfolge Ausgaben, Einkäufe, Cashflow, Rechnungen und Händler aus demselben lokalen Desktop-Profil.",
+        totalSpending: "Gesamtausgaben",
+        purchases: "Einkäufe",
+        cashInflow: "Cashflow-Zufluss",
+        cashOutflow: "Cashflow-Abfluss",
+        spendingOverview: "Ausgabenübersicht",
+        cashFlowSummary: "Cashflow-Zusammenfassung",
+        upcomingBills: "Anstehende Rechnungen",
+        recentGroceryTransactions: "Aktuelle Einkaufstransaktionen",
+        budgetProgress: "Budgetfortschritt",
+        recentActivity: "Letzte Aktivitäten",
+        viewAll: "Alle anzeigen",
+        openDetails: "Details öffnen",
+        manageMerchants: "Händler verwalten",
+        manageGoals: "Ziele verwalten",
+        workspaceStatus: "Arbeitsstatus",
+        activityItems: "Aktivitäts-Einträge",
+        activeMerchants: "Aktive Händler",
+        merchants: "Händler",
+        goals: "Ziele"
+      }
+    : {
+        pageTitle: "Your finance overview",
+        pageDescription: "Track spend, groceries, cash movement, bills, and merchants from the same local-first desktop profile.",
+        totalSpending: "Total spending",
+        purchases: "Purchases",
+        cashInflow: "Cash inflow",
+        cashOutflow: "Cash outflow",
+        spendingOverview: "Spending overview",
+        cashFlowSummary: "Cash flow summary",
+        upcomingBills: "Upcoming bills",
+        recentGroceryTransactions: "Recent grocery transactions",
+        budgetProgress: "Budget progress",
+        recentActivity: "Recent activity",
+        viewAll: "View all",
+        openDetails: "Open details",
+        manageMerchants: "Manage merchants",
+        manageGoals: "Manage goals",
+        workspaceStatus: "Workspace status",
+        activityItems: "Activity items",
+        activeMerchants: "Active merchants",
+        merchants: "Merchants",
+        goals: "Goals"
+      };
   const overviewQuery = useQuery({
     queryKey: ["dashboard-overview", fromDate, toDate],
     queryFn: () => fetchDashboardOverview(fromDate, toDate),
@@ -203,9 +258,9 @@ export function DashboardPage() {
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-400">Dashboard</p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white">{tText("Your finance overview")}</h1>
+            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white">{copy.pageTitle}</h1>
             <p className="mt-3 max-w-2xl text-base text-slate-300">
-              {tText("Track spend, groceries, cash movement, bills, and merchants from the same local-first desktop profile.")}
+              {copy.pageDescription}
             </p>
           </div>
           <div className="rounded-[24px] border border-white/10 bg-white/6 px-5 py-4 text-sm text-slate-200">
@@ -220,7 +275,7 @@ export function DashboardPage() {
             <Card className="app-dashboard-surface border-border/60">
               <CardContent className="space-y-3 p-5">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-muted-foreground">{tText("Total spending")}</span>
+                  <span className="text-sm font-medium text-muted-foreground">{copy.totalSpending}</span>
                   <Wallet className="h-5 w-5 text-rose-500" />
                 </div>
                 <div className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(overview.kpis.total_spending.current_cents)}</div>
@@ -230,7 +285,7 @@ export function DashboardPage() {
             <Card className="app-dashboard-surface border-border/60">
               <CardContent className="space-y-3 p-5">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-muted-foreground">{tText("Purchases")}</span>
+                  <span className="text-sm font-medium text-muted-foreground">{copy.purchases}</span>
                   <ReceiptText className="h-5 w-5 text-emerald-500" />
                 </div>
                 <div className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(overview.kpis.groceries.current_cents)}</div>
@@ -240,7 +295,7 @@ export function DashboardPage() {
             <Card className="app-dashboard-surface border-border/60">
               <CardContent className="space-y-3 p-5">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-muted-foreground">{tText("Cash inflow")}</span>
+                  <span className="text-sm font-medium text-muted-foreground">{copy.cashInflow}</span>
                   <ArrowDownRight className="h-5 w-5 text-emerald-500" />
                 </div>
                 <div className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(overview.kpis.cash_inflow.current_cents)}</div>
@@ -250,7 +305,7 @@ export function DashboardPage() {
             <Card className="app-dashboard-surface border-border/60">
               <CardContent className="space-y-3 p-5">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-muted-foreground">{tText("Cash outflow")}</span>
+                  <span className="text-sm font-medium text-muted-foreground">{copy.cashOutflow}</span>
                   <ArrowUpRight className="h-5 w-5 text-rose-500" />
                 </div>
                 <div className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(overview.kpis.cash_outflow.current_cents)}</div>
@@ -265,7 +320,7 @@ export function DashboardPage() {
         <>
           <div className="grid gap-4 xl:grid-cols-[1.15fr_1fr_0.82fr]">
             <Card className="app-dashboard-surface border-border/60">
-              <CardHeader>{sectionTitle("Spending overview", "/reports", "View reports")}</CardHeader>
+              <CardHeader>{sectionTitle(copy.spendingOverview, "/reports", locale === "de" ? "Berichte anzeigen" : "View reports")}</CardHeader>
               <CardContent>
                 <RingChart
                   categories={overview.spending_overview.categories}
@@ -276,14 +331,14 @@ export function DashboardPage() {
             </Card>
 
             <Card className="app-dashboard-surface border-border/60">
-              <CardHeader>{sectionTitle("Cash flow summary", "/cash-flow", "View cash flow")}</CardHeader>
+              <CardHeader>{sectionTitle(copy.cashFlowSummary, "/cash-flow", locale === "de" ? "Cashflow anzeigen" : "View cash flow")}</CardHeader>
               <CardContent>
                 <CashFlowBars points={overview.cash_flow_summary.points} locale={locale} />
               </CardContent>
             </Card>
 
             <Card className="app-dashboard-surface border-border/60">
-              <CardHeader>{sectionTitle("Upcoming bills", "/bills", "View all")}</CardHeader>
+              <CardHeader>{sectionTitle(copy.upcomingBills, "/bills", copy.viewAll)}</CardHeader>
               <CardContent className="space-y-3">
                 {overview.upcoming_bills.items.map((bill) => (
                   <div key={bill.occurrence_id} className="flex items-center justify-between gap-3 rounded-[22px] bg-slate-50 px-4 py-3">
@@ -300,7 +355,7 @@ export function DashboardPage() {
 
           <div className="grid gap-4 xl:grid-cols-[1.15fr_0.9fr_0.85fr]">
             <Card className="app-dashboard-surface border-border/60">
-              <CardHeader>{sectionTitle("Recent grocery transactions", "/transactions", "View all")}</CardHeader>
+              <CardHeader>{sectionTitle(copy.recentGroceryTransactions, "/transactions", copy.viewAll)}</CardHeader>
               <CardContent className="space-y-3">
                 {overview.recent_grocery_transactions.items.map((item) => (
                   <div key={item.id} className="flex items-center justify-between gap-3 border-b border-border/60 py-3 last:border-b-0">
@@ -315,7 +370,7 @@ export function DashboardPage() {
             </Card>
 
             <Card className="app-dashboard-surface border-border/60">
-              <CardHeader>{sectionTitle("Budget progress", "/budget", "View all")}</CardHeader>
+              <CardHeader>{sectionTitle(copy.budgetProgress, "/budget", copy.viewAll)}</CardHeader>
               <CardContent>
                 {overview.budget_progress.items.map((item) => (
                   <ProgressRow
@@ -330,7 +385,7 @@ export function DashboardPage() {
             </Card>
 
             <Card className="app-dashboard-surface border-border/60">
-              <CardHeader>{sectionTitle("Recent activity", "/transactions", "View all")}</CardHeader>
+              <CardHeader>{sectionTitle(copy.recentActivity, "/transactions", copy.viewAll)}</CardHeader>
               <CardContent className="space-y-3">
                 {overview.recent_activity.items.map((item) => (
                   <Link key={item.id} to={item.href} className="flex items-center justify-between gap-3 border-b border-border/60 py-3 last:border-b-0">
@@ -360,14 +415,14 @@ export function DashboardPage() {
                 </div>
               </div>
               <Button asChild variant="outline">
-                <Link to={overview.insight.href}>Open details</Link>
+                <Link to={overview.insight.href}>{copy.openDetails}</Link>
               </Button>
             </CardContent>
           </Card>
 
           <div className="grid gap-4 xl:grid-cols-3">
             <Card className="app-dashboard-surface border-border/60">
-              <CardHeader>{sectionTitle("Merchants", "/merchants", "Manage merchants")}</CardHeader>
+              <CardHeader>{sectionTitle(locale === "de" ? "Händler" : "Merchants", "/merchants", copy.manageMerchants)}</CardHeader>
               <CardContent className="space-y-3">
                 {overview.merchants.items.map((merchant) => (
                   <div key={merchant.merchant} className="flex items-center justify-between gap-3 rounded-[22px] bg-slate-50 px-4 py-3">
@@ -384,7 +439,7 @@ export function DashboardPage() {
             </Card>
 
             <Card className="app-dashboard-surface border-border/60">
-              <CardHeader>{sectionTitle("Goals", "/goals", "Manage goals")}</CardHeader>
+              <CardHeader>{sectionTitle(locale === "de" ? "Ziele" : "Goals", "/goals", copy.manageGoals)}</CardHeader>
               <CardContent className="space-y-3">
                 {(overview.top_goals?.items ?? []).map((goal) => {
                   const percent = Math.min(100, Math.round(goal.progress.progress_ratio * 100));
@@ -393,7 +448,7 @@ export function DashboardPage() {
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="font-medium">{goal.name}</p>
-                          <p className="text-sm text-muted-foreground">{tText(goal.progress.status.replace(/_/g, " "))}</p>
+                          <p className="text-sm text-muted-foreground">{goalProgressStatusLabel(goal.progress.status, locale)}</p>
                         </div>
                         <div className="font-semibold">{formatEurFromCents(goal.target_amount_cents)}</div>
                       </div>
@@ -407,21 +462,21 @@ export function DashboardPage() {
             </Card>
 
             <Card className="app-dashboard-surface border-border/60">
-              <CardHeader>{sectionTitle("Workspace status")}</CardHeader>
+              <CardHeader>{sectionTitle(copy.workspaceStatus)}</CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-3">
                 <div className="rounded-[24px] bg-slate-50 p-4">
                   <Activity className="mb-3 h-5 w-5 text-slate-700" />
-                  <p className="text-sm text-muted-foreground">Activity items</p>
+                  <p className="text-sm text-muted-foreground">{copy.activityItems}</p>
                   <p className="mt-2 text-2xl font-semibold">{overview.recent_activity.count}</p>
                 </div>
                 <div className="rounded-[24px] bg-slate-50 p-4">
                   <CalendarCheck className="mb-3 h-5 w-5 text-slate-700" />
-                  <p className="text-sm text-muted-foreground">Upcoming bills</p>
+                  <p className="text-sm text-muted-foreground">{copy.upcomingBills}</p>
                   <p className="mt-2 text-2xl font-semibold">{overview.upcoming_bills.count}</p>
                 </div>
                 <div className="rounded-[24px] bg-slate-50 p-4">
                   <Database className="mb-3 h-5 w-5 text-slate-700" />
-                  <p className="text-sm text-muted-foreground">Active merchants</p>
+                  <p className="text-sm text-muted-foreground">{copy.activeMerchants}</p>
                   <p className="mt-2 text-2xl font-semibold">{overview.merchants.count}</p>
                 </div>
               </CardContent>

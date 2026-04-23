@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { I18nProvider } from "@/i18n";
 import { ChatPanel } from "@/components/ChatPanel";
 
 class FakeAgent {
@@ -68,6 +69,17 @@ vi.mock("@/api/aiSettings", () => ({
       }
     ]
   }))
+}));
+
+vi.mock("@/api/users", () => ({
+  fetchCurrentUser: vi.fn(async () => ({
+    user_id: "u1",
+    username: "alice",
+    display_name: null,
+    is_admin: false,
+    preferred_locale: "de"
+  })),
+  updateCurrentUserLocale: vi.fn()
 }));
 
 describe("ChatPanel history behavior", () => {
@@ -325,5 +337,38 @@ describe("ChatPanel history behavior", () => {
     expect((await screen.findAllByText("Net Spend")).length).toBeGreaterThan(0);
     expect(screen.getByText("Visual artifact")).toBeInTheDocument();
     expect(screen.queryByText("Rendered 1 UI element(s).")).not.toBeInTheDocument();
+  });
+
+  it("renders localized chat chrome in german", async () => {
+    installLocalStorageStub();
+    installChatApiFetchStub();
+    window.localStorage.setItem("app.locale", "de");
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false }
+      }
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider>
+          <ChatPanel
+            open
+            onOpenChange={() => undefined}
+            enabled
+            panelWidth={420}
+            onPanelWidthChange={() => undefined}
+          />
+        </I18nProvider>
+      </QueryClientProvider>
+    );
+
+    expect((await screen.findAllByText("KI-Assistent")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole("button", { name: "Neuer Chat" })).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole("button", { name: "Schließen" })).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole("button", { name: "Senden" })).length).toBeGreaterThan(0);
+    expect((await screen.findAllByLabelText("Modell")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByPlaceholderText(/Fragen Sie nach Ausgaben/)).length).toBeGreaterThan(0);
   });
 });

@@ -4,6 +4,7 @@ import type {
   DesktopRuntimeDiagnostics,
   ReceiptPluginPackInfo
 } from "../shared/contracts";
+import type { DesktopLocale } from "../i18n";
 
 export type StatusDescriptor = {
   label: string;
@@ -38,125 +39,171 @@ export function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-export function formatTrustClassLabel(trustClass: string): string {
+export function formatTrustClassLabel(trustClass: string, locale: DesktopLocale): string {
   if (trustClass === "official") {
-    return "Official";
+    return locale === "de" ? "Offiziell" : "Official";
   }
   if (trustClass === "community_verified") {
-    return "Community verified";
+    return locale === "de" ? "Von der Community verifiziert" : "Community verified";
   }
   if (trustClass === "local_custom") {
-    return "Local custom";
+    return locale === "de" ? "Lokale Eigenversion" : "Local custom";
   }
-  return "Community unsigned";
+  return locale === "de" ? "Community ohne Signatur" : "Community unsigned";
 }
 
-export function trustClassMeaning(trustClass: string): string {
+export function trustClassMeaning(trustClass: string, locale: DesktopLocale): string {
   if (trustClass === "official") {
-    return "Maintained and shipped by the project.";
+    return locale === "de"
+      ? "Wird vom Projekt gepflegt und ausgeliefert."
+      : "Maintained and shipped by the project.";
   }
   if (trustClass === "community_verified") {
-    return "Signed community pack allowed by desktop trusted distribution policy.";
+    return locale === "de"
+      ? "Signiertes Community-Paket, das von der vertrauenswürdigen Desktop-Distributionsrichtlinie zugelassen ist."
+      : "Signed community pack allowed by desktop trusted distribution policy.";
   }
   if (trustClass === "local_custom") {
-    return "Operator-supplied local plugin with no upstream support promise.";
+    return locale === "de"
+      ? "Lokal bereitgestelltes Plugin ohne Support-Zusage von upstream."
+      : "Operator-supplied local plugin with no upstream support promise.";
   }
-  return "Manual or unsigned community plugin kept under conservative trust handling.";
+  return locale === "de"
+    ? "Manuelles oder unsigniertes Community-Plugin mit konservativer Vertrauensbehandlung."
+    : "Manual or unsigned community plugin kept under conservative trust handling.";
 }
 
-export function formatPluginTrust(pack: ReceiptPluginPackInfo): string {
+export function formatPluginTrust(pack: ReceiptPluginPackInfo, locale: DesktopLocale): string {
   if (pack.trustStatus === "trusted") {
     if (pack.trustClass === "official") {
-      return pack.signingKeyId ? `Trusted official (${pack.signingKeyId})` : "Trusted official";
+      return pack.signingKeyId
+        ? locale === "de"
+          ? `Vertrauenswürdig offiziell (${pack.signingKeyId})`
+          : `Trusted official (${pack.signingKeyId})`
+        : locale === "de"
+          ? "Vertrauenswürdig offiziell"
+          : "Trusted official";
     }
-    return pack.signingKeyId ? `Trusted signed (${pack.signingKeyId})` : "Trusted signed";
+    return pack.signingKeyId
+      ? locale === "de"
+        ? `Vertrauenswürdig signiert (${pack.signingKeyId})`
+        : `Trusted signed (${pack.signingKeyId})`
+      : locale === "de"
+        ? "Vertrauenswürdig signiert"
+        : "Trusted signed";
   }
   if (pack.trustStatus === "revoked") {
-    return "Revoked";
+    return locale === "de" ? "Widerrufen" : "Revoked";
   }
   if (pack.trustStatus === "signature_invalid") {
-    return "Signature invalid";
+    return locale === "de" ? "Signatur ungültig" : "Signature invalid";
   }
   if (pack.trustStatus === "incompatible") {
-    return "Incompatible";
+    return locale === "de" ? "Inkompatibel" : "Incompatible";
   }
   if (pack.trustClass === "local_custom") {
-    return "Local custom";
+    return locale === "de" ? "Lokale Eigenversion" : "Local custom";
   }
-  return "Community unsigned";
+  return locale === "de" ? "Community ohne Signatur" : "Community unsigned";
 }
 
-export function describeInstalledPack(pack: ReceiptPluginPackInfo): StatusDescriptor {
+export function describeInstalledPack(pack: ReceiptPluginPackInfo, locale: DesktopLocale): StatusDescriptor {
   if (pack.status === "enabled") {
     return {
-      label: "Ready",
-      detail: "Installed locally and loaded into the next backend run.",
+      label: locale === "de" ? "Bereit" : "Ready",
+      detail:
+        locale === "de"
+          ? "Lokal installiert und für den nächsten Backend-Start geladen."
+          : "Installed locally and loaded into the next backend run.",
       chipClass: "status-enabled"
     };
   }
   if (pack.status === "disabled") {
     return {
-      label: "Installed",
+      label: locale === "de" ? "Installiert" : "Installed",
       detail:
         pack.installedVia === "catalog_url"
-          ? "Stored locally from the trusted catalog. You still decide when to enable it."
-          : "Stored locally from a manual import. Desktop keeps activation explicit.",
+          ? locale === "de"
+            ? "Lokal aus dem vertrauenswürdigen Katalog gespeichert. Sie entscheiden weiterhin selbst, wann es aktiviert wird."
+            : "Stored locally from the trusted catalog. You still decide when to enable it."
+          : locale === "de"
+            ? "Lokal aus einem manuellen Import gespeichert. Desktop hält die Aktivierung bewusst explizit."
+            : "Stored locally from a manual import. Desktop keeps activation explicit.",
       chipClass: "status-disabled"
     };
   }
   if (pack.status === "revoked") {
     return {
-      label: "Blocked",
-      detail: pack.trustReason ?? "This pack was revoked and cannot be enabled in desktop.",
+      label: locale === "de" ? "Blockiert" : "Blocked",
+      detail:
+        pack.trustReason ??
+        (locale === "de"
+          ? "Dieses Paket wurde widerrufen und kann im Desktop nicht aktiviert werden."
+          : "This pack was revoked and cannot be enabled in desktop."),
       chipClass: "status-invalid"
     };
   }
   if (pack.status === "incompatible") {
     return {
-      label: "Blocked",
+      label: locale === "de" ? "Blockiert" : "Blocked",
       detail:
         pack.compatibilityReason ??
-        "This pack does not match the current desktop build and stays disabled.",
+        (locale === "de"
+          ? "Dieses Paket passt nicht zur aktuellen Desktop-Build und bleibt deaktiviert."
+          : "This pack does not match the current desktop build and stays disabled."),
       chipClass: "status-incompatible"
     };
   }
   return {
-    label: "Needs attention",
+    label: locale === "de" ? "Benötigt Aufmerksamkeit" : "Needs attention",
     detail:
       pack.trustReason ??
       pack.compatibilityReason ??
-      "Desktop found a validation problem and kept this pack disabled.",
+      (locale === "de"
+        ? "Desktop hat ein Validierungsproblem erkannt und dieses Paket deaktiviert gelassen."
+        : "Desktop found a validation problem and kept this pack disabled."),
     chipClass: "status-invalid"
   };
 }
 
 export function describeCatalogEntry(
   entry: DesktopReleaseMetadata["discovery_catalog"]["entries"][number],
-  installedPack: ReceiptPluginPackInfo | null
+  installedPack: ReceiptPluginPackInfo | null,
+  locale: DesktopLocale
 ): StatusDescriptor {
   if (entry.availability.blocked_by_policy) {
     return {
-      label: "Blocked",
-      detail: entry.availability.block_reason ?? "This catalog entry is blocked by desktop policy.",
+      label: locale === "de" ? "Blockiert" : "Blocked",
+      detail:
+        entry.availability.block_reason ??
+        (locale === "de"
+          ? "Dieser Katalogeintrag wird durch die Desktop-Richtlinie blockiert."
+          : "This catalog entry is blocked by desktop policy."),
       chipClass: "status-invalid"
     };
   }
   if (!installedPack) {
     return {
-      label: "Available",
-      detail: "Listed for this desktop build but not stored locally yet.",
+      label: locale === "de" ? "Verfügbar" : "Available",
+      detail:
+        locale === "de"
+          ? "Für diese Desktop-Build gelistet, aber noch nicht lokal gespeichert."
+          : "Listed for this desktop build but not stored locally yet.",
       chipClass: "status-disabled"
     };
   }
-  const installedState = describeInstalledPack(installedPack);
+  const installedState = describeInstalledPack(installedPack, locale);
   if (
     entry.entry_type === "desktop_pack" &&
     entry.current_version &&
     compareVersions(installedPack.version, entry.current_version) < 0
   ) {
     return {
-      label: "Update available",
-      detail: `Installed version ${installedPack.version} is behind trusted version ${entry.current_version}.`,
+      label: locale === "de" ? "Update verfügbar" : "Update available",
+      detail:
+        locale === "de"
+          ? `Installierte Version ${installedPack.version} liegt hinter der vertrauenswürdigen Version ${entry.current_version}.`
+          : `Installed version ${installedPack.version} is behind trusted version ${entry.current_version}.`,
       chipClass: "status-incompatible"
     };
   }
@@ -175,156 +222,209 @@ export function findCatalogDesktopPackEntry(
   );
 }
 
-export function packInstallSource(pack: ReceiptPluginPackInfo): string {
-  return pack.installedVia === "catalog_url" ? "Trusted catalog download" : "Manual file import";
+export function packInstallSource(pack: ReceiptPluginPackInfo, locale: DesktopLocale): string {
+  return pack.installedVia === "catalog_url"
+    ? locale === "de"
+      ? "Vertrauenswürdiger Katalog-Download"
+      : "Trusted catalog download"
+    : locale === "de"
+      ? "Manueller Dateiimport"
+      : "Manual file import";
 }
 
-export function packOriginSummary(pack: ReceiptPluginPackInfo): string {
+export function packOriginSummary(pack: ReceiptPluginPackInfo, locale: DesktopLocale): string {
   if (pack.installedVia === "catalog_url") {
-    return "Installed from a trusted catalog download and stored locally on this computer.";
+    return locale === "de"
+      ? "Aus einem vertrauenswürdigen Katalog-Download installiert und lokal auf diesem Computer gespeichert."
+      : "Installed from a trusted catalog download and stored locally on this computer.";
   }
-  return "Installed from a local file. Desktop keeps support and trust labels conservative.";
+  return locale === "de"
+    ? "Aus einer lokalen Datei installiert. Desktop hält Support- und Vertrauenskennzeichnungen bewusst konservativ."
+    : "Installed from a local file. Desktop keeps support and trust labels conservative.";
 }
 
 export function packSupportSummary(
   pack: ReceiptPluginPackInfo,
-  catalogEntry: ConnectorCatalogEntry | null
+  catalogEntry: ConnectorCatalogEntry | null,
+  locale: DesktopLocale
 ): string {
   if (catalogEntry?.support_policy) {
     return `${catalogEntry.support_policy.maintainer_support} ${catalogEntry.support_policy.update_expectations}`;
   }
-  return trustClassMeaning(pack.trustClass);
+  return trustClassMeaning(pack.trustClass, locale);
 }
 
 export function catalogSupportSummary(
-  entry: DesktopReleaseMetadata["discovery_catalog"]["entries"][number]
+  entry: DesktopReleaseMetadata["discovery_catalog"]["entries"][number],
+  locale: DesktopLocale
 ): string {
   if (entry.support_policy) {
     return `${entry.support_policy.maintainer_support} ${entry.support_policy.update_expectations}`;
   }
-  return trustClassMeaning(entry.trust_class);
+  return trustClassMeaning(entry.trust_class, locale);
 }
 
 export function catalogProfileSummary(
   entry: DesktopReleaseMetadata["discovery_catalog"]["entries"][number],
-  releaseMetadata: DesktopReleaseMetadata | null
+  releaseMetadata: DesktopReleaseMetadata | null,
+  locale: DesktopLocale
 ): string {
   if (!releaseMetadata) {
-    return "Edition metadata is still loading.";
+    return locale === "de" ? "Editionsmetadaten werden noch geladen." : "Edition metadata is still loading.";
   }
   const selectedProfileId = releaseMetadata.selected_market_profile_id;
   if (entry.market_profile_ids.includes(selectedProfileId)) {
-    return `Shown for the current market profile (${releaseMetadata.selected_market_profile.display_name}).`;
+    return locale === "de"
+      ? `Für das aktuelle Marktprofil angezeigt (${releaseMetadata.selected_market_profile.display_name}).`
+      : `Shown for the current market profile (${releaseMetadata.selected_market_profile.display_name}).`;
   }
   if (entry.official_bundle_ids.length > 0) {
-    return `Referenced by bundle(s): ${entry.official_bundle_ids.join(", ")}.`;
+    return locale === "de"
+      ? `Von Bundle(s) referenziert: ${entry.official_bundle_ids.join(", ")}.`
+      : `Referenced by bundle(s): ${entry.official_bundle_ids.join(", ")}.`;
   }
-  return "Optional for this build, but not part of the default profile.";
+  return locale === "de"
+    ? "Optional für diese Build, aber nicht Teil des Standardprofils."
+    : "Optional for this build, but not part of the default profile.";
 }
 
 export function formatCatalogVerification(
-  catalog: DesktopReleaseMetadata["discovery_catalog"] | null
+  catalog: DesktopReleaseMetadata["discovery_catalog"] | null,
+  locale: DesktopLocale
 ): string {
   if (!catalog) {
-    return "Loading";
+    return locale === "de" ? "Lädt" : "Loading";
   }
   if (catalog.verification_status === "trusted") {
-    return catalog.signed_by_key_id ? `Trusted (${catalog.signed_by_key_id})` : "Trusted";
+    return catalog.signed_by_key_id
+      ? locale === "de"
+        ? `Vertrauenswürdig (${catalog.signed_by_key_id})`
+        : `Trusted (${catalog.signed_by_key_id})`
+      : locale === "de"
+        ? "Vertrauenswürdig"
+        : "Trusted";
   }
   if (catalog.verification_status === "revoked") {
-    return "Revoked";
+    return locale === "de" ? "Widerrufen" : "Revoked";
   }
   if (catalog.verification_status === "signature_invalid") {
-    return "Signature invalid";
+    return locale === "de" ? "Signatur ungültig" : "Signature invalid";
   }
   if (catalog.verification_status === "incompatible") {
-    return "Incompatible";
+    return locale === "de" ? "Inkompatibel" : "Incompatible";
   }
-  return "Unavailable";
+  return locale === "de" ? "Nicht verfügbar" : "Unavailable";
 }
 
 export function formatCatalogEntryType(
-  entryType: DesktopReleaseMetadata["discovery_catalog"]["entries"][number]["entry_type"]
+  entryType: DesktopReleaseMetadata["discovery_catalog"]["entries"][number]["entry_type"],
+  locale: DesktopLocale
 ): string {
   if (entryType === "bundle") {
-    return "Bundle";
+    return locale === "de" ? "Bundle" : "Bundle";
   }
   if (entryType === "desktop_pack") {
-    return "Receipt pack";
+    return locale === "de" ? "Belegpaket" : "Receipt pack";
   }
-  return "Connector";
+  return locale === "de" ? "Anbindung" : "Connector";
 }
 
 export function formatInstallMethods(
-  methods: DesktopReleaseMetadata["discovery_catalog"]["entries"][number]["install_methods"]
+  methods: DesktopReleaseMetadata["discovery_catalog"]["entries"][number]["install_methods"],
+  locale: DesktopLocale
 ): string {
   return methods
     .map((method) => {
       if (method === "built_in") {
-        return "Built in";
+        return locale === "de" ? "Integriert" : "Built in";
       }
       if (method === "manual_import") {
-        return "Manual import";
+        return locale === "de" ? "Manueller Import" : "Manual import";
       }
       if (method === "manual_mount") {
-        return "Manual mount";
+        return locale === "de" ? "Manuelles Mounten" : "Manual mount";
       }
-      return "Trusted download";
+      return locale === "de" ? "Vertrauenswürdiger Download" : "Trusted download";
     })
     .join(", ");
 }
 
 export function describeControlCenterMode(
   bootError: string | null,
-  diagnostics: DesktopRuntimeDiagnostics | null
+  diagnostics: DesktopRuntimeDiagnostics | null,
+  locale: DesktopLocale
 ): ControlCenterMode {
   if (bootError) {
     return {
       tone: "warning",
-      label: "Reduced mode",
-      title: "The main app did not open automatically.",
+      label: locale === "de" ? "Reduzierter Modus" : "Reduced mode",
+      title: locale === "de" ? "Die Haupt-App wurde nicht automatisch geöffnet." : "The main app did not open automatically.",
       detail:
-        "Use the control center for local sync, plugin packs, export, and backup tasks while you review the startup issue."
+        locale === "de"
+          ? "Nutzen Sie das Kontrollzentrum für lokale Synchronisierung, Plugin-Pakete, Export- und Backup-Aufgaben, während Sie das Startproblem prüfen."
+          : "Use the control center for local sync, plugin packs, export, and backup tasks while you review the startup issue."
     };
   }
   if (diagnostics && !diagnostics.fullAppReady) {
     return {
       tone: "warning",
-      label: "Control center only",
-      title: "This build is missing the bundled main app pages.",
+      label: locale === "de" ? "Nur Kontrollzentrum" : "Control center only",
+      title: locale === "de" ? "Dieser Build fehlen die gebündelten Haupt-App-Seiten." : "This build is missing the bundled main app pages.",
       detail:
-        "Desktop can still handle occasional local sync, review, export, backup, and manual receipt pack tasks from this shell."
+        locale === "de"
+          ? "Desktop kann aus dieser Shell weiterhin gelegentliche lokale Synchronisierung, Prüfung, Export, Backup und manuelle Belegpaket-Aufgaben ausführen."
+          : "Desktop can still handle occasional local sync, review, export, backup, and manual receipt pack tasks from this shell."
     };
   }
   return {
     tone: "success",
-    label: "Full app available",
-    title: "The local control center is ready.",
+    label: locale === "de" ? "Voll-App verfügbar" : "Full app available",
+    title: locale === "de" ? "Das lokale Kontrollzentrum ist bereit." : "The local control center is ready.",
     detail:
-      "Use it for quick local tasks, or open the main app when you want the full in-browser workflow on this computer."
+      locale === "de"
+        ? "Nutzen Sie es für schnelle lokale Aufgaben oder öffnen Sie die Haupt-App, wenn Sie den vollständigen Browser-Workflow auf diesem Computer möchten."
+        : "Use it for quick local tasks, or open the main app when you want the full in-browser workflow on this computer."
   };
 }
 
-export function describeBackendCommand(diagnostics: DesktopRuntimeDiagnostics | null): string {
+export function describeBackendCommand(
+  diagnostics: DesktopRuntimeDiagnostics | null,
+  locale: DesktopLocale
+): string {
   if (!diagnostics) {
-    return "Loading local runtime details.";
+    return locale === "de" ? "Lokale Laufzeitdetails werden geladen." : "Loading local runtime details.";
   }
   if (diagnostics.backendCommandSource === "bundled") {
-    return "Bundled with this desktop build.";
+    return locale === "de" ? "Mit dieser Desktop-Build gebündelt." : "Bundled with this desktop build.";
   }
   if (diagnostics.backendCommandSource === "managed_dev") {
-    return "Using the desktop-managed development runtime.";
+    return locale === "de"
+      ? "Die von Desktop verwaltete Entwicklungs-Laufzeit wird verwendet."
+      : "Using the desktop-managed development runtime.";
   }
   if (diagnostics.backendCommandSource === "env_override") {
     return diagnostics.backendCommandStatus === "missing"
-      ? "A custom runtime path is configured, but the file is missing."
-      : "Using a custom runtime configured through LIDLTOOL_EXECUTABLE.";
+      ? locale === "de"
+        ? "Ein benutzerdefinierter Laufzeitpfad ist konfiguriert, aber die Datei fehlt."
+        : "A custom runtime path is configured, but the file is missing."
+      : locale === "de"
+        ? "Eine über LIDLTOOL_EXECUTABLE konfigurierte benutzerdefinierte Laufzeit wird verwendet."
+        : "Using a custom runtime configured through LIDLTOOL_EXECUTABLE.";
   }
-  return "Desktop will look for the local runtime in your system PATH.";
+  return locale === "de"
+    ? "Desktop sucht die lokale Laufzeit in Ihrem System-PATH."
+    : "Desktop will look for the local runtime in your system PATH.";
 }
 
 export function formatEditionKind(
-  kind: DesktopReleaseMetadata["active_release_variant"]["edition_kind"]
+  kind: DesktopReleaseMetadata["active_release_variant"]["edition_kind"],
+  locale: DesktopLocale
 ): string {
-  return kind === "regional_edition" ? "Regional edition" : "Universal desktop shell";
+  return kind === "regional_edition"
+    ? locale === "de"
+      ? "Regionale Edition"
+      : "Regional edition"
+    : locale === "de"
+      ? "Universelle Desktop-Shell"
+      : "Universal desktop shell";
 }

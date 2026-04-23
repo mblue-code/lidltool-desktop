@@ -100,6 +100,29 @@ function inferApiCategorizationModel(baseUrl: string | null, model: string): str
   return model.trim() || "gpt-4o-mini";
 }
 
+function formatCategorizationRuntimeStatus(
+  locale: "en" | "de",
+  status: string,
+  tText: (value: string) => string
+): string {
+  switch (status) {
+    case "ready":
+      return locale === "de" ? "Bereit" : "Ready";
+    case "not_configured":
+      return locale === "de" ? "Nicht konfiguriert" : "Not configured";
+    case "pending":
+      return locale === "de" ? "Ausstehend" : "Pending";
+    case "failed":
+      return locale === "de" ? "Fehlgeschlagen" : "Failed";
+    case "disabled":
+      return locale === "de" ? "Deaktiviert" : "Disabled";
+    case "connected":
+      return locale === "de" ? "Verbunden" : "Connected";
+    default:
+      return tText(status.replace(/_/g, " "));
+  }
+}
+
 export function AISettingsPage() {
   const queryClient = useQueryClient();
   const { locale, t, tText } = useI18n();
@@ -264,21 +287,18 @@ export function AISettingsPage() {
       }),
     onSuccess: (result) => {
       if (!result.ok) {
-        setCategorizationSaveStatus({
-          ok: false,
-          error: result.error || tText("Failed to save categorization settings")
-        });
+        setCategorizationSaveStatus({ ok: false, error: result.error || copy.saveCategorizationFailed });
         return;
       }
       setCategorizationSaveStatus({ ok: true, error: null });
       setCategorizationApiKey("");
-      toast.success(tText("Item categorization settings saved"));
+      toast.success(copy.saveCategorizationSuccess);
       void queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
     },
     onError: (error) => {
       setCategorizationSaveStatus({
         ok: false,
-        error: resolveApiErrorMessage(error, t, tText("Failed to save categorization settings"))
+        error: resolveApiErrorMessage(error, t, copy.saveCategorizationFailed)
       });
     }
   });
@@ -290,18 +310,18 @@ export function AISettingsPage() {
       }),
     onSuccess: (result) => {
       if (!result.ok) {
-        setOauthChatSaveStatus({ ok: false, error: result.error || tText("Failed to save chat model") });
+        setOauthChatSaveStatus({ ok: false, error: result.error || copy.saveChatModelFailed });
         return;
       }
       setOauthChatSaveStatus({ ok: true, error: null });
-      toast.success(tText("Chat model settings saved"));
+      toast.success(copy.saveChatModelSuccess);
       void queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
       void queryClient.invalidateQueries({ queryKey: ["ai-agent-config"] });
     },
     onError: (error) => {
       setOauthChatSaveStatus({
         ok: false,
-        error: resolveApiErrorMessage(error, t, tText("Failed to save chat model"))
+        error: resolveApiErrorMessage(error, t, copy.saveChatModelFailed)
       });
     }
   });
@@ -411,6 +431,9 @@ export function AISettingsPage() {
     codexModel: locale === "de" ? "Codex-Modell" : "Codex model",
     saving: locale === "de" ? "Speichert..." : "Saving...",
     saveChatModel: locale === "de" ? "Chatmodell speichern" : "Save chat model",
+    saveChatModelSuccess: locale === "de" ? "Chatmodell gespeichert" : "Chat model settings saved",
+    saveChatModelFailed:
+      locale === "de" ? "Chatmodell konnte nicht gespeichert werden" : "Failed to save chat model",
     itemCategorization: locale === "de" ? "Artikelkategorisierung" : "Item categorization",
     itemCategorizationDescription:
       locale === "de"
@@ -457,7 +480,13 @@ export function AISettingsPage() {
     enableAndSaveCategorization:
       locale === "de" ? "Kategorisierung aktivieren und speichern" : "Enable and save categorization",
     saveCategorizationDisabled:
-      locale === "de" ? "Kategorisierung als deaktiviert speichern" : "Save categorization as disabled"
+      locale === "de" ? "Kategorisierung als deaktiviert speichern" : "Save categorization as disabled",
+    saveCategorizationSuccess:
+      locale === "de" ? "Kategorisierungseinstellungen gespeichert" : "Item categorization settings saved",
+    saveCategorizationFailed:
+      locale === "de"
+        ? "Kategorisierungseinstellungen konnten nicht gespeichert werden"
+        : "Failed to save categorization settings"
   } as const;
 
   return (
@@ -708,7 +737,7 @@ export function AISettingsPage() {
                       <p>
                         <span className="font-medium text-foreground">{copy.runtimeStatus}:</span>{" "}
                         <span className={categorizationRuntimeReady ? "text-green-600 dark:text-emerald-300" : "text-foreground/70"}>
-                          {tText(categorizationRuntimeStatus.replace(/_/g, " "))}
+                          {formatCategorizationRuntimeStatus(locale, categorizationRuntimeStatus, tText)}
                         </span>
                       </p>
                     </div>

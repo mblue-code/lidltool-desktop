@@ -82,13 +82,35 @@ function intensityClass(value: number, maxValue: number): string {
 }
 
 function formatTimingMetric(
+  locale: "en" | "de",
   mode: TimingValueMode,
   point: { value_cents: number; count: number }
 ): string {
   if (mode === "count") {
-    return `${point.count} orders`;
+    return `${point.count} ${locale === "de" ? "Bestellungen" : "orders"}`;
   }
   return formatEurFromCents(point.value_cents);
+}
+
+function timingViewLabel(locale: "en" | "de"): string {
+  return locale === "de" ? "Zeitansicht" : "Timing view";
+}
+
+function compareModeLabel(locale: "en" | "de"): string {
+  return locale === "de" ? "Vergleichsmodus umschalten" : "Toggle compare mode";
+}
+
+function heatmapCellLabel(
+  locale: "en" | "de",
+  sourceLabel: string,
+  periodLabel: string,
+  value: number,
+  count: number
+): string {
+  if (locale === "de") {
+    return `${sourceLabel} ${periodLabel} Wert ${value} Anzahl ${count}`;
+  }
+  return `${sourceLabel} ${periodLabel} value ${value} count ${count}`;
 }
 
 function csvEscape(value: string): string {
@@ -182,10 +204,21 @@ function buildTimingFilenameBase(context: TimingCsvContext): string {
   return `timing_${safeView}_${safeSource}_${fromPart}_${toPart}`;
 }
 
-function HeatmapLegend({ maxValue, metricLabel }: { maxValue: number; metricLabel: string }) {
+function HeatmapLegend({
+  locale,
+  maxValue,
+  metricLabel
+}: {
+  locale: "en" | "de";
+  maxValue: number;
+  metricLabel: string;
+}) {
   const mid = Math.round(maxValue / 2);
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-label={`Legend for ${metricLabel}`}>
+    <div
+      className="flex items-center gap-2 text-xs text-muted-foreground"
+      aria-label={locale === "de" ? `Legende für ${metricLabel}` : `Legend for ${metricLabel}`}
+    >
       <span>{metricLabel}</span>
       <div className="flex items-center gap-1">
         <span className="text-xs">0</span>
@@ -202,17 +235,19 @@ function HeatmapLegend({ maxValue, metricLabel }: { maxValue: number; metricLabe
 }
 
 function YearlyHeatmapPanel({
+  locale,
   data,
   sourceLabel,
   onCellClick
 }: {
+  locale: "en" | "de";
   data: HeatmapResponse;
   sourceLabel: string;
   onCellClick: (selection: TimingDrilldownSelection) => void;
 }) {
   const maxValue = Math.max(...data.points.map((point) => point.value), 0);
   if (maxValue <= 0) {
-    return <p className="text-sm text-muted-foreground">No timing data for this date range.</p>;
+    return <p className="text-sm text-muted-foreground">{locale === "de" ? "Keine Zeitdaten für diesen Datumsbereich." : "No timing data for this date range."}</p>;
   }
 
   const byWeek = new Map<string, { week: number; values: Map<number, HeatmapResponse["points"][number]> }>();
@@ -226,7 +261,7 @@ function YearlyHeatmapPanel({
 
   return (
     <div className="space-y-3">
-      <HeatmapLegend maxValue={maxValue} metricLabel="Lower activity to higher activity" />
+      <HeatmapLegend locale={locale} maxValue={maxValue} metricLabel={locale === "de" ? "Von geringerer Aktivität zu höherer Aktivität" : "Lower activity to higher activity"} />
       <div className="space-y-1 overflow-x-auto">
         {sortedRows.map(([weekKey, row]) => (
           <div key={weekKey} className="flex items-center gap-1">
@@ -241,11 +276,11 @@ function YearlyHeatmapPanel({
                   key={`${weekKey}-${weekday}`}
                   type="button"
                   className={cn("h-4 w-4 rounded-sm border-0 p-0", intensityClass(value, maxValue))}
-                  aria-label={`${sourceLabel} ${WEEKDAY_LABELS[weekday]} value ${value} count ${count}`}
-                  title={`${sourceLabel} • ${point?.date ?? "n/a"} • ${WEEKDAY_LABELS[weekday]} • ${formatTimingMetric(data.value, {
+                  aria-label={heatmapCellLabel(locale, sourceLabel, WEEKDAY_LABELS[weekday], value, count)}
+                  title={`${sourceLabel} • ${point?.date ?? "n/a"} • ${WEEKDAY_LABELS[weekday]} • ${formatTimingMetric(locale, data.value, {
                     value_cents: valueCents,
                     count
-                  })} • ${count} order(s) • Click to open matching transactions`}
+                  })} • ${count} ${locale === "de" ? "Bestellungen" : "order(s)"} • ${locale === "de" ? "Passende Transaktionen öffnen" : "Click to open matching transactions"}`}
                   onClick={() => onCellClick({ weekday })}
                 />
               );
@@ -258,22 +293,24 @@ function YearlyHeatmapPanel({
 }
 
 function HourlyHeatmapPanel({
+  locale,
   data,
   sourceLabel,
   onBarClick
 }: {
+  locale: "en" | "de";
   data: HourHeatmapResponse;
   sourceLabel: string;
   onBarClick: (selection: TimingDrilldownSelection) => void;
 }) {
   const maxValue = Math.max(...data.points.map((point) => point.value), 0);
   if (maxValue <= 0) {
-    return <p className="text-sm text-muted-foreground">No timing data for this date range.</p>;
+    return <p className="text-sm text-muted-foreground">{locale === "de" ? "Keine Zeitdaten für diesen Datumsbereich." : "No timing data for this date range."}</p>;
   }
 
   return (
     <div className="space-y-3">
-      <HeatmapLegend maxValue={maxValue} metricLabel="Lower activity to higher activity" />
+      <HeatmapLegend locale={locale} maxValue={maxValue} metricLabel={locale === "de" ? "Von geringerer Aktivität zu höherer Aktivität" : "Lower activity to higher activity"} />
       <div className="overflow-x-auto pb-1">
         <div className="grid min-w-[38rem] gap-1" style={{ gridTemplateColumns: "repeat(24, minmax(0, 1fr))" }}>
           {data.points.map((point) => (
@@ -281,8 +318,8 @@ function HourlyHeatmapPanel({
               key={point.hour}
               type="button"
               className={cn("h-8 rounded-sm border-0 p-0", intensityClass(point.value, maxValue))}
-              aria-label={`${sourceLabel} hour ${point.hour} value ${point.value} count ${point.count}`}
-              title={`${sourceLabel} • ${String(point.hour).padStart(2, "0")}:00 • ${formatTimingMetric(data.value, point)} • ${point.count} order(s) • Click to open matching transactions`}
+              aria-label={heatmapCellLabel(locale, sourceLabel, `hour ${point.hour}`, point.value, point.count)}
+              title={`${sourceLabel} • ${String(point.hour).padStart(2, "0")}:00 • ${formatTimingMetric(locale, data.value, point)} • ${point.count} ${locale === "de" ? "Bestellungen" : "order(s)"} • ${locale === "de" ? "Passende Transaktionen öffnen" : "Click to open matching transactions"}`}
               onClick={() => onBarClick({ hour: point.hour })}
             />
           ))}
@@ -300,17 +337,19 @@ function HourlyHeatmapPanel({
 }
 
 function TimingMatrixPanel({
+  locale,
   data,
   sourceLabel,
   onCellClick
 }: {
+  locale: "en" | "de";
   data: TimingMatrixResponse;
   sourceLabel: string;
   onCellClick: (selection: TimingDrilldownSelection) => void;
 }) {
   const maxValue = Math.max(...data.grid.map((cell) => cell.value), 0);
   if (maxValue <= 0) {
-    return <p className="text-sm text-muted-foreground">No timing data for this date range.</p>;
+    return <p className="text-sm text-muted-foreground">{locale === "de" ? "Keine Zeitdaten für diesen Datumsbereich." : "No timing data for this date range."}</p>;
   }
 
   const byCell = new Map<string, TimingMatrixResponse["grid"][number]>();
@@ -320,12 +359,12 @@ function TimingMatrixPanel({
 
   return (
     <div className="space-y-3">
-      <HeatmapLegend maxValue={maxValue} metricLabel="Lower activity to higher activity" />
+      <HeatmapLegend locale={locale} maxValue={maxValue} metricLabel={locale === "de" ? "Von geringerer Aktivität zu höherer Aktivität" : "Lower activity to higher activity"} />
       <div className="overflow-x-auto">
         <table className="border-separate border-spacing-1 text-xs">
           <thead>
             <tr>
-              <th className="px-1 text-left text-muted-foreground">Day</th>
+              <th className="px-1 text-left text-muted-foreground">{locale === "de" ? "Tag" : "Day"}</th>
               {Array.from({ length: 24 }, (_, hour) => (
                 <th key={`hour-header-${hour}`} className="w-5 px-0 text-center text-xs text-muted-foreground">
                   {hour % 3 === 0 ? String(hour).padStart(2, "0") : ""}
@@ -350,8 +389,14 @@ function TimingMatrixPanel({
                       <button
                         type="button"
                         className={cn("h-4 w-4 rounded-sm border-0 p-0", intensityClass(cell.value, maxValue))}
-                        aria-label={`${sourceLabel} ${WEEKDAY_LABELS[weekday]} hour ${hour} value ${cell.value} count ${cell.count}`}
-                        title={`${sourceLabel} • ${WEEKDAY_LABELS[weekday]} ${String(hour).padStart(2, "0")}:00 • ${formatTimingMetric(data.value, cell)} • ${cell.count} order(s) • Click to open matching transactions`}
+                        aria-label={heatmapCellLabel(
+                          locale,
+                          sourceLabel,
+                          `${WEEKDAY_LABELS[weekday]} hour ${hour}`,
+                          cell.value,
+                          cell.count
+                        )}
+                        title={`${sourceLabel} • ${WEEKDAY_LABELS[weekday]} ${String(hour).padStart(2, "0")}:00 • ${formatTimingMetric(locale, data.value, cell)} • ${cell.count} ${locale === "de" ? "Bestellungen" : "order(s)"} • ${locale === "de" ? "Passende Transaktionen öffnen" : "Click to open matching transactions"}`}
                         onClick={() => onCellClick({ weekday, hour })}
                       />
                     </td>
@@ -380,7 +425,13 @@ function PanelError({ message }: { message: string }) {
   return <p className="text-sm text-destructive">{message}</p>;
 }
 
-function MobileSummary({ data }: { data: HeatmapResponse | HourHeatmapResponse | TimingMatrixResponse | undefined }) {
+function MobileSummary({
+  locale,
+  data
+}: {
+  locale: "en" | "de";
+  data: HeatmapResponse | HourHeatmapResponse | TimingMatrixResponse | undefined;
+}) {
   if (!data) {
     return null;
   }
@@ -400,14 +451,14 @@ function MobileSummary({ data }: { data: HeatmapResponse | HourHeatmapResponse |
   return (
     <div className="space-y-2 text-sm">
       <p className="font-medium">{formatEurFromCents(totalCents)}</p>
-      <p className="text-muted-foreground">{totalCount} orders</p>
+      <p className="text-muted-foreground">{totalCount} {locale === "de" ? "Bestellungen" : "orders"}</p>
     </div>
   );
 }
 
 export function PatternsPage() {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { locale, t, tText } = useI18n();
   const [timingView, setTimingView] = useState<TimingView>("yearly");
   const [valueMode, setValueMode] = useState<TimingValueMode>("gross");
   const [fromDate, setFromDate] = useState<string>(() => dateDaysAgo(90));
@@ -618,10 +669,10 @@ export function PatternsPage() {
 
   const primarySourceLabel = primarySourceParam
     ? (sourceLabelMap.get(primarySourceParam) ?? primarySourceParam)
-    : "All sources";
+    : tText("All sources");
   const secondarySourceLabel = secondarySourceParam
     ? (sourceLabelMap.get(secondarySourceParam) ?? secondarySourceParam)
-    : "All sources";
+    : tText("All sources");
 
   function openDrilldownTransactions(sourceParam: string | undefined, selection: TimingDrilldownSelection): void {
     const params = new URLSearchParams();
@@ -652,7 +703,11 @@ export function PatternsPage() {
     const content = `${buildTimingCsv(context, data)}\n`;
     const filename = `${buildTimingFilenameBase(context)}.csv`;
     const downloaded = downloadBlob(filename, "text/csv;charset=utf-8", content);
-    setExportStatus(downloaded ? `Exported CSV (${filename}).` : "Download API unavailable in this browser.");
+    setExportStatus(
+      downloaded
+        ? (locale === "de" ? `CSV exportiert (${filename}).` : `Exported CSV (${filename}).`)
+        : (locale === "de" ? "Download-API ist in diesem Browser nicht verfügbar." : "Download API unavailable in this browser.")
+    );
   }
 
   async function exportPanelAsPng(
@@ -660,7 +715,7 @@ export function PatternsPage() {
     node: HTMLDivElement | null
   ): Promise<void> {
     if (!node) {
-      setExportStatus("Panel not ready for PNG export.");
+      setExportStatus(tText("Panel not ready for PNG export."));
       return;
     }
     try {
@@ -668,9 +723,15 @@ export function PatternsPage() {
       const dataUrl = await toPng(node, { cacheBust: true, backgroundColor: bg.startsWith("#") ? bg : `hsl(${bg})` });
       const filename = `${buildTimingFilenameBase(context)}.png`;
       downloadDataUrl(filename, dataUrl);
-      setExportStatus(`Exported PNG (${filename}).`);
+      setExportStatus(locale === "de" ? `PNG exportiert (${filename}).` : `Exported PNG (${filename}).`);
     } catch (error) {
-      setExportStatus(error instanceof Error ? error.message : "Failed to export PNG.");
+      setExportStatus(
+        error instanceof Error
+          ? error.message
+          : locale === "de"
+            ? "PNG konnte nicht exportiert werden."
+            : "Failed to export PNG."
+      );
     }
   }
 
@@ -683,14 +744,15 @@ export function PatternsPage() {
       return <LoadingPanel />;
     }
     if (query.error) {
-      const message = query.error instanceof Error ? query.error.message : "Failed to load yearly timing data.";
+      const message = query.error instanceof Error ? query.error.message : tText("Failed to load yearly timing data.");
       return <PanelError message={message} />;
     }
     if (!query.data) {
-      return <PanelError message="No yearly timing data available." />;
+      return <PanelError message={tText("No yearly timing data available.")} />;
     }
     return (
       <YearlyHeatmapPanel
+        locale={locale}
         data={query.data}
         sourceLabel={sourceLabel}
         onCellClick={(selection) => openDrilldownTransactions(sourceParam, selection)}
@@ -707,14 +769,15 @@ export function PatternsPage() {
       return <LoadingPanel />;
     }
     if (query.error) {
-      const message = query.error instanceof Error ? query.error.message : "Failed to load hourly timing data.";
+      const message = query.error instanceof Error ? query.error.message : tText("Failed to load hourly timing data.");
       return <PanelError message={message} />;
     }
     if (!query.data) {
-      return <PanelError message="No hourly timing data available." />;
+      return <PanelError message={tText("No hourly timing data available.")} />;
     }
     return (
       <HourlyHeatmapPanel
+        locale={locale}
         data={query.data}
         sourceLabel={sourceLabel}
         onBarClick={(selection) => openDrilldownTransactions(sourceParam, selection)}
@@ -731,14 +794,15 @@ export function PatternsPage() {
       return <LoadingPanel />;
     }
     if (query.error) {
-      const message = query.error instanceof Error ? query.error.message : "Failed to load timing matrix data.";
+      const message = query.error instanceof Error ? query.error.message : tText("Failed to load timing matrix data.");
       return <PanelError message={message} />;
     }
     if (!query.data) {
-      return <PanelError message="No timing matrix data available." />;
+      return <PanelError message={tText("No timing matrix data available.")} />;
     }
     return (
       <TimingMatrixPanel
+        locale={locale}
         data={query.data}
         sourceLabel={sourceLabel}
         onCellClick={(selection) => openDrilldownTransactions(sourceParam, selection)}
@@ -781,11 +845,11 @@ export function PatternsPage() {
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <div className="space-y-2 xl:col-span-3">
-          <Label htmlFor="patterns-timing-view">View</Label>
+          <Label htmlFor="patterns-timing-view">{tText("View")}</Label>
           <div
             id="patterns-timing-view"
             role="tablist"
-            aria-label="Timing view"
+            aria-label={timingViewLabel(locale)}
             className="grid w-full grid-cols-3 gap-1 rounded-lg bg-muted p-1 md:w-auto"
           >
             <button
@@ -798,7 +862,7 @@ export function PatternsPage() {
               )}
               onClick={() => setTimingView("yearly")}
             >
-              Yearly
+              {tText("Yearly")}
             </button>
             <button
               type="button"
@@ -810,7 +874,7 @@ export function PatternsPage() {
               )}
               onClick={() => setTimingView("hourly")}
             >
-              Hourly
+              {locale === "de" ? "Stündlich" : "Hourly"}
             </button>
             <button
               type="button"
@@ -822,34 +886,34 @@ export function PatternsPage() {
               )}
               onClick={() => setTimingView("matrix")}
             >
-              Weekday x Hour
+              {locale === "de" ? "Wochentag x Stunde" : "Weekday x Hour"}
             </button>
           </div>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="patterns-value-mode">Metric</Label>
+          <Label htmlFor="patterns-value-mode">{tText("Metric")}</Label>
           <select
             id="patterns-value-mode"
             className="app-soft-surface h-9 w-full rounded-md border border-input px-3 text-sm"
             value={valueMode}
             onChange={(event) => setValueMode(event.target.value as TimingValueMode)}
           >
-            <option value="net">Net spend</option>
-            <option value="gross">Gross spend</option>
-            <option value="count">Order count</option>
+            <option value="net">{locale === "de" ? "Nettoausgaben" : "Net spend"}</option>
+            <option value="gross">{locale === "de" ? "Bruttoausgaben" : "Gross spend"}</option>
+            <option value="count">{tText("Order count")}</option>
           </select>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="patterns-source-kind">Source</Label>
+          <Label htmlFor="patterns-source-kind">{tText("Source")}</Label>
           <select
             id="patterns-source-kind"
             className="app-soft-surface h-9 w-full rounded-md border border-input px-3 text-sm"
             value={sourceKind}
             onChange={(event) => setSourceKind(event.target.value)}
           >
-            <option value={ALL_SOURCES_VALUE}>All sources</option>
+            <option value={ALL_SOURCES_VALUE}>{tText("All sources")}</option>
             {sourceOptions.map((option) => (
               <option key={option.kind} value={option.kind}>
                 {option.label} ({option.kind})
@@ -863,13 +927,13 @@ export function PatternsPage() {
             id="patterns-compare-mode"
             checked={compareMode}
             onCheckedChange={(checked) => setCompareMode(checked)}
-            aria-label="Toggle compare mode"
+            aria-label={compareModeLabel(locale)}
           />
-          <Label htmlFor="patterns-compare-mode">Compare mode</Label>
+          <Label htmlFor="patterns-compare-mode">{tText("Compare mode")}</Label>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="patterns-date-from">From</Label>
+          <Label htmlFor="patterns-date-from">{tText("From")}</Label>
           <Input
             id="patterns-date-from"
             type="date"
@@ -879,7 +943,7 @@ export function PatternsPage() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="patterns-date-to">To</Label>
+          <Label htmlFor="patterns-date-to">{tText("To")}</Label>
           <Input
             id="patterns-date-to"
             type="date"
@@ -889,7 +953,7 @@ export function PatternsPage() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="patterns-source-kind-compare">Compare Source</Label>
+          <Label htmlFor="patterns-source-kind-compare">{tText("Compare Source")}</Label>
           <select
             id="patterns-source-kind-compare"
             className="app-soft-surface h-9 w-full rounded-md border border-input px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
@@ -898,7 +962,7 @@ export function PatternsPage() {
             onChange={(event) => setCompareSourceKind(event.target.value)}
           >
             {sourceOptions.length === 0 ? (
-              <option value={ALL_SOURCES_VALUE}>No sources available</option>
+              <option value={ALL_SOURCES_VALUE}>{tText("No sources available")}</option>
             ) : (
               sourceOptions.map((option) => (
                 <option key={`compare-${option.kind}`} value={option.kind}>
@@ -911,14 +975,16 @@ export function PatternsPage() {
       </div>
 
       <div className="md:hidden">
-        <MobileSummary data={primaryTimingData} />
+        <MobileSummary locale={locale} data={primaryTimingData} />
       </div>
       <div className={cn("hidden md:grid gap-4", compareMode && "md:grid-cols-2")}>
         <Card>
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle className="text-base">
-                {compareMode ? `Source A: ${primarySourceLabel}` : primarySourceLabel}
+                {compareMode
+                  ? `${locale === "de" ? "Quelle A" : "Source A"}: ${primarySourceLabel}`
+                  : primarySourceLabel}
               </CardTitle>
               <div className="flex items-center gap-2">
                 <Button
@@ -930,7 +996,7 @@ export function PatternsPage() {
                     primaryTimingData ? void exportPanelAsCsv(primaryCsvContext, primaryTimingData) : undefined
                   }
                 >
-                  Export CSV
+                  {locale === "de" ? "Als CSV exportieren" : "Export CSV"}
                 </Button>
                 <Button
                   type="button"
@@ -939,7 +1005,7 @@ export function PatternsPage() {
                   disabled={!primaryTimingData}
                   onClick={() => void exportPanelAsPng(primaryCsvContext, primaryPanelRef.current)}
                 >
-                  Export PNG
+                  {locale === "de" ? "Als PNG exportieren" : "Export PNG"}
                 </Button>
               </div>
             </div>
@@ -957,7 +1023,9 @@ export function PatternsPage() {
           <Card>
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle className="text-base">Source B: {secondarySourceLabel}</CardTitle>
+                <CardTitle className="text-base">
+                  {locale === "de" ? "Quelle B" : "Source B"}: {secondarySourceLabel}
+                </CardTitle>
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"
@@ -968,7 +1036,7 @@ export function PatternsPage() {
                       secondaryTimingData ? void exportPanelAsCsv(secondaryCsvContext, secondaryTimingData) : undefined
                     }
                   >
-                    Export CSV
+                    {locale === "de" ? "Als CSV exportieren" : "Export CSV"}
                   </Button>
                   <Button
                     type="button"
@@ -977,7 +1045,7 @@ export function PatternsPage() {
                     disabled={!secondaryTimingData}
                     onClick={() => void exportPanelAsPng(secondaryCsvContext, secondaryPanelRef.current)}
                   >
-                    Export PNG
+                    {locale === "de" ? "Als PNG exportieren" : "Export PNG"}
                   </Button>
                 </div>
               </div>
@@ -996,18 +1064,18 @@ export function PatternsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Spend Velocity (Recent)</CardTitle>
+          <CardTitle>{locale === "de" ? "Ausgabengeschwindigkeit (aktuell)" : "Spend Velocity (Recent)"}</CardTitle>
         </CardHeader>
         <CardContent>
           {recentVelocity.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No velocity data available.</p>
+            <p className="text-sm text-muted-foreground">{tText("No velocity data available.")}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Rolling 7d</TableHead>
-                  <TableHead>Rolling 30d</TableHead>
+                  <TableHead>{tText("Date")}</TableHead>
+                  <TableHead>{tText("Rolling 7d")}</TableHead>
+                  <TableHead>{tText("Rolling 30d")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1026,19 +1094,19 @@ export function PatternsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Retailer Price Index (Recent)</CardTitle>
+          <CardTitle>{tText("Retailer Price Index (Recent)")}</CardTitle>
         </CardHeader>
         <CardContent>
           {recentIndex.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No price index data available.</p>
+            <p className="text-sm text-muted-foreground">{tText("No price index data available.")}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Period</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Index</TableHead>
-                  <TableHead>Products</TableHead>
+                  <TableHead>{tText("Period")}</TableHead>
+                  <TableHead>{tText("Source")}</TableHead>
+                  <TableHead>{tText("Index")}</TableHead>
+                  <TableHead>{tText("Products")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

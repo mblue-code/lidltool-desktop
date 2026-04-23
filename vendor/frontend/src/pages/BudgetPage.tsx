@@ -172,14 +172,18 @@ function recurringPaidAmount(item: BudgetSummary["recurring"]["items"][number]):
 
 const CASHFLOW_PRESETS: Array<{
   key: string;
-  label: string;
-  hint: string;
+  labelEn: string;
+  labelDe: string;
+  hintEn: string;
+  hintDe: string;
   values: Pick<CashflowFormState, "direction" | "category" | "description" | "sourceType">;
 }> = [
   {
     key: "cash-expense",
-    label: "Cash expense",
-    hint: "Missed purchase or small cash charge",
+    labelEn: "Cash expense",
+    labelDe: "Bargeldausgabe",
+    hintEn: "Missed purchase or small cash charge",
+    hintDe: "Übersehener Einkauf oder kleine Barausgabe",
     values: {
       direction: "outflow",
       category: "cash",
@@ -189,8 +193,10 @@ const CASHFLOW_PRESETS: Array<{
   },
   {
     key: "income",
-    label: "Income",
-    hint: "Salary, transfer, or side income",
+    labelEn: "Income",
+    labelDe: "Einnahme",
+    hintEn: "Salary, transfer, or side income",
+    hintDe: "Gehalt, Überweisung oder Nebeneinkunft",
     values: {
       direction: "inflow",
       category: "salary",
@@ -200,8 +206,10 @@ const CASHFLOW_PRESETS: Array<{
   },
   {
     key: "refund",
-    label: "Refund",
-    hint: "Refund, reimbursement, or returned item",
+    labelEn: "Refund",
+    labelDe: "Rückerstattung",
+    hintEn: "Refund, reimbursement, or returned item",
+    hintDe: "Erstattung, Rückzahlung oder zurückgegebener Artikel",
     values: {
       direction: "inflow",
       category: "refund",
@@ -224,9 +232,40 @@ const COMMON_CASHFLOW_CATEGORIES = [
   "groceries"
 ];
 
+function budgetScopeTypeLabel(value: string, locale: "en" | "de"): string {
+  if (value === "category") return locale === "de" ? "Kategorie" : "Category";
+  if (value === "source_kind") return locale === "de" ? "Quellenart" : "Source kind";
+  return value.replace(/_/g, " ");
+}
+
+function budgetPeriodLabel(value: string, locale: "en" | "de"): string {
+  if (value === "monthly") return locale === "de" ? "Monatlich" : "Monthly";
+  if (value === "annual") return locale === "de" ? "Jährlich" : "Annual";
+  return value.replace(/_/g, " ");
+}
+
+function budgetStatusLabel(status: string, locale: "en" | "de"): string {
+  if (status === "paid") return locale === "de" ? "Bezahlt" : "Paid";
+  if (status === "due") return locale === "de" ? "Fällig" : "Due";
+  if (status === "overdue") return locale === "de" ? "Überfällig" : "Overdue";
+  if (status === "open") return locale === "de" ? "Offen" : "Open";
+  if (status === "reconciled") return locale === "de" ? "Abgeglichen" : "Reconciled";
+  return status.replace(/_/g, " ");
+}
+
+function budgetIncomeBasisLabel(value: string, locale: "en" | "de"): string {
+  if (value === "planned_income") return locale === "de" ? "Geplantes Einkommen" : "Planned income";
+  if (value === "actual_income") return locale === "de" ? "Tatsächliches Einkommen" : "Actual income";
+  return value.replace(/_/g, " ");
+}
+
+function cashflowDirectionLabel(direction: "inflow" | "outflow", locale: "en" | "de"): string {
+  return direction === "inflow" ? (locale === "de" ? "Einnahmen" : "Inflow") : (locale === "de" ? "Ausgaben" : "Outflow");
+}
+
 export function BudgetPage() {
-  const { locale, tText } = useI18n();
-  const passthroughTranslate = tText;
+  const { locale } = useI18n();
+  const passthroughTranslate = (value: string) => value;
   const queryClient = useQueryClient();
   const [monthValue, setMonthValue] = useState(currentMonthValue());
   const { year, month } = monthDisplayValue(monthValue);
@@ -356,7 +395,14 @@ export function BudgetPage() {
       void queryClient.invalidateQueries({ queryKey: ["budget-summary", year, month] });
     },
     onError: (error) => {
-      setFeedback({ kind: "error", message: resolveApiErrorMessage(error, passthroughTranslate, "Failed to save month budget") });
+      setFeedback({
+        kind: "error",
+        message: resolveApiErrorMessage(
+          error,
+          passthroughTranslate,
+          locale === "de" ? "Fehler beim Speichern des Monatsbudgets" : "Failed to save month budget"
+        )
+      });
     }
   });
 
@@ -364,7 +410,7 @@ export function BudgetPage() {
     mutationFn: async (payload: CashflowFormState) => {
       const amountCents = parseEuroAmountToCents(payload.amount);
       if (amountCents === null || amountCents <= 0) {
-        throw new Error(tText("Amount must be a valid euro value"));
+        throw new Error(locale === "de" ? "Der Betrag muss ein gültiger Euro-Wert sein." : "Amount must be a valid euro value");
       }
       const request = {
         effective_date: payload.effectiveDate,
@@ -384,7 +430,9 @@ export function BudgetPage() {
     onSuccess: () => {
       setFeedback({
         kind: "success",
-        message: editingCashflowId ? tText("Updated cash-flow entry.") : tText("Created cash-flow entry.")
+        message: editingCashflowId
+          ? (locale === "de" ? "Cashflow-Eintrag aktualisiert." : "Updated cash-flow entry.")
+          : (locale === "de" ? "Cashflow-Eintrag erstellt." : "Created cash-flow entry.")
       });
       setEditingCashflowId(null);
       setCashflowForm(emptyCashflowFormState(defaultDate));
@@ -392,19 +440,33 @@ export function BudgetPage() {
       void queryClient.invalidateQueries({ queryKey: ["budget-summary", year, month] });
     },
     onError: (error) => {
-      setFeedback({ kind: "error", message: resolveApiErrorMessage(error, passthroughTranslate, "Failed to save cash-flow entry") });
+      setFeedback({
+        kind: "error",
+        message: resolveApiErrorMessage(
+          error,
+          passthroughTranslate,
+          locale === "de" ? "Fehler beim Speichern des Cashflow-Eintrags" : "Failed to save cash-flow entry"
+        )
+      });
     }
   });
 
   const deleteCashflowMutation = useMutation({
     mutationFn: deleteCashflowEntry,
     onSuccess: () => {
-      setFeedback({ kind: "success", message: tText("Deleted cash-flow entry.") });
+      setFeedback({ kind: "success", message: locale === "de" ? "Cashflow-Eintrag gelöscht." : "Deleted cash-flow entry." });
       void queryClient.invalidateQueries({ queryKey: ["cashflow-entries", year, month] });
       void queryClient.invalidateQueries({ queryKey: ["budget-summary", year, month] });
     },
     onError: (error) => {
-      setFeedback({ kind: "error", message: resolveApiErrorMessage(error, passthroughTranslate, "Failed to delete cash-flow entry") });
+      setFeedback({
+        kind: "error",
+        message: resolveApiErrorMessage(
+          error,
+          passthroughTranslate,
+          locale === "de" ? "Fehler beim Löschen des Cashflow-Eintrags" : "Failed to delete cash-flow entry"
+        )
+      });
     }
   });
 
@@ -414,7 +476,9 @@ export function BudgetPage() {
     onSuccess: (_, variables) => {
       setFeedback({
         kind: "success",
-        message: variables.linkedTransactionId ? tText("Linked cash-flow entry to receipt.") : tText("Removed receipt link.")
+        message: variables.linkedTransactionId
+          ? (locale === "de" ? "Cashflow-Eintrag mit Beleg verknüpft." : "Linked cash-flow entry to receipt.")
+          : (locale === "de" ? "Belegverknüpfung entfernt." : "Removed receipt link.")
       });
       setReconcileEntryId(null);
       setReceiptSearch("");
@@ -424,7 +488,11 @@ export function BudgetPage() {
     onError: (error) => {
       setFeedback({
         kind: "error",
-        message: resolveApiErrorMessage(error, passthroughTranslate, "Failed to reconcile cash-flow entry")
+        message: resolveApiErrorMessage(
+          error,
+          passthroughTranslate,
+          locale === "de" ? "Fehler beim Abgleichen des Cashflow-Eintrags" : "Failed to reconcile cash-flow entry"
+        )
       });
     }
   });
@@ -433,7 +501,7 @@ export function BudgetPage() {
     mutationFn: async (payload: BudgetRuleFormState) => {
       const amountCents = parseEuroAmountToCents(payload.amount);
       if (amountCents === null || amountCents <= 0) {
-        throw new Error(tText("Budget rule amount must be greater than zero"));
+        throw new Error(locale === "de" ? "Der Budgetregelbetrag muss größer als null sein." : "Budget rule amount must be greater than zero");
       }
       return createBudgetRule({
         scope_type: payload.scopeType,
@@ -451,7 +519,14 @@ export function BudgetPage() {
       void queryClient.invalidateQueries({ queryKey: ["budget-summary", year, month] });
     },
     onError: (error) => {
-      setFeedback({ kind: "error", message: resolveApiErrorMessage(error, passthroughTranslate, "Failed to create budget rule") });
+      setFeedback({
+        kind: "error",
+        message: resolveApiErrorMessage(
+          error,
+          passthroughTranslate,
+          locale === "de" ? "Fehler beim Erstellen der Budgetregel" : "Failed to create budget rule"
+        )
+      });
     }
   });
 
@@ -517,10 +592,10 @@ export function BudgetPage() {
 
     const incomeBasisLabelValue = summary
       ? summary.totals.income_basis_cents > 0
-        ? `${tText(summary.totals.income_basis.replace(/_/g, " "))} (${formatEurFromCents(summary.totals.income_basis_cents)})`
-        : tText(summary.totals.income_basis.replace(/_/g, " "))
+        ? `${budgetIncomeBasisLabel(summary.totals.income_basis, locale)} (${formatEurFromCents(summary.totals.income_basis_cents)})`
+        : budgetIncomeBasisLabel(summary.totals.income_basis, locale)
       : incomeBasisCentsValue > 0
-        ? `${tText((plannedIncomeValue !== null ? "planned income" : "actual income"))} (${formatEurFromCents(incomeBasisCentsValue)})`
+        ? `${plannedIncomeValue !== null ? (locale === "de" ? "Geplantes Einkommen" : "Planned income") : (locale === "de" ? "Tatsächliches Einkommen" : "Actual income")} (${formatEurFromCents(incomeBasisCentsValue)})`
         : "—";
 
     return {
@@ -545,7 +620,7 @@ export function BudgetPage() {
       incomeBasisLabel: incomeBasisLabelValue,
       savingsDelta: savingsDeltaValue
     };
-  }, [cashflowEntries, displayBudgetMonth, summary, tText]);
+  }, [cashflowEntries, displayBudgetMonth, summary, locale]);
   const plannedIncome = summaryMetrics.plannedIncome;
   const actualIncome = summaryMetrics.actualIncome;
   const remaining = summaryMetrics.remaining;
@@ -567,7 +642,7 @@ export function BudgetPage() {
   function handleCashflowSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     if (!cashflowForm.description.trim()) {
-      setFeedback({ kind: "error", message: tText("Cash-flow description is required.") });
+      setFeedback({ kind: "error", message: locale === "de" ? "Eine Cashflow-Beschreibung ist erforderlich." : "Cash-flow description is required." });
       return;
     }
     void saveCashflowMutation.mutateAsync(cashflowForm);
@@ -585,24 +660,28 @@ export function BudgetPage() {
     setCashflowForm(emptyCashflowFormState(defaultDate));
   }
 
-  function applyCashflowPreset(
-    preset: Pick<CashflowFormState, "direction" | "category" | "description" | "sourceType">
-  ): void {
+  function applyCashflowPreset(preset: (typeof CASHFLOW_PRESETS)[number]): void {
     setEditingCashflowId(null);
     setCashflowForm({
       ...emptyCashflowFormState(defaultDate),
       effectiveDate: cashflowForm.effectiveDate || defaultDate,
-      ...preset
+      ...preset.values,
+      description: locale === "de"
+        ? preset.labelDe
+        : preset.labelEn
     });
   }
 
   function formatReceiptCandidateLabel(transaction: TransactionListItem): string {
-    return transaction.store_name?.trim() || tText("Unknown merchant");
+    return transaction.store_name?.trim() || (locale === "de" ? "Unbekannter Händler" : "Unknown merchant");
   }
 
   return (
     <section className="space-y-6">
-      <PageHeader title="Budget" description={tText("Track monthly income, recurring bills, receipt spend, and savings.")} />
+      <PageHeader
+        title="Budget"
+        description={locale === "de" ? "Verfolge monatliche Einnahmen, wiederkehrende Rechnungen, Belegausgaben und Ersparnisse." : "Track monthly income, recurring bills, receipt spend, and savings."}
+      />
 
       {feedback ? (
         <p className={feedback.kind === "error" ? "text-sm text-destructive" : "text-sm text-success"}>
@@ -612,7 +691,7 @@ export function BudgetPage() {
 
       <div className="flex flex-col gap-3 md:flex-row md:items-end">
         <div className="space-y-2">
-          <Label htmlFor="budget-month">Month</Label>
+          <Label htmlFor="budget-month">{locale === "de" ? "Monat" : "Month"}</Label>
           <Input
             id="budget-month"
             type="month"
@@ -622,21 +701,21 @@ export function BudgetPage() {
         </div>
         <div className="flex-1 space-y-1">
           <p className="text-xs text-muted-foreground">
-            {displayBudgetMonth?.notes?.trim() ? displayBudgetMonth.notes : tText("No notes set for this month yet.")}
+            {displayBudgetMonth?.notes?.trim() ? displayBudgetMonth.notes : (locale === "de" ? "Für diesen Monat sind noch keine Notizen gesetzt." : "No notes set for this month yet.")}
           </p>
         </div>
       </div>
 
       <section className="rounded-xl border border-border/60 app-dashboard-surface grid divide-y lg:divide-y-0 lg:divide-x divide-border/40 lg:grid-cols-3">
         <MetricCard
-          title="Income"
+          title={locale === "de" ? "Einkommen" : "Income"}
           value={formatEurFromCents(actualIncome)}
-          subtitle={plannedIncome !== null ? (locale === "de" ? `Geplant ${formatEurFromCents(plannedIncome)}` : `Planned ${formatEurFromCents(plannedIncome)}`) : tText("No planned income yet")}
+          subtitle={plannedIncome !== null ? (locale === "de" ? `Geplant ${formatEurFromCents(plannedIncome)}` : `Planned ${formatEurFromCents(plannedIncome)}`) : (locale === "de" ? "Noch kein geplantes Einkommen" : "No planned income yet")}
           icon={<Wallet className="h-3.5 w-3.5" />}
           iconClassName="bg-primary/10 text-primary"
         />
         <MetricCard
-          title="Outflow"
+          title={locale === "de" ? "Ausgaben" : "Outflow"}
           value={formatEurFromCents(totalOutflow)}
           subtitle={locale === "de"
             ? `Belege ${formatEurFromCents(receiptSpend)} · manuell ${formatEurFromCents(manualOutflow)} · ${reconciledCount} abgeglichen`
@@ -645,7 +724,7 @@ export function BudgetPage() {
           iconClassName="bg-destructive/10 text-destructive"
         />
         <MetricCard
-          title="Remaining"
+          title={locale === "de" ? "Verbleibend" : "Remaining"}
           value={formatEurFromCents(remaining)}
           subtitle={locale === "de"
             ? `Verfügbar ${formatEurFromCents(available)} · gespart ${formatEurFromCents(saved)}`
@@ -654,7 +733,7 @@ export function BudgetPage() {
           iconClassName="bg-success/10 text-success"
         />
         <MetricCard
-          title="Recurring"
+          title={locale === "de" ? "Wiederkehrend" : "Recurring"}
           value={formatEurFromCents(recurringExpected)}
           subtitle={locale === "de"
             ? `${summaryMetrics.recurringPaidCount} bezahlt / ${summaryMetrics.recurringUnpaidCount} offen`
@@ -663,7 +742,7 @@ export function BudgetPage() {
           iconClassName="bg-chart-2/10 text-chart-2"
         />
         <MetricCard
-          title="Income basis"
+          title={locale === "de" ? "Einkommensbasis" : "Income basis"}
           value={summaryMetrics.incomeBasisLabel}
           subtitle={locale === "de"
             ? `Spar-Differenz ${formatEurFromCents(summaryMetrics.savingsDelta)}`
@@ -672,7 +751,7 @@ export function BudgetPage() {
           iconClassName="bg-amber-500/10 text-amber-600"
         />
         <MetricCard
-          title="Recurring bills"
+          title={locale === "de" ? "Wiederkehrende Rechnungen" : "Recurring bills"}
           value={formatEurFromCents(recurringPaid)}
           subtitle={locale === "de" ? `Prognose ${formatEurFromCents(recurringExpected)}` : `Forecast ${formatEurFromCents(recurringExpected)}`}
           icon={<ReceiptText className="h-3.5 w-3.5" />}
@@ -683,12 +762,12 @@ export function BudgetPage() {
       <section className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Monthly Budget Settings</CardTitle>
+            <CardTitle className="text-base">{locale === "de" ? "Monatliche Budgeteinstellungen" : "Monthly Budget Settings"}</CardTitle>
           </CardHeader>
           <CardContent>
             <form className="grid gap-4 md:grid-cols-2" onSubmit={handleMonthSubmit}>
               <div className="space-y-2">
-                <Label htmlFor="planned-income">Planned income (EUR)</Label>
+                <Label htmlFor="planned-income">{locale === "de" ? "Geplantes Einkommen (EUR)" : "Planned income (EUR)"}</Label>
                 <Input
                   id="planned-income"
                   value={monthForm.plannedIncome}
@@ -697,7 +776,7 @@ export function BudgetPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="target-savings">Target savings (EUR)</Label>
+                <Label htmlFor="target-savings">{locale === "de" ? "Zielersparnis (EUR)" : "Target savings (EUR)"}</Label>
                 <Input
                   id="target-savings"
                   value={monthForm.targetSavings}
@@ -706,7 +785,7 @@ export function BudgetPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="opening-balance">Opening balance (EUR)</Label>
+                <Label htmlFor="opening-balance">{locale === "de" ? "Anfangssaldo (EUR)" : "Opening balance (EUR)"}</Label>
                 <Input
                   id="opening-balance"
                   value={monthForm.openingBalance}
@@ -715,17 +794,17 @@ export function BudgetPage() {
                 />
               </div>
               <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="month-notes">Notes</Label>
+                <Label htmlFor="month-notes">{locale === "de" ? "Notizen" : "Notes"}</Label>
                 <Textarea
                   id="month-notes"
                   value={monthForm.notes}
                   onChange={(event) => setMonthForm((previous) => ({ ...previous, notes: event.target.value }))}
-                  placeholder="Monthly priorities, one-off expenses, savings goals..."
+                  placeholder={locale === "de" ? "Monatliche Prioritäten, einmalige Ausgaben, Sparziele..." : "Monthly priorities, one-off expenses, savings goals..."}
                 />
               </div>
               <div className="md:col-span-2 flex items-center gap-3">
                 <Button type="submit" disabled={saveMonthMutation.isPending}>
-                  Save month settings
+                  {locale === "de" ? "Monatseinstellungen speichern" : "Save month settings"}
                 </Button>
                 <span className="text-sm text-muted-foreground">
                   {locale === "de" ? `Aktuelle Währung: ${currency}` : `Current currency: ${currency}`}
@@ -737,24 +816,24 @@ export function BudgetPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">Recurring Commitments</CardTitle>
+            <CardTitle className="text-base">{locale === "de" ? "Wiederkehrende Rechnungen" : "Recurring Commitments"}</CardTitle>
             <CircleAlert className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             {(summary?.recurring.items ?? []).length === 0 ? (
               <EmptyState
-                title="No recurring items"
-                description="Recurring bills will appear here once they are configured and matched."
+                title={locale === "de" ? "Keine wiederkehrenden Einträge" : "No recurring items"}
+                description={locale === "de" ? "Wiederkehrende Rechnungen erscheinen hier, sobald sie konfiguriert und zugeordnet sind." : "Recurring bills will appear here once they are configured and matched."}
               />
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Due</TableHead>
-                    <TableHead>Bill</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Expected</TableHead>
-                    <TableHead className="text-right">Actual</TableHead>
+                    <TableHead>{locale === "de" ? "Fällig" : "Due"}</TableHead>
+                    <TableHead>{locale === "de" ? "Rechnung" : "Bill"}</TableHead>
+                    <TableHead>{locale === "de" ? "Status" : "Status"}</TableHead>
+                    <TableHead className="text-right">{locale === "de" ? "Erwartet" : "Expected"}</TableHead>
+                    <TableHead className="text-right">{locale === "de" ? "Tatsächlich" : "Actual"}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -762,9 +841,9 @@ export function BudgetPage() {
                     <TableRow key={item.occurrence_id}>
                       <TableCell>{formatDate(item.due_date)}</TableCell>
                       <TableCell>{item.bill_name}</TableCell>
-                      <TableCell className="capitalize">{tText(item.status)}</TableCell>
+                      <TableCell className="capitalize">{budgetStatusLabel(item.status, locale)}</TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {item.expected_amount_cents === null ? "Variable" : formatEurFromCents(item.expected_amount_cents)}
+                        {item.expected_amount_cents === null ? (locale === "de" ? "Variabel" : "Variable") : formatEurFromCents(item.expected_amount_cents)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {item.actual_amount_cents === null ? "—" : formatEurFromCents(item.actual_amount_cents)}
@@ -780,7 +859,7 @@ export function BudgetPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Cash-Flow Entries</CardTitle>
+          <CardTitle className="text-base">{locale === "de" ? "Cashflow-Einträge" : "Cash-Flow Entries"}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid gap-3 lg:grid-cols-3">
@@ -790,11 +869,11 @@ export function BudgetPage() {
                 type="button"
                 variant="outline"
                 className="h-auto justify-start px-4 py-3 text-left"
-                onClick={() => applyCashflowPreset(preset.values)}
+                onClick={() => applyCashflowPreset(preset)}
               >
                 <span className="block">
-                  <span className="block font-medium">{preset.label}</span>
-                  <span className="block text-xs text-muted-foreground">{preset.hint}</span>
+                  <span className="block font-medium">{locale === "de" ? preset.labelDe : preset.labelEn}</span>
+                  <span className="block text-xs text-muted-foreground">{locale === "de" ? preset.hintDe : preset.hintEn}</span>
                 </span>
               </Button>
             ))}
@@ -802,7 +881,7 @@ export function BudgetPage() {
 
           <form className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={handleCashflowSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-date">Date</Label>
+              <Label htmlFor="cashflow-date">{locale === "de" ? "Datum" : "Date"}</Label>
               <Input
                 id="cashflow-date"
                 type="date"
@@ -811,7 +890,7 @@ export function BudgetPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-direction">Direction</Label>
+              <Label htmlFor="cashflow-direction">{locale === "de" ? "Richtung" : "Direction"}</Label>
               <Select
                 value={cashflowForm.direction}
                 onValueChange={(value) => setCashflowForm((previous) => ({ ...previous, direction: value as "inflow" | "outflow" }))}
@@ -820,19 +899,19 @@ export function BudgetPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="inflow">Inflow</SelectItem>
-                  <SelectItem value="outflow">Outflow</SelectItem>
+                  <SelectItem value="inflow">{locale === "de" ? "Einnahmen" : "Inflow"}</SelectItem>
+                  <SelectItem value="outflow">{locale === "de" ? "Ausgaben" : "Outflow"}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-category">Category</Label>
+              <Label htmlFor="cashflow-category">{locale === "de" ? "Kategorie" : "Category"}</Label>
               <Input
                 id="cashflow-category"
                 list="cashflow-category-options"
                 value={cashflowForm.category}
                 onChange={(event) => setCashflowForm((previous) => ({ ...previous, category: event.target.value }))}
-                placeholder="salary, groceries, rent, refund"
+                placeholder={locale === "de" ? "Gehalt, Lebensmittel, Miete, Rückerstattung" : "salary, groceries, rent, refund"}
               />
               <datalist id="cashflow-category-options">
                 {COMMON_CASHFLOW_CATEGORIES.map((category) => (
@@ -841,7 +920,7 @@ export function BudgetPage() {
               </datalist>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-amount">Amount (EUR)</Label>
+              <Label htmlFor="cashflow-amount">{locale === "de" ? "Betrag (EUR)" : "Amount (EUR)"}</Label>
               <Input
                 id="cashflow-amount"
                 value={cashflowForm.amount}
@@ -850,39 +929,39 @@ export function BudgetPage() {
               />
             </div>
             <div className="space-y-2 md:col-span-2 xl:col-span-2">
-              <Label htmlFor="cashflow-description">Description</Label>
+              <Label htmlFor="cashflow-description">{locale === "de" ? "Beschreibung" : "Description"}</Label>
               <Input
                 id="cashflow-description"
                 value={cashflowForm.description}
                 onChange={(event) => setCashflowForm((previous) => ({ ...previous, description: event.target.value }))}
-                placeholder="Salary payout, supermarket cash spend, refund"
+                placeholder={locale === "de" ? "Gehaltszahlung, Supermarkt-Barzahlung, Erstattung" : "Salary payout, supermarket cash spend, refund"}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-source-type">Source type</Label>
+              <Label htmlFor="cashflow-source-type">{locale === "de" ? "Quellentyp" : "Source type"}</Label>
               <Input
                 id="cashflow-source-type"
                 value={cashflowForm.sourceType}
                 onChange={(event) => setCashflowForm((previous) => ({ ...previous, sourceType: event.target.value }))}
-                placeholder="manual"
+                placeholder={locale === "de" ? "manuell" : "manual"}
               />
             </div>
             <div className="space-y-2 md:col-span-2 xl:col-span-2">
-              <Label htmlFor="cashflow-notes">Notes</Label>
+              <Label htmlFor="cashflow-notes">{locale === "de" ? "Notizen" : "Notes"}</Label>
               <Textarea
                 id="cashflow-notes"
                 value={cashflowForm.notes}
                 onChange={(event) => setCashflowForm((previous) => ({ ...previous, notes: event.target.value }))}
-                placeholder="Optional context"
+                placeholder={locale === "de" ? "Optionaler Kontext" : "Optional context"}
               />
             </div>
             <div className="flex flex-wrap items-center gap-3 md:col-span-2 xl:col-span-4">
               <Button type="submit" disabled={saveCashflowMutation.isPending}>
-                {editingCashflowId ? tText("Update entry") : tText("Add entry")}
+                {editingCashflowId ? (locale === "de" ? "Eintrag aktualisieren" : "Update entry") : (locale === "de" ? "Eintrag hinzufügen" : "Add entry")}
               </Button>
               {editingCashflowId ? (
                 <Button type="button" variant="outline" onClick={cancelCashflowEdit}>
-                  {tText("Cancel edit")}
+                  {locale === "de" ? "Bearbeitung abbrechen" : "Cancel edit"}
                 </Button>
               ) : null}
               <span className="text-sm text-muted-foreground">
@@ -895,7 +974,7 @@ export function BudgetPage() {
 
           <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">
-              <Label htmlFor="cashflow-filter-direction">Direction</Label>
+              <Label htmlFor="cashflow-filter-direction">{locale === "de" ? "Richtung" : "Direction"}</Label>
               <Select
                 value={cashflowFilters.direction}
                 onValueChange={(value) =>
@@ -909,14 +988,14 @@ export function BudgetPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All directions</SelectItem>
-                  <SelectItem value="inflow">Inflow</SelectItem>
-                  <SelectItem value="outflow">Outflow</SelectItem>
+                  <SelectItem value="all">{locale === "de" ? "Alle Richtungen" : "All directions"}</SelectItem>
+                  <SelectItem value="inflow">{locale === "de" ? "Einnahmen" : "Inflow"}</SelectItem>
+                  <SelectItem value="outflow">{locale === "de" ? "Ausgaben" : "Outflow"}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-filter-status">Status</Label>
+              <Label htmlFor="cashflow-filter-status">{locale === "de" ? "Status" : "Status"}</Label>
               <Select
                 value={cashflowFilters.status}
                 onValueChange={(value) =>
@@ -930,14 +1009,14 @@ export function BudgetPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="open">Open corrections</SelectItem>
-                  <SelectItem value="reconciled">Reconciled to receipt</SelectItem>
+                  <SelectItem value="all">{locale === "de" ? "Alle Status" : "All statuses"}</SelectItem>
+                  <SelectItem value="open">{locale === "de" ? "Offene Korrekturen" : "Open corrections"}</SelectItem>
+                  <SelectItem value="reconciled">{locale === "de" ? "Mit Beleg abgeglichen" : "Reconciled to receipt"}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cashflow-filter-category">Category filter</Label>
+              <Label htmlFor="cashflow-filter-category">{locale === "de" ? "Kategoriefilter" : "Category filter"}</Label>
               <Input
                 id="cashflow-filter-category"
                 list="cashflow-category-options"
@@ -945,30 +1024,32 @@ export function BudgetPage() {
                 onChange={(event) =>
                   setCashflowFilters((previous) => ({ ...previous, category: event.target.value }))
                 }
-                placeholder="Filter by category"
+                placeholder={locale === "de" ? "Nach Kategorie filtern" : "Filter by category"}
               />
             </div>
           </div>
 
           <p className="text-sm text-muted-foreground">
-            Manual outflows linked to a real receipt stay visible here, but they stop counting as extra spend in the month summary.
+            {locale === "de"
+              ? "Manuelle Ausgaben, die mit einem echten Beleg verknüpft sind, bleiben hier sichtbar, zählen aber in der Monatsübersicht nicht mehr als zusätzliche Ausgabe."
+              : "Manual outflows linked to a real receipt stay visible here, but they stop counting as extra spend in the month summary."}
           </p>
 
           {cashflowEntries.length === 0 ? (
             <EmptyState
-              title="No cash-flow entries"
-              description="Add salary, refunds, and manual expenses to round out the monthly budget."
+              title={locale === "de" ? "Keine Cashflow-Einträge" : "No cash-flow entries"}
+              description={locale === "de" ? "Füge Gehalt, Erstattungen und manuelle Ausgaben hinzu, um das Monatsbudget zu vervollständigen." : "Add salary, refunds, and manual expenses to round out the monthly budget."}
             />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Direction</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>{locale === "de" ? "Datum" : "Date"}</TableHead>
+                  <TableHead>{locale === "de" ? "Richtung" : "Direction"}</TableHead>
+                  <TableHead>{locale === "de" ? "Kategorie" : "Category"}</TableHead>
+                  <TableHead>{locale === "de" ? "Beschreibung" : "Description"}</TableHead>
+                  <TableHead>{locale === "de" ? "Status" : "Status"}</TableHead>
+                  <TableHead className="text-right">{locale === "de" ? "Betrag" : "Amount"}</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -976,7 +1057,7 @@ export function BudgetPage() {
                 {cashflowEntries.map((entry) => (
                   <TableRow key={entry.id}>
                     <TableCell>{formatDate(entry.effective_date)}</TableCell>
-                    <TableCell className="capitalize">{tText(entry.direction === "inflow" ? "Inflow" : "Outflow")}</TableCell>
+                    <TableCell className="capitalize">{cashflowDirectionLabel(entry.direction, locale)}</TableCell>
                     <TableCell>{entry.category}</TableCell>
                     <TableCell className="max-w-[280px]">
                       <div className="truncate">{entry.description ?? "—"}</div>
@@ -986,11 +1067,11 @@ export function BudgetPage() {
                     </TableCell>
                     <TableCell>
                       <div className="space-y-1 text-sm">
-                        <div>{entry.is_reconciled ? tText("Reconciled") : tText("Open")}</div>
+                        <div>{entry.is_reconciled ? (locale === "de" ? "Abgeglichen" : "Reconciled") : (locale === "de" ? "Offen" : "Open")}</div>
                         <div className="text-xs text-muted-foreground">{entry.source_type}</div>
                         {entry.linked_transaction ? (
                           <div className="text-xs text-muted-foreground">
-                            {entry.linked_transaction.merchant_name ?? tText("Receipt")} · {formatDate(entry.linked_transaction.purchased_at)}
+                            {entry.linked_transaction.merchant_name ?? (locale === "de" ? "Beleg" : "Receipt")} · {formatDate(entry.linked_transaction.purchased_at)}
                           </div>
                         ) : null}
                       </div>
@@ -1002,7 +1083,7 @@ export function BudgetPage() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         <Button type="button" variant="ghost" size="sm" onClick={() => startCashflowEdit(entry)}>
-                          {tText("Edit")}
+                          {locale === "de" ? "Bearbeiten" : "Edit"}
                         </Button>
                         {entry.direction === "outflow" ? (
                           <Button
@@ -1023,7 +1104,7 @@ export function BudgetPage() {
                             }}
                             disabled={reconcileCashflowMutation.isPending}
                           >
-                            {entry.is_reconciled ? tText("Unlink receipt") : tText("Link receipt")}
+                            {entry.is_reconciled ? (locale === "de" ? "Belegverknüpfung lösen" : "Unlink receipt") : (locale === "de" ? "Beleg verknüpfen" : "Link receipt")}
                           </Button>
                         ) : null}
                         <Button
@@ -1033,7 +1114,7 @@ export function BudgetPage() {
                           onClick={() => deleteCashflowMutation.mutate(entry.id)}
                           disabled={deleteCashflowMutation.isPending}
                         >
-                          {tText("Delete")}
+                          {locale === "de" ? "Löschen" : "Delete"}
                         </Button>
                       </div>
                     </TableCell>
@@ -1049,32 +1130,36 @@ export function BudgetPage() {
                 <div>
                   <h3 className="text-sm font-medium">
                     {locale === "de"
-                      ? `Beleg verknüpfen mit ${reconcileEntry.description ?? tText("manual entry")}`
-                      : `Link receipt to ${reconcileEntry.description ?? tText("manual entry")}`}
+                      ? `Beleg verknüpfen mit ${reconcileEntry.description ?? "manueller Eintrag"}`
+                      : `Link receipt to ${reconcileEntry.description ?? "manual entry"}`}
                   </h3>
                   <p className="text-sm text-muted-foreground">
-                    {tText("Match this manual expense to a scraped receipt so it no longer counts twice.")}
+                    {locale === "de"
+                      ? "Diese manuelle Ausgabe mit einem gescannten Beleg abgleichen, damit sie nicht doppelt zählt."
+                      : "Match this manual expense to a scraped receipt so it no longer counts twice."}
                   </p>
                 </div>
                 <Button type="button" variant="outline" onClick={() => setReconcileEntryId(null)}>
-                  {tText("Close")}
+                  {locale === "de" ? "Schließen" : "Close"}
                 </Button>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="receipt-search">Receipt search</Label>
+                <Label htmlFor="receipt-search">{locale === "de" ? "Belegsuche" : "Receipt search"}</Label>
                 <Input
                   id="receipt-search"
                   value={receiptSearch}
                   onChange={(event) => setReceiptSearch(event.target.value)}
-                  placeholder="Search merchant or receipt text"
+                  placeholder={locale === "de" ? "Nach Händler oder Belegtext suchen" : "Search merchant or receipt text"}
                 />
               </div>
               {receiptCandidatesQuery.isPending ? (
-                <p className="text-sm text-muted-foreground">{tText("Searching receipts…")}</p>
+                <p className="text-sm text-muted-foreground">{locale === "de" ? "Belege werden gesucht…" : "Searching receipts…"}</p>
               ) : null}
               {receiptCandidates.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  {tText("No receipts found for this month. Try another search term or keep the manual entry open for now.")}
+                  {locale === "de"
+                    ? "Für diesen Monat wurden keine Belege gefunden. Probiere einen anderen Suchbegriff oder lasse den manuellen Eintrag vorerst offen."
+                    : "No receipts found for this month. Try another search term or keep the manual entry open for now."}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -1099,7 +1184,7 @@ export function BudgetPage() {
                         }
                         disabled={reconcileCashflowMutation.isPending}
                       >
-                        {tText("Use receipt")}
+                        {locale === "de" ? "Beleg verwenden" : "Use receipt"}
                       </Button>
                     </div>
                   ))}
@@ -1112,19 +1197,19 @@ export function BudgetPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Budget Rules</CardTitle>
+          <CardTitle className="text-base">{locale === "de" ? "Budgetregeln" : "Budget Rules"}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <form className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={(event) => {
             event.preventDefault();
             if (!budgetRuleForm.scopeValue.trim()) {
-              setFeedback({ kind: "error", message: tText("Scope value is required for budget rules.") });
+              setFeedback({ kind: "error", message: locale === "de" ? "Der Bereichswert ist für Budgetregeln erforderlich." : "Scope value is required for budget rules." });
               return;
             }
             void budgetRuleMutation.mutateAsync(budgetRuleForm);
           }}>
             <div className="space-y-2">
-              <Label htmlFor="budget-rule-scope-type">Scope type</Label>
+              <Label htmlFor="budget-rule-scope-type">{locale === "de" ? "Bereichstyp" : "Scope type"}</Label>
               <Select
                 value={budgetRuleForm.scopeType}
                 onValueChange={(value) => setBudgetRuleForm((previous) => ({ ...previous, scopeType: value as "category" | "source_kind" }))}
@@ -1133,13 +1218,13 @@ export function BudgetPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="category">Category</SelectItem>
-                  <SelectItem value="source_kind">Source kind</SelectItem>
+                  <SelectItem value="category">{locale === "de" ? "Kategorie" : "Category"}</SelectItem>
+                  <SelectItem value="source_kind">{locale === "de" ? "Quellenart" : "Source kind"}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="budget-rule-scope-value">Scope value</Label>
+              <Label htmlFor="budget-rule-scope-value">{locale === "de" ? "Bereichswert" : "Scope value"}</Label>
               <Input
                 id="budget-rule-scope-value"
                 value={budgetRuleForm.scopeValue}
@@ -1148,7 +1233,7 @@ export function BudgetPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="budget-rule-period">Period</Label>
+              <Label htmlFor="budget-rule-period">{locale === "de" ? "Zeitraum" : "Period"}</Label>
               <Select
                 value={budgetRuleForm.period}
                 onValueChange={(value) => setBudgetRuleForm((previous) => ({ ...previous, period: value as "monthly" | "annual" }))}
@@ -1157,13 +1242,13 @@ export function BudgetPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="annual">Annual</SelectItem>
+                  <SelectItem value="monthly">{locale === "de" ? "Monatlich" : "Monthly"}</SelectItem>
+                  <SelectItem value="annual">{locale === "de" ? "Jährlich" : "Annual"}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="budget-rule-amount">Amount (EUR)</Label>
+              <Label htmlFor="budget-rule-amount">{locale === "de" ? "Betrag (EUR)" : "Amount (EUR)"}</Label>
               <Input
                 id="budget-rule-amount"
                 value={budgetRuleForm.amount}
@@ -1173,35 +1258,35 @@ export function BudgetPage() {
             </div>
             <div className="md:col-span-2 xl:col-span-4">
               <Button type="submit" disabled={budgetRuleMutation.isPending}>
-                Add budget rule
+                {locale === "de" ? "Budgetregel hinzufügen" : "Add budget rule"}
               </Button>
             </div>
           </form>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div>
-              <h3 className="mb-3 text-sm font-medium">Rules</h3>
+              <h3 className="mb-3 text-sm font-medium">{locale === "de" ? "Regeln" : "Rules"}</h3>
               {budgetRules.length === 0 ? (
                 <EmptyState
-                  title="No budget rules configured"
-                  description="Create category or source limits to track overages."
+                  title={locale === "de" ? "Keine Budgetregeln konfiguriert" : "No budget rules configured"}
+                  description={locale === "de" ? "Erstelle Kategorien- oder Quellenlimits, um Überschreitungen zu verfolgen." : "Create category or source limits to track overages."}
                 />
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Scope</TableHead>
-                      <TableHead>Value</TableHead>
-                      <TableHead>Period</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>{locale === "de" ? "Bereich" : "Scope"}</TableHead>
+                      <TableHead>{locale === "de" ? "Wert" : "Value"}</TableHead>
+                      <TableHead>{locale === "de" ? "Zeitraum" : "Period"}</TableHead>
+                      <TableHead className="text-right">{locale === "de" ? "Betrag" : "Amount"}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {budgetRules.map((rule) => (
                       <TableRow key={rule.rule_id}>
-                        <TableCell>{tText(rule.scope_type.replace(/_/g, " "))}</TableCell>
+                        <TableCell>{budgetScopeTypeLabel(rule.scope_type, locale)}</TableCell>
                         <TableCell>{rule.scope_value}</TableCell>
-                        <TableCell>{tText(rule.period)}</TableCell>
+                        <TableCell>{budgetPeriodLabel(rule.period, locale)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatEurFromCents(rule.amount_cents)}</TableCell>
                       </TableRow>
                     ))}
@@ -1210,27 +1295,27 @@ export function BudgetPage() {
               )}
             </div>
             <div>
-              <h3 className="mb-3 text-sm font-medium">Utilization</h3>
+              <h3 className="mb-3 text-sm font-medium">{locale === "de" ? "Auslastung" : "Utilization"}</h3>
               {utilizationRows.length === 0 ? (
                 <EmptyState
-                  title="No utilization data"
-                  description="Budget utilization will appear after transactions match the configured rules."
+                  title={locale === "de" ? "Keine Auslastungsdaten" : "No utilization data"}
+                  description={locale === "de" ? "Die Budgetauslastung erscheint, nachdem Transaktionen den konfigurierten Regeln zugeordnet wurden." : "Budget utilization will appear after transactions match the configured rules."}
                 />
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Scope</TableHead>
-                      <TableHead className="text-right">Budget</TableHead>
-                      <TableHead className="text-right">Spent</TableHead>
-                      <TableHead className="text-right">Remaining</TableHead>
-                      <TableHead className="text-right">Utilization</TableHead>
+                      <TableHead>{locale === "de" ? "Bereich" : "Scope"}</TableHead>
+                      <TableHead className="text-right">{locale === "de" ? "Budget" : "Budget"}</TableHead>
+                      <TableHead className="text-right">{locale === "de" ? "Ausgegeben" : "Spent"}</TableHead>
+                      <TableHead className="text-right">{locale === "de" ? "Verbleibend" : "Remaining"}</TableHead>
+                      <TableHead className="text-right">{locale === "de" ? "Auslastung" : "Utilization"}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {utilizationRows.map((row) => (
                       <TableRow key={row.rule_id}>
-                        <TableCell>{tText(row.scope_type.replace(/_/g, " "))}:{row.scope_value}</TableCell>
+                        <TableCell>{budgetScopeTypeLabel(row.scope_type, locale)}: {row.scope_value}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatEurFromCents(row.budget_cents)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatEurFromCents(row.spent_cents)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatEurFromCents(row.remaining_cents)}</TableCell>
@@ -1243,7 +1328,9 @@ export function BudgetPage() {
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            Budget rules remain a secondary control surface. The month summary above is the main planning view.
+            {locale === "de"
+              ? "Budgetregeln bleiben eine sekundäre Steuerebene. Die Monatsübersicht oben ist die Hauptplanungsansicht."
+              : "Budget rules remain a secondary control surface. The month summary above is the main planning view."}
           </p>
         </CardContent>
       </Card>

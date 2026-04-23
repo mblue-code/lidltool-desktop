@@ -79,6 +79,10 @@ export const EN_MESSAGES = {
   "backend.warning.apiAuthCredentialMissingOrInvalid": "API auth credentials are missing or invalid.",
   "backend.warning.connectorPreviewBootstrapStarted":
     "This connector is still in preview and has not been live-validated yet.",
+  "backend.warning.connectorPreviewStatusOnly":
+    "This connector status is still in preview and has not been live-validated yet.",
+  "backend.warning.connectorPreviewCancellationOnly":
+    "This connector cancellation path is still in preview and has not been live-validated yet.",
   "backend.warning.connectorPreviewSyncStarted":
     "This connector sync is still in preview and has not been live-validated yet.",
   "backend.warning.connectorRemoteBrowserSessionUnavailable":
@@ -1152,6 +1156,10 @@ export const DE_MESSAGES: Record<TranslationKey, string> = {
     "API-Anmeldedaten fehlen oder sind ungültig.",
   "backend.warning.connectorPreviewBootstrapStarted":
     "Diese Anbindung ist noch im Vorschaustatus und wurde noch nicht live validiert.",
+  "backend.warning.connectorPreviewStatusOnly":
+    "Der Status dieser Anbindung ist noch im Vorschaustatus und wurde noch nicht live validiert.",
+  "backend.warning.connectorPreviewCancellationOnly":
+    "Der Abbruchpfad dieser Anbindung ist noch im Vorschaustatus und wurde noch nicht live validiert.",
   "backend.warning.connectorPreviewSyncStarted":
     "Diese Anbindungs-Synchronisierung ist noch im Vorschaustatus und wurde noch nicht live validiert.",
   "backend.warning.connectorRemoteBrowserSessionUnavailable":

@@ -165,20 +165,19 @@ describe("DocumentsUploadPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("OCR processing triggered. Status will update automatically.")).toBeInTheDocument();
-      expect(screen.getByText("Status queued")).toBeInTheDocument();
+      expect(screen.getByText("Status Pending")).toBeInTheDocument();
     });
 
     await waitFor(
       () => {
-        expect(screen.getByText("Status processing")).toBeInTheDocument();
+        expect(screen.getByText("Processing OCR…")).toBeInTheDocument();
       },
       { timeout: 7000 }
     );
 
     await waitFor(
       () => {
-        expect(screen.getByText("Status completed")).toBeInTheDocument();
-        expect(screen.getByText("State: done")).toBeInTheDocument();
+        expect(screen.getByText("Status Completed")).toBeInTheDocument();
       },
       { timeout: 7000 }
     );
@@ -209,7 +208,7 @@ describe("DocumentsUploadPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("OCR processing triggered. Status will update automatically.")).toBeInTheDocument();
-      expect(screen.getByText("Status queued")).toBeInTheDocument();
+      expect(screen.getByText("Status Pending")).toBeInTheDocument();
     });
   });
 
@@ -225,13 +224,12 @@ describe("DocumentsUploadPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("OCR processing triggered. Status will update automatically.")).toBeInTheDocument();
-      expect(screen.getByText("Status queued")).toBeInTheDocument();
+      expect(screen.getByText("Status Pending")).toBeInTheDocument();
     });
 
     await waitFor(
       () => {
-        expect(screen.getByText("Status failed")).toBeInTheDocument();
-        expect(screen.getByText("State: error")).toBeInTheDocument();
+        expect(screen.getByText("Status Failed")).toBeInTheDocument();
       },
       { timeout: 7000 }
     );
@@ -256,7 +254,7 @@ describe("DocumentsUploadPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("desktop wake failed")).toBeInTheDocument();
-      expect(screen.getByText("Status failed")).toBeInTheDocument();
+      expect(screen.getByText("Status Failed")).toBeInTheDocument();
     });
 
     expect(

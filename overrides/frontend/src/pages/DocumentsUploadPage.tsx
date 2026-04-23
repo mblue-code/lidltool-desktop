@@ -108,9 +108,46 @@ function ocrStatusClass(status: string): string {
   }
 }
 
+function ocrStatusLabel(status: string, locale: "en" | "de", t: (key: any) => string): string {
+  switch (status) {
+    case "idle":
+      return t("pages.documentsUpload.state.idle");
+    case "uploading":
+      return t("pages.documentsUpload.state.uploading");
+    case "processing":
+      return t("pages.documentsUpload.state.processing");
+    case "completed":
+      return locale === "de" ? "Abgeschlossen" : "Completed";
+    case "failed":
+      return t("pages.documentsUpload.state.error");
+    case "pending":
+    case "queued":
+      return locale === "de" ? "Ausstehend" : "Pending";
+    case "starting_engine":
+      return locale === "de" ? "Engine startet" : "Starting engine";
+    default:
+      return status.replace(/_/g, " ");
+  }
+}
+
+function reviewStatusLabel(status: string, locale: "en" | "de"): string {
+  switch (status) {
+    case "approved":
+      return locale === "de" ? "Genehmigt" : "Approved";
+    case "needs_review":
+      return locale === "de" ? "Prüfung erforderlich" : "Needs review";
+    case "rejected":
+      return locale === "de" ? "Abgelehnt" : "Rejected";
+    case "unknown":
+      return locale === "de" ? "Unbekannt" : "Unknown";
+    default:
+      return status.replace(/_/g, " ");
+  }
+}
+
 export function DocumentsUploadPage() {
   const queryClient = useQueryClient();
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const inRouterContext = useInRouterContext();
   const [uploadResult, setUploadResult] = useState<DocumentUploadResponse | null>(null);
   const [processResult, setProcessResult] = useState<DocumentProcessResponse | null>(null);
@@ -244,9 +281,11 @@ export function DocumentsUploadPage() {
     lastStatusRef.current = statusKey;
     const confidenceSuffix =
       statusQuery.data.ocr_confidence !== null ? `, OCR confidence: ${statusQuery.data.ocr_confidence.toFixed(3)}` : "";
-    const title = t("pages.documentsUpload.timeline.status", { status: statusQuery.data.status });
+    const title = t("pages.documentsUpload.timeline.status", {
+      status: ocrStatusLabel(statusQuery.data.status, locale, t)
+    });
     const detail = t("pages.documentsUpload.timeline.review", {
-      reviewStatus: statusQuery.data.review_status || "unknown",
+      reviewStatus: reviewStatusLabel(statusQuery.data.review_status || "unknown", locale),
       confidenceSuffix
     });
     setTimeline((previous) => [
@@ -418,7 +457,7 @@ export function DocumentsUploadPage() {
             ) : null}
             <UploadStateChip state={uploadState} />
             <span className="sr-only" aria-live="polite">
-              State: {uploadState}
+              {t("pages.documentsUpload.statusTitle")}: {ocrStatusLabel(uploadState, locale, t)}
             </span>
             {uploadState === "done" ? (
               inRouterContext ? (
@@ -457,7 +496,7 @@ export function DocumentsUploadPage() {
               </Badge>
             ) : null}
             <Badge className={cn("text-xs", ocrStatusClass(currentStatus))}>
-              {currentStatus}
+              {ocrStatusLabel(currentStatus, locale, t)}
             </Badge>
           </div>
           {timelineItems.length === 0 ? (

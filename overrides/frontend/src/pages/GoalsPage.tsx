@@ -46,9 +46,72 @@ function goalTypeLabel(goalType: string, locale: "en" | "de"): string {
   return goalType;
 }
 
+function goalProgressStatusLabel(status: string, locale: "en" | "de"): string {
+  if (status === "completed") return locale === "de" ? "Abgeschlossen" : "Completed";
+  if (status === "at_risk") return locale === "de" ? "Gefährdet" : "At risk";
+  if (status === "on_track") return locale === "de" ? "Im Plan" : "On track";
+  if (status === "paused") return locale === "de" ? "Pausiert" : "Paused";
+  return status.replace(/_/g, " ");
+}
+
 export function GoalsPage() {
   const { fromDate, toDate } = useDateRangeContext();
-  const { locale, tText } = useI18n();
+  const { locale } = useI18n();
+  const copy = locale === "de"
+    ? {
+        pageTitle: "Ziele",
+        description: "Lege Spar- und Ausgabenziele fest, die auf dem Dashboard sichtbar bleiben, statt nur in Notizen oder Tabellen zu leben.",
+        activeGoals: "Aktive Ziele",
+        completed: "Abgeschlossen",
+        atRisk: "Gefährdet",
+        createGoal: "Ziel erstellen",
+        goalBoard: "Zielübersicht",
+        pause: "Pausieren",
+        resume: "Fortsetzen",
+        target: "Ziel",
+        category: "Kategorie",
+        merchant: "Händler",
+        recurringBill: "Wiederkehrende Rechnung",
+        none: "Keine",
+        saveGoal: "Ziel speichern",
+        name: "Name",
+        goalType: "Zieltyp",
+        targetAmount: "Zielbetrag (EUR)",
+        period: "Zeitraum",
+        currentWindow: "Aktuelles Dashboard-Fenster",
+        currentMonth: "Aktueller Monat",
+        categoryLabel: "Kategorie",
+        merchantLabel: "Händler",
+        targetDate: "Zieldatum",
+        notes: "Notizen"
+      }
+    : {
+        pageTitle: "Goals",
+        description: "Set savings and spend targets that stay visible from the dashboard instead of living in notes or spreadsheets.",
+        activeGoals: "Active goals",
+        completed: "Completed",
+        atRisk: "At risk",
+        createGoal: "Create goal",
+        goalBoard: "Goal board",
+        pause: "Pause",
+        resume: "Resume",
+        target: "Target",
+        category: "Category",
+        merchant: "Merchant",
+        recurringBill: "Recurring bill",
+        none: "None",
+        saveGoal: "Save goal",
+        name: "Name",
+        goalType: "Goal type",
+        targetAmount: "Target amount (EUR)",
+        period: "Period",
+        currentWindow: "Current dashboard window",
+        currentMonth: "Current month",
+        categoryLabel: "Category",
+        merchantLabel: "Merchant",
+        targetDate: "Target date",
+        notes: "Notes"
+      };
   const [formState, setFormState] = useState<GoalFormState>(DEFAULT_FORM);
   const queryClient = useQueryClient();
   const goalsQuery = useQuery({
@@ -98,26 +161,26 @@ export function GoalsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={tText("Goals")}
-        description={tText("Set savings and spend targets that stay visible from the dashboard instead of living in notes or spreadsheets.")}
+        title={copy.pageTitle}
+        description={copy.description}
       />
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="app-dashboard-surface border-border/60">
           <CardContent className="p-5">
-            <p className="text-sm text-muted-foreground">{tText("Active goals")}</p>
+            <p className="text-sm text-muted-foreground">{copy.activeGoals}</p>
             <p className="mt-2 text-3xl font-semibold">{topSummary.total}</p>
           </CardContent>
         </Card>
         <Card className="app-dashboard-surface border-border/60">
           <CardContent className="p-5">
-            <p className="text-sm text-muted-foreground">{tText("Completed")}</p>
+            <p className="text-sm text-muted-foreground">{copy.completed}</p>
             <p className="mt-2 text-3xl font-semibold">{topSummary.completed}</p>
           </CardContent>
         </Card>
         <Card className="app-dashboard-surface border-border/60">
           <CardContent className="p-5">
-            <p className="text-sm text-muted-foreground">{tText("At risk")}</p>
+            <p className="text-sm text-muted-foreground">{copy.atRisk}</p>
             <p className="mt-2 text-3xl font-semibold">{topSummary.atRisk}</p>
           </CardContent>
         </Card>
@@ -126,15 +189,15 @@ export function GoalsPage() {
       <div className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
         <Card className="app-dashboard-surface border-border/60">
           <CardHeader>
-            <CardTitle>{tText("Create goal")}</CardTitle>
+            <CardTitle>{copy.createGoal}</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="goal-name">{tText("Name")}</Label>
+              <Label htmlFor="goal-name">{copy.name}</Label>
               <Input id="goal-name" value={formState.name} onChange={(event) => setFormState((previous) => ({ ...previous, name: event.target.value }))} />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="goal-type">{tText("Goal type")}</Label>
+              <Label htmlFor="goal-type">{copy.goalType}</Label>
               <select
                 id="goal-type"
                 className="h-10 rounded-md border border-input bg-background px-3 text-sm"
@@ -148,40 +211,40 @@ export function GoalsPage() {
               </select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="goal-target">{tText("Target amount (EUR)")}</Label>
+              <Label htmlFor="goal-target">{copy.targetAmount}</Label>
               <Input id="goal-target" value={formState.targetAmount} onChange={(event) => setFormState((previous) => ({ ...previous, targetAmount: event.target.value }))} />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="goal-period">{tText("Period")}</Label>
+              <Label htmlFor="goal-period">{copy.period}</Label>
               <select
                 id="goal-period"
                 className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                 value={formState.period}
                 onChange={(event) => setFormState((previous) => ({ ...previous, period: event.target.value }))}
               >
-                <option value="current_window">{tText("Current dashboard window")}</option>
-                <option value="current_month">{tText("Current month")}</option>
+                <option value="current_window">{copy.currentWindow}</option>
+                <option value="current_month">{copy.currentMonth}</option>
               </select>
             </div>
             <div className="grid gap-2 md:grid-cols-2">
               <div className="grid gap-2">
-                <Label htmlFor="goal-category">{tText("Category")}</Label>
+                <Label htmlFor="goal-category">{copy.categoryLabel}</Label>
                 <Input id="goal-category" value={formState.category} onChange={(event) => setFormState((previous) => ({ ...previous, category: event.target.value }))} />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="goal-merchant">{tText("Merchant")}</Label>
+                <Label htmlFor="goal-merchant">{copy.merchantLabel}</Label>
                 <Input id="goal-merchant" value={formState.merchantName} onChange={(event) => setFormState((previous) => ({ ...previous, merchantName: event.target.value }))} />
               </div>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="goal-recurring-bill">{tText("Recurring bill")}</Label>
+              <Label htmlFor="goal-recurring-bill">{copy.recurringBill}</Label>
               <select
                 id="goal-recurring-bill"
                 className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                 value={formState.recurringBillId}
                 onChange={(event) => setFormState((previous) => ({ ...previous, recurringBillId: event.target.value }))}
               >
-                <option value="">{tText("None")}</option>
+                <option value="">{copy.none}</option>
                 {(recurringBillsQuery.data?.items ?? []).map((bill) => (
                   <option key={bill.id} value={bill.id}>
                     {bill.name}
@@ -190,11 +253,11 @@ export function GoalsPage() {
               </select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="goal-target-date">{tText("Target date")}</Label>
+              <Label htmlFor="goal-target-date">{copy.targetDate}</Label>
               <Input id="goal-target-date" type="date" value={formState.targetDate} onChange={(event) => setFormState((previous) => ({ ...previous, targetDate: event.target.value }))} />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="goal-notes">{tText("Notes")}</Label>
+              <Label htmlFor="goal-notes">{copy.notes}</Label>
               <Textarea id="goal-notes" value={formState.notes} onChange={(event) => setFormState((previous) => ({ ...previous, notes: event.target.value }))} />
             </div>
             <Button
@@ -215,14 +278,14 @@ export function GoalsPage() {
               disabled={!formState.name.trim() || !Number.isFinite(Number(formState.targetAmount))}
             >
               <Target className="mr-2 h-4 w-4" />
-              {tText("Save goal")}
+              {copy.saveGoal}
             </Button>
           </CardContent>
         </Card>
 
         <Card className="app-dashboard-surface border-border/60">
           <CardHeader>
-            <CardTitle>{tText("Goal board")}</CardTitle>
+            <CardTitle>{copy.goalBoard}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {(goalsQuery.data?.items ?? []).map((goal) => {
@@ -242,7 +305,7 @@ export function GoalsPage() {
                         size="sm"
                         onClick={() => updateGoalMutation.mutate({ goalId: goal.id, active: !goal.active })}
                       >
-                        {goal.active ? tText("Pause") : tText("Resume")}
+                        {goal.active ? copy.pause : copy.resume}
                       </Button>
                       <Button type="button" variant="ghost" size="icon" onClick={() => deleteGoalMutation.mutate(goal.id)}>
                         <Trash2 className="h-4 w-4" />
@@ -253,15 +316,15 @@ export function GoalsPage() {
                     <span className="text-muted-foreground">
                       {progress ? formatEurFromCents(progress.current_amount_cents) : formatEurFromCents(0)} / {formatEurFromCents(goal.target_amount_cents)}
                     </span>
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium">{tText((progress?.status || "unknown").replace(/_/g, " "))}</span>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium">{goalProgressStatusLabel(progress?.status || "unknown", locale)}</span>
                   </div>
                   <div className="mt-3 h-2.5 rounded-full bg-slate-100">
                     <div className="h-2.5 rounded-full bg-sky-500" style={{ width: `${percent}%` }} />
                   </div>
                   <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                    {goal.target_date ? <span>{locale === "de" ? `Ziel ${formatDate(goal.target_date)}` : `Target ${formatDate(goal.target_date)}`}</span> : null}
-                    {goal.category ? <span>{locale === "de" ? `Kategorie ${goal.category}` : `Category ${goal.category}`}</span> : null}
-                    {goal.merchant_name ? <span>{locale === "de" ? `Händler ${goal.merchant_name}` : `Merchant ${goal.merchant_name}`}</span> : null}
+                    {goal.target_date ? <span>{locale === "de" ? `${copy.target} ${formatDate(goal.target_date)}` : `${copy.target} ${formatDate(goal.target_date)}`}</span> : null}
+                    {goal.category ? <span>{locale === "de" ? `${copy.categoryLabel} ${goal.category}` : `${copy.categoryLabel} ${goal.category}`}</span> : null}
+                    {goal.merchant_name ? <span>{locale === "de" ? `${copy.merchantLabel} ${goal.merchant_name}` : `${copy.merchantLabel} ${goal.merchant_name}`}</span> : null}
                     {goal.notes ? <span>{goal.notes}</span> : null}
                   </div>
                 </div>

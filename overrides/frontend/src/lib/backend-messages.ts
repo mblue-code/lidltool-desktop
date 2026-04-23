@@ -44,6 +44,17 @@ const BACKEND_MESSAGE_KEYS = {
   user_not_found: "backend.error.userNotFound"
 } satisfies Record<string, TranslationKey>;
 
+const RAW_BACKEND_MESSAGE_KEYS = {
+  "preview connector bootstrap started; this connector is not live-validated yet":
+    "backend.warning.connectorPreviewBootstrapStarted",
+  "preview connector status only; this connector is not live-validated yet":
+    "backend.warning.connectorPreviewStatusOnly",
+  "preview connector cancellation only; this connector is not live-validated yet":
+    "backend.warning.connectorPreviewCancellationOnly",
+  "preview connector sync; this connector is not live-validated yet":
+    "backend.warning.connectorPreviewSyncStarted"
+} satisfies Record<string, TranslationKey>;
+
 const SUPPRESSED_WARNING_CODES = new Set([
   "connector_preview_bootstrap_started",
   "connector_preview_sync_started"
@@ -65,6 +76,11 @@ export function resolveBackendMessage(
   }
   const message = input.message?.trim();
   if (message) {
+    const rawTranslationKey =
+      RAW_BACKEND_MESSAGE_KEYS[message.toLowerCase() as keyof typeof RAW_BACKEND_MESSAGE_KEYS];
+    if (rawTranslationKey) {
+      return t(rawTranslationKey);
+    }
     return message;
   }
   return fallback?.trim() || "";

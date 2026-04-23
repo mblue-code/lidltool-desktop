@@ -377,6 +377,17 @@ export function isSupportedLocale(value: string): value is SupportedLocale {
   return value === "en" || value === "de";
 }
 
+function resolveSupportedLocale(value: string | null | undefined): SupportedLocale {
+  if (!value) {
+    return detectLocaleFromNavigator();
+  }
+  const normalized = value.toLowerCase();
+  if (isSupportedLocale(normalized)) {
+    return normalized;
+  }
+  return normalized.startsWith("de") ? "de" : "en";
+}
+
 export function getStoredLocale(): SupportedLocale {
   if (
     typeof window === "undefined" ||
@@ -390,6 +401,31 @@ export function getStoredLocale(): SupportedLocale {
     return stored;
   }
   return detectLocaleFromNavigator();
+}
+
+function readDesktopStoredLocale(): Promise<SupportedLocale | null> {
+  if (
+    typeof window === "undefined" ||
+    !window.desktopApi ||
+    typeof window.desktopApi.getLocale !== "function"
+  ) {
+    return Promise.resolve(null);
+  }
+  return window.desktopApi
+    .getLocale()
+    .then((stored: string) => resolveSupportedLocale(stored))
+    .catch(() => null);
+}
+
+function writeDesktopStoredLocale(nextLocale: SupportedLocale): void {
+  if (
+    typeof window === "undefined" ||
+    !window.desktopApi ||
+    typeof window.desktopApi.setLocale !== "function"
+  ) {
+    return;
+  }
+  void window.desktopApi.setLocale(nextLocale).catch(() => undefined);
 }
 
 export function notifySessionChanged(): void {
@@ -437,6 +473,37 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<SupportedLocale>(() => getStoredLocale());
   const [hasAuthenticatedSession, setHasAuthenticatedSession] = useState(false);
   const [, setSignedInLocale] = useState<SupportedLocale | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void readDesktopStoredLocale().then((desktopLocale) => {
+      if (!cancelled && desktopLocale) {
+        setLocaleState(desktopLocale);
+      }
+    });
+
+    if (
+      typeof window === "undefined" ||
+      !window.desktopApi ||
+      typeof window.desktopApi.onLocaleChanged !== "function"
+    ) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const dispose = window.desktopApi.onLocaleChanged((nextLocale: string) => {
+      if (!cancelled) {
+        setLocaleState(resolveSupportedLocale(nextLocale));
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      dispose();
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -559,6 +626,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const contextValue = useMemo<I18nContextValue>(() => {
     const setLocale = (nextLocale: SupportedLocale) => {
       setLocaleState(nextLocale);
+      writeDesktopStoredLocale(nextLocale);
       if (!hasAuthenticatedSession) {
         return;
       }
@@ -572,6 +640,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
           setSignedInLocale(persistedLocale);
           if (persistedLocale) {
             setLocaleState(persistedLocale);
+            writeDesktopStoredLocale(persistedLocale);
           }
         })
         .catch(() => {

@@ -92,7 +92,56 @@ function statusChipClass(card: MerchantConnectorCard): string {
 
 export function MerchantsPage() {
   const { fromDate, toDate } = useDateRangeContext();
-  const { locale, tText } = useI18n();
+  const { locale } = useI18n();
+  const copy = locale === "de"
+    ? {
+        pageTitle: "Händler",
+        description: "Verbinde den Zustand der Anbindungen, die Belegmenge und die Ausgabenkonzentration in einem händlerorientierten Arbeitsbereich.",
+        openConnectors: "Anbindungen öffnen",
+        connectedMerchants: "Verbundene Händler",
+        attentionNeeded: "Handlungsbedarf",
+        merchantsInHistory: "Händler im Verlauf",
+        trackedSpend: "Erfasste Ausgaben",
+        connectedMerchantGrid: "Verbundenes Händlernetz",
+        merchantDirectory: "Händlerverzeichnis",
+        searchMerchant: "Händler suchen",
+        merchant: "Händler",
+        categoryFocus: "Kategorienfokus",
+        receipts: "Belege",
+        sources: "Quellen",
+        spend: "Ausgaben",
+        topMerchant: "Top-Händler",
+        largestReceiptCount: "Größte Beleganzahl",
+        activeConnectors: "Aktive Anbindungen",
+        noSyncSummaryYet: "Noch keine Synchronisierungszusammenfassung.",
+        noSyncYet: "Noch keine Synchronisierung.",
+        noRecentPurchase: "Kein aktueller Einkauf",
+        topMerchantNone: "Noch keiner"
+      }
+    : {
+        pageTitle: "Merchants",
+        description: "Bridge connector health, receipt volume, and spend concentration in one merchant-oriented workspace.",
+        openConnectors: "Open connectors",
+        connectedMerchants: "Connected merchants",
+        attentionNeeded: "Attention needed",
+        merchantsInHistory: "Merchants in history",
+        trackedSpend: "Tracked spend",
+        connectedMerchantGrid: "Connected merchant grid",
+        merchantDirectory: "Merchant directory",
+        searchMerchant: "Search merchant",
+        merchant: "Merchant",
+        categoryFocus: "Category focus",
+        receipts: "Receipts",
+        sources: "Sources",
+        spend: "Spend",
+        topMerchant: "Top merchant",
+        largestReceiptCount: "Largest receipt count",
+        activeConnectors: "Active connectors",
+        noSyncSummaryYet: "No sync summary yet.",
+        noSyncYet: "No sync yet.",
+        noRecentPurchase: "No recent purchase",
+        topMerchantNone: "None yet"
+      };
   const [search, setSearch] = useState("");
   const connectorsQuery = useQuery({
     queryKey: ["merchants-page", "connectors"],
@@ -154,33 +203,33 @@ export function MerchantsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={tText("Merchants")}
-        description={tText("Bridge connector health, receipt volume, and spend concentration in one merchant-oriented workspace.")}
+        title={copy.pageTitle}
+        description={copy.description}
       >
         <Button asChild variant="outline">
-          <Link to="/connectors">{tText("Open connectors")}</Link>
+          <Link to="/connectors">{copy.openConnectors}</Link>
         </Button>
       </PageHeader>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card className="app-dashboard-surface border-border/60">
-          <MetricCard title={tText("Connected merchants")} value={String(activeMerchantCount)} icon={<Database className="h-4 w-4" />} />
+          <MetricCard title={copy.connectedMerchants} value={String(activeMerchantCount)} icon={<Database className="h-4 w-4" />} />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
-          <MetricCard title={tText("Attention needed")} value={String(attentionCount)} icon={<AlertTriangle className="h-4 w-4" />} />
+          <MetricCard title={copy.attentionNeeded} value={String(attentionCount)} icon={<AlertTriangle className="h-4 w-4" />} />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
-          <MetricCard title={tText("Merchants in history")} value={String(merchants.length)} icon={<Store className="h-4 w-4" />} />
+          <MetricCard title={copy.merchantsInHistory} value={String(merchants.length)} icon={<Store className="h-4 w-4" />} />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
-          <MetricCard title={tText("Tracked spend")} value={formatEurFromCents(spendTotal)} icon={<TrendingUp className="h-4 w-4" />} />
+          <MetricCard title={copy.trackedSpend} value={formatEurFromCents(spendTotal)} icon={<TrendingUp className="h-4 w-4" />} />
         </Card>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
         <Card className="app-dashboard-surface border-border/60">
           <CardHeader>
-            <CardTitle>{tText("Connected merchant grid")}</CardTitle>
+            <CardTitle>{copy.connectedMerchantGrid}</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
             {merchantCards.map((card) => (
@@ -201,13 +250,13 @@ export function MerchantsPage() {
                   </span>
                 </div>
                 <div className="mt-4 space-y-1 text-sm text-foreground/68">
-                  <p>{card.lastSyncSummary || tText("No sync summary yet.")}</p>
+                  <p>{card.lastSyncSummary || copy.noSyncSummaryYet}</p>
                   <p>
                     {card.lastSyncedAt
                       ? locale === "de"
                         ? `Zuletzt synchronisiert ${formatDate(card.lastSyncedAt)}`
                         : `Last synced ${formatDate(card.lastSyncedAt)}`
-                      : tText("No sync yet.")}
+                      : copy.noSyncYet}
                   </p>
                 </div>
               </div>
@@ -217,11 +266,11 @@ export function MerchantsPage() {
 
         <Card className="app-dashboard-surface border-border/60">
           <CardHeader className="flex flex-row items-center justify-between gap-3">
-            <CardTitle>{tText("Merchant directory")}</CardTitle>
+            <CardTitle>{copy.merchantDirectory}</CardTitle>
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder={tText("Search merchant")}
+              placeholder={copy.searchMerchant}
               className="max-w-56"
             />
           </CardHeader>
@@ -229,11 +278,11 @@ export function MerchantsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{tText("Merchant")}</TableHead>
-                  <TableHead>{tText("Category focus")}</TableHead>
-                  <TableHead>{tText("Receipts")}</TableHead>
-                  <TableHead>{tText("Sources")}</TableHead>
-                  <TableHead className="text-right">{tText("Spend")}</TableHead>
+                  <TableHead>{copy.merchant}</TableHead>
+                  <TableHead>{copy.categoryFocus}</TableHead>
+                  <TableHead>{copy.receipts}</TableHead>
+                  <TableHead>{copy.sources}</TableHead>
+                  <TableHead className="text-right">{copy.spend}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -247,7 +296,7 @@ export function MerchantsPage() {
                             ? locale === "de"
                               ? `Letzter Einkauf ${formatDate(row.last_purchased_at)}`
                               : `Last purchase ${formatDate(row.last_purchased_at)}`
-                            : tText("No recent purchase")}
+                            : copy.noRecentPurchase}
                         </p>
                       </div>
                     </TableCell>
@@ -267,17 +316,17 @@ export function MerchantsPage() {
         <CardContent className="grid gap-4 p-6 md:grid-cols-3">
           <div className="app-soft-surface rounded-[24px] border border-border/60 p-4">
             <ReceiptText className="mb-3 h-5 w-5 text-foreground/75" />
-            <p className="text-sm text-foreground/68">{tText("Top merchant")}</p>
-            <p className="mt-2 text-xl font-semibold">{merchants[0]?.merchant || tText("None yet")}</p>
+            <p className="text-sm text-foreground/68">{copy.topMerchant}</p>
+            <p className="mt-2 text-xl font-semibold">{merchants[0]?.merchant || copy.topMerchantNone}</p>
           </div>
           <div className="app-soft-surface rounded-[24px] border border-border/60 p-4">
             <Store className="mb-3 h-5 w-5 text-foreground/75" />
-            <p className="text-sm text-foreground/68">{tText("Largest receipt count")}</p>
+            <p className="text-sm text-foreground/68">{copy.largestReceiptCount}</p>
             <p className="mt-2 text-xl font-semibold">{merchants[0]?.receipt_count ?? 0}</p>
           </div>
           <div className="app-soft-surface rounded-[24px] border border-border/60 p-4">
             <Database className="mb-3 h-5 w-5 text-foreground/75" />
-            <p className="text-sm text-foreground/68">{tText("Active connectors")}</p>
+            <p className="text-sm text-foreground/68">{copy.activeConnectors}</p>
             <p className="mt-2 text-xl font-semibold">{activeMerchantCount}</p>
           </div>
         </CardContent>

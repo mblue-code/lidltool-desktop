@@ -14,7 +14,38 @@ import { formatDate, formatEurFromCents } from "@/utils/format";
 
 export function GroceriesPage() {
   const { fromDate, toDate } = useDateRangeContext();
-  const { tText } = useI18n();
+  const { locale } = useI18n();
+  const copy = locale === "de"
+    ? {
+        title: "Einkäufe",
+        description: "Verfolge Warenkorngröße, Kategorienkonzentration und den neuesten Belegfluss im aktiven Dashboard-Zeitraum.",
+        openTransactions: "Transaktionen öffnen",
+        trackedSpend: "Erfasste Ausgaben",
+        averageBasket: "Durchschnittlicher Warenkorb",
+        recentReceipts: "Aktuelle Belege",
+        activeMerchants: "Aktive Händler",
+        categoryMix: "Kategorienverteilung",
+        merchant: "Händler",
+        date: "Datum",
+        source: "Quelle",
+        amount: "Betrag",
+        viewAll: "Alle anzeigen"
+      }
+    : {
+        title: "Purchases",
+        description: "Track basket size, category concentration, and the latest receipt flow for the active dashboard window.",
+        openTransactions: "Open transactions",
+        trackedSpend: "Tracked spend",
+        averageBasket: "Average basket",
+        recentReceipts: "Recent receipts",
+        activeMerchants: "Active merchants",
+        categoryMix: "Category mix",
+        merchant: "Merchant",
+        date: "Date",
+        source: "Source",
+        amount: "Amount",
+        viewAll: "View all"
+      };
   const summaryQuery = useQuery({
     queryKey: ["groceries-page", fromDate, toDate],
     queryFn: () => fetchGroceriesSummary(fromDate, toDate),
@@ -25,39 +56,39 @@ export function GroceriesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={tText("Purchases")}
-        description={tText("Track basket size, category concentration, and the latest receipt flow for the active dashboard window.")}
+        title={copy.title}
+        description={copy.description}
       >
         <Button asChild variant="outline">
-          <Link to="/transactions">{tText("Open transactions")}</Link>
+          <Link to="/transactions">{copy.openTransactions}</Link>
         </Button>
       </PageHeader>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card className="app-dashboard-surface border-border/60">
           <MetricCard
-            title={tText("Tracked spend")}
+            title={copy.trackedSpend}
             value={formatEurFromCents(summary?.totals.spend_cents ?? 0)}
             icon={<ShoppingCart className="h-4 w-4" />}
           />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
           <MetricCard
-            title={tText("Average basket")}
+            title={copy.averageBasket}
             value={formatEurFromCents(summary?.totals.average_basket_cents ?? 0)}
             icon={<TrendingUp className="h-4 w-4" />}
           />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
           <MetricCard
-            title={tText("Recent receipts")}
+            title={copy.recentReceipts}
             value={String(summary?.totals.receipt_count ?? 0)}
             icon={<ReceiptText className="h-4 w-4" />}
           />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
           <MetricCard
-            title={tText("Active merchants")}
+            title={copy.activeMerchants}
             value={String(summary?.totals.merchant_count ?? 0)}
             icon={<Database className="h-4 w-4" />}
           />
@@ -67,7 +98,7 @@ export function GroceriesPage() {
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <Card className="app-dashboard-surface border-border/60">
           <CardHeader>
-            <CardTitle>{tText("Category mix")}</CardTitle>
+            <CardTitle>{copy.categoryMix}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {(summary?.category_breakdown ?? []).map((item) => {
@@ -90,19 +121,19 @@ export function GroceriesPage() {
 
         <Card className="app-dashboard-surface border-border/60">
           <CardHeader className="flex flex-row items-center justify-between gap-3">
-            <CardTitle>{tText("Recent purchases")}</CardTitle>
+            <CardTitle>{locale === "de" ? "Aktuelle Einkäufe" : "Recent purchases"}</CardTitle>
             <Button asChild variant="ghost" size="sm">
-              <Link to="/transactions">{tText("View all")}</Link>
+              <Link to="/transactions">{copy.viewAll}</Link>
             </Button>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{tText("Merchant")}</TableHead>
-                  <TableHead>{tText("Date")}</TableHead>
-                  <TableHead>{tText("Source")}</TableHead>
-                  <TableHead className="text-right">{tText("Amount")}</TableHead>
+                  <TableHead>{copy.merchant}</TableHead>
+                  <TableHead>{copy.date}</TableHead>
+                  <TableHead>{copy.source}</TableHead>
+                  <TableHead className="text-right">{copy.amount}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 
 import { I18nProvider } from "@/i18n";
 import { AISettingsPage } from "../AISettingsPage";
@@ -41,6 +42,17 @@ vi.mock("sonner", () => ({
     success: vi.fn(),
     error: vi.fn()
   }
+}));
+
+vi.mock("@/api/users", () => ({
+  fetchCurrentUser: vi.fn(async () => ({
+    user_id: "u1",
+    username: "alice",
+    display_name: null,
+    is_admin: false,
+    preferred_locale: null
+  })),
+  updateCurrentUserLocale: vi.fn()
 }));
 
 function renderPage(ui: React.JSX.Element): void {
@@ -136,5 +148,27 @@ describe("AISettingsPage", () => {
       "https://categorization.example/v1"
     );
     expect((document.getElementById("categorization-api-model") as HTMLInputElement).value).toBe("mistral-small");
+  });
+
+  it("localizes AI save feedback and categorization runtime status in German", async () => {
+    window.localStorage.setItem("app.locale", "de");
+    mocks.saveAISettingsMock.mockResolvedValue({ ok: true });
+    mocks.saveAIChatSettingsMock.mockResolvedValue({ ok: true });
+    mocks.saveAICategorizationSettingsMock.mockResolvedValue({ ok: false, error: null });
+
+    renderPage(<AISettingsPage />);
+
+    expect(await screen.findByText("Artikelkategorisierung")).toBeInTheDocument();
+    expect(screen.getByText("Kategorisierungsstatus")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Chatmodell speichern" }));
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("Chatmodell gespeichert");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Kategorisierung .* speichern/i }));
+
+    expect(await screen.findByText("Kategorisierungseinstellungen konnten nicht gespeichert werden")).toBeInTheDocument();
   });
 });

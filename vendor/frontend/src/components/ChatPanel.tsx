@@ -200,7 +200,7 @@ export function ChatPanel({
   onPanelWidthChange,
   pageContext
 }: ChatPanelProps) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const queryClient = useQueryClient();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -308,7 +308,7 @@ export function ChatPanel({
     return agent.subscribe((event) => {
       if (event.type === "message_update") {
         if (event.assistantMessageEvent.type === "error") {
-          setError(event.assistantMessageEvent.error.errorMessage || "Agent stream failed");
+          setError(event.assistantMessageEvent.error.errorMessage || t("pages.chatWorkspace.error.streamFailed"));
         }
         const message = event.message as any;
         if (message.role !== "assistant") {
@@ -430,7 +430,8 @@ export function ChatPanel({
       });
       runPersisted = true;
     } catch (nextError) {
-      const message = nextError instanceof Error ? nextError.message : "Agent request failed";
+      const message =
+        nextError instanceof Error ? nextError.message : t("pages.chatWorkspace.error.streamFailed");
       setError(message);
       if (threadId) {
         try {
@@ -520,7 +521,7 @@ export function ChatPanel({
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize chat panel"
+        aria-label={locale === "de" ? "Chat-Panel-Größe ändern" : "Resize chat panel"}
         className="absolute bottom-0 left-0 top-0 z-10 hidden w-3 -translate-x-1/2 cursor-col-resize items-stretch md:flex"
         onMouseDown={startResize}
       >
@@ -530,10 +531,10 @@ export function ChatPanel({
         <header className="border-b px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <h2 className="text-sm font-semibold">AI Assistant</h2>
+              <h2 className="text-sm font-semibold">{t("nav.item.aiAssistant")}</h2>
               {enabled && modelOptions.length > 0 && activeModelId ? (
                 <select
-                  aria-label="Chat model"
+                  aria-label={t("pages.chatWorkspace.modelSelector.label")}
                   className="app-soft-surface h-8 max-w-[14rem] rounded-md border px-2 text-xs"
                   value={activeModelId}
                   disabled={isStreaming}
@@ -549,10 +550,10 @@ export function ChatPanel({
             </div>
             <div className="flex items-center gap-2">
               <Button size="sm" variant="outline" onClick={startNewChat}>
-                New chat
+                {t("pages.chatWorkspace.newChat")}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
-                Close
+                {t("common.close")}
               </Button>
             </div>
           </div>
@@ -569,7 +570,7 @@ export function ChatPanel({
         </header>
 
         <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-          {!enabled ? <p className="text-sm text-muted-foreground">Configure AI settings to use chat.</p> : null}
+          {!enabled ? <p className="text-sm text-muted-foreground">{t("pages.chatWorkspace.error.configUnavailable")}</p> : null}
           {messages.map((message) => (
             <div
               key={message.id}
@@ -609,7 +610,7 @@ export function ChatPanel({
                 <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">
                   {message.tools.map((tool) => (
                     <span key={`${message.id}-${tool}`} className="rounded-full border px-2 py-0.5">
-                      Used: {tool}
+                      {locale === "de" ? "Verwendet:" : "Used:"} {tool}
                     </span>
                   ))}
                 </div>
@@ -620,7 +621,7 @@ export function ChatPanel({
             </div>
           ))}
           {activeToolLabel ? (
-            <p className="text-xs text-muted-foreground">Searching with {activeToolLabel}...</p>
+            <p className="text-xs text-muted-foreground">{t("pages.chatWorkspace.searchingWithTool", { tool: activeToolLabel })}</p>
           ) : null}
           {error ? (
             <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
@@ -632,7 +633,7 @@ export function ChatPanel({
                 disabled={isStreaming || !lastPrompt}
                 onClick={() => void sendPrompt(lastPrompt || undefined)}
               >
-                Retry
+                {t("common.retry")}
               </Button>
             </div>
           ) : null}
@@ -658,7 +659,7 @@ export function ChatPanel({
               disabled={!enabled || isStreaming || !input.trim() || !agent}
               onClick={() => void sendPrompt()}
             >
-              {isStreaming ? "Thinking..." : "Send"}
+              {isStreaming ? t("pages.chatWorkspace.generating") : t("pages.chatWorkspace.send")}
             </Button>
           </div>
         </div>

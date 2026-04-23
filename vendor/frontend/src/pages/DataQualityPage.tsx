@@ -19,9 +19,24 @@ import { useI18n } from "@/i18n";
 import { formatEurFromCents } from "@/utils/format";
 
 export function DataQualityPage() {
-  const { t } = useI18n();
+  const { locale, t, tText } = useI18n();
   const [threshold, setThreshold] = useState("0.85");
   const [recategorizeJobId, setRecategorizeJobId] = useState<string | null>(null);
+
+  function qualityJobStatusLabel(status: string): string {
+    switch (status) {
+      case "queued":
+        return locale === "de" ? "Ausstehend" : "queued";
+      case "running":
+        return locale === "de" ? "Läuft" : "running";
+      case "completed":
+        return locale === "de" ? "Abgeschlossen" : "completed";
+      case "error":
+        return locale === "de" ? "Fehlgeschlagen" : "error";
+      default:
+        return status;
+    }
+  }
 
   const unmatchedQuery = useQuery({
     queryKey: ["quality-unmatched"],
@@ -63,15 +78,19 @@ export function DataQualityPage() {
       <PageHeader title={t("nav.item.dataQuality")} />
       <div className="flex flex-wrap items-end gap-6">
         <div>
-          <p className="text-sm text-muted-foreground">Unmatched items</p>
+          <p className="text-sm text-muted-foreground">
+            {locale === "de" ? "Nicht zugeordnete Artikel" : "Unmatched items"}
+          </p>
           <p className="text-2xl font-semibold">{unmatchedQuery.data?.count ?? 0}</p>
         </div>
         <div>
-          <p className="text-sm text-muted-foreground">Low-confidence OCR docs</p>
+          <p className="text-sm text-muted-foreground">
+            {locale === "de" ? "OCR-Dokumente mit niedriger Erkennungssicherheit" : "Low-confidence OCR docs"}
+          </p>
           <p className="text-2xl font-semibold">{lowConfidenceQuery.data?.count ?? 0}</p>
         </div>
         <div className="space-y-1">
-          <Label htmlFor="quality-threshold">OCR threshold</Label>
+          <Label htmlFor="quality-threshold">{tText("OCR threshold")}</Label>
           <div className="flex gap-2">
             <Input
               id="quality-threshold"
@@ -83,7 +102,7 @@ export function DataQualityPage() {
               step="0.01"
             />
             <Button variant="outline" onClick={() => lowConfidenceQuery.refetch()}>
-              Refresh
+              {tText("Refresh")}
             </Button>
           </div>
         </div>
@@ -91,9 +110,11 @@ export function DataQualityPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Tools</CardTitle>
+          <CardTitle>{t("nav.group.tools")}</CardTitle>
           <Button onClick={() => recategorizeMutation.mutate()} disabled={recategorizeRunning}>
-            {recategorizeRunning ? "Repairing categories..." : "Repair item categories"}
+            {recategorizeRunning
+              ? (locale === "de" ? "Kategorien werden repariert..." : "Repairing categories...")
+              : (locale === "de" ? "Artikelkategorien reparieren" : "Repair item categories")}
           </Button>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
@@ -103,16 +124,32 @@ export function DataQualityPage() {
             This uses the configured categorization runtime and writes results back into the normal transaction path.
           </p>
           {recategorizeMutation.isError ? (
-            <p className="text-destructive">Failed to start recategorization.</p>
+            <p className="text-destructive">
+              {locale === "de" ? "Kategorisierung konnte nicht gestartet werden." : "Failed to start recategorization."}
+            </p>
           ) : null}
           {recategorizeJob ? (
             <div className="rounded-md border p-3 text-foreground">
-              <p>Status: {recategorizeJob.status}</p>
-              <p>Transactions scanned: {recategorizeJob.transaction_count}</p>
-              <p>Candidate items: {recategorizeJob.candidate_item_count}</p>
-              <p>Updated items: {recategorizeJob.updated_item_count}</p>
-              <p>Updated transactions: {recategorizeJob.updated_transaction_count}</p>
-              {recategorizeJob.error ? <p className="text-destructive">Error: {recategorizeJob.error}</p> : null}
+              <p>
+                {tText("Status")}: {qualityJobStatusLabel(recategorizeJob.status)}
+              </p>
+              <p>
+                {locale === "de" ? "Durchsuchte Transaktionen" : "Transactions scanned"}: {recategorizeJob.transaction_count}
+              </p>
+              <p>
+                {locale === "de" ? "Kandidateneinträge" : "Candidate items"}: {recategorizeJob.candidate_item_count}
+              </p>
+              <p>
+                {locale === "de" ? "Aktualisierte Artikel" : "Updated items"}: {recategorizeJob.updated_item_count}
+              </p>
+              <p>
+                {locale === "de" ? "Aktualisierte Transaktionen" : "Updated transactions"}: {recategorizeJob.updated_transaction_count}
+              </p>
+              {recategorizeJob.error ? (
+                <p className="text-destructive">
+                  {tText("Error")}: {recategorizeJob.error}
+                </p>
+              ) : null}
             </div>
           ) : null}
         </CardContent>
@@ -120,7 +157,7 @@ export function DataQualityPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Unmatched Items</CardTitle>
+          <CardTitle>{locale === "de" ? "Nicht zugeordnete Artikel" : "Unmatched Items"}</CardTitle>
         </CardHeader>
         <CardContent>
           {unmatchedQuery.data?.items.length ? (
@@ -128,10 +165,10 @@ export function DataQualityPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Raw name</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Purchases</TableHead>
-                  <TableHead>Total spend</TableHead>
+                  <TableHead>{locale === "de" ? "Rohname" : "Raw name"}</TableHead>
+                  <TableHead>{tText("Source")}</TableHead>
+                  <TableHead>{tText("Purchases")}</TableHead>
+                  <TableHead>{locale === "de" ? "Gesamtausgaben" : "Total spend"}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -154,7 +191,7 @@ export function DataQualityPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Low-confidence OCR</CardTitle>
+          <CardTitle>{tText("Low-confidence OCR")}</CardTitle>
           {(lowConfidenceQuery.data?.items.length ?? 0) > 0 ? (
             <Button variant="outline" size="sm" asChild>
               <Link to="/review-queue">{t("pages.dataQuality.reviewThem")}</Link>
@@ -167,10 +204,10 @@ export function DataQualityPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Document</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Confidence</TableHead>
-                  <TableHead>Review status</TableHead>
+                  <TableHead>{tText("Document")}</TableHead>
+                  <TableHead>{tText("Source")}</TableHead>
+                  <TableHead>{tText("Confidence")}</TableHead>
+                  <TableHead>{locale === "de" ? "Prüfstatus" : "Review status"}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

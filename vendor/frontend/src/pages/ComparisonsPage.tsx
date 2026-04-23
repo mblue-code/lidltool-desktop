@@ -58,7 +58,7 @@ function writeStoredBasket(items: BasketItem[]): void {
 
 export function ComparisonsPage() {
   const queryClient = useQueryClient();
-  const { t } = useI18n();
+  const { locale, t, tText } = useI18n();
   const [groupName, setGroupName] = useState("");
   const [groupId, setGroupId] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState("");
@@ -169,29 +169,29 @@ export function ComparisonsPage() {
       <div className="space-y-3">
         <form className="flex gap-2" onSubmit={submitGroup}>
           <div className="flex-1 space-y-1">
-            <Label htmlFor="compare-group-name">Create group</Label>
+            <Label htmlFor="compare-group-name">{tText("Create group")}</Label>
             <Input
               id="compare-group-name"
               value={groupName}
               onChange={(event) => setGroupName(event.target.value)}
-              placeholder="Weekly basket"
+              placeholder={locale === "de" ? "Wöchentlicher Warenkorb" : "Weekly basket"}
             />
           </div>
           <Button type="submit" className="self-end" disabled={createGroupMutation.isPending}>
-            Create
+            {locale === "de" ? "Erstellen" : "Create"}
           </Button>
         </form>
 
         <div className="grid gap-2 md:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="compare-group-select">Group</Label>
+            <Label htmlFor="compare-group-select">{tText("Group")}</Label>
             <select
               id="compare-group-select"
               className="app-soft-surface h-10 w-full rounded-md border px-3 text-sm"
               value={groupId ?? ""}
               onChange={(event) => setGroupId(event.target.value || null)}
             >
-              <option value="">Select group</option>
+              <option value="">{tText("Select group")}</option>
               {groups.map((group) => (
                 <option key={group.group_id} value={group.group_id}>
                   {group.name} ({group.member_count})
@@ -200,7 +200,7 @@ export function ComparisonsPage() {
             </select>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="compare-product-search">Find product</Label>
+            <Label htmlFor="compare-product-search">{tText("Find product")}</Label>
             <SearchInput
               id="compare-product-search"
               value={productSearch}
@@ -216,7 +216,7 @@ export function ComparisonsPage() {
         ) : null}
         {products.length > 0 ? (
           <div className="space-y-2">
-            <p className="text-sm font-medium">Search results</p>
+            <p className="text-sm font-medium">{locale === "de" ? "Suchergebnisse" : "Search results"}</p>
             <div className="flex flex-wrap gap-2">
               {products.slice(0, 8).map((product) => (
                 <Button
@@ -235,10 +235,10 @@ export function ComparisonsPage() {
                 onClick={() => void addMemberMutation.mutateAsync()}
                 disabled={groupId === null || selectedProductId === null || addMemberMutation.isPending}
               >
-                Add selected product to group
+                {locale === "de" ? "Ausgewähltes Produkt zur Gruppe hinzufügen" : "Add selected product to group"}
               </Button>
               <Button variant="outline" onClick={addSelectedToBasket} disabled={selectedProductId === null}>
-                Add selected product to basket
+                {locale === "de" ? "Ausgewähltes Produkt zum Warenkorb hinzufügen" : "Add selected product to basket"}
               </Button>
             </div>
           </div>
@@ -248,21 +248,21 @@ export function ComparisonsPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Basket Builder</CardTitle>
+            <CardTitle>{tText("Basket Builder")}</CardTitle>
             <p className="text-xs text-muted-foreground">{t("pages.comparisons.basketSavedLocally")}</p>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {basket.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Add products to build a comparison basket.</p>
+            <p className="text-sm text-muted-foreground">{tText("Add products to build a comparison basket.")}</p>
           ) : (
             <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Qty</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>{tText("Products")}</TableHead>
+                  <TableHead>{tText("Qty")}</TableHead>
+                  <TableHead>{tText("Actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -311,7 +311,7 @@ export function ComparisonsPage() {
                             setBasket((previous) => previous.filter((row) => row.product_id !== item.product_id))
                           }
                         >
-                          Remove
+                          {locale === "de" ? "Entfernen" : "Remove"}
                         </Button>
                       </div>
                     </TableCell>
@@ -328,10 +328,10 @@ export function ComparisonsPage() {
               onClick={() => void basketMutation.mutateAsync()}
               disabled={basket.length === 0 || basketMutation.isPending}
             >
-              Compare basket
+              {locale === "de" ? "Warenkorb vergleichen" : "Compare basket"}
             </Button>
             <Button variant="outline" onClick={() => setBasket([])} disabled={basket.length === 0}>
-              Clear basket
+              {locale === "de" ? "Warenkorb leeren" : "Clear basket"}
             </Button>
           </div>
           {basketResult.length > 0 ? (
@@ -339,10 +339,10 @@ export function ComparisonsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead>Coverage</TableHead>
-                  <TableHead>Missing</TableHead>
+                  <TableHead>{tText("Source")}</TableHead>
+                  <TableHead>{tText("Total")}</TableHead>
+                  <TableHead>{locale === "de" ? "Abdeckung" : "Coverage"}</TableHead>
+                  <TableHead>{locale === "de" ? "Fehlend" : "Missing"}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -363,23 +363,23 @@ export function ComparisonsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Group Price Series</CardTitle>
+          <CardTitle>{locale === "de" ? "Preisreihe der Gruppe" : "Group Price Series"}</CardTitle>
         </CardHeader>
         <CardContent>
           {groupId === null ? (
-            <p className="text-sm text-muted-foreground">Select a group to view series.</p>
+            <p className="text-sm text-muted-foreground">{locale === "de" ? "Wählen Sie eine Gruppe aus, um die Preisreihe anzuzeigen." : "Select a group to view series."}</p>
           ) : seriesPoints.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No series points yet.</p>
+            <p className="text-sm text-muted-foreground">{tText("No series points yet.")}</p>
           ) : (
             <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Period</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Unit Price</TableHead>
-                  <TableHead>Purchases</TableHead>
+                  <TableHead>{tText("Period")}</TableHead>
+                  <TableHead>{tText("Source")}</TableHead>
+                  <TableHead>{locale === "de" ? "Produkt" : "Product"}</TableHead>
+                  <TableHead>{tText("Unit Price")}</TableHead>
+                  <TableHead>{tText("Purchases")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -401,20 +401,20 @@ export function ComparisonsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Retailer Price Index</CardTitle>
+          <CardTitle>{tText("Retailer Price Index")}</CardTitle>
         </CardHeader>
         <CardContent>
           {indexPoints.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No index points available.</p>
+            <p className="text-sm text-muted-foreground">{tText("No index points available.")}</p>
           ) : (
             <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Period</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Index</TableHead>
-                  <TableHead>Products</TableHead>
+                  <TableHead>{tText("Period")}</TableHead>
+                  <TableHead>{tText("Source")}</TableHead>
+                  <TableHead>{locale === "de" ? "Index" : "Index"}</TableHead>
+                  <TableHead>{tText("Products")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

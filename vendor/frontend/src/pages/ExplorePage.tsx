@@ -22,7 +22,7 @@ const DSL_TEMPLATES = {
 
 export function ExplorePage() {
   const queryClient = useQueryClient();
-  const { t } = useI18n();
+  const { locale, t, tText } = useI18n();
   const [metrics, setMetrics] = useState("net_total,discount_total");
   const [showSyntaxHelp, setShowSyntaxHelp] = useState(false);
   const [dimensions, setDimensions] = useState("month,source_kind");
@@ -48,7 +48,13 @@ export function ExplorePage() {
       setErrorText(null);
     },
     onError: (error) => {
-      setErrorText(error instanceof Error ? error.message : "Failed to run query.");
+      setErrorText(
+        error instanceof Error
+          ? error.message
+          : locale === "de"
+            ? "Abfrage konnte nicht ausgeführt werden."
+            : "Failed to run query."
+      );
     }
   });
 
@@ -66,7 +72,13 @@ export function ExplorePage() {
       setErrorText(null);
     },
     onError: (error) => {
-      setErrorText(error instanceof Error ? error.message : "Failed to run DSL query.");
+      setErrorText(
+        error instanceof Error
+          ? error.message
+          : locale === "de"
+            ? "DSL-Abfrage konnte nicht ausgeführt werden."
+            : "Failed to run DSL query."
+      );
     }
   });
 
@@ -134,11 +146,11 @@ export function ExplorePage() {
       <PageHeader title={t("nav.item.explore")} />
       <form className="grid gap-3 md:grid-cols-4" onSubmit={submit}>
         <div className="space-y-1">
-          <Label htmlFor="explore-metrics">Metrics (comma separated)</Label>
+          <Label htmlFor="explore-metrics">{tText("Metrics (comma separated)")}</Label>
           <Input id="explore-metrics" value={metrics} onChange={(event) => setMetrics(event.target.value)} />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="explore-dimensions">Dimensions (comma separated)</Label>
+          <Label htmlFor="explore-dimensions">{tText("Dimensions (comma separated)")}</Label>
           <Input
             id="explore-dimensions"
             value={dimensions}
@@ -146,31 +158,31 @@ export function ExplorePage() {
           />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="explore-date-from">From</Label>
+          <Label htmlFor="explore-date-from">{tText("From")}</Label>
           <Input id="explore-date-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="explore-date-to">To</Label>
+          <Label htmlFor="explore-date-to">{tText("To")}</Label>
           <Input id="explore-date-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
         </div>
         <div className="flex gap-2 md:col-span-4">
           <Button type="submit" disabled={runMutation.isPending}>
-            Run query
+            {locale === "de" ? "Abfrage ausführen" : "Run query"}
           </Button>
           <Input
-            placeholder="Saved query name"
+            placeholder={tText("Saved query name")}
             value={saveName}
             onChange={(event) => setSaveName(event.target.value)}
           />
           <Button type="button" variant="outline" onClick={saveCurrentQuery} disabled={saveMutation.isPending}>
-            Save query
+            {locale === "de" ? "Abfrage speichern" : "Save query"}
           </Button>
         </div>
       </form>
 
       <Card>
         <CardHeader>
-          <CardTitle>DSL Mode</CardTitle>
+          <CardTitle>{tText("DSL Mode")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           <div className="flex flex-wrap gap-2">
@@ -188,7 +200,7 @@ export function ExplorePage() {
           <Textarea id="explore-dsl" value={dsl} onChange={(event) => setDsl(event.target.value)} rows={5} />
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={runDslQuery} disabled={dslMutation.isPending}>
-              Run DSL
+              {locale === "de" ? "DSL ausführen" : "Run DSL"}
             </Button>
             <Button
               type="button"
@@ -201,12 +213,22 @@ export function ExplorePage() {
           </div>
           {showSyntaxHelp ? (
             <div className="app-soft-surface space-y-1 rounded-md border p-3 text-xs">
-              <p className="font-medium">DSL Syntax Reference</p>
-              <p><code>SPEND net|gross BY dim1, dim2</code> — aggregate spending</p>
-              <p><code>WHERE date BETWEEN YYYY-MM-DD..YYYY-MM-DD</code> — date filter</p>
-              <p><code>AND category = "Dairy"</code> — field filter</p>
-              <p><code>ORDER BY metric ASC|DESC</code> — sort results</p>
-              <p><code>LIMIT n</code> — limit rows returned</p>
+              <p className="font-medium">{locale === "de" ? "DSL-Syntaxreferenz" : "DSL Syntax Reference"}</p>
+              <p>
+                <code>SPEND net|gross BY dim1, dim2</code> {locale === "de" ? "— Ausgaben aggregieren" : "— aggregate spending"}
+              </p>
+              <p>
+                <code>WHERE date BETWEEN YYYY-MM-DD..YYYY-MM-DD</code> {locale === "de" ? "— Datumsfilter" : "— date filter"}
+              </p>
+              <p>
+                <code>AND category = "Dairy"</code> {locale === "de" ? "— Feldfilter" : "— field filter"}
+              </p>
+              <p>
+                <code>ORDER BY metric ASC|DESC</code> {locale === "de" ? "— Ergebnisse sortieren" : "— sort results"}
+              </p>
+              <p>
+                <code>LIMIT n</code> {locale === "de" ? "— Zeilen begrenzen" : "— limit rows returned"}
+              </p>
             </div>
           ) : null}
         </CardContent>
@@ -214,18 +236,20 @@ export function ExplorePage() {
 
       {errorText ? (
         <Alert variant="destructive">
-          <AlertTitle>Query error</AlertTitle>
+          <AlertTitle>{tText("Query error")}</AlertTitle>
           <AlertDescription>{errorText}</AlertDescription>
         </Alert>
       ) : null}
 
       <Card>
         <CardHeader>
-          <CardTitle>Result</CardTitle>
+          <CardTitle>{tText("Result")}</CardTitle>
         </CardHeader>
         <CardContent>
           {result === null ? (
-            <p className="text-sm text-muted-foreground">Run a query to see results.</p>
+            <p className="text-sm text-muted-foreground">
+              {locale === "de" ? "Führen Sie eine Abfrage aus, um Ergebnisse zu sehen." : "Run a query to see results."}
+            </p>
           ) : (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
@@ -259,7 +283,7 @@ export function ExplorePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Saved Queries</CardTitle>
+          <CardTitle>{locale === "de" ? "Gespeicherte Abfragen" : "Saved Queries"}</CardTitle>
         </CardHeader>
         <CardContent>
           {savedQuery.data?.items.length ? (
@@ -267,24 +291,24 @@ export function ExplorePage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Preset</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>{tText("Name")}</TableHead>
+                  <TableHead>{tText("Preset")}</TableHead>
+                  <TableHead>{tText("Actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {savedQuery.data.items.map((queryItem) => (
                   <TableRow key={queryItem.query_id}>
                     <TableCell>{queryItem.name}</TableCell>
-                    <TableCell>{queryItem.is_preset ? "Yes" : "No"}</TableCell>
+                    <TableCell>{queryItem.is_preset ? tText("Yes") : tText("No")}</TableCell>
                     <TableCell>
                       {!queryItem.is_preset ? (
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => setConfirmDeleteQueryId(queryItem.query_id)}
-                        >
-                          Delete
+                          >
+                          {tText("Delete")}
                         </Button>
                       ) : (
                         "-"
@@ -296,7 +320,7 @@ export function ExplorePage() {
             </Table>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No saved queries yet.</p>
+            <p className="text-sm text-muted-foreground">{tText("No saved queries yet.")}</p>
           )}
         </CardContent>
       </Card>

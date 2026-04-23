@@ -28,11 +28,26 @@ import { formatEurFromCents } from "@/utils/format";
 
 export function ProductsPage() {
   const queryClient = useQueryClient();
-  const { t } = useI18n();
+  const { locale, t, tText } = useI18n();
   const demoMode = isDemoSnapshotMode();
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [recategorizeJobId, setRecategorizeJobId] = useState<string | null>(null);
+
+  function recategorizeStatusLabel(status: string): string {
+    switch (status) {
+      case "queued":
+        return locale === "de" ? "Ausstehend" : "queued";
+      case "running":
+        return locale === "de" ? "Läuft" : "running";
+      case "completed":
+        return locale === "de" ? "Abgeschlossen" : "completed";
+      case "error":
+        return locale === "de" ? "Fehlgeschlagen" : "error";
+      default:
+        return status;
+    }
+  }
 
   const productsQuery = useQuery({
     queryKey: ["products", debouncedSearch],
@@ -70,11 +85,17 @@ export function ProductsPage() {
   const seedMutation = useMutation({
     mutationFn: postSeedProducts,
     onSuccess: (result) => {
-      toast.success(`Created ${result.created} products`);
+      toast.success(locale === "de" ? `${result.created} Produkte erstellt` : `Created ${result.created} products`);
       void queryClient.invalidateQueries({ queryKey: ["products"] });
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to seed products");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : locale === "de"
+            ? "Produkte konnten nicht initialisiert werden"
+            : "Failed to seed products"
+      );
     }
   });
   const recategorizeMutation = useMutation({
@@ -85,10 +106,16 @@ export function ProductsPage() {
       }),
     onSuccess: (job) => {
       setRecategorizeJobId(job.job_id);
-      toast.success("AI recategorization started");
+      toast.success(locale === "de" ? "KI-Kategorisierung gestartet" : "AI recategorization started");
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to start recategorization");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : locale === "de"
+            ? "Kategorisierung konnte nicht gestartet werden"
+            : "Failed to start recategorization"
+      );
     }
   });
 
@@ -114,12 +141,19 @@ export function ProductsPage() {
     if (recategorizeJob.status === "completed") {
       setRecategorizeJobId(null);
       void queryClient.invalidateQueries({ queryKey: ["products"] });
-      toast.success(`Recategorized ${recategorizeJob.updated_item_count} items`);
+      toast.success(
+        locale === "de"
+          ? `${recategorizeJob.updated_item_count} Artikel neu kategorisiert`
+          : `Recategorized ${recategorizeJob.updated_item_count} items`
+      );
     } else if (recategorizeJob.status === "error") {
       setRecategorizeJobId(null);
-      toast.error(recategorizeJob.error || "AI recategorization failed");
+      toast.error(
+        recategorizeJob.error ||
+          (locale === "de" ? "KI-Kategorisierung fehlgeschlagen" : "AI recategorization failed")
+      );
     }
-  }, [queryClient, recategorizeJob]);
+  }, [locale, queryClient, recategorizeJob]);
 
   return (
     <section className="space-y-4">
@@ -137,17 +171,25 @@ export function ProductsPage() {
             variant="outline"
             onClick={() => void recategorizeMutation.mutateAsync()}
             disabled={demoMode || !categorizationEnabled || !categorizationReady || recategorizeRunning}
-            title="Re-run AI categorization for items still in other"
+            title={
+              locale === "de"
+                ? "KI-Kategorisierung für Artikel in other erneut ausführen"
+                : "Re-run AI categorization for items still in other"
+            }
           >
-            {recategorizeRunning ? "Repairing categories..." : "Repair uncategorized items"}
+            {recategorizeRunning
+              ? (locale === "de" ? "Kategorien werden repariert..." : "Repairing categories...")
+              : (locale === "de" ? "Nicht zugeordnete Artikel reparieren" : "Repair uncategorized items")}
           </Button>
         ) : null}
       </PageHeader>
       {demoMode ? (
         <Alert>
-          <AlertTitle>Demo Snapshot</AlertTitle>
+          <AlertTitle>{locale === "de" ? "Demo-Snapshot" : "Demo Snapshot"}</AlertTitle>
           <AlertDescription>
-            Product search, clustering results, and price history use synthetic demo data. Seed and repair actions are disabled on the public demo.
+            {locale === "de"
+              ? "Produktsuche, Clustering-Ergebnisse und Preisverlauf verwenden synthetische Demodaten. Initialisierungs- und Reparaturaktionen sind in der öffentlichen Demo deaktiviert."
+              : "Product search, clustering results, and price history use synthetic demo data. Seed and repair actions are disabled on the public demo."}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -158,16 +200,27 @@ export function ProductsPage() {
               <div className="rounded-md border p-3 text-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <p className="font-medium">AI item categorization</p>
+                    <p className="font-medium">
+                      {locale === "de" ? "KI-Artikelkategorisierung" : "AI item categorization"}
+                    </p>
                     <p className="text-muted-foreground">
-                      Use the configured categorization model to repair items that are still in{" "}
-                      <code>other</code>. This uses the normal categorization job, not a full Pi-agent
-                      run per item.
+                      {locale === "de" ? (
+                        <>
+                          Verwenden Sie das konfigurierte Kategorisierungsmodell, um Artikel zu reparieren, die noch in{" "}
+                          <code>other</code> liegen. Dies nutzt den normalen Kategorisierungsjob und keinen vollständigen
+                          Pi-Agent-Run pro Artikel.
+                        </>
+                      ) : (
+                        <>
+                          Use the configured categorization model to repair items that are still in{" "}
+                          <code>other</code>. This uses the normal categorization job, not a full Pi-agent run per item.
+                        </>
+                      )}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant={categorizationEnabled ? "secondary" : "outline"}>
-                      {categorizationEnabled ? "enabled" : "disabled"}
+                      {categorizationEnabled ? tText("Enabled") : tText("Disabled")}
                     </Badge>
                     {aiSettingsQuery.data?.categorization_provider ? (
                       <Badge variant="outline">{aiSettingsQuery.data.categorization_provider}</Badge>
@@ -176,27 +229,33 @@ export function ProductsPage() {
                       <Badge variant="outline">{aiSettingsQuery.data.categorization_model}</Badge>
                     ) : null}
                     <Button variant="outline" size="sm" asChild>
-                      <Link to="/settings/ai">AI settings</Link>
+                      <Link to="/settings/ai">{locale === "de" ? "KI-Einstellungen" : "AI settings"}</Link>
                     </Button>
                   </div>
                 </div>
                 {!categorizationEnabled ? (
                   <p className="mt-2 text-xs text-muted-foreground">
-                    Enable item categorization in AI Settings and choose either ChatGPT Codex
-                    subscription mode or an API-compatible provider.
+                    {locale === "de"
+                      ? "Aktivieren Sie die Artikelkategorisierung in den KI-Einstellungen und wählen Sie entweder den ChatGPT-Codex-Abomodellmodus oder einen API-kompatiblen Anbieter."
+                      : "Enable item categorization in AI Settings and choose either ChatGPT Codex subscription mode or an API-compatible provider."}
                   </p>
                 ) : null}
                 {categorizationEnabled && !categorizationReady ? (
                   <p className="mt-2 text-xs text-muted-foreground">
-                    Runtime is not ready yet: {aiSettingsQuery.data?.categorization_runtime_status || "not configured"}.
+                    {locale === "de" ? "Laufzeit noch nicht bereit: " : "Runtime is not ready yet: "}
+                    {aiSettingsQuery.data?.categorization_runtime_status || (locale === "de" ? "nicht konfiguriert" : "not configured")}.
                   </p>
                 ) : null}
                 {recategorizeJob ? (
                   <div className="mt-3 grid gap-2 text-xs text-muted-foreground md:grid-cols-4">
-                    <p>Status: {recategorizeJob.status}</p>
-                    <p>Candidates: {recategorizeJob.candidate_item_count}</p>
-                    <p>Updated items: {recategorizeJob.updated_item_count}</p>
-                    <p>Updated transactions: {recategorizeJob.updated_transaction_count}</p>
+                    <p>
+                      {tText("Status")}: {recategorizeStatusLabel(recategorizeJob.status)}
+                    </p>
+                    <p>{locale === "de" ? "Kandidaten" : "Candidates"}: {recategorizeJob.candidate_item_count}</p>
+                    <p>{locale === "de" ? "Aktualisierte Artikel" : "Updated items"}: {recategorizeJob.updated_item_count}</p>
+                    <p>
+                      {locale === "de" ? "Aktualisierte Transaktionen" : "Updated transactions"}: {recategorizeJob.updated_transaction_count}
+                    </p>
                   </div>
                 ) : null}
                 {recategorizeJob?.error ? (
@@ -204,30 +263,34 @@ export function ProductsPage() {
                 ) : null}
               </div>
             ) : null}
-            <Label htmlFor="products-search">Search products</Label>
+            <Label htmlFor="products-search">{locale === "de" ? "Produkte suchen" : "Search products"}</Label>
             <SearchInput
               id="products-search"
               value={debouncedSearch}
               onChange={(value) => setDebouncedSearch(value.trim())}
-              placeholder="Milk, butter, yogurt..."
+              placeholder={locale === "de" ? "Milch, Butter, Joghurt..." : "Milk, butter, yogurt..."}
               isLoading={productsQuery.isFetching}
             />
           </div>
           <div className="app-section-divider mt-4 pt-4">
             {productRows.length === 0 ? (
               <EmptyState
-                title="No products found"
-                description={debouncedSearch ? "Try a different search term." : undefined}
+                title={tText("No products found.")}
+                description={
+                  debouncedSearch
+                    ? (locale === "de" ? "Versuchen Sie einen anderen Suchbegriff." : "Try a different search term.")
+                    : undefined
+                }
               />
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Brand</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Aliases</TableHead>
+                      <TableHead>{tText("Name")}</TableHead>
+                      <TableHead>{locale === "de" ? "Marke" : "Brand"}</TableHead>
+                      <TableHead>{tText("Category")}</TableHead>
+                      <TableHead>{locale === "de" ? "Aliase" : "Aliases"}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -270,32 +333,32 @@ export function ProductsPage() {
           <CardContent className="space-y-0">
             <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm md:grid-cols-4">
               <div>
-                <span className="text-muted-foreground">Brand:</span> {selectedProduct.brand ?? "-"}
+                <span className="text-muted-foreground">{locale === "de" ? "Marke:" : "Brand:"}</span> {selectedProduct.brand ?? "-"}
               </div>
               <div>
-                <span className="text-muted-foreground">Unit:</span> {selectedProduct.default_unit ?? "-"}
+                <span className="text-muted-foreground">{locale === "de" ? "Einheit:" : "Unit:"}</span> {selectedProduct.default_unit ?? "-"}
               </div>
               <div>
-                <span className="text-muted-foreground">GTIN/EAN:</span> {selectedProduct.gtin_ean ?? "-"}
+                <span className="text-muted-foreground">{locale === "de" ? "GTIN/EAN:" : "GTIN/EAN:"}</span> {selectedProduct.gtin_ean ?? "-"}
               </div>
               <div>
-                <span className="text-muted-foreground">Aliases:</span> {selectedAliases.length}
+                <span className="text-muted-foreground">{locale === "de" ? "Aliase:" : "Aliases:"}</span> {selectedAliases.length}
               </div>
             </div>
 
             <div className="app-section-divider mt-4 pt-4">
-              <p className="mb-2 text-sm font-medium">Price Series (Monthly)</p>
+              <p className="mb-2 text-sm font-medium">{tText("Price Series (Monthly)")}</p>
               {selectedPricePoints.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No price points available.</p>
+                <p className="text-sm text-muted-foreground">{tText("No price points available.")}</p>
               ) : (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Period</TableHead>
-                        <TableHead>Source</TableHead>
-                        <TableHead>Unit Price</TableHead>
-                        <TableHead>Purchases</TableHead>
+                        <TableHead>{tText("Period")}</TableHead>
+                        <TableHead>{tText("Source")}</TableHead>
+                        <TableHead>{tText("Unit Price")}</TableHead>
+                        <TableHead>{tText("Purchases")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -316,18 +379,18 @@ export function ProductsPage() {
             </div>
 
             <div className="app-section-divider mt-4 pt-4">
-              <p className="mb-2 text-sm font-medium">Purchases</p>
+              <p className="mb-2 text-sm font-medium">{tText("Purchases")}</p>
               {selectedPurchases.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No purchases found.</p>
+                <p className="text-sm text-muted-foreground">{tText("No purchases found.")}</p>
               ) : (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Source</TableHead>
-                        <TableHead>Qty</TableHead>
-                        <TableHead>Net</TableHead>
+                        <TableHead>{tText("Date")}</TableHead>
+                        <TableHead>{tText("Source")}</TableHead>
+                        <TableHead>{tText("Qty")}</TableHead>
+                        <TableHead>{tText("Net")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

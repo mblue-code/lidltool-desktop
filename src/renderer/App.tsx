@@ -179,14 +179,20 @@ function bundleLabelsForIds(
   });
 }
 
-function sourceJourneySummary(source: SyncSourceId): string {
+function sourceJourneySummary(source: SyncSourceId, locale: "en" | "de"): string {
   if (source.startsWith("lidl_plus_")) {
-    return "Use the built-in Lidl path when you just want a one-off local refresh of recent or full receipt history.";
+    return locale === "de"
+      ? "Verwenden Sie den integrierten Lidl-Pfad, wenn Sie nur eine einmalige lokale Aktualisierung des aktuellen oder vollständigen Belegverlaufs möchten."
+      : "Use the built-in Lidl path when you just want a one-off local refresh of recent or full receipt history.";
   }
   if (source.startsWith("amazon_")) {
-    return "Amazon sync uses the saved desktop session for the selected market and can scan multiple years when you need a broader local import.";
+    return locale === "de"
+      ? "Die Amazon-Synchronisierung verwendet die gespeicherte Desktop-Sitzung für den gewählten Markt und kann mehrere Jahre durchsuchen, wenn Sie einen breiteren lokalen Import benötigen."
+      : "Amazon sync uses the saved desktop session for the selected market and can scan multiple years when you need a broader local import.";
   }
-  return "Use a receipt pack when you want an occasional local sync for another retailer, then review or export the results on this computer.";
+  return locale === "de"
+    ? "Verwenden Sie ein Belegpaket, wenn Sie eine gelegentliche lokale Synchronisierung für einen anderen Händler möchten, und prüfen oder exportieren Sie die Ergebnisse anschließend auf diesem Computer."
+    : "Use a receipt pack when you want an occasional local sync for another retailer, then review or export the results on this computer.";
 }
 
 function sourceSyncNotice(source: SyncSourceId, locale: string): string | null {
@@ -253,8 +259,8 @@ export default function App() {
   }, [backend, t]);
 
   const controlCenterMode = useMemo(
-    () => describeControlCenterMode(bootError, runtimeDiagnostics),
-    [bootError, runtimeDiagnostics]
+    () => describeControlCenterMode(bootError, runtimeDiagnostics, locale),
+    [bootError, locale, runtimeDiagnostics]
   );
 
   const curatedDesktopEntries = useMemo(
@@ -590,9 +596,17 @@ export default function App() {
     setPluginStatusMessage(null);
     try {
       await Promise.all([refreshReceiptPlugins(), refreshReleaseMetadata()]);
-      setPluginStatusMessage("Refreshed local plugin packs and edition catalog details.");
+      setPluginStatusMessage(
+        locale === "de"
+          ? "Lokale Plugin-Pakete und Editionskatalogdetails wurden aktualisiert."
+          : "Refreshed local plugin packs and edition catalog details."
+      );
     } catch (err) {
-      setError(`Could not refresh receipt pack details. ${String(err)}`);
+      setError(
+        locale === "de"
+          ? `Belegpaket-Details konnten nicht aktualisiert werden. ${String(err)}`
+          : `Could not refresh receipt pack details. ${String(err)}`
+      );
     } finally {
       setBusy(false);
     }
@@ -605,22 +619,34 @@ export default function App() {
     try {
       const result = await window.desktopApi.installReceiptPluginFromDialog();
       if (!result) {
-        setPluginStatusMessage("No local pack was selected.");
+        setPluginStatusMessage(
+          locale === "de" ? "Es wurde kein lokales Paket ausgewählt." : "No local pack was selected."
+        );
         return;
       }
       setPluginStatusMessage(
         result.action === "installed"
-          ? `Imported ${result.pack.displayName} ${result.pack.version}. Review the trust label, then enable it when you are ready.`
+          ? locale === "de"
+            ? `${result.pack.displayName} ${result.pack.version} importiert. Prüfen Sie die Vertrauenskennzeichnung und aktivieren Sie das Paket, wenn Sie bereit sind.`
+            : `Imported ${result.pack.displayName} ${result.pack.version}. Review the trust label, then enable it when you are ready.`
           : result.action === "updated"
-            ? `Updated ${result.pack.displayName} to ${result.pack.version}.`
-            : `Reinstalled ${result.pack.displayName} ${result.pack.version}.`
+            ? locale === "de"
+              ? `${result.pack.displayName} auf ${result.pack.version} aktualisiert.`
+              : `Updated ${result.pack.displayName} to ${result.pack.version}.`
+            : locale === "de"
+              ? `${result.pack.displayName} ${result.pack.version} erneut installiert.`
+              : `Reinstalled ${result.pack.displayName} ${result.pack.version}.`
       );
       if (result.backendStatus) {
         setBackend(result.backendStatus);
       }
       await refreshReceiptPlugins();
     } catch (err) {
-      setError(`Could not import the local receipt pack. ${String(err)}`);
+      setError(
+        locale === "de"
+          ? `Das lokale Belegpaket konnte nicht importiert werden. ${String(err)}`
+          : `Could not import the local receipt pack. ${String(err)}`
+      );
     } finally {
       setBusy(false);
     }
@@ -634,17 +660,27 @@ export default function App() {
       const result = await window.desktopApi.installReceiptPluginFromCatalogEntry({ entryId });
       setPluginStatusMessage(
         result.action === "installed"
-          ? `Installed trusted pack ${result.pack.displayName} ${result.pack.version}. Enable it when you want it active in the next backend run.`
+          ? locale === "de"
+            ? `Vertrauenswürdiges Paket ${result.pack.displayName} ${result.pack.version} installiert. Aktivieren Sie es, wenn es im nächsten Backend-Start aktiv sein soll.`
+            : `Installed trusted pack ${result.pack.displayName} ${result.pack.version}. Enable it when you want it active in the next backend run.`
           : result.action === "updated"
-            ? `Updated trusted pack ${result.pack.displayName} to ${result.pack.version}.`
-            : `Reinstalled trusted pack ${result.pack.displayName} ${result.pack.version}.`
+            ? locale === "de"
+              ? `Vertrauenswürdiges Paket ${result.pack.displayName} auf ${result.pack.version} aktualisiert.`
+              : `Updated trusted pack ${result.pack.displayName} to ${result.pack.version}.`
+            : locale === "de"
+              ? `Vertrauenswürdiges Paket ${result.pack.displayName} ${result.pack.version} erneut installiert.`
+              : `Reinstalled trusted pack ${result.pack.displayName} ${result.pack.version}.`
       );
       if (result.backendStatus) {
         setBackend(result.backendStatus);
       }
       await Promise.all([refreshReleaseMetadata(), refreshReceiptPlugins()]);
     } catch (err) {
-      setError(`Could not install the trusted receipt pack. ${String(err)}`);
+      setError(
+        locale === "de"
+          ? `Das vertrauenswürdige Belegpaket konnte nicht installiert werden. ${String(err)}`
+          : `Could not install the trusted receipt pack. ${String(err)}`
+      );
     } finally {
       setBusy(false);
     }
@@ -658,13 +694,25 @@ export default function App() {
       const result = enabled
         ? await window.desktopApi.enableReceiptPlugin(pluginId)
         : await window.desktopApi.disableReceiptPlugin(pluginId);
-      setPluginStatusMessage(enabled ? `Enabled ${result.pack.displayName}.` : `Disabled ${result.pack.displayName}.`);
+      setPluginStatusMessage(
+        enabled
+          ? locale === "de"
+            ? `${result.pack.displayName} aktiviert.`
+            : `Enabled ${result.pack.displayName}.`
+          : locale === "de"
+            ? `${result.pack.displayName} deaktiviert.`
+            : `Disabled ${result.pack.displayName}.`
+      );
       if (result.backendStatus) {
         setBackend(result.backendStatus);
       }
       await refreshReceiptPlugins();
     } catch (err) {
-      setError(`Could not update the receipt pack state. ${String(err)}`);
+      setError(
+        locale === "de"
+          ? `Der Status des Belegpakets konnte nicht aktualisiert werden. ${String(err)}`
+          : `Could not update the receipt pack state. ${String(err)}`
+      );
     } finally {
       setBusy(false);
     }
@@ -676,13 +724,21 @@ export default function App() {
     setPluginStatusMessage(null);
     try {
       const result = await window.desktopApi.uninstallReceiptPlugin(pluginId);
-      setPluginStatusMessage(`Removed ${result.pluginId} from local desktop storage.`);
+      setPluginStatusMessage(
+        locale === "de"
+          ? `${result.pluginId} aus dem lokalen Desktop-Speicher entfernt.`
+          : `Removed ${result.pluginId} from local desktop storage.`
+      );
       if (result.backendStatus) {
         setBackend(result.backendStatus);
       }
       await refreshReceiptPlugins();
     } catch (err) {
-      setError(`Could not remove the receipt pack. ${String(err)}`);
+      setError(
+        locale === "de"
+          ? `Das Belegpaket konnte nicht entfernt werden. ${String(err)}`
+          : `Could not remove the receipt pack. ${String(err)}`
+      );
     } finally {
       setBusy(false);
     }
@@ -788,7 +844,7 @@ export default function App() {
             </div>
             <div>
               <span className="label">Runtime source</span>
-              <strong>{describeBackendCommand(runtimeDiagnostics)}</strong>
+              <strong>{describeBackendCommand(runtimeDiagnostics, locale)}</strong>
             </div>
           </div>
           <div className="actions">
@@ -845,7 +901,7 @@ export default function App() {
             </div>
             <span className="status-chip status-disabled">{selectedSourceMeta?.label ?? source}</span>
           </div>
-          <p>{sourceJourneySummary(source)}</p>
+          <p>{sourceJourneySummary(source, locale)}</p>
           {sourceSyncNotice(source, locale) ? (
             <div className="callout warning">
               <strong>dm</strong>
@@ -975,7 +1031,7 @@ export default function App() {
                   const catalogEntry = releaseMetadata
                     ? findCatalogDesktopPackEntry(releaseMetadata.discovery_catalog.entries, pack.pluginId)
                     : null;
-                  const packStatus = describeInstalledPack(pack);
+                  const packStatus = describeInstalledPack(pack, locale);
                   const updateTarget =
                     catalogEntry &&
                     !!catalogEntry.current_version &&
@@ -1021,15 +1077,15 @@ export default function App() {
                         <dl className="plugin-meta">
                           <div>
                             <dt>Trust</dt>
-                            <dd>{formatPluginTrust(pack)}</dd>
+                            <dd>{formatPluginTrust(pack, locale)}</dd>
                           </div>
                           <div>
                             <dt>Support</dt>
-                            <dd>{formatTrustClassLabel(pack.trustClass)}</dd>
+                            <dd>{formatTrustClassLabel(pack.trustClass, locale)}</dd>
                           </div>
                           <div>
                             <dt>Installed via</dt>
-                            <dd>{packInstallSource(pack)}</dd>
+                            <dd>{packInstallSource(pack, locale)}</dd>
                           </div>
                           <div>
                             <dt>Retailer</dt>
@@ -1044,9 +1100,9 @@ export default function App() {
                             <dd>{pack.installPath}</dd>
                           </div>
                         </dl>
-                        <p className="muted">{packOriginSummary(pack)}</p>
-                        <p className="muted">{packSupportSummary(pack, catalogEntry)}</p>
-                        {catalogEntry ? <p className="muted">{catalogProfileSummary(catalogEntry, releaseMetadata)}</p> : null}
+                        <p className="muted">{packOriginSummary(pack, locale)}</p>
+                        <p className="muted">{packSupportSummary(pack, catalogEntry, locale)}</p>
+                        {catalogEntry ? <p className="muted">{catalogProfileSummary(catalogEntry, releaseMetadata, locale)}</p> : null}
                         {pack.diagnostics.length > 0 ? <pre>{prettyJson(pack.diagnostics)}</pre> : null}
                       </details>
                     </article>
@@ -1074,7 +1130,7 @@ export default function App() {
                   const installedPack = entry.plugin_id
                     ? (pluginPacks.find((pack) => pack.pluginId === entry.plugin_id) ?? null)
                     : null;
-                  const availability = describeCatalogEntry(entry, installedPack);
+                  const availability = describeCatalogEntry(entry, installedPack, locale);
                   const updateAvailable =
                     installedPack &&
                     !!entry.current_version &&
@@ -1091,7 +1147,7 @@ export default function App() {
                         <div>
                           <h3>{entry.display_name}</h3>
                           <p className="muted">
-                            {formatCatalogEntryType(entry.entry_type)} · {entry.current_version ?? "version not declared"}
+                            {formatCatalogEntryType(entry.entry_type, locale)} · {entry.current_version ?? "version not declared"}
                           </p>
                         </div>
                         <span className={`status-chip ${availability.chipClass}`}>{availability.label}</span>
@@ -1119,11 +1175,11 @@ export default function App() {
                         <dl className="plugin-meta">
                           <div>
                             <dt>Support</dt>
-                            <dd>{formatTrustClassLabel(entry.trust_class)}</dd>
+                            <dd>{formatTrustClassLabel(entry.trust_class, locale)}</dd>
                           </div>
                           <div>
                             <dt>Install path</dt>
-                            <dd>{formatInstallMethods(entry.install_methods)}</dd>
+                            <dd>{formatInstallMethods(entry.install_methods, locale)}</dd>
                           </div>
                           <div>
                             <dt>Maintainer</dt>
@@ -1134,8 +1190,8 @@ export default function App() {
                             <dd>{entry.supported_markets.length > 0 ? entry.supported_markets.join(", ") : "Unspecified"}</dd>
                           </div>
                         </dl>
-                        <p className="muted">{catalogSupportSummary(entry)}</p>
-                        <p className="muted">{catalogProfileSummary(entry, releaseMetadata)}</p>
+                        <p className="muted">{catalogSupportSummary(entry, locale)}</p>
+                        <p className="muted">{catalogProfileSummary(entry, releaseMetadata, locale)}</p>
                         {entry.release_notes_summary ? <p className="muted">{entry.release_notes_summary}</p> : null}
                         {entry.homepage_url ? (
                           <a className="button-link secondary" href={entry.homepage_url} target="_blank" rel="noreferrer">
@@ -1157,7 +1213,7 @@ export default function App() {
                 </div>
                 <div>
                   <dt>Edition</dt>
-                  <dd>{releaseMetadata ? formatEditionKind(releaseMetadata.active_release_variant.edition_kind) : "Loading"}</dd>
+                  <dd>{releaseMetadata ? formatEditionKind(releaseMetadata.active_release_variant.edition_kind, locale) : "Loading"}</dd>
                 </div>
                 <div>
                   <dt>Market profile</dt>
@@ -1165,7 +1221,7 @@ export default function App() {
                 </div>
                 <div>
                   <dt>Verification</dt>
-                  <dd>{formatCatalogVerification(releaseMetadata?.discovery_catalog ?? null)}</dd>
+                  <dd>{formatCatalogVerification(releaseMetadata?.discovery_catalog ?? null, locale)}</dd>
                 </div>
                 <div>
                   <dt>Default bundles</dt>

@@ -102,6 +102,40 @@ function ocrStatusClass(status: string): string {
   }
 }
 
+function reviewStatusLabel(status: string, locale: "en" | "de"): string {
+  switch (status) {
+    case "needs_review":
+      return locale === "de" ? "Prüfung erforderlich" : "Needs review";
+    case "approved":
+      return locale === "de" ? "Genehmigt" : "Approved";
+    case "rejected":
+      return locale === "de" ? "Abgelehnt" : "Rejected";
+    default:
+      return status.replace(/_/g, " ");
+  }
+}
+
+function ocrStatusLabel(status: string, locale: "en" | "de"): string {
+  switch (status) {
+    case "pending":
+      return locale === "de" ? "Ausstehend" : "Pending";
+    case "queued":
+      return locale === "de" ? "In Warteschlange" : "Queued";
+    case "processing":
+      return locale === "de" ? "Wird verarbeitet" : "Processing";
+    case "completed":
+      return locale === "de" ? "Abgeschlossen" : "Completed";
+    case "failed":
+      return locale === "de" ? "Fehlgeschlagen" : "Failed";
+    default:
+      return status.replace(/_/g, " ");
+  }
+}
+
+function demoSnapshotLabel(locale: "en" | "de"): string {
+  return locale === "de" ? "Demo-Snapshot" : "Demo Snapshot";
+}
+
 function parsePositiveInt(rawValue: string | null, fallback: number): number {
   if (!rawValue) {
     return fallback;
@@ -127,7 +161,7 @@ function parseThreshold(rawValue: string | null, fallback = 0.85): number {
 export function ReviewQueuePage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const demoMode = isDemoSnapshotMode();
   const { documentId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -290,7 +324,11 @@ export function ReviewQueuePage() {
 
   async function handleDecision(action: "approve" | "reject"): Promise<void> {
     if (demoMode) {
-      setMutationStatus("Demo Snapshot: review actions are disabled.");
+      setMutationStatus(
+        locale === "de"
+          ? "Demo-Snapshot: Review-Aktionen sind deaktiviert."
+          : "Demo Snapshot: review actions are disabled."
+      );
       return;
     }
     setMutationStatus(null);
@@ -308,7 +346,11 @@ export function ReviewQueuePage() {
         action,
         payload: toDecisionPayload(parsed.data)
       });
-      setMutationStatus(t("pages.reviewQueue.statusUpdated", { status: result.review_status }));
+      setMutationStatus(
+        t("pages.reviewQueue.statusUpdated", {
+          status: locale === "de" ? reviewStatusLabel(result.review_status, locale) : result.review_status
+        })
+      );
     } catch (error) {
       setMutationError(resolveApiErrorMessage(error, t, t("pages.reviewQueue.patchStatusFailed")));
     }
@@ -316,7 +358,11 @@ export function ReviewQueuePage() {
 
   async function handlePatchTransaction(): Promise<void> {
     if (demoMode) {
-      setMutationStatus("Demo Snapshot: transaction corrections are disabled.");
+      setMutationStatus(
+        locale === "de"
+          ? "Demo-Snapshot: Transaktionskorrekturen sind deaktiviert."
+          : "Demo Snapshot: transaction corrections are disabled."
+      );
       return;
     }
     setMutationStatus(null);
@@ -346,7 +392,11 @@ export function ReviewQueuePage() {
 
   async function handlePatchItem(): Promise<void> {
     if (demoMode) {
-      setMutationStatus("Demo Snapshot: item corrections are disabled.");
+      setMutationStatus(
+        locale === "de"
+          ? "Demo-Snapshot: Artikelkorrekturen sind deaktiviert."
+          : "Demo Snapshot: item corrections are disabled."
+      );
       return;
     }
     setMutationStatus(null);
@@ -396,7 +446,11 @@ export function ReviewQueuePage() {
 
   async function handleBatchApprove(): Promise<void> {
     if (demoMode) {
-      setMutationStatus("Demo Snapshot: batch approve is disabled.");
+      setMutationStatus(
+        locale === "de"
+          ? "Demo-Snapshot: Stapelfreigabe ist deaktiviert."
+          : "Demo Snapshot: batch approve is disabled."
+      );
       return;
     }
     setMutationStatus(null);
@@ -459,9 +513,11 @@ export function ReviewQueuePage() {
       <PageHeader title={t("pages.reviewQueue.title")} />
       {demoMode ? (
         <Alert>
-          <AlertTitle>Demo Snapshot</AlertTitle>
+          <AlertTitle>{demoSnapshotLabel(locale)}</AlertTitle>
           <AlertDescription>
-            This is the real review queue UI rendered with synthetic documents. Approve, reject, and correction actions are disabled on the public demo.
+            {locale === "de"
+              ? "Dies ist die echte Review-Queue-Oberfläche mit synthetischen Dokumenten. Freigabe-, Ablehnungs- und Korrekturaktionen sind in der öffentlichen Demo deaktiviert."
+              : "This is the real review queue UI rendered with synthetic documents. Approve, reject, and correction actions are disabled on the public demo."}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -547,10 +603,10 @@ export function ReviewQueuePage() {
                   </span>
                   <div className="flex flex-wrap gap-1">
                     <Badge className={cn("text-xs", reviewStatusClass(item.review_status))}>
-                      {item.review_status.replace(/_/g, " ")}
+                      {reviewStatusLabel(item.review_status, locale)}
                     </Badge>
                     <Badge className={cn("text-xs", ocrStatusClass(item.ocr_status))}>
-                      {item.ocr_status}
+                      {ocrStatusLabel(item.ocr_status, locale)}
                     </Badge>
                   </div>
                 </div>
@@ -599,10 +655,10 @@ export function ReviewQueuePage() {
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       <Badge className={cn("text-xs", reviewStatusClass(item.review_status))}>
-                        {item.review_status.replace(/_/g, " ")}
+                        {reviewStatusLabel(item.review_status, locale)}
                       </Badge>
                       <Badge className={cn("text-xs", ocrStatusClass(item.ocr_status))}>
-                        {item.ocr_status}
+                        {ocrStatusLabel(item.ocr_status, locale)}
                       </Badge>
                     </div>
                   </TableCell>
@@ -680,8 +736,8 @@ export function ReviewQueuePage() {
                     <p className="text-muted-foreground">ID: {detail.document.id}</p>
                     <p className="text-muted-foreground">{t("pages.reviewQueue.detail.file")}: {detail.document.file_name || "-"}</p>
                     <p className="text-muted-foreground">{t("common.source")}: {detail.document.source_id || "-"}</p>
-                    <p className="text-muted-foreground">{t("pages.reviewQueue.detail.ocrStatus")}: {detail.document.ocr_status}</p>
-                    <p className="text-muted-foreground">{t("pages.reviewQueue.detail.reviewStatus")}: {detail.document.review_status}</p>
+                    <p className="text-muted-foreground">{t("pages.reviewQueue.detail.ocrStatus")}: {ocrStatusLabel(detail.document.ocr_status, locale)}</p>
+                    <p className="text-muted-foreground">{t("pages.reviewQueue.detail.reviewStatus")}: {reviewStatusLabel(detail.document.review_status, locale)}</p>
                     <p className="text-muted-foreground">{t("pages.reviewQueue.detail.ocrConfidence")}: {detail.document.ocr_confidence ?? "-"}</p>
                     <Button variant="link" className="h-auto p-0" asChild>
                       <Link to="/imports/ocr">{t("pages.reviewQueue.sourceUploadLink")}</Link>
@@ -825,12 +881,12 @@ export function ReviewQueuePage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Line</TableHead>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Qty</TableHead>
-                        <TableHead>Total</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>Confidence</TableHead>
+                        <TableHead>{locale === "de" ? "Position" : "Line"}</TableHead>
+                        <TableHead>{locale === "de" ? "Name" : "Name"}</TableHead>
+                        <TableHead>{locale === "de" ? "Menge" : "Qty"}</TableHead>
+                        <TableHead>{locale === "de" ? "Summe" : "Total"}</TableHead>
+                        <TableHead>{locale === "de" ? "Kategorie" : "Category"}</TableHead>
+                        <TableHead>{locale === "de" ? "Vertrauen" : "Confidence"}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

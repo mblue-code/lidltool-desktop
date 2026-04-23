@@ -35,6 +35,8 @@ describe("i18n plumbing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     const storage = new Map<string, string>();
+    const localeListeners = new Set<(locale: string) => void>();
+    let desktopLocale = "en";
     Object.defineProperty(window, "localStorage", {
       configurable: true,
       value: {
@@ -45,6 +47,22 @@ describe("i18n plumbing", () => {
         removeItem: (key: string) => {
           storage.delete(key);
         }
+      }
+    });
+    Object.defineProperty(window, "desktopApi", {
+      configurable: true,
+      value: {
+        getLocale: vi.fn(async () => desktopLocale),
+        setLocale: vi.fn(async (nextLocale: string) => {
+          desktopLocale = nextLocale;
+          localeListeners.forEach((listener) => listener(nextLocale));
+        }),
+        onLocaleChanged: vi.fn((listener: (locale: string) => void) => {
+          localeListeners.add(listener);
+          return () => {
+            localeListeners.delete(listener);
+          };
+        })
       }
     });
   });
@@ -152,6 +170,39 @@ describe("i18n plumbing", () => {
     );
 
     await waitFor(() => {
+      expect(document.documentElement.lang).toBe("de");
+    });
+  });
+
+  it("prefers the desktop shell locale over stale app-local storage", async () => {
+    window.localStorage.setItem("app.locale", "en");
+    window.desktopApi?.setLocale?.("de");
+    mocks.fetchCurrentUserMock.mockRejectedValue(new ApiTransportError(401, "authentication required"));
+
+    render(
+      <I18nProvider>
+        <LocaleProbe />
+      </I18nProvider>
+    );
+
+    await waitFor(() => {
+      expect(document.documentElement.lang).toBe("de");
+    });
+  });
+
+  it("syncs locale changes back to the desktop shell bridge", async () => {
+    mocks.fetchCurrentUserMock.mockRejectedValue(new ApiTransportError(401, "authentication required"));
+
+    render(
+      <I18nProvider>
+        <LocaleProbe />
+      </I18nProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "switch" }));
+
+    await waitFor(() => {
+      expect(window.desktopApi?.setLocale).toHaveBeenCalledWith("de");
       expect(document.documentElement.lang).toBe("de");
     });
   });
