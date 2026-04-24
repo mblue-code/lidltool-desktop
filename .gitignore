@@ -9,6 +9,7 @@ build/backend-src
 build/plugin-packs
 vendor/frontend/node_modules
 vendor/frontend/dist
+fixtures/**/__pycache__/
 vendor/**/*.tsbuildinfo
 vendor/**/__pycache__/
 output/playwright
