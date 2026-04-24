@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,6 +7,7 @@ const __dirname = dirname(__filename);
 
 const desktopDir = resolve(process.env.LIDLTOOL_DESKTOP_DIR?.trim() || resolve(__dirname, ".."));
 const backendDir = resolve(desktopDir, "vendor", "backend");
+const backendOverridesDir = resolve(desktopDir, "overrides", "backend");
 const httpServerPath = resolve(backendDir, "src", "lidltool", "api", "http_server.py");
 const routeAuthPath = resolve(backendDir, "src", "lidltool", "api", "route_auth.py");
 const backupRestorePath = resolve(backendDir, "src", "lidltool", "ops", "backup_restore.py");
@@ -24,6 +25,32 @@ function replaceOnce(source, searchValue, replaceValue, label) {
     throw new Error(`Could not patch ${label}: expected snippet not found.`);
   }
   return source.replace(searchValue, replaceValue);
+}
+
+function applyBackendOverrides(sourceDir, destDir) {
+  if (!existsSync(sourceDir)) {
+    return [];
+  }
+
+  const copied = [];
+  function copyDir(currentSourceDir, currentRelativeDir = "") {
+    for (const entry of readdirSync(currentSourceDir)) {
+      const sourcePath = resolve(currentSourceDir, entry);
+      const relativePath = currentRelativeDir ? `${currentRelativeDir}/${entry}` : entry;
+      const stat = statSync(sourcePath);
+      if (stat.isDirectory()) {
+        copyDir(sourcePath, relativePath);
+        continue;
+      }
+      const destPath = resolve(destDir, relativePath);
+      mkdirSync(dirname(destPath), { recursive: true });
+      cpSync(sourcePath, destPath, { force: true });
+      copied.push(relativePath);
+    }
+  }
+
+  copyDir(sourceDir);
+  return copied.sort();
 }
 
 function patchBackupRestore(current) {
@@ -742,6 +769,14 @@ function patchCli(current) {
 
 if (!existsSync(httpServerPath) || !existsSync(routeAuthPath) || !existsSync(backupRestorePath) || !existsSync(authBrowserRuntimePath) || !existsSync(lifecyclePath) || !existsSync(registryPath) || !existsSync(runtimeExecutionPath) || !existsSync(runtimeRunnerPath) || !existsSync(cliPath) || !existsSync(ingestJobsPath) || !existsSync(glmOcrLocalPath)) {
   throw new Error(`Vendored backend sources not found under ${backendDir}. Run 'npm run vendor:sync' first.`);
+}
+
+const backendOverrideFiles = applyBackendOverrides(backendOverridesDir, backendDir);
+if (backendOverrideFiles.length > 0) {
+  console.log(`Applied desktop backend overrides (${backendOverrideFiles.length}):`);
+  for (const file of backendOverrideFiles) {
+    console.log(`  - ${file}`);
+  }
 }
 
 const patchedBackupRestore = patchBackupRestore(readFileSync(backupRestorePath, "utf-8"));

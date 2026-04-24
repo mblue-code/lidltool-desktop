@@ -43,21 +43,24 @@ function loadFrontendOverrides() {
   }
   const manifest = JSON.parse(readFileSync(vendorManifestPath, "utf-8"));
   const frontend = manifest.frontend ?? {};
-  return [
-    ...(frontend.runtimeOverrideFiles ?? []),
-    ...(frontend.testOverrideFiles ?? [])
-  ];
+  return {
+    src: [
+      ...(frontend.runtimeOverrideFiles ?? []),
+      ...(frontend.testOverrideFiles ?? [])
+    ],
+    root: frontend.rootOverrideFiles ?? []
+  };
 }
 
-function applyOverrides(sourceDir, destDir, relativePaths) {
+function applyOverrides(sourceDir, destDir, relativePaths, sourceSubdir = "src") {
   if (!existsSync(sourceDir)) {
     return [];
   }
 
   const copied = [];
   for (const relativePath of relativePaths) {
-    const sourcePath = resolve(sourceDir, "src", relativePath);
-    const destPath = resolve(destDir, "src", relativePath);
+    const sourcePath = resolve(sourceDir, sourceSubdir, relativePath);
+    const destPath = resolve(destDir, sourceSubdir, relativePath);
     if (!existsSync(sourcePath) || statSync(sourcePath).isDirectory()) {
       throw new Error(`Declared desktop override not found: ${sourcePath}`);
     }
@@ -193,7 +196,11 @@ if (!authStatusContractResult.skipped) {
   );
 }
 
-const overrideFiles = applyOverrides(frontendOverridesDir, frontendDir, loadFrontendOverrides());
+const frontendOverrides = loadFrontendOverrides();
+const overrideFiles = [
+  ...applyOverrides(frontendOverridesDir, frontendDir, frontendOverrides.src),
+  ...applyOverrides(frontendOverridesDir, frontendDir, frontendOverrides.root, ".")
+];
 if (overrideFiles.length > 0) {
   console.log(`Applied desktop frontend overrides (${overrideFiles.length}):`);
   for (const file of overrideFiles) {

@@ -36,19 +36,22 @@ function loadFrontendOverrides() {
   }
   const manifest = JSON.parse(readFileSync(vendorManifestPath, "utf-8"));
   const frontend = manifest.frontend ?? {};
-  return [
-    ...(frontend.runtimeOverrideFiles ?? []),
-    ...(frontend.testOverrideFiles ?? [])
-  ];
+  return {
+    src: [
+      ...(frontend.runtimeOverrideFiles ?? []),
+      ...(frontend.testOverrideFiles ?? [])
+    ],
+    root: frontend.rootOverrideFiles ?? []
+  };
 }
 
-function applyDeclaredOverrides(sourceRoot, destRoot, relativePaths) {
+function applyDeclaredOverrides(sourceRoot, destRoot, relativePaths, sourceSubdir = "src") {
   for (const relativePath of relativePaths) {
-    const from = resolve(sourceRoot, "src", relativePath);
+    const from = resolve(sourceRoot, sourceSubdir, relativePath);
     if (!existsSync(from)) {
       throw new Error(`Declared desktop override not found: ${from}`);
     }
-    const to = resolve(destRoot, "src", relativePath);
+    const to = resolve(destRoot, sourceSubdir, relativePath);
     mkdirSync(dirname(to), { recursive: true });
     cpSync(from, to, { force: true, recursive: true });
   }
@@ -68,7 +71,8 @@ copyTreeFiltered(
   new Set(["node_modules", "dist", ".vite", ".qa-screenshots", "playwright-report", "test-results"])
 );
 if (existsSync(frontendOverrides)) {
-  applyDeclaredOverrides(frontendOverrides, frontendDest, frontendOverridesToApply);
+  applyDeclaredOverrides(frontendOverrides, frontendDest, frontendOverridesToApply.src);
+  applyDeclaredOverrides(frontendOverrides, frontendDest, frontendOverridesToApply.root, ".");
 }
 
 resetDir(backendDest);
