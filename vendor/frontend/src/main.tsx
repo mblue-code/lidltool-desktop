@@ -131,7 +131,7 @@ async function bootstrap() {
                     <Route path="transactions" element={<TransactionsPage />} />
                     <Route path="receipts" element={<TransactionsRedirect />} />
                     <Route path="transactions/:transactionId" element={<TransactionDetailPage />} />
-                    <Route path="documents/upload" element={<DocumentsUploadPage />} />
+                    <Route path="documents/upload" element={<Navigate to="/imports/ocr" replace />} />
                     <Route path="review-queue" element={<ReviewQueuePage />} />
                     <Route path="review-queue/:documentId" element={<ReviewQueuePage />} />
                     <Route

@@ -48,6 +48,7 @@
       "pages/BillsPage.tsx",
       "pages/BudgetPage.tsx",
       "pages/CashFlowPage.tsx",
+      "pages/ChatWorkspacePage.tsx",
       "pages/ConnectorsPage.tsx",
       "pages/DashboardPage.tsx",
       "pages/DocumentsUploadPage.tsx",

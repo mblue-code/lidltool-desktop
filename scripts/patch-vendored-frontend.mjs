@@ -37,12 +37,16 @@ function applyPiAiAlias(viteConfigPath) {
   return { changed: true, skipped: false };
 }
 
-function loadRuntimeFrontendOverrides() {
+function loadFrontendOverrides() {
   if (!existsSync(vendorManifestPath)) {
     throw new Error(`Desktop vendor manifest not found at ${vendorManifestPath}`);
   }
   const manifest = JSON.parse(readFileSync(vendorManifestPath, "utf-8"));
-  return manifest.frontend?.runtimeOverrideFiles ?? [];
+  const frontend = manifest.frontend ?? {};
+  return [
+    ...(frontend.runtimeOverrideFiles ?? []),
+    ...(frontend.testOverrideFiles ?? [])
+  ];
 }
 
 function applyOverrides(sourceDir, destDir, relativePaths) {
@@ -189,7 +193,7 @@ if (!authStatusContractResult.skipped) {
   );
 }
 
-const overrideFiles = applyOverrides(frontendOverridesDir, frontendDir, loadRuntimeFrontendOverrides());
+const overrideFiles = applyOverrides(frontendOverridesDir, frontendDir, loadFrontendOverrides());
 if (overrideFiles.length > 0) {
   console.log(`Applied desktop frontend overrides (${overrideFiles.length}):`);
   for (const file of overrideFiles) {

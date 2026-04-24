@@ -78,13 +78,20 @@ export function CashFlowPage() {
 
   const totals = useMemo(() => {
     const summary = budgetSummaryQuery.data?.totals;
+    const entries = cashflowEntriesQuery.data?.items ?? [];
+    const ledgerInflow = entries
+      .filter((entry) => entry.direction === "inflow")
+      .reduce((sum, entry) => sum + entry.amount_cents, 0);
+    const ledgerOutflow = entries
+      .filter((entry) => entry.direction === "outflow")
+      .reduce((sum, entry) => sum + entry.amount_cents, 0);
     return {
-      inflow: summary?.actual_income_cents ?? 0,
-      outflow: summary?.total_outflow_cents ?? 0,
+      inflow: ledgerInflow || summary?.actual_income_cents || 0,
+      outflow: ledgerOutflow || summary?.total_outflow_cents || 0,
       remaining: summary?.remaining_cents ?? 0,
       upcomingBills: recurringCalendarQuery.data?.days.reduce((sum, day) => sum + day.total_expected_cents, 0) ?? 0
     };
-  }, [budgetSummaryQuery.data, recurringCalendarQuery.data]);
+  }, [budgetSummaryQuery.data, cashflowEntriesQuery.data?.items, recurringCalendarQuery.data]);
 
   return (
     <div className="space-y-6">

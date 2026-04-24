@@ -84,6 +84,13 @@ Desktop shortcuts stay available without taking over the finance IA:
 - `Connectors`
 - `Chat`
 
+Canonical upload routing:
+- `/imports/ocr` is the desktop OCR upload route.
+- `/documents/upload` is retained as a compatibility alias and redirects to `/imports/ocr`.
+
+Preview routes:
+- `/sources`, `/explore`, `/products`, `/compare`, `/quality`, and `/patterns` remain compiled for diagnostics and follow-on analysis, but are intentionally not primary-navigation entries in the packaged finance IA.
+
 Compatibility routing:
 - `/` is the canonical dashboard route
 - `/dashboard` redirects to `/`

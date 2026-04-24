@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -758,6 +758,44 @@ describe("launch-critical route i18n smoke", () => {
     expect(screen.getByText("Desktop-Wiederherstellung")).toBeInTheDocument();
   });
 
+  it("opens and submits the shared group creation dialog in german", async () => {
+    renderGerman(<UsersSettingsPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Gruppe erstellen" }));
+
+    expect(await screen.findByRole("heading", { name: "Geteilte Gruppe erstellen" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "QA Haushalt" } });
+    fireEvent.click(screen.getByRole("button", { name: "Speichern" }));
+
+    await waitFor(() => {
+      expect(mocks.createSharedGroupMock).toHaveBeenCalledWith({
+        name: "QA Haushalt",
+        group_type: "household"
+      });
+    });
+  });
+
+  it("hides desktop backup and restore actions from non-admin users", async () => {
+    mocks.fetchCurrentUserMock.mockResolvedValue({
+      user_id: "u3",
+      username: "viewer",
+      display_name: "Viewer",
+      is_admin: false,
+      preferred_locale: null,
+      session: null,
+      session_mode: null,
+      available_auth_transports: [],
+      auth_transport: null
+    });
+
+    renderGerman(<UsersSettingsPage />);
+
+    expect(await screen.findByText("Benutzer und Agent-Schlüssel")).toBeInTheDocument();
+    expect(screen.queryByText("System-Backup")).not.toBeInTheDocument();
+    expect(screen.queryByText("Desktop-Wiederherstellung")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Benutzer hinzufügen" })).not.toBeInTheDocument();
+  });
+
   it("renders setup restore copy in german", async () => {
     renderGerman(<SetupPage />);
 
@@ -781,5 +819,26 @@ describe("launch-critical route i18n smoke", () => {
     expect(await screen.findByText("Wochenbudget")).toBeInTheDocument();
     expect(screen.getAllByText("streamt").length).toBeGreaterThan(0);
     expect(screen.getByText("Neuer Chat")).toBeInTheDocument();
+  });
+
+  it("shows configured chat guidance when no model is available", async () => {
+    mocks.fetchAIAgentConfigMock.mockResolvedValue({
+      proxy_url: null,
+      auth_token: null,
+      model: null,
+      default_model: null,
+      local_model: null,
+      preferred_model: null,
+      oauth_provider: null,
+      oauth_connected: false,
+      available_models: []
+    });
+    mocks.listChatThreadsMock.mockResolvedValue({ items: [], total: 0 });
+
+    renderGerman(<ChatWorkspacePage />);
+
+    expect(await screen.findByText("Chat ist nicht konfiguriert")).toBeInTheDocument();
+    expect(screen.getByText(/Für den Chat ist ein konfiguriertes KI-Modell erforderlich/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Senden" })).toBeDisabled();
   });
 });

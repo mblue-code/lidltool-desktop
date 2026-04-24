@@ -352,7 +352,7 @@ export function UsersSettingsPage() {
   }
 
   function openCreateGroup(): void {
-    setGroupEditor(EMPTY_GROUP_EDITOR);
+    setGroupEditor({ ...EMPTY_GROUP_EDITOR, open: true });
   }
 
   function openEditGroup(group: SharedGroup): void {
@@ -1014,13 +1014,14 @@ export function UsersSettingsPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.usersSettings.backupTitle")}</CardTitle>
-          <CardDescription>{t("pages.usersSettings.backupDescription")}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <form className="space-y-3" onSubmit={(event) => void submitBackup(event)}>
+      {isAdmin ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("pages.usersSettings.backupTitle")}</CardTitle>
+            <CardDescription>{t("pages.usersSettings.backupDescription")}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <form className="space-y-3" onSubmit={(event) => void submitBackup(event)}>
             <div className="space-y-2">
               <Label htmlFor="backup-output-dir">{t("pages.usersSettings.backupOutputDir")}</Label>
               <Input
@@ -1049,20 +1050,22 @@ export function UsersSettingsPage() {
             <Button type="submit" disabled={backupMutation.isPending}>
               {backupMutation.isPending ? t("pages.usersSettings.backupSubmitting") : t("pages.usersSettings.backupSubmit")}
             </Button>
-          </form>
-          {backupResult ? (
-            <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(backupResult, null, 2)}</pre>
-          ) : null}
-        </CardContent>
-      </Card>
+            </form>
+            {backupResult ? (
+              <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(backupResult, null, 2)}</pre>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.usersSettings.restoreTitle")}</CardTitle>
-          <CardDescription>{t("pages.usersSettings.restoreDescription")}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <form className="space-y-3" onSubmit={(event) => void submitRestore(event)}>
+      {isAdmin ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("pages.usersSettings.restoreTitle")}</CardTitle>
+            <CardDescription>{t("pages.usersSettings.restoreDescription")}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <form className="space-y-3" onSubmit={(event) => void submitRestore(event)}>
             <div className="space-y-2">
               <Label htmlFor="restore-backup-dir">{t("pages.usersSettings.restoreDirectory")}</Label>
               <Input
@@ -1113,15 +1116,16 @@ export function UsersSettingsPage() {
                 ? t("pages.usersSettings.restoreSubmitting")
                 : t("pages.usersSettings.restoreSubmit")}
             </Button>
-          </form>
-          {!desktopApi ? (
-            <p className="text-sm text-muted-foreground">{t("pages.usersSettings.restoreRuntimeOnly")}</p>
-          ) : null}
-          {restoreResult ? (
-            <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(restoreResult, null, 2)}</pre>
-          ) : null}
-        </CardContent>
-      </Card>
+            </form>
+            {!desktopApi ? (
+              <p className="text-sm text-muted-foreground">{t("pages.usersSettings.restoreRuntimeOnly")}</p>
+            ) : null}
+            {restoreResult ? (
+              <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(restoreResult, null, 2)}</pre>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Dialog open={editor.open} onOpenChange={(open) => setEditor((previous) => ({ ...previous, open }))}>
         <DialogContent>

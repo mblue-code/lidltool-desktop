@@ -622,12 +622,17 @@ export class DesktopRuntime {
       trustPolicy: releaseContext.trustPolicy,
       catalogEntries: releaseContext.metadata.discovery_catalog.entries
     });
-    const restart = installResult.pack.enabled;
-    const backendStatus = restart ? await this.restartBackendForPluginChange() : null;
+    if (installResult.pack.status === "disabled") {
+      installResult.pack = await this.receiptPluginPackManager.setEnabled(installResult.pack.pluginId, true, {
+        trustPolicy: releaseContext.trustPolicy,
+        catalogEntries: releaseContext.metadata.discovery_catalog.entries
+      });
+    }
+    const backendStatus = await this.restartBackendForPluginChange();
     return {
       action: installResult.action,
       pack: installResult.pack,
-      restartedBackend: restart,
+      restartedBackend: backendStatus !== null,
       backendStatus
     };
   }
@@ -641,12 +646,17 @@ export class DesktopRuntime {
       trustPolicy: releaseContext.trustPolicy,
       catalogEntries: releaseContext.metadata.discovery_catalog.entries
     });
-    const restart = installResult.pack.enabled;
-    const backendStatus = restart ? await this.restartBackendForPluginChange() : null;
+    if (installResult.pack.status === "disabled") {
+      installResult.pack = await this.receiptPluginPackManager.setEnabled(installResult.pack.pluginId, true, {
+        trustPolicy: releaseContext.trustPolicy,
+        catalogEntries: releaseContext.metadata.discovery_catalog.entries
+      });
+    }
+    const backendStatus = await this.restartBackendForPluginChange();
     return {
       action: installResult.action,
       pack: installResult.pack,
-      restartedBackend: restart,
+      restartedBackend: backendStatus !== null,
       backendStatus
     };
   }

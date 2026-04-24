@@ -30,12 +30,16 @@ function copyTreeFiltered(source, dest, excludedNames) {
   });
 }
 
-function loadRuntimeFrontendOverrides() {
+function loadFrontendOverrides() {
   if (!existsSync(vendorManifestPath)) {
     throw new Error(`Desktop vendor manifest not found at ${vendorManifestPath}`);
   }
   const manifest = JSON.parse(readFileSync(vendorManifestPath, "utf-8"));
-  return manifest.frontend?.runtimeOverrideFiles ?? [];
+  const frontend = manifest.frontend ?? {};
+  return [
+    ...(frontend.runtimeOverrideFiles ?? []),
+    ...(frontend.testOverrideFiles ?? [])
+  ];
 }
 
 function applyDeclaredOverrides(sourceRoot, destRoot, relativePaths) {
@@ -55,7 +59,7 @@ if (!existsSync(frontendSource)) {
 }
 
 mkdirSync(vendorDir, { recursive: true });
-const runtimeFrontendOverrides = loadRuntimeFrontendOverrides();
+const frontendOverridesToApply = loadFrontendOverrides();
 
 resetDir(frontendDest);
 copyTreeFiltered(
@@ -64,7 +68,7 @@ copyTreeFiltered(
   new Set(["node_modules", "dist", ".vite", ".qa-screenshots", "playwright-report", "test-results"])
 );
 if (existsSync(frontendOverrides)) {
-  applyDeclaredOverrides(frontendOverrides, frontendDest, runtimeFrontendOverrides);
+  applyDeclaredOverrides(frontendOverrides, frontendDest, frontendOverridesToApply);
 }
 
 resetDir(backendDest);

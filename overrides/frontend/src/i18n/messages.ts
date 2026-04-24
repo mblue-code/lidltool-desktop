@@ -973,6 +973,9 @@ export const EN_MESSAGES = {
   "pages.chatWorkspace.generating": "Generating...",
   "pages.chatWorkspace.send": "Send",
   "pages.chatWorkspace.error.configUnavailable": "AI agent configuration is unavailable.",
+  "pages.chatWorkspace.error.noModelAvailable":
+    "Chat needs a configured AI model. Connect ChatGPT / Codex or save API settings before sending a prompt.",
+  "pages.chatWorkspace.unavailableTitle": "Chat is not configured",
   "pages.chatWorkspace.error.streamFailed": "Chat stream failed",
   "pages.chatWorkspace.modelSelector.label": "Model",
   "pages.chatWorkspace.threadSearch.placeholder": "Search threads...",
@@ -2082,6 +2085,9 @@ export const DE_MESSAGES: Record<TranslationKey, string> = {
   "pages.chatWorkspace.send": "Senden",
   "pages.chatWorkspace.error.configUnavailable":
     "Die Konfiguration des KI-Agenten ist nicht verfügbar.",
+  "pages.chatWorkspace.error.noModelAvailable":
+    "Für den Chat ist ein konfiguriertes KI-Modell erforderlich. Verbinden Sie ChatGPT / Codex oder speichern Sie API-Einstellungen, bevor Sie eine Nachricht senden.",
+  "pages.chatWorkspace.unavailableTitle": "Chat ist nicht konfiguriert",
   "pages.chatWorkspace.error.streamFailed": "Chat-Stream fehlgeschlagen",
   "pages.chatWorkspace.modelSelector.label": "Modell",
   "pages.chatWorkspace.threadSearch.placeholder": "Threads durchsuchen...",

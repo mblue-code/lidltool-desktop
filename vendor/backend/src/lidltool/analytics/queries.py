@@ -55,6 +55,10 @@ def _safe_ratio(numerator: int, denominator: int) -> float:
     return round(float(numerator) / float(denominator), 6)
 
 
+def _exclusive_window_end(value: datetime) -> datetime:
+    return value + timedelta(days=1)
+
+
 def _to_int(value: object) -> int:
     if isinstance(value, bool):
         return int(value)
@@ -759,13 +763,14 @@ def dashboard_window_totals(
     to_date: datetime,
     visibility: VisibilityContext | None = None,
 ) -> dict[str, Any]:
+    end = _exclusive_window_end(to_date)
     stmt = select(
         func.count(Transaction.id),
         func.coalesce(func.sum(Transaction.total_gross_cents), 0),
         func.coalesce(func.sum(Transaction.discount_total_cents), 0),
     ).where(
         Transaction.purchased_at >= from_date,
-        Transaction.purchased_at <= to_date,
+        Transaction.purchased_at < end,
     )
     stmt = _apply_transaction_visibility(stmt, visibility)
     receipt_count, gross_cents, discount_cents = session.execute(stmt).one()
@@ -786,13 +791,14 @@ def dashboard_category_spend_summary(
     visibility: VisibilityContext | None = None,
     limit: int = 6,
 ) -> list[dict[str, Any]]:
+    end = _exclusive_window_end(to_date)
     stmt = (
         select(
             func.coalesce(TransactionItem.category, "uncategorized"),
             func.coalesce(func.sum(TransactionItem.line_total_cents), 0),
         )
         .join(Transaction, Transaction.id == TransactionItem.transaction_id)
-        .where(Transaction.purchased_at >= from_date, Transaction.purchased_at <= to_date)
+        .where(Transaction.purchased_at >= from_date, Transaction.purchased_at < end)
         .group_by(func.coalesce(TransactionItem.category, "uncategorized"))
         .order_by(func.coalesce(func.sum(TransactionItem.line_total_cents), 0).desc())
         .limit(limit)
@@ -821,7 +827,7 @@ def dashboard_window_transactions(
     result = search_transactions(
         session,
         purchased_from=from_date,
-        purchased_to=to_date + timedelta(seconds=1),
+        purchased_to=_exclusive_window_end(to_date),
         limit=limit,
         offset=0,
         visibility=visibility,
@@ -837,6 +843,7 @@ def dashboard_merchant_summary(
     visibility: VisibilityContext | None = None,
     limit: int = 6,
 ) -> list[dict[str, Any]]:
+    end = _exclusive_window_end(to_date)
     stmt = (
         select(
             func.coalesce(Transaction.merchant_name, Source.display_name, Transaction.source_id),
@@ -846,7 +853,7 @@ def dashboard_merchant_summary(
         )
         .select_from(Transaction)
         .join(Source, Source.id == Transaction.source_id, isouter=True)
-        .where(Transaction.purchased_at >= from_date, Transaction.purchased_at <= to_date)
+        .where(Transaction.purchased_at >= from_date, Transaction.purchased_at < end)
         .group_by(func.coalesce(Transaction.merchant_name, Source.display_name, Transaction.source_id))
         .order_by(func.coalesce(func.sum(Transaction.total_gross_cents), 0).desc())
         .limit(limit)
@@ -872,6 +879,7 @@ def grocery_workspace_summary(
     visibility: VisibilityContext,
     limit: int = 12,
 ) -> dict[str, Any]:
+    end = _exclusive_window_end(to_date)
     transactions = dashboard_window_transactions(
         session,
         from_date=from_date,
@@ -893,7 +901,7 @@ def grocery_workspace_summary(
             .join(Transaction, Transaction.id == TransactionItem.transaction_id)
             .where(
                 Transaction.purchased_at >= from_date,
-                Transaction.purchased_at <= to_date,
+                Transaction.purchased_at < end,
                 Transaction.id.in_(visible_transaction_ids_subquery(visibility)),
             )
             .group_by(func.coalesce(TransactionItem.category, "uncategorized"))
@@ -930,6 +938,7 @@ def merchant_workspace_summary(
     search: str | None = None,
     limit: int = 40,
 ) -> dict[str, Any]:
+    end = _exclusive_window_end(to_date)
     merchant_filter = (search or "").strip().lower()
     merchant_buckets: dict[str, dict[str, Any]] = defaultdict(
         lambda: {
@@ -945,7 +954,7 @@ def merchant_workspace_summary(
             select(Transaction)
             .where(
                 Transaction.purchased_at >= from_date,
-                Transaction.purchased_at <= to_date,
+                Transaction.purchased_at < end,
                 Transaction.id.in_(visible_transaction_ids_subquery(visibility)),
             )
             .order_by(Transaction.purchased_at.desc())
@@ -975,7 +984,7 @@ def merchant_workspace_summary(
             .join(Transaction, Transaction.id == TransactionItem.transaction_id)
             .where(
                 Transaction.purchased_at >= from_date,
-                Transaction.purchased_at <= to_date,
+                Transaction.purchased_at < end,
                 Transaction.id.in_(visible_transaction_ids_subquery(visibility)),
             )
             .group_by(
