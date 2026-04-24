@@ -113,14 +113,6 @@ function describeCloseRequestHint(): Record<string, unknown> {
   };
 }
 
-function shouldGuardMainWindowClose(window: BrowserWindow): boolean {
-  if (appIsQuitting || process.platform !== "darwin") {
-    return false;
-  }
-  const surface = inferSurfaceFromUrl(window.webContents.getURL()) ?? lastRequestedSurface;
-  return surface === "main_app";
-}
-
 function inferSurfaceFromUrl(url: string): "control_center" | "main_app" | null {
   if (!url) {
     return null;
@@ -358,14 +350,6 @@ function createWindow(): BrowserWindow {
       ...describeCloseRequestHint(),
       ...describeWindow(window)
     };
-    if (shouldGuardMainWindowClose(window)) {
-      event.preventDefault();
-      logWindowLifecycle("window.close_guarded", details);
-      lastCloseRequestHint = null;
-      restoreWindowVisibility(window, "close-guard");
-      scheduleVisibilityRecovery(window, "close-guard");
-      return;
-    }
     logWindowLifecycle("window.close", details);
     lastCloseRequestHint = null;
   });
@@ -440,11 +424,6 @@ function createWindow(): BrowserWindow {
         ...describeCloseRequestHint(),
         ...describeWindow(window)
       });
-      if (shouldGuardMainWindowClose(window)) {
-        event.preventDefault();
-        restoreWindowVisibility(window, "close-accelerator-guard");
-        scheduleVisibilityRecovery(window, "close-accelerator-guard");
-      }
       return;
     }
     if (key === "z") {
@@ -568,9 +547,7 @@ app.on("window-all-closed", async () => {
     surface: lastRequestedSurface
   });
   await runtime.shutdown();
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  app.quit();
 });
 
 app.on("before-quit", async () => {

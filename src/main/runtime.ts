@@ -46,8 +46,7 @@ import {
   nowIso,
   runCommandCapture,
   runCommandWithLogs,
-  splitLines,
-  waitUntilHealthy
+  splitLines
 } from "./runtime-command-runner";
 import {
   findCatalogDesktopPackEntry,
@@ -229,8 +228,10 @@ export class DesktopRuntime {
       stdio: "pipe"
     });
     this.backendStartedAt = nowIso();
+    const expectedPid = this.backendProcess.pid ?? null;
 
     let spawnError: Error | null = null;
+    let exitInfo: { code: number | null; signal: NodeJS.Signals | null } | null = null;
     this.backendProcess.on("error", (err) => {
       spawnError = err;
       this.backendProcess = null;
@@ -254,7 +255,8 @@ export class DesktopRuntime {
       }
     });
 
-    this.backendProcess.on("exit", () => {
+    this.backendProcess.on("exit", (code, signal) => {
+      exitInfo = { code, signal };
       this.backendProcess = null;
       this.backendStartedAt = null;
     });
@@ -270,7 +272,7 @@ export class DesktopRuntime {
       if (spawnError) {
         throw spawnError;
       }
-      await this.waitUntilHealthy(cfg.apiBaseUrl, 20_000);
+      await this.waitForBackendReady(cfg.apiBaseUrl, expectedPid, 20_000, () => spawnError, () => exitInfo);
       return this.getBackendStatus();
     } catch (err) {
       if (spawnError) {
@@ -776,10 +778,6 @@ export class DesktopRuntime {
     return await runCommandCapture({ command, args, env });
   }
 
-  private async waitUntilHealthy(baseUrl: string, timeoutMs: number): Promise<void> {
-    await waitUntilHealthy(baseUrl, timeoutMs);
-  }
-
   private emitLog(payload: Omit<CommandLogEvent, "timestamp">): void {
     const eventPayload = {
       ...payload,
@@ -856,6 +854,58 @@ export class DesktopRuntime {
     }
     await this.stopBackend();
     return await this.startBackend();
+  }
+
+  private async waitForBackendReady(
+    baseUrl: string,
+    expectedPid: number | null,
+    timeoutMs: number,
+    getSpawnError: () => Error | null,
+    getExitInfo: () => { code: number | null; signal: NodeJS.Signals | null } | null
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    let lastErr: unknown = null;
+
+    while (Date.now() < deadline) {
+      const spawnError = getSpawnError();
+      if (spawnError) {
+        throw spawnError;
+      }
+
+      const exitInfo = getExitInfo();
+      if (exitInfo) {
+        const exitDetails =
+          exitInfo.code !== null ? `exit code ${exitInfo.code}` : `signal ${String(exitInfo.signal ?? "unknown")}`;
+        throw new Error(
+          `Desktop local service exited before becoming ready (${exitDetails}). ` +
+            "Another process may already be using the desktop API port."
+        );
+      }
+
+      try {
+        const response = await fetch(`${baseUrl}/api/v1/health`);
+        if (response.ok) {
+          const payload = (await response.json()) as {
+            result?: { ready?: boolean; pid?: unknown } | null;
+          };
+          const actualPid = typeof payload?.result?.pid === "number" ? payload.result.pid : null;
+          const ready = payload?.result?.ready === true;
+          if (ready && expectedPid !== null && actualPid === expectedPid) {
+            return;
+          }
+          lastErr =
+            actualPid === null
+              ? "health probe did not expose a backend pid"
+              : `health probe responded from pid ${actualPid}, expected ${expectedPid}`;
+        }
+      } catch (error) {
+        lastErr = error;
+      }
+
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 350));
+    }
+
+    throw new Error(`Backend did not become ready in ${timeoutMs}ms. Last error: ${String(lastErr)}`);
   }
 
   private async findReceiptPluginPack(pluginId: string): Promise<ReceiptPluginPackInfo | null> {

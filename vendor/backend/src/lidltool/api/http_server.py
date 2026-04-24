@@ -4149,6 +4149,7 @@ def create_app(
             result={
                 "status": "alive",
                 "ready": True,
+                "pid": os.getpid(),
                 "checks": {"process": {"ok": True}},
             },
             warnings=[],
