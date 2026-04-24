@@ -1,0 +1,42 @@
+{
+  "records": [
+    {
+      "id": "reference-template-1",
+      "purchasedAt": "2026-04-01T10:00:00+00:00",
+      "store": {
+        "id": "reference_template_receipt_de",
+        "name": "Reference Merchant"
+      },
+      "totalGross": "8.47",
+      "currency": "EUR",
+      "items": [
+        {
+          "name": "Coffee",
+          "qty": "1",
+          "unit": "pcs",
+          "unitPrice": "4.99",
+          "lineTotal": "4.99",
+          "discounts": []
+        },
+        {
+          "name": "Bread",
+          "qty": "1",
+          "unit": "pcs",
+          "unitPrice": "3.48",
+          "lineTotal": "3.48",
+          "discounts": [
+            {
+              "type": "coupon",
+              "promotion_id": "coupon-1",
+              "amount_cents": 100,
+              "label": "Welcome coupon",
+              "scope": "item",
+              "subkind": "coupon",
+              "funded_by": "retailer"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

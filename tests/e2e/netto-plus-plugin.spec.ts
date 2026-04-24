@@ -148,7 +148,7 @@ test("imports, sets up, and syncs the Netto Plus desktop pack from a fresh profi
   const packOutputDir = join(profileRoot, "netto-pack");
   const bundlePath = join(profileRoot, "netto-session-bundle.json");
   const dbPath = join(profileRoot, "electron-user-data", "lidltool.sqlite");
-  const pluginDir = fileURLToPath(new URL("../../../../plugins/netto_plus_de/", import.meta.url));
+  const pluginDir = fileURLToPath(new URL("../../fixtures/plugin-sources/netto_plus_de/", import.meta.url));
   const manager = new ReceiptPluginPackManager({
     rootDir: pluginStorageDir,
     validateManifest: validateManifestFixture

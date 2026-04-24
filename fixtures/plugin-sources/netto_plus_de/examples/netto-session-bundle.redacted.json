@@ -1,0 +1,28 @@
+{
+  "schema_version": "1",
+  "account": {
+    "email": "redacted.user@example.com"
+  },
+  "receipts": [
+    {
+      "summary": {
+        "BonId": "8640333292129767634134",
+        "Einkaufsdatum": "2026-03-13T10:45:27.920+01:00",
+        "Bonsumme": 19.92,
+        "Ersparnis": 5.99,
+        "Filiale": {
+          "FilialNummer": "2459",
+          "Bezeichnung": "Calberlah-Windmühlenweg 2",
+          "Strasse": "Windmühlenweg 2",
+          "Plz": "38547",
+          "Ort": "Calberlah"
+        }
+      },
+      "pdf_payload": {
+        "content": "JVBERi0xLjQKJSAuLi4gcmVkYWN0ZWQgZXhhbXBsZSBwZGYgY29udGVudCAuLi4K",
+        "mimeType": "application/pdf",
+        "filename": "receipt.pdf"
+      }
+    }
+  ]
+}

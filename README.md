@@ -8,7 +8,7 @@ Planning note:
 
 ## Maintenance rules
 
-Desktop-specific docs live under `apps/desktop/README.md` plus `apps/desktop/docs/`.
+Desktop-specific docs live in `README.md` plus `docs/`.
 
 Retention:
 - durable product, packaging, and implementation docs stay in `docs/`
@@ -471,19 +471,20 @@ Current desktop deferrals still remain:
 
 ## Vendor sync (required)
 
-Desktop uses local vendored sources under `apps/desktop/vendor`.
+Desktop uses local vendored sources under `vendor/`.
 
 ```bash
-cd apps/desktop
 npm run vendor:sync
 ```
 
 This is the only script that reads from the main repo to refresh local copies.
+When the upstream checkout is not a sibling directory, set `LIDLTOOL_UPSTREAM_REPO=/path/to/lidl-receipts-cli`
+or run `npm run vendor:sync -- --source-repo /path/to/lidl-receipts-cli`.
 
 `vendor:sync` now does three explicit things for i18n:
-- copies the canonical web frontend, including `frontend/src/i18n/*`, into `apps/desktop/vendor/frontend`
-- reapplies documented desktop-only overlays from `apps/desktop/overrides/frontend`
-- regenerates the Electron shell catalog under `apps/desktop/src/i18n/generated.ts` from the canonical web message source plus desktop-shell-only additions
+- copies the canonical web frontend, including `frontend/src/i18n/*`, into `vendor/frontend`
+- reapplies documented desktop-only overlays from `overrides/frontend`
+- regenerates the Electron shell catalog under `src/i18n/generated.ts` from the canonical web message source plus desktop-shell-only additions
 
 After every sync/build, desktop applies a local vendored frontend compatibility patch:
 - `scripts/patch-vendored-frontend.mjs`
@@ -505,7 +506,6 @@ After every sync/build, desktop applies a local vendored frontend compatibility 
 Build frontend + start Electron:
 
 ```bash
-cd apps/desktop
 npm install
 npm run vendor:sync
 npm run frontend:install
@@ -513,10 +513,9 @@ npm run frontend:build
 npm run dev
 ```
 
-If you want the backend fully managed inside `apps/desktop` (recommended):
+If you want the backend fully managed inside this repo (recommended):
 
 ```bash
-cd apps/desktop
 npm run vendor:sync
 npm run frontend:install
 npm run backend:prepare

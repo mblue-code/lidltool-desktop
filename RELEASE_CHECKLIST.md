@@ -1,20 +1,21 @@
 # Desktop Release Checklist
 
-Run all commands from `apps/desktop`.
+Run all commands from the repo root.
 
 ## 1. Build pipeline
 
 - [ ] `npm install`
   - Expected: installs desktop dependencies successfully.
 - [ ] `npm run vendor:sync`
-  - Expected: logs `Vendored frontend -> .../apps/desktop/vendor/frontend` and `Vendored backend -> .../apps/desktop/vendor/backend`.
+  - Expected: set `LIDLTOOL_UPSTREAM_REPO=/path/to/lidl-receipts-cli` or pass `-- --source-repo /path/to/lidl-receipts-cli` when the upstream checkout is not a sibling directory.
+  - Expected: logs `Vendored frontend -> .../vendor/frontend` and `Vendored backend -> .../vendor/backend`.
   - Expected: logs `Patched vendored frontend Vite config with browser shim alias for @mariozechner/pi-ai.`
 - [ ] `npm run frontend:install`
   - Expected: completes successfully (warnings are acceptable).
 - [ ] `npm run frontend:build`
   - Expected: `vite build` completes and writes `vendor/frontend/dist`.
 - [ ] `npm run backend:prepare`
-  - Expected: logs `Prepared desktop backend runtime at .../apps/desktop/.backend/venv`.
+  - Expected: logs `Prepared desktop backend runtime at .../.backend/venv`.
   - Expected: Playwright Chromium is installed outside the venv, by default under `.cache/playwright-browsers`.
   - Expected: uses Python 3.11-3.12 unless `LIDLTOOL_DESKTOP_ALLOW_UNSUPPORTED_PYTHON=1` is intentionally set.
 - [ ] `npm run test:ocr-packaged`

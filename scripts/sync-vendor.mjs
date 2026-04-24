@@ -6,14 +6,50 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const desktopDir = resolve(__dirname, "..");
-const sourceRepoRoot = resolve(desktopDir, "..", "..");
 const vendorDir = resolve(desktopDir, "vendor");
 const overridesDir = resolve(desktopDir, "overrides");
-const frontendSource = resolve(sourceRepoRoot, "frontend");
+const argv = process.argv.slice(2);
 const frontendDest = resolve(vendorDir, "frontend");
 const frontendOverrides = resolve(overridesDir, "frontend");
 const backendDest = resolve(vendorDir, "backend");
 const vendorManifestPath = resolve(vendorDir, "vendor-manifest.json");
+
+function parseArg(flagName) {
+  const index = argv.indexOf(flagName);
+  if (index === -1) {
+    return null;
+  }
+  return argv[index + 1] ?? null;
+}
+
+function resolveUpstreamRepoRoot() {
+  const explicit = parseArg("--source-repo") ?? process.env.LIDLTOOL_UPSTREAM_REPO ?? null;
+  if (explicit) {
+    return resolve(explicit);
+  }
+
+  const siblingCandidates = [
+    resolve(desktopDir, "..", "lidl-receipts-cli"),
+    resolve(desktopDir, "..", "lidltool-server"),
+    resolve(desktopDir, "..", "lidltool-main")
+  ];
+  for (const candidate of siblingCandidates) {
+    if (existsSync(resolve(candidate, "frontend")) && existsSync(resolve(candidate, "src"))) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    [
+      "Desktop vendor sync requires an upstream checkout.",
+      "Pass --source-repo /path/to/lidl-receipts-cli or set LIDLTOOL_UPSTREAM_REPO.",
+      "Expected upstream contents: frontend/, src/, pyproject.toml, alembic.ini."
+    ].join(" ")
+  );
+}
+
+const sourceRepoRoot = resolveUpstreamRepoRoot();
+const frontendSource = resolve(sourceRepoRoot, "frontend");
 
 function resetDir(path) {
   rmSync(path, { recursive: true, force: true });
@@ -96,3 +132,4 @@ if (existsSync(frontendOverrides)) {
   console.log(`Applied frontend overrides -> ${frontendOverrides}`);
 }
 console.log(`Vendored backend -> ${backendDest}`);
+console.log(`Upstream source repo -> ${sourceRepoRoot}`);

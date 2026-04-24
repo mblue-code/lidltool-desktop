@@ -9,6 +9,8 @@ build/backend-src
 build/plugin-packs
 vendor/frontend/node_modules
 vendor/frontend/dist
+vendor/**/*.tsbuildinfo
+vendor/**/__pycache__/
 output/playwright
 playwright-report
 test-results

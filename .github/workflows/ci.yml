@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  desktop-test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install desktop deps
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Runtime contract tests
+        run: npm run test:runtime-contracts
+
+      - name: Control center tests
+        run: npm run test:control-center
+
+      - name: Plugin pack tests
+        run: npm run test:plugin-packs
+
+      - name: Release metadata tests
+        run: npm run test:release-metadata
+
+      - name: Build desktop app
+        run: npm run build
+
+  vendor-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: mblue-code/lidl-receipts-cli
+          path: upstream
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install desktop deps
+        run: npm ci
+
+      - name: Verify vendor sync
+        env:
+          LIDLTOOL_UPSTREAM_REPO: ${{ github.workspace }}/upstream
+        run: npm run vendor:sync

@@ -1,0 +1,128 @@
+{
+  "manifest_version": "1",
+  "plugin_id": "local.netto_plus_de",
+  "plugin_version": "0.1.0",
+  "connector_api_version": "1",
+  "plugin_family": "receipt",
+  "source_id": "netto_plus_de",
+  "display_name": "Netto Plus",
+  "merchant_name": "Netto Plus",
+  "country_code": "DE",
+  "maintainer": "lidltool",
+  "license": "MIT",
+  "runtime_kind": "subprocess_python",
+  "entrypoint": "plugin.py:NettoPlusReceiptPlugin",
+  "auth_kind": "file_import",
+  "auth": {
+    "auth_kind": "file_import",
+    "supports_live_session_bootstrap": false,
+    "supports_reauth": true,
+    "supports_headless_refresh": false,
+    "supports_manual_confirm": false,
+    "supports_oauth_callback": false,
+    "supports_session_file": false,
+    "implemented_actions": [
+      "start_auth",
+      "cancel_auth",
+      "confirm_auth"
+    ],
+    "compatibility_actions": [],
+    "reserved_actions": [
+      "start_auth",
+      "cancel_auth",
+      "confirm_auth"
+    ]
+  },
+  "capabilities": [
+    "healthcheck",
+    "historical_sync",
+    "incremental_sync",
+    "discount_classification",
+    "manual_reauth"
+  ],
+  "trust_class": "local_custom",
+  "plugin_origin": "local_path",
+  "install_status": "installed",
+  "config_schema": {
+    "fields": [
+      {
+        "key": "session_bundle_file",
+        "label": "Netto Plus session bundle",
+        "description": "Absolute path to a JSON bundle captured from the Netto Plus Android receipt flow.",
+        "input_kind": "text",
+        "required": true,
+        "sensitive": false
+      },
+      {
+        "key": "store_name",
+        "label": "Store label",
+        "description": "Optional display name override for imported Netto Plus receipts.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false
+      },
+      {
+        "key": "state_file",
+        "label": "Plugin state path",
+        "description": "Optional persistent path for the imported Netto Plus bundle state.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false,
+        "operator_only": true
+      },
+      {
+        "key": "fixture_file",
+        "label": "Fixture bundle",
+        "description": "Optional offline fixture bundle for automated tests.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false,
+        "operator_only": true
+      }
+    ]
+  },
+  "onboarding": {
+    "title": "Import an Android-backed Netto Plus session bundle",
+    "summary": "Netto Plus receipts are app-backed. Desktop setup imports a JSON session bundle captured from the Android receipt flow, then sync reads the cached Netto receipt payloads from that bundle.",
+    "expected_speed": "Usually quick once the bundle file exists. The first sync mainly parses the receipt PDF payloads already captured from the app flow.",
+    "caution": "This connector targets the Edeka-linked Netto Plus product at netto-online.de, not netto.de.",
+    "steps": [
+      {
+        "title": "Enable the connector",
+        "description": "Turn on the imported Netto Plus pack after adding it to the desktop app."
+      },
+      {
+        "title": "Choose the session bundle file",
+        "description": "Use Set up and point the connector at a Netto Plus Android session bundle JSON file."
+      },
+      {
+        "title": "Run sync",
+        "description": "After the bundle import succeeds, sync will import the captured Netto receipts into desktop."
+      }
+    ]
+  },
+  "compatibility": {
+    "min_core_version": "0.1.0",
+    "supported_host_kinds": [
+      "self_hosted",
+      "electron"
+    ]
+  },
+  "policy": {
+    "trust": {
+      "execution_model": "sandboxed",
+      "requires_operator_approval": true
+    },
+    "ai": {
+      "allow_model_mediation": false,
+      "allow_model_generated_actions": false
+    }
+  },
+  "metadata": {
+    "maturity": "working",
+    "repo_managed": true,
+    "distribution_target": "plugin_service_addon",
+    "bootstrap_mode": "android_session_bundle_import",
+    "backend": "netto_plus_android_receipt_bundle"
+  }
+}

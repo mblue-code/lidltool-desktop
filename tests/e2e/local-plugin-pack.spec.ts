@@ -67,7 +67,7 @@ test("shows a locally built Kaufland receipt pack in a fresh desktop profile", a
   const { page, profileRoot, close } = session;
   const pluginStorageDir = join(profileRoot, "electron-user-data", "plugins", "receipt-packs");
   const packOutputDir = join(profileRoot, "kaufland-pack");
-  const pluginDir = fileURLToPath(new URL("../../../../plugins/kaufland_de/", import.meta.url));
+  const pluginDir = fileURLToPath(new URL("../../fixtures/plugin-sources/kaufland_de/", import.meta.url));
   const manager = new ReceiptPluginPackManager({
     rootDir: pluginStorageDir,
     validateManifest: validateManifestFixture
@@ -120,7 +120,7 @@ test("enables a freshly imported Kaufland pack in the full Connectors flow and k
   const { page, profileRoot, close } = session;
   const pluginStorageDir = join(profileRoot, "electron-user-data", "plugins", "receipt-packs");
   const packOutputDir = join(profileRoot, "kaufland-pack");
-  const pluginDir = fileURLToPath(new URL("../../../../plugins/kaufland_de/", import.meta.url));
+  const pluginDir = fileURLToPath(new URL("../../fixtures/plugin-sources/kaufland_de/", import.meta.url));
   const manager = new ReceiptPluginPackManager({
     rootDir: pluginStorageDir,
     validateManifest: validateManifestFixture

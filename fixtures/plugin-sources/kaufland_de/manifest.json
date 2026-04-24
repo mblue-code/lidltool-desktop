@@ -1,0 +1,141 @@
+{
+  "manifest_version": "1",
+  "plugin_id": "local.kaufland_de",
+  "plugin_version": "0.1.0",
+  "connector_api_version": "1",
+  "plugin_family": "receipt",
+  "source_id": "kaufland_de",
+  "display_name": "Kaufland",
+  "merchant_name": "Kaufland",
+  "country_code": "DE",
+  "maintainer": "lidltool",
+  "license": "MIT",
+  "runtime_kind": "subprocess_python",
+  "entrypoint": "plugin.py:KauflandReceiptPlugin",
+  "auth_kind": "oauth_pkce",
+  "auth": {
+    "auth_kind": "oauth_pkce",
+    "supports_live_session_bootstrap": true,
+    "supports_reauth": true,
+    "supports_headless_refresh": true,
+    "supports_manual_confirm": false,
+    "supports_oauth_callback": true,
+    "supports_session_file": false,
+    "implemented_actions": [
+      "start_auth",
+      "cancel_auth",
+      "confirm_auth"
+    ],
+    "compatibility_actions": [
+      "start_auth",
+      "cancel_auth"
+    ],
+    "reserved_actions": [
+      "start_auth",
+      "cancel_auth",
+      "confirm_auth"
+    ]
+  },
+  "capabilities": [
+    "live_session_bootstrap",
+    "healthcheck",
+    "historical_sync",
+    "incremental_sync",
+    "discount_classification",
+    "manual_reauth"
+  ],
+  "trust_class": "local_custom",
+  "plugin_origin": "local_path",
+  "install_status": "installed",
+  "config_schema": {
+    "fields": [
+      {
+        "key": "store_name",
+        "label": "Store label",
+        "description": "Optional display name override for imported Kaufland receipts.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false
+      },
+      {
+        "key": "country_code",
+        "label": "Receipt country",
+        "description": "Country code passed to the Kaufland transaction API. Defaults to DE.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false
+      },
+      {
+        "key": "preferred_store_id",
+        "label": "Preferred store id",
+        "description": "Optional Kaufland home-store id forwarded during Cidaas auth and refresh.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false
+      },
+      {
+        "key": "state_file",
+        "label": "Plugin state path",
+        "description": "Optional persistent path for Kaufland OAuth and user-info state.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false,
+        "operator_only": true
+      },
+      {
+        "key": "fixture_file",
+        "label": "Fixture file",
+        "description": "Optional offline JSON fixture for local testing only.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false,
+        "operator_only": true
+      }
+    ]
+  },
+  "onboarding": {
+    "title": "Sign in through Kaufland account login",
+    "summary": "Kaufland receipt sync boots through the same Cidaas browser login flow the Android app uses.",
+    "expected_speed": "Usually quick if the Kaufland account login completes normally in the shared browser window.",
+    "caution": "This plugin targets app-backed grocery receipts, not Kaufland marketplace orders from the normal web shop.",
+    "steps": [
+      {
+        "title": "Start connector auth",
+        "description": "Open the normal receipt-connector auth/bootstrap action so the host can launch the plugin-provided login flow."
+      },
+      {
+        "title": "Finish Kaufland login",
+        "description": "Sign in in the shared browser window and let the redirect complete back into the plugin auth flow."
+      },
+      {
+        "title": "Sync digital receipts",
+        "description": "After the callback is confirmed, later syncs use host-side HTTP requests against Kaufland's receipt backend."
+      }
+    ]
+  },
+  "compatibility": {
+    "min_core_version": "0.1.0",
+    "supported_host_kinds": [
+      "self_hosted",
+      "electron"
+    ]
+  },
+  "policy": {
+    "trust": {
+      "execution_model": "sandboxed",
+      "requires_operator_approval": true
+    },
+    "ai": {
+      "allow_model_mediation": false,
+      "allow_model_generated_actions": false
+    }
+  },
+  "metadata": {
+    "maturity": "working",
+    "repo_managed": true,
+    "bootstrap_mode": "plugin_auth_browser_plan",
+    "distribution_target": "plugin_service_addon",
+    "backend": "kaufland_loyalty_api",
+    "bootstrap_backend": "kaufland_cidaas_pkce"
+  }
+}

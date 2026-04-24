@@ -40,6 +40,7 @@ function writeVendorManifestFixture(
   overrides: {
     runtimeOverrideFiles?: string[];
     testOverrideFiles?: string[];
+    rootOverrideFiles?: string[];
     requiredFiles?: string[];
     requiredLoaderKeys?: string[];
     requiredTranslationKeys?: string[];
@@ -115,12 +116,15 @@ test("frontend patcher repairs the connector auth-status contract drift", () => 
   withTempDesktopFixture((fixtureDir) => {
     const frontendFixtureDir = join(fixtureDir, "vendor", "frontend");
     const overridesFixtureDir = join(fixtureDir, "overrides", "frontend", "src");
+    const rootOverridesFixtureDir = join(fixtureDir, "overrides", "frontend", "e2e");
     const sharedDir = join(fixtureDir, "src", "shared");
     mkdirSync(join(frontendFixtureDir, "src", "api"), { recursive: true });
     mkdirSync(sharedDir, { recursive: true });
     mkdirSync(join(overridesFixtureDir, "api"), { recursive: true });
+    mkdirSync(rootOverridesFixtureDir, { recursive: true });
     writeVendorManifestFixture(fixtureDir, {
       runtimeOverrideFiles: ["api/dashboard.ts"],
+      rootOverrideFiles: ["e2e/smoke.spec.ts"],
       testOverrideFiles: []
     });
 
@@ -186,6 +190,7 @@ test("frontend patcher repairs the connector auth-status contract drift", () => 
       "utf-8"
     );
     writeFileSync(join(overridesFixtureDir, "api", "dashboard.ts"), "export {};\n", "utf-8");
+    writeFileSync(join(rootOverridesFixtureDir, "smoke.spec.ts"), "export {};\n", "utf-8");
 
     runNodeScript(join(desktopDir, "scripts", "patch-vendored-frontend.mjs"), fixtureDir);
     runNodeScript(join(desktopDir, "scripts", "patch-vendored-frontend.mjs"), fixtureDir);

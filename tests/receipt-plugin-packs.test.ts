@@ -449,7 +449,7 @@ test("reference receipt plugin template builds a desktop pack that installs clea
   const rootDir = createManagerRoot();
   const manager = createManager(rootDir);
   const templateDir = fileURLToPath(
-    new URL("../../../examples/reference_receipt_plugin_template/", import.meta.url)
+    new URL("../fixtures/examples/reference_receipt_plugin_template/", import.meta.url)
   );
   const outputDir = join(rootDir, "built-pack");
   const build = spawnSync(
@@ -480,7 +480,7 @@ test("reference receipt plugin template builds a desktop pack that installs clea
 test("kaufland receipt plugin builds a desktop pack that installs cleanly", async () => {
   const rootDir = createManagerRoot();
   const manager = createManager(rootDir);
-  const pluginDir = fileURLToPath(new URL("../../../plugins/kaufland_de/", import.meta.url));
+  const pluginDir = fileURLToPath(new URL("../fixtures/plugin-sources/kaufland_de/", import.meta.url));
   const outputDir = join(rootDir, "kaufland-pack");
   const build = spawnSync(
     "python3",
@@ -510,7 +510,7 @@ test("kaufland receipt plugin builds a desktop pack that installs cleanly", asyn
 test("netto plus receipt plugin builds a desktop pack that installs cleanly", async () => {
   const rootDir = createManagerRoot();
   const manager = createManager(rootDir);
-  const pluginDir = fileURLToPath(new URL("../../../plugins/netto_plus_de/", import.meta.url));
+  const pluginDir = fileURLToPath(new URL("../fixtures/plugin-sources/netto_plus_de/", import.meta.url));
   const outputDir = join(rootDir, "netto-plus-pack");
   const build = spawnSync(
     "python3",
@@ -540,7 +540,7 @@ test("netto plus receipt plugin builds a desktop pack that installs cleanly", as
 test("rewe receipt plugin builds a desktop pack that installs cleanly", async () => {
   const rootDir = createManagerRoot();
   const manager = createManager(rootDir);
-  const pluginDir = fileURLToPath(new URL("../../../plugins/rewe_de/", import.meta.url));
+  const pluginDir = fileURLToPath(new URL("../fixtures/plugin-sources/rewe_de/", import.meta.url));
   const outputDir = join(rootDir, "rewe-pack");
   const build = spawnSync(
     "python3",
