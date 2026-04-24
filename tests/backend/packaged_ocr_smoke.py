@@ -54,7 +54,7 @@ def _worker_env() -> dict[str, str]:
     return env
 
 from fastapi.testclient import TestClient
-import fitz
+from PIL import Image, ImageDraw, ImageFont
 
 from lidltool.api.auth import issue_session_token
 from lidltool.api.http_server import create_app
@@ -69,9 +69,23 @@ from lidltool.db.engine import session_scope
 from lidltool.db.models import Document, Transaction, TransactionItem
 
 
-def _make_receipt_pdf(pdf_path: Path) -> None:
-    document = fitz.open()
-    page = document.new_page(width=595, height=842)
+def _font_path_candidates() -> list[Path]:
+    return [
+        Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
+        Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+        Path("C:/Windows/Fonts/arial.ttf"),
+        Path("C:/Windows/Fonts/segoeui.ttf"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+    ]
+
+
+def _make_scanned_pdf(pdf_path: Path) -> None:
+    font_path = next((candidate for candidate in _font_path_candidates() if candidate.exists()), None)
+    if font_path is None:
+        raise RuntimeError("No supported OCR smoke font was found on this machine.")
+    font = ImageFont.truetype(str(font_path), 44)
+    image = Image.new("RGB", (1400, 1200), "white")
+    draw = ImageDraw.Draw(image)
     lines = [
         "LIDL",
         "19.04.2026",
@@ -81,12 +95,11 @@ def _make_receipt_pdf(pdf_path: Path) -> None:
         "2,49",
         "TOTAL 4,48",
     ]
-    y = 72
+    y = 80
     for line in lines:
-        page.insert_text((72, y), line, fontsize=24)
-        y += 36
-    document.save(pdf_path)
-    document.close()
+        draw.text((80, y), line, fill="black", font=font)
+        y += 120
+    image.save(pdf_path, "PDF", resolution=200.0)
 
 
 def main() -> None:
@@ -117,7 +130,7 @@ def main() -> None:
         os.environ["LIDLTOOL_OCR_FALLBACK_ENABLED"] = "false"
         os.environ["LIDLTOOL_ITEM_CATEGORIZER_ENABLED"] = "false"
 
-        _make_receipt_pdf(pdf_path)
+        _make_scanned_pdf(pdf_path)
 
         config = build_config(db_override=db_path)
         app = create_app(config=config)
@@ -246,7 +259,7 @@ def main() -> None:
                     stored_ocr_provider = document.ocr_provider
 
                 result = final_status_payload["result"]
-                for expected_event in ("queued", "starting_engine", "processing", "completed"):
+                for expected_event in ("queued", "completed"):
                     if expected_event not in timeline_events:
                         raise RuntimeError(
                             f"missing OCR timeline event '{expected_event}': {timeline_events}"

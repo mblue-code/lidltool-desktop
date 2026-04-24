@@ -16,6 +16,8 @@ const registryPath = resolve(backendDir, "src", "lidltool", "connectors", "regis
 const runtimeExecutionPath = resolve(backendDir, "src", "lidltool", "connectors", "runtime", "execution.py");
 const runtimeRunnerPath = resolve(backendDir, "src", "lidltool", "connectors", "runtime", "runner.py");
 const cliPath = resolve(backendDir, "src", "lidltool", "cli.py");
+const ingestJobsPath = resolve(backendDir, "src", "lidltool", "ingest", "jobs.py");
+const glmOcrLocalPath = resolve(backendDir, "src", "lidltool", "ocr", "providers", "glm_ocr_local.py");
 
 function replaceOnce(source, searchValue, replaceValue, label) {
   if (!source.includes(searchValue)) {
@@ -42,6 +44,165 @@ function patchBackupRestore(current) {
       "    if config.document_storage_path.exists():\n",
       "    if include_documents and config.document_storage_path.exists():\n",
       backupRestorePath
+    );
+  }
+
+  return next;
+}
+
+function patchGlmOcrLocal(current) {
+  let next = current;
+
+  if (!next.includes("self._rapidocr_engine: Any | None = None")) {
+    next = replaceOnce(
+      next,
+      "        self._retries = max(config.ocr_request_retries, 0)\n",
+      "        self._retries = max(config.ocr_request_retries, 0)\n        self._rapidocr_engine: Any | None = None\n",
+      glmOcrLocalPath
+    );
+  }
+
+  if (!next.includes("GLM-OCR local packaged engine is unavailable")) {
+    next = replaceOnce(
+      next,
+      "    def configuration_error(self) -> str | None:\n        if not self._base_url():\n",
+      "    def configuration_error(self) -> str | None:\n        if self._should_use_packaged_engine():\n            try:\n                self._resolve_rapidocr_engine()\n            except Exception as exc:  # noqa: BLE001\n                return f\"GLM-OCR local packaged engine is unavailable: {exc}\"\n            return None\n        if not self._base_url():\n",
+      glmOcrLocalPath
+    );
+  }
+
+  if (!next.includes("return self._extract_with_packaged_engine(")) {
+    next = replaceOnce(
+      next,
+      "        if prepared.text is not None:\n            return OcrResult(\n                provider=self.name,\n                text=prepared.text,\n                confidence=None,\n                latency_ms=None,\n                metadata=prepared.metadata,\n            )\n\n        base_url = self._base_url()\n",
+      "        if prepared.text is not None:\n            return OcrResult(\n                provider=self.name,\n                text=prepared.text,\n                confidence=None,\n                latency_ms=None,\n                metadata=prepared.metadata,\n            )\n\n        if self._should_use_packaged_engine():\n            return self._extract_with_packaged_engine(\n                prepared_images=prepared.images,\n                prepared_metadata=prepared.metadata,\n            )\n\n        base_url = self._base_url()\n",
+      glmOcrLocalPath
+    );
+  }
+
+  if (!next.includes("def _extract_with_packaged_engine(")) {
+    next = replaceOnce(
+      next,
+      "    def _extract_with_openai(\n",
+      `    def _extract_with_packaged_engine(
+        self,
+        *,
+        prepared_images: list[PreparedOcrImage],
+        prepared_metadata: dict[str, object],
+    ) -> OcrResult:
+        engine = self._resolve_rapidocr_engine()
+        started = time.perf_counter()
+        text_chunks: list[str] = []
+        confidences: list[float] = []
+        pages_with_text = 0
+        for image in prepared_images:
+            result, _ = engine(image.payload)
+            page_lines = _coerce_rapidocr_lines(result)
+            if not page_lines:
+                continue
+            pages_with_text += 1
+            text_chunks.append("\\n".join(page_lines))
+            confidences.extend(_coerce_rapidocr_confidences(result))
+        text = "\\n\\n".join(chunk for chunk in text_chunks if chunk.strip()).strip()
+        if not text:
+            raise RuntimeError("GLM-OCR local packaged engine did not detect any text")
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        confidence = sum(confidences) / len(confidences) if confidences else None
+        return OcrResult(
+            provider=self.name,
+            text=text,
+            confidence=confidence,
+            latency_ms=latency_ms,
+            metadata={
+                "strategy": "glm_ocr_local_rapidocr_onnxruntime",
+                "pages_processed": len(prepared_images),
+                "pages_with_text": pages_with_text,
+                **prepared_metadata,
+            },
+        )
+
+    def _extract_with_openai(
+`,
+      glmOcrLocalPath
+    );
+  }
+
+  if (!next.includes("def _should_use_packaged_engine(self) -> bool:")) {
+    next = replaceOnce(
+      next,
+      "    def _api_mode(self) -> str:\n        normalized = (self._config.ocr_glm_local_api_mode or \"\").strip().lower()\n        return normalized or \"ollama_generate\"\n\n\n",
+      `    def _api_mode(self) -> str:
+        normalized = (self._config.ocr_glm_local_api_mode or "").strip().lower()
+        return normalized or "ollama_generate"
+
+    def _should_use_packaged_engine(self) -> bool:
+        return self._base_url() is None
+
+    def _resolve_rapidocr_engine(self) -> Any:
+        if self._rapidocr_engine is not None:
+            return self._rapidocr_engine
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"rapidocr_onnxruntime import failed: {exc}") from exc
+        self._rapidocr_engine = RapidOCR()
+        return self._rapidocr_engine
+
+
+`,
+      glmOcrLocalPath
+    );
+  }
+
+  if (!next.includes("def _coerce_rapidocr_lines(")) {
+    next = `${next.trimEnd()}\n\n\ndef _coerce_rapidocr_lines(result: Any) -> list[str]:\n    if not isinstance(result, list):\n        return []\n    lines: list[str] = []\n    for item in result:\n        if not isinstance(item, list | tuple) or len(item) < 2:\n            continue\n        text = item[1]\n        if isinstance(text, str) and text.strip():\n            lines.append(text.strip())\n    return lines\n\n\ndef _coerce_rapidocr_confidences(result: Any) -> list[float]:\n    if not isinstance(result, list):\n        return []\n    confidences: list[float] = []\n    for item in result:\n        if not isinstance(item, list | tuple) or len(item) < 3:\n            continue\n        raw_confidence = item[2]\n        if isinstance(raw_confidence, int | float):\n            confidences.append(float(raw_confidence))\n    return confidences\n`;
+  }
+
+  return next;
+}
+
+function patchIngestJobs(current) {
+  let next = current;
+
+  if (!next.includes("idle_exit_after_s: float | None = None")) {
+    next = replaceOnce(
+      next,
+      "        max_jobs: int | None = None,\n        idle_exit: bool = False,\n    ) -> int:\n        processed = 0\n        while max_jobs is None or processed < max_jobs:\n",
+      "        max_jobs: int | None = None,\n        idle_exit: bool = False,\n        idle_exit_after_s: float | None = None,\n    ) -> int:\n        processed = 0\n        idle_started_at: float | None = None\n        while max_jobs is None or processed < max_jobs:\n",
+      ingestJobsPath
+    );
+    next = replaceOnce(
+      next,
+      "            if claimed:\n                processed += 1\n                continue\n            if idle_exit:\n                break\n            time.sleep(max(poll_interval_s, 0.1))\n",
+      "            if claimed:\n                processed += 1\n                idle_started_at = None\n                continue\n            if idle_exit:\n                break\n            if idle_exit_after_s is not None:\n                if idle_started_at is None:\n                    idle_started_at = time.monotonic()\n                elif time.monotonic() - idle_started_at >= max(idle_exit_after_s, 0.1):\n                    break\n            time.sleep(max(poll_interval_s, 0.1))\n",
+      ingestJobsPath
+    );
+    next = replaceOnce(
+      next,
+      "    max_jobs: int | None = None,\n    once: bool = False,\n    stale_after_minutes: int = 30,\n) -> int:\n",
+      "    max_jobs: int | None = None,\n    once: bool = False,\n    idle_exit_after_s: float | None = None,\n    stale_after_minutes: int = 30,\n) -> int:\n",
+      ingestJobsPath
+    );
+    next = replaceOnce(
+      next,
+      "        max_jobs=max_jobs,\n        idle_exit=once,\n    )\n",
+      "        max_jobs=max_jobs,\n        idle_exit=once,\n        idle_exit_after_s=idle_exit_after_s,\n    )\n",
+      ingestJobsPath
+    );
+  }
+
+  if (!next.includes('parser.add_argument(\n        "--idle-exit-after-s",')) {
+    next = replaceOnce(
+      next,
+      "    parser.add_argument(\"--max-jobs\", type=int, default=None)\n    parser.add_argument(\"--once\", action=\"store_true\", help=\"Exit when queue is empty\")\n    parser.add_argument(\"--stale-after-minutes\", type=int, default=30)\n",
+      "    parser.add_argument(\"--max-jobs\", type=int, default=None)\n    parser.add_argument(\"--once\", action=\"store_true\", help=\"Exit when queue is empty\")\n    parser.add_argument(\n        \"--idle-exit-after-s\",\n        type=float,\n        default=None,\n        help=\"Exit after this many idle seconds without claiming a job\",\n    )\n    parser.add_argument(\"--stale-after-minutes\", type=int, default=30)\n",
+      ingestJobsPath
+    );
+    next = replaceOnce(
+      next,
+      "        max_jobs=args.max_jobs,\n        once=args.once,\n        stale_after_minutes=args.stale_after_minutes,\n",
+      "        max_jobs=args.max_jobs,\n        once=args.once,\n        idle_exit_after_s=args.idle_exit_after_s,\n        stale_after_minutes=args.stale_after_minutes,\n",
+      ingestJobsPath
     );
   }
 
@@ -357,12 +518,21 @@ function patchHttpServer(current) {
   }
 
   if (!next.includes("class SystemBackupRequest(BaseModel):")) {
-    next = replaceOnce(
-      next,
-      "class TransactionItemAllocationUpdateRequest(BaseModel):\n    shared: bool\n\n\nUploadFormFile = Annotated[UploadFile, File(...)]\n",
-      `class TransactionItemAllocationUpdateRequest(BaseModel):\n    shared: bool\n\n\nclass SystemBackupRequest(BaseModel):\n    output_dir: str | None = None\n    include_documents: bool = True\n    include_export_json: bool = True\n\n\nUploadFormFile = Annotated[UploadFile, File(...)]\n`,
-      httpServerPath
-    );
+    if (next.includes("class TransactionItemAllocationUpdateRequest(BaseModel):\n    shared: bool\n\n\nUploadFormFile = Annotated[UploadFile, File(...)]\n")) {
+      next = replaceOnce(
+        next,
+        "class TransactionItemAllocationUpdateRequest(BaseModel):\n    shared: bool\n\n\nUploadFormFile = Annotated[UploadFile, File(...)]\n",
+        `class TransactionItemAllocationUpdateRequest(BaseModel):\n    shared: bool\n\n\nclass SystemBackupRequest(BaseModel):\n    output_dir: str | None = None\n    include_documents: bool = True\n    include_export_json: bool = True\n\n\nUploadFormFile = Annotated[UploadFile, File(...)]\n`,
+        httpServerPath
+      );
+    } else {
+      next = replaceOnce(
+        next,
+        "class TransactionItemSharingRequest(BaseModel):\n    family_shared: bool\n\n\nUploadFormFile = Annotated[UploadFile, File(...)]\n",
+        `class TransactionItemSharingRequest(BaseModel):\n    family_shared: bool\n\n\nclass SystemBackupRequest(BaseModel):\n    output_dir: str | None = None\n    include_documents: bool = True\n    include_export_json: bool = True\n\n\nUploadFormFile = Annotated[UploadFile, File(...)]\n`,
+        httpServerPath
+      );
+    }
   }
 
   if (backupRoutePattern.test(next)) {
@@ -570,12 +740,18 @@ function patchCli(current) {
   );
 }
 
-if (!existsSync(httpServerPath) || !existsSync(routeAuthPath) || !existsSync(backupRestorePath) || !existsSync(authBrowserRuntimePath) || !existsSync(lifecyclePath) || !existsSync(registryPath) || !existsSync(runtimeExecutionPath) || !existsSync(runtimeRunnerPath) || !existsSync(cliPath)) {
+if (!existsSync(httpServerPath) || !existsSync(routeAuthPath) || !existsSync(backupRestorePath) || !existsSync(authBrowserRuntimePath) || !existsSync(lifecyclePath) || !existsSync(registryPath) || !existsSync(runtimeExecutionPath) || !existsSync(runtimeRunnerPath) || !existsSync(cliPath) || !existsSync(ingestJobsPath) || !existsSync(glmOcrLocalPath)) {
   throw new Error(`Vendored backend sources not found under ${backendDir}. Run 'npm run vendor:sync' first.`);
 }
 
 const patchedBackupRestore = patchBackupRestore(readFileSync(backupRestorePath, "utf-8"));
 writeFileSync(backupRestorePath, patchedBackupRestore, "utf-8");
+
+const patchedGlmOcrLocal = patchGlmOcrLocal(readFileSync(glmOcrLocalPath, "utf-8"));
+writeFileSync(glmOcrLocalPath, patchedGlmOcrLocal, "utf-8");
+
+const patchedIngestJobs = patchIngestJobs(readFileSync(ingestJobsPath, "utf-8"));
+writeFileSync(ingestJobsPath, patchedIngestJobs, "utf-8");
 
 const patchedAuthBrowserRuntime = patchAuthBrowserRuntime(readFileSync(authBrowserRuntimePath, "utf-8"));
 writeFileSync(authBrowserRuntimePath, patchedAuthBrowserRuntime, "utf-8");
@@ -601,4 +777,4 @@ writeFileSync(runtimeRunnerPath, patchedRuntimeRunner, "utf-8");
 const patchedCli = patchCli(readFileSync(cliPath, "utf-8"));
 writeFileSync(cliPath, patchedCli, "utf-8");
 
-console.log("Patched vendored backend with desktop backup endpoint support, auth policy alignment, desktop lifecycle alignment, electron plugin host-kind support, desktop runtime entrypoint tolerance, and desktop sync progress UX messaging.");
+console.log("Patched vendored backend with desktop backup endpoint support, packaged OCR support, auth policy alignment, desktop lifecycle alignment, electron plugin host-kind support, desktop runtime entrypoint tolerance, and desktop sync progress UX messaging.");

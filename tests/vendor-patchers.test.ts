@@ -71,6 +71,8 @@ test("backend patcher stays green against the current vendored backend shape", (
       "src/lidltool/connectors/registry.py",
       "src/lidltool/connectors/runtime/execution.py",
       "src/lidltool/connectors/runtime/runner.py",
+      "src/lidltool/ingest/jobs.py",
+      "src/lidltool/ocr/providers/glm_ocr_local.py",
       "src/lidltool/cli.py"
     ];
 
@@ -92,10 +94,20 @@ test("backend patcher stays green against the current vendored backend shape", (
       join(backendFixtureDir, "src/lidltool/connectors/runtime/execution.py"),
       "utf-8"
     );
+    const patchedIngestJobs = readFileSync(
+      join(backendFixtureDir, "src/lidltool/ingest/jobs.py"),
+      "utf-8"
+    );
+    const patchedGlmOcrLocal = readFileSync(
+      join(backendFixtureDir, "src/lidltool/ocr/providers/glm_ocr_local.py"),
+      "utf-8"
+    );
 
     assert.match(patchedHttpServer, /scheduler: AutomationScheduler \| None = None/);
     assert.match(patchedHttpServer, /if scheduler is not None:\n\s+scheduler\.stop\(\)/);
     assert.match(patchedRuntimeExecution, /host_kind=_plugin_host_kind\(\)/);
+    assert.match(patchedIngestJobs, /--idle-exit-after-s/);
+    assert.match(patchedGlmOcrLocal, /glm_ocr_local_rapidocr_onnxruntime/);
   });
 });
 

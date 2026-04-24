@@ -322,15 +322,23 @@ class JobService:
         poll_interval_s: float = 1.0,
         max_jobs: int | None = None,
         idle_exit: bool = False,
+        idle_exit_after_s: float | None = None,
     ) -> int:
         processed = 0
+        idle_started_at: float | None = None
         while max_jobs is None or processed < max_jobs:
             claimed = self.run_worker_once()
             if claimed:
                 processed += 1
+                idle_started_at = None
                 continue
             if idle_exit:
                 break
+            if idle_exit_after_s is not None:
+                if idle_started_at is None:
+                    idle_started_at = time.monotonic()
+                elif time.monotonic() - idle_started_at >= max(idle_exit_after_s, 0.1):
+                    break
             time.sleep(max(poll_interval_s, 0.1))
         return processed
 
@@ -1054,6 +1062,7 @@ def run_worker(
     poll_interval_s: float = 1.0,
     max_jobs: int | None = None,
     once: bool = False,
+    idle_exit_after_s: float | None = None,
     stale_after_minutes: int = 30,
 ) -> int:
     config = _worker_config(db=db, config_path=config_path)
@@ -1070,6 +1079,7 @@ def run_worker(
         poll_interval_s=poll_interval_s,
         max_jobs=max_jobs,
         idle_exit=once,
+        idle_exit_after_s=idle_exit_after_s,
     )
 
 
@@ -1080,6 +1090,12 @@ def main() -> None:
     parser.add_argument("--poll-interval-s", type=float, default=1.0)
     parser.add_argument("--max-jobs", type=int, default=None)
     parser.add_argument("--once", action="store_true", help="Exit when queue is empty")
+    parser.add_argument(
+        "--idle-exit-after-s",
+        type=float,
+        default=None,
+        help="Exit after this many idle seconds without claiming a job",
+    )
     parser.add_argument("--stale-after-minutes", type=int, default=30)
     args = parser.parse_args()
     processed = run_worker(
@@ -1088,6 +1104,7 @@ def main() -> None:
         poll_interval_s=args.poll_interval_s,
         max_jobs=args.max_jobs,
         once=args.once,
+        idle_exit_after_s=args.idle_exit_after_s,
         stale_after_minutes=args.stale_after_minutes,
     )
     LOGGER.info("job.worker.exited processed=%s", processed)
