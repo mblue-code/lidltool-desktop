@@ -251,6 +251,90 @@ Index("ux_mobile_devices_user_installation", MobileDevice.user_id, MobileDevice.
 Index("ix_mobile_devices_provider_token", MobileDevice.push_provider, MobileDevice.push_token)
 
 
+class MobilePairingSession(Base):
+    __tablename__ = "mobile_pairing_sessions"
+
+    session_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    desktop_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    desktop_name: Mapped[str] = mapped_column(String, nullable=False)
+    endpoint_url: Mapped[str] = mapped_column(Text, nullable=False)
+    pairing_token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    public_key_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    paired_device_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class MobilePairedDevice(Base):
+    __tablename__ = "mobile_paired_devices"
+
+    paired_device_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    desktop_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    device_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    platform: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    sync_token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    public_key_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    protocol_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+Index(
+    "ux_mobile_paired_devices_desktop_device",
+    MobilePairedDevice.desktop_id,
+    MobilePairedDevice.device_id,
+    unique=True,
+)
+
+
+class MobileCapture(Base):
+    __tablename__ = "mobile_captures"
+
+    capture_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    paired_device_id: Mapped[str] = mapped_column(
+        ForeignKey("mobile_paired_devices.paired_device_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    mobile_capture_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id"), nullable=True, index=True)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("ingestion_jobs.id"), nullable=True, index=True)
+    file_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    mime_type: Mapped[str] = mapped_column(String, nullable=False)
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="uploaded", index=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+Index(
+    "ux_mobile_captures_device_capture",
+    MobileCapture.paired_device_id,
+    MobileCapture.mobile_capture_id,
+    unique=True,
+)
+
+
 class ChatThread(Base):
     __tablename__ = "chat_threads"
 

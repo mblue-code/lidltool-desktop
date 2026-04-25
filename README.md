@@ -5,6 +5,10 @@ plugin-capable, but it is intentionally narrower than the self-hosted server dep
 
 Planning note:
 - Multi-user personal + household finance direction is tracked in `docs/multi-user-household-finance-vision.md`.
+- Mobile companion product direction is tracked in `docs/mobile-companion-vision.md`.
+- Concrete native iOS/Android implementation planning is tracked in `docs/mobile-native-implementation-plan.md`.
+- Agent execution guidance for the native mobile build is tracked in `docs/mobile-agent-runbook.md`.
+- Long-form orchestration prompt for a full native mobile implementation pass is tracked in `docs/mobile-native-orchestration-prompt.md`.
 
 ## Maintenance rules
 
@@ -21,6 +25,11 @@ Vendored frontend policy:
 - only `frontend.runtimeOverrideFiles` are overlaid into `vendor/frontend` during sync/patch
 - test-only overrides remain under `overrides/frontend/src` and are validated, but they are no longer copied into the vendored app during build flows
 
+Mobile foundation fork:
+- the old native mobile harnesses are now vendored under `vendor/mobile/` as local native companion foundations for a future desktop-paired phone product
+- sync them from the old upstream checkout with `npm run vendor:sync:mobile`
+- the current mobile fork status and reuse boundaries are documented in `docs/mobile-foundation.md`
+
 ## Desktop product scope
 
 Desktop is for:
@@ -36,6 +45,21 @@ Desktop is not for:
 - recurring background scraping
 - hosted/backend service workflows
 - on-device plugin authoring
+
+Current mobile direction:
+- mobile is being explored as a paired local companion, not as a cloud or self-hosted client
+- the forked iOS/Android foundations now use the first local pairing/sync protocol and still need product-depth work beyond the foundation
+
+Current native mobile companion implementation:
+- Android and iOS live under `vendor/mobile/` and are now pairing-first native companion foundations rather than backend URL login harnesses.
+- Mobile pairing and sync are local-first and foreground-oriented: pair by desktop-generated payload, sync only when both apps are open and reachable.
+- Desktop exposes the first versioned local protocol:
+  - `POST /api/mobile-pair/v1/sessions`
+  - `POST /api/mobile-pair/v1/handshake`
+  - `POST /api/mobile-captures/v1`
+  - `GET /api/mobile-sync/v1/changes`
+- Mobile receipt captures upload to desktop as OCR documents; desktop remains the OCR and ingestion authority.
+- Synced mobile read models currently include capture status, recent transactions, transaction items, and current budget summary.
 
 ## Sprint 16 summary
 

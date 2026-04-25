@@ -256,7 +256,10 @@ from lidltool.db.models import (
     ChatThread,
     Document,
     Goal,
+    IngestionJob,
     Notification,
+    MobileCapture,
+    MobilePairedDevice,
     RecurringBill,
     RecurringBillOccurrence,
     Source,
@@ -288,6 +291,12 @@ from lidltool.mobile import (
     delete_mobile_devices_for_session,
     list_mobile_devices,
     upsert_mobile_device,
+)
+from lidltool.mobile.pairing import (
+    PROTOCOL_VERSION as MOBILE_PROTOCOL_VERSION,
+    complete_pairing_handshake,
+    create_pairing_session,
+    require_paired_device,
 )
 from lidltool.offers.service import (
     create_offer_source,
@@ -3782,6 +3791,128 @@ class MobileDeviceRegisterRequest(BaseModel):
     locale: Literal["en", "de"] | None = None
 
 
+class MobilePairingSessionCreateRequest(BaseModel):
+    endpoint_url: str | None = None
+    expires_in_seconds: int = Field(default=600, ge=60, le=3600)
+
+
+class MobilePairingHandshakeRequest(BaseModel):
+    device_id: str = Field(min_length=8, max_length=128)
+    device_name: str | None = None
+    platform: Literal["ios", "android"]
+    pairing_token: str = Field(min_length=16)
+    public_key_fingerprint: str | None = Field(default=None, max_length=128)
+
+
+class MobileManualTransactionCreateRequest(BaseModel):
+    purchased_at: datetime | None = None
+    merchant_name: str = Field(min_length=1, max_length=240)
+    total_cents: int = Field(ge=0)
+    currency: str = Field(default="EUR", min_length=3, max_length=3)
+    note: str | None = Field(default=None, max_length=500)
+    category: str | None = Field(default=None, max_length=120)
+    idempotency_key: str | None = Field(default=None, max_length=160)
+
+
+def _mobile_capture_status(ocr_status: str | None, review_status: str | None) -> str:
+    if review_status == "needs_review":
+        return "needs_review"
+    if ocr_status in {"completed", "success"}:
+        return "completed"
+    if ocr_status in {"queued", "pending"}:
+        return "processing_on_desktop"
+    if ocr_status in {"processing", "starting_engine", "running"}:
+        return "processing_on_desktop"
+    if ocr_status in {"failed", "canceled"}:
+        return "failed"
+    return "uploaded"
+
+
+def _serialize_mobile_transaction_item(item: TransactionItem) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "transaction_id": item.transaction_id,
+        "line_no": item.line_no,
+        "name": item.name,
+        "qty": float(item.qty),
+        "unit": item.unit,
+        "unit_price_cents": item.unit_price_cents,
+        "line_total_cents": item.line_total_cents,
+        "category": item.category,
+    }
+
+
+def _serialize_mobile_budget_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    totals = summary.get("totals", {})
+    period = summary.get("period", {})
+    month = summary.get("month") or {}
+    year = period.get("year")
+    month_number = period.get("month")
+    period_label = (
+        f"{int(year):04d}-{int(month_number):02d}"
+        if isinstance(year, int) and isinstance(month_number, int)
+        else "Current period"
+    )
+    planned_outflow_cents = int(totals.get("planned_outflow_cents", 0) or 0)
+    total_outflow_cents = int(totals.get("total_outflow_cents", 0) or 0)
+    return {
+        "year": period.get("year"),
+        "month": period.get("month"),
+        "period": period_label,
+        "period_label": period_label,
+        "currency": month.get("currency", "EUR"),
+        "spent_cents": total_outflow_cents,
+        "budget_cents": planned_outflow_cents,
+        "category_summaries": [],
+        "planned_income_cents": totals.get("planned_income_cents", 0),
+        "actual_income_cents": totals.get("actual_income_cents", 0),
+        "total_outflow_cents": total_outflow_cents,
+        "remaining_cents": totals.get("remaining_cents", 0),
+        "saved_cents": totals.get("saved_cents", 0),
+        "savings_delta_cents": totals.get("savings_delta_cents", 0),
+        "receipt_spend_cents": totals.get("receipt_spend_cents", 0),
+        "manual_outflow_cents": totals.get("manual_outflow_cents", 0),
+        "budget_rules": summary.get("budget_rules", []),
+        "recurring": summary.get("recurring", {}),
+        "cashflow": summary.get("cashflow", {}),
+    }
+
+
+def _serialize_mobile_capture(session: Session, capture: MobileCapture) -> dict[str, Any]:
+    document = session.get(Document, capture.document_id) if capture.document_id else None
+    if document is not None:
+        capture.status = _mobile_capture_status(document.ocr_status, document.review_status)
+    return {
+        "capture_id": capture.mobile_capture_id,
+        "mobile_capture_id": capture.mobile_capture_id,
+        "desktop_capture_id": capture.capture_id,
+        "document_id": capture.document_id,
+        "job_id": capture.job_id,
+        "transaction_id": document.transaction_id if document is not None else None,
+        "status": capture.status,
+        "message": capture.failure_reason,
+        "failure_reason": capture.failure_reason,
+        "file_name": capture.file_name,
+        "mime_type": capture.mime_type,
+        "sha256": capture.sha256,
+        "uploaded_at": capture.uploaded_at.isoformat(),
+        "updated_at": capture.updated_at.isoformat(),
+        "ocr_status": document.ocr_status if document is not None else None,
+        "review_status": document.review_status if document is not None else None,
+    }
+
+
+def _default_mobile_endpoint_url(request: Request) -> str:
+    port = request.url.port or 80
+    candidates: list[str] = []
+    with suppress(Exception):
+        candidates.append(socket.gethostbyname(socket.gethostname()))
+    for candidate in candidates:
+        if candidate and not candidate.startswith("127."):
+            return f"{request.url.scheme}://{candidate}:{port}"
+    return str(request.base_url).rstrip("/")
+
+
 class SourceWorkspaceUpdateRequest(BaseModel):
     workspace_kind: Literal["personal", "shared_group"]
     shared_group_id: str | None = None
@@ -4598,6 +4729,328 @@ def create_app(
                     device_id=device_id,
                 )
             return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/mobile-pair/v1/sessions")
+    def create_mobile_pairing_session(
+        request: Request,
+        payload: MobilePairingSessionCreateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            with session_scope(context.sessions) as session:
+                auth_context = _require_user_session_auth_context(
+                    request=request,
+                    session=session,
+                    config=context.config,
+                )
+                endpoint_url = (payload.endpoint_url or "").strip() or _default_mobile_endpoint_url(request)
+                result = create_pairing_session(
+                    session,
+                    endpoint_url=endpoint_url,
+                    created_by_user_id=auth_context.user.user_id,
+                    expires_in_seconds=payload.expires_in_seconds,
+                )
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/mobile-pair/v1/handshake")
+    def mobile_pairing_handshake(
+        payload: MobilePairingHandshakeRequest,
+    ) -> Any:
+        try:
+            context = runtime_context
+            with session_scope(context.sessions) as session:
+                result, _ = complete_pairing_handshake(
+                    session,
+                    pairing_token=payload.pairing_token,
+                    device_id=payload.device_id,
+                    device_name=payload.device_name,
+                    platform=payload.platform,
+                    public_key_fingerprint=payload.public_key_fingerprint,
+                )
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/mobile-captures/v1")
+    async def upload_mobile_capture(
+        request: Request,
+        file: UploadFormFile,
+        capture_id: str | None = Form(default=None),
+        mobile_capture_id: str | None = Form(default=None),
+        captured_at: str | None = Form(default=None),
+        metadata_json: str | None = Form(default=None),
+        metadata: str | None = Form(default=None),
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            bearer_token = _header_api_key(request)
+            payload = await file.read()
+            mime_type = file.content_type or "application/octet-stream"
+            loaded_metadata: dict[str, Any] = {}
+            raw_metadata = metadata_json or metadata
+            if raw_metadata:
+                loaded = json.loads(raw_metadata)
+                if isinstance(loaded, dict):
+                    loaded_metadata.update(loaded)
+            resolved_capture_id = (
+                capture_id
+                or mobile_capture_id
+                or loaded_metadata.get("mobile_capture_id")
+                or loaded_metadata.get("capture_id")
+            )
+            if not isinstance(resolved_capture_id, str) or not resolved_capture_id.strip():
+                raise RuntimeError("capture_id is required")
+            capture_id = resolved_capture_id.strip()
+            mobile_metadata: dict[str, Any] = {"mobile_capture_id": capture_id}
+            if captured_at:
+                mobile_metadata["captured_at"] = captured_at
+            mobile_metadata.update(loaded_metadata)
+            storage = DocumentStorage(app_config)
+            storage_uri, sha256 = storage.store(
+                file_name=file.filename or f"{capture_id}.bin",
+                mime_type=mime_type,
+                payload=payload,
+            )
+            with session_scope(context.sessions) as session:
+                paired = require_paired_device(session, bearer_token=bearer_token)
+                existing = session.execute(
+                    select(MobileCapture).where(
+                        MobileCapture.paired_device_id == paired.paired_device_id,
+                        MobileCapture.mobile_capture_id == capture_id,
+                    )
+                ).scalar_one_or_none()
+                if existing is not None:
+                    return _response(
+                        True,
+                        result=_serialize_mobile_capture(session, existing),
+                        warnings=[],
+                        error=None,
+                    )
+                ensured_source, source_account = ensure_ocr_source(session, owner_user_id=paired.user_id)
+                mobile_metadata.setdefault("uploader_user_id", paired.user_id)
+                mobile_metadata.setdefault("paired_device_id", paired.paired_device_id)
+                document = Document(
+                    transaction_id=None,
+                    source_id=ensured_source.id,
+                    shared_group_id=None,
+                    storage_uri=storage_uri,
+                    mime_type=mime_type,
+                    sha256=sha256,
+                    file_name=file.filename,
+                    ocr_status="pending",
+                    metadata_json=mobile_metadata,
+                    created_at=datetime.now(tz=UTC),
+                )
+                session.add(document)
+                session.flush()
+                job = IngestionJob(
+                    source_id=ensured_source.id,
+                    source_account_id=source_account.id if source_account is not None else None,
+                    status="queued",
+                    trigger_type="manual",
+                    idempotency_key=hashlib.sha256(
+                        f"ocr|{document.id}|{capture_id}".encode("utf-8")
+                    ).hexdigest(),
+                    summary={
+                        "job_type": "ocr_process",
+                        "document_id": document.id,
+                        "progress": {
+                            "phase": "queued",
+                            "processed": 0,
+                            "total": 1,
+                            "percent": 0,
+                        },
+                        "warnings": [],
+                        "timeline": [
+                            {
+                                "event": "queued",
+                                "status": "queued",
+                                "message": "ocr job queued",
+                                "timestamp": datetime.now(tz=UTC).isoformat(),
+                            }
+                        ],
+                    },
+                )
+                session.add(job)
+                session.flush()
+                if job.status == "queued":
+                    document.ocr_status = "queued"
+                capture = MobileCapture(
+                    paired_device_id=paired.paired_device_id,
+                    mobile_capture_id=capture_id,
+                    document_id=document.id,
+                    job_id=job.id,
+                    file_name=file.filename,
+                    mime_type=mime_type,
+                    sha256=sha256,
+                    status=_mobile_capture_status(document.ocr_status, document.review_status),
+                    metadata_json=mobile_metadata,
+                    uploaded_at=datetime.now(tz=UTC),
+                    created_at=datetime.now(tz=UTC),
+                    updated_at=datetime.now(tz=UTC),
+                )
+                session.add(capture)
+                session.flush()
+                result = _serialize_mobile_capture(session, capture)
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/mobile-sync/v1/changes")
+    def mobile_sync_changes(
+        request: Request,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            now = datetime.now(tz=UTC)
+            clamped_limit = min(max(limit, 1), 200)
+            with session_scope(context.sessions) as session:
+                paired = require_paired_device(session, bearer_token=_header_api_key(request))
+                visibility = VisibilityContext(
+                    user_id=paired.user_id,
+                    is_service=False,
+                    scope="personal",
+                    workspace_kind="personal",
+                )
+                tx_result = search_transactions(
+                    session,
+                    sort_by="purchased_at",
+                    sort_dir="desc",
+                    limit=clamped_limit,
+                    offset=0,
+                    visibility=visibility,
+                )
+                transaction_ids = [item["id"] for item in tx_result["items"]]
+                mobile_transactions = []
+                for item in tx_result["items"]:
+                    total_cents = int(item.get("total_gross_cents", 0) or 0)
+                    mobile_transactions.append(
+                        {
+                            **item,
+                            "merchant_name": item.get("merchant_name") or item.get("store_name") or "Unknown merchant",
+                            "total_cents": total_cents,
+                            "total_gross_cents": total_cents,
+                            "category": item.get("category"),
+                            "note": item.get("note"),
+                            "needs_review": bool(item.get("needs_review", False)),
+                            "updated_at": item.get("updated_at"),
+                        }
+                    )
+                items = [
+                    _serialize_mobile_transaction_item(row)
+                    for row in session.execute(
+                        select(TransactionItem)
+                        .where(TransactionItem.transaction_id.in_(transaction_ids))
+                        .order_by(TransactionItem.transaction_id.asc(), TransactionItem.line_no.asc())
+                    ).scalars().all()
+                ] if transaction_ids else []
+                budget = monthly_budget_summary(
+                    session,
+                    user_id=paired.user_id,
+                    year=now.year,
+                    month=now.month,
+                    visibility=visibility,
+                )
+                captures = session.execute(
+                    select(MobileCapture)
+                    .where(MobileCapture.paired_device_id == paired.paired_device_id)
+                    .order_by(MobileCapture.updated_at.desc(), MobileCapture.created_at.desc())
+                    .limit(clamped_limit)
+                ).scalars().all()
+                result = {
+                    "protocol_version": MOBILE_PROTOCOL_VERSION,
+                    "cursor": now.isoformat(),
+                    "previous_cursor": cursor,
+                    "server_time": now.isoformat(),
+                    "transactions": mobile_transactions,
+                    "transaction_items": items,
+                    "budget_summary": _serialize_mobile_budget_summary(budget),
+                    "capture_statuses": [
+                        _serialize_mobile_capture(session, capture) for capture in captures
+                    ],
+                }
+            return _response(True, result=result, warnings=[], error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/mobile-sync/v1/manual-transactions")
+    def create_mobile_manual_transaction(
+        request: Request,
+        payload: MobileManualTransactionCreateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                paired = require_paired_device(session, bearer_token=_header_api_key(request))
+                paired_user_id = paired.user_id
+                paired_device_id = paired.paired_device_id
+            service = ManualIngestService(session_factory=sessions)
+            purchased_at = payload.purchased_at or datetime.now(tz=UTC)
+            mobile_source_id = f"{MANUAL_SOURCE_ID}:mobile"
+            manual_input = ManualTransactionInput(
+                purchased_at=_to_utc_datetime(purchased_at),
+                merchant_name=payload.merchant_name.strip(),
+                total_gross_cents=payload.total_cents,
+                source_id=mobile_source_id,
+                source_kind="manual",
+                source_display_name="Mobile Manual Entries",
+                source_account_ref="mobile",
+                source_transaction_id=None,
+                idempotency_key=payload.idempotency_key,
+                user_id=paired_user_id,
+                shared_group_id=None,
+                currency=payload.currency.strip().upper(),
+                discount_total_cents=None,
+                allocation_mode="personal",
+                confidence=1.0,
+                items=[
+                    ManualItemInput(
+                        name=payload.note.strip() if payload.note and payload.note.strip() else payload.merchant_name.strip(),
+                        line_total_cents=payload.total_cents,
+                        qty=Decimal("1.0"),
+                        unit=None,
+                        unit_price_cents=payload.total_cents,
+                        category=payload.category,
+                        line_no=1,
+                        source_item_id=None,
+                        shared_group_id=None,
+                        raw_payload={"source": "mobile_manual"},
+                    )
+                ],
+                discounts=[],
+                raw_payload={"source": "mobile_manual", "note": payload.note},
+                ingest_channel="mobile_manual_api",
+            )
+            create_result = service.ingest_transaction(
+                payload=manual_input,
+                actor_type="mobile_device",
+                actor_id=paired_device_id,
+                audit_action="transaction.mobile_manual_ingested",
+                reason="mobile manual expense",
+            )
+            with session_scope(sessions) as session:
+                visibility = VisibilityContext(
+                    user_id=paired_user_id,
+                    is_service=False,
+                    scope="personal",
+                    workspace_kind="personal",
+                )
+                details = transaction_detail(
+                    session,
+                    transaction_id=str(create_result["transaction_id"]),
+                    visibility=visibility,
+                )
+            create_result["transaction"] = details["transaction"] if details else None
+            return _response(True, result=create_result, warnings=[], error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
@@ -11465,6 +11918,21 @@ finally:
 
     _register_runtime_route_auth_policy(
         RouteAuthPolicy("GET", "/api/v1/dashboard/years", "authenticated_principal")
+    )
+    _register_runtime_route_auth_policy(
+        RouteAuthPolicy("POST", "/api/mobile-pair/v1/sessions", "authenticated_user_session")
+    )
+    _register_runtime_route_auth_policy(
+        RouteAuthPolicy("POST", "/api/mobile-pair/v1/handshake", "public")
+    )
+    _register_runtime_route_auth_policy(
+        RouteAuthPolicy("POST", "/api/mobile-captures/v1", "authenticated_principal")
+    )
+    _register_runtime_route_auth_policy(
+        RouteAuthPolicy("GET", "/api/mobile-sync/v1/changes", "authenticated_principal")
+    )
+    _register_runtime_route_auth_policy(
+        RouteAuthPolicy("POST", "/api/mobile-sync/v1/manual-transactions", "authenticated_principal")
     )
     _assert_route_auth_matrix_complete(app)
     return app

@@ -7,6 +7,7 @@
   "type": "module",
   "scripts": {
     "vendor:sync": "node ./scripts/sync-vendor.mjs && npm run vendor:patch-frontend && npm run vendor:validate-frontend && npm run frontend:install && npm run vendor:patch-backend && npm run i18n:sync-shell",
+    "vendor:sync:mobile": "node ./scripts/sync-mobile-vendor.mjs",
     "vendor:patch-frontend": "node ./scripts/patch-vendored-frontend.mjs",
     "vendor:validate-frontend": "node ./scripts/validate-vendored-frontend.mjs",
     "vendor:patch-backend": "node ./scripts/patch-vendored-backend.mjs",

@@ -237,11 +237,19 @@ def build_source_status_payload(
     include_sensitive_plugin_details: bool = True,
     include_auth_diagnostics: bool = True,
 ) -> SourceStatusPayload:
-    auth_payload = serialize_source_auth_status(
-        auth_service=auth_service,
-        source_id=source.id,
-        include_diagnostics=include_auth_diagnostics,
+    plugin_payload = source_manifest_payload(
+        source.id,
+        config=config,
+        include_sensitive_details=include_sensitive_plugin_details,
     )
+    if plugin_payload is None:
+        auth_payload = _local_source_auth_status(source)
+    else:
+        auth_payload = serialize_source_auth_status(
+            auth_service=auth_service,
+            source_id=source.id,
+            include_diagnostics=include_auth_diagnostics,
+        )
     sync_payload = serialize_source_sync_status(app, session, source_id=source.id)
     account = _first_source_account(session, source_id=source.id)
     health = _source_health_state(
@@ -257,11 +265,7 @@ def build_source_status_payload(
         "status": health,
         "created_at": source.created_at.isoformat(),
         "updated_at": source.updated_at.isoformat(),
-        "plugin": source_manifest_payload(
-            source.id,
-            config=config,
-            include_sensitive_details=include_sensitive_plugin_details,
-        ),
+        "plugin": plugin_payload,
         "account": {
             "id": account.id if account is not None else None,
             "account_ref": account.account_ref if account is not None else None,
@@ -280,6 +284,21 @@ def build_source_status_payload(
             or "start_auth" in auth_payload["available_actions"],
         },
         "needs_attention": health == "attention",
+    }
+
+
+def _local_source_auth_status(source: Source) -> SourceAuthStatusPayload:
+    return {
+        "source_id": source.id,
+        "state": "connected" if source.enabled else "disabled",
+        "detail": None,
+        "reauth_required": False,
+        "needs_connection": False,
+        "available_actions": [],
+        "implemented_actions": [],
+        "metadata": {"local_source": True, "kind": source.kind},
+        "diagnostics": {},
+        "bootstrap": None,
     }
 
 

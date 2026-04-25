@@ -1,0 +1,22 @@
+{
+  "sourceRepo": "lidl-receipts-cli",
+  "apps": [
+    {
+      "name": "android-harness",
+      "source": "apps/android-harness",
+      "dest": "android-harness"
+    },
+    {
+      "name": "ios-harness",
+      "source": "apps/ios-harness",
+      "dest": "ios-harness"
+    }
+  ],
+  "excludeNames": [
+    ".DS_Store",
+    ".gradle",
+    ".idea",
+    "build",
+    "DerivedData"
+  ]
+}

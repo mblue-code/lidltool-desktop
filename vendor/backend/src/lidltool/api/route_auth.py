@@ -40,6 +40,11 @@ HTTP_ROUTE_AUTH_MATRIX: tuple[RouteAuthPolicy, ...] = (
     RouteAuthPolicy("PUT", "/api/v1/mobile/devices/current", "authenticated_user_session"),
     RouteAuthPolicy("DELETE", "/api/v1/mobile/devices/current", "authenticated_user_session"),
     RouteAuthPolicy("DELETE", "/api/v1/mobile/devices/{device_id}", "authenticated_user_session"),
+    RouteAuthPolicy("POST", "/api/mobile-pair/v1/sessions", "authenticated_user_session"),
+    RouteAuthPolicy("POST", "/api/mobile-pair/v1/handshake", "public"),
+    RouteAuthPolicy("POST", "/api/mobile-captures/v1", "authenticated_principal"),
+    RouteAuthPolicy("GET", "/api/mobile-sync/v1/changes", "authenticated_principal"),
+    RouteAuthPolicy("POST", "/api/mobile-sync/v1/manual-transactions", "authenticated_principal"),
     RouteAuthPolicy("GET", "/api/v1/auth/keys", "authenticated_user_session"),
     RouteAuthPolicy("POST", "/api/v1/auth/keys", "authenticated_user_session"),
     RouteAuthPolicy("DELETE", "/api/v1/auth/keys/{key_id}", "authenticated_user_session"),
@@ -243,6 +248,7 @@ MINIMAL_PUBLIC_ROUTE_KEYS = frozenset(
         ("GET", "/api/v1/auth/setup-required"),
         ("POST", "/api/v1/auth/setup"),
         ("POST", "/api/v1/auth/login"),
+        ("POST", "/api/mobile-pair/v1/handshake"),
     }
 )
 

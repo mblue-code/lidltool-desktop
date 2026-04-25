@@ -1,0 +1,458 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* LidlToolHarnessApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* LidlToolHarnessApp.swift */; };
+		A10000000000000000000002 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* RootView.swift */; };
+		A10000000000000000000003 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* MainTabView.swift */; };
+		A10000000000000000000004 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* Theme.swift */; };
+		A10000000000000000000005 /* SharedUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* SharedUI.swift */; };
+		A10000000000000000000006 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* LoginView.swift */; };
+		A10000000000000000000007 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* DashboardView.swift */; };
+		A10000000000000000000008 /* ReceiptsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* ReceiptsView.swift */; };
+		A10000000000000000000009 /* OffersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* OffersView.swift */; };
+		A1000000000000000000000A /* SourcesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* SourcesView.swift */; };
+		A1000000000000000000000B /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* ChatView.swift */; };
+		A1000000000000000000000C /* OCRView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* OCRView.swift */; };
+		A1000000000000000000000D /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* APIClient.swift */; };
+		A1000000000000000000000E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* Models.swift */; };
+		A1000000000000000000000F /* HarnessStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* HarnessStore.swift */; };
+		A10000000000000000000010 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* SessionStore.swift */; };
+		A10000000000000000000011 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* KeychainStore.swift */; };
+		A10000000000000000000012 /* HarnessAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* HarnessAppDelegate.swift */; };
+		A10000000000000000000013 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* Localizable.strings */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A20000000000000000000000 /* LidlToolHarness.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LidlToolHarness.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000001 /* LidlToolHarnessApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LidlToolHarnessApp.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* SharedUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedUI.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		A20000000000000000000007 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		A20000000000000000000008 /* ReceiptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000009 /* OffersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OffersView.swift; sourceTree = "<group>"; };
+		A2000000000000000000000A /* SourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcesView.swift; sourceTree = "<group>"; };
+		A2000000000000000000000B /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		A2000000000000000000000C /* OCRView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRView.swift; sourceTree = "<group>"; };
+		A2000000000000000000000D /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		A2000000000000000000000E /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		A2000000000000000000000F /* HarnessStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000010 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000011 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 /* HarnessAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessAppDelegate.swift; sourceTree = "<group>"; };
+		A20000000000000000000018 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = Localization/en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		A20000000000000000000019 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = Localization/de.lproj/Localizable.strings; sourceTree = "<group>"; };
+		A20000000000000000000020 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A30000000000000000000061 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A40000000000000000000062 = {
+			isa = PBXGroup;
+			children = (
+				A40000000000000000000063 /* App */,
+				A40000000000000000000064 /* Features */,
+				A40000000000000000000065 /* Services */,
+				A40000000000000000000066 /* Persistence */,
+				A40000000000000000000067 /* Resources */,
+				A40000000000000000000068 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A40000000000000000000063 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000001 /* LidlToolHarnessApp.swift */,
+				A20000000000000000000012 /* HarnessAppDelegate.swift */,
+				A20000000000000000000002 /* RootView.swift */,
+				A20000000000000000000003 /* MainTabView.swift */,
+				A20000000000000000000004 /* Theme.swift */,
+				A20000000000000000000005 /* SharedUI.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000064 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				A40000000000000000000069 /* Auth */,
+				A4000000000000000000006A /* Dashboard */,
+				A4000000000000000000006B /* Receipts */,
+				A4000000000000000000006C /* Offers */,
+				A4000000000000000000006D /* Sources */,
+				A4000000000000000000006E /* Chat */,
+				A4000000000000000000006F /* OCR */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000065 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				A40000000000000000000070 /* API */,
+				A40000000000000000000071 /* Auth */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000066 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000010 /* SessionStore.swift */,
+				A20000000000000000000011 /* KeychainStore.swift */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000067 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000020 /* Assets.xcassets */,
+				A20000000000000000000021 /* Localizable.strings */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000068 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000000 /* LidlToolHarness.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000069 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000006 /* LoginView.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		A4000000000000000000006A /* Dashboard */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000007 /* DashboardView.swift */,
+			);
+			path = Dashboard;
+			sourceTree = "<group>";
+		};
+		A4000000000000000000006B /* Receipts */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000008 /* ReceiptsView.swift */,
+			);
+			path = Receipts;
+			sourceTree = "<group>";
+		};
+		A4000000000000000000006C /* Offers */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000009 /* OffersView.swift */,
+			);
+			path = Offers;
+			sourceTree = "<group>";
+		};
+		A4000000000000000000006D /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000000A /* SourcesView.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		A4000000000000000000006E /* Chat */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000000B /* ChatView.swift */,
+			);
+			path = Chat;
+			sourceTree = "<group>";
+		};
+		A4000000000000000000006F /* OCR */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000000C /* OCRView.swift */,
+			);
+			path = OCR;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000070 /* API */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000000D /* APIClient.swift */,
+				A2000000000000000000000E /* Models.swift */,
+			);
+			path = API;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000071 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000000F /* HarnessStore.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A30000000000000000000071 /* LidlToolHarness */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A50000000000000000000081 /* Build configuration list for PBXNativeTarget "LidlToolHarness" */;
+			buildPhases = (
+				A30000000000000000000072 /* Sources */,
+				A30000000000000000000061 /* Frameworks */,
+				A30000000000000000000073 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = LidlToolHarness;
+			productName = LidlToolHarness;
+			productReference = A20000000000000000000000 /* LidlToolHarness.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A30000000000000000000074 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2630;
+				LastUpgradeCheck = 2630;
+				TargetAttributes = {
+					A30000000000000000000071 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = A50000000000000000000082 /* Build configuration list for PBXProject "LidlToolHarness" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				de,
+				Base,
+			);
+			mainGroup = A40000000000000000000062;
+			productRefGroup = A40000000000000000000068 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A30000000000000000000071 /* LidlToolHarness */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A30000000000000000000073 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000013 /* Localizable.strings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A30000000000000000000072 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000001 /* LidlToolHarnessApp.swift in Sources */,
+				A10000000000000000000002 /* RootView.swift in Sources */,
+				A10000000000000000000003 /* MainTabView.swift in Sources */,
+				A10000000000000000000004 /* Theme.swift in Sources */,
+				A10000000000000000000005 /* SharedUI.swift in Sources */,
+				A10000000000000000000006 /* LoginView.swift in Sources */,
+				A10000000000000000000007 /* DashboardView.swift in Sources */,
+				A10000000000000000000008 /* ReceiptsView.swift in Sources */,
+				A10000000000000000000009 /* OffersView.swift in Sources */,
+				A1000000000000000000000A /* SourcesView.swift in Sources */,
+				A1000000000000000000000B /* ChatView.swift in Sources */,
+				A1000000000000000000000C /* OCRView.swift in Sources */,
+				A1000000000000000000000D /* APIClient.swift in Sources */,
+				A1000000000000000000000E /* Models.swift in Sources */,
+				A1000000000000000000000F /* HarnessStore.swift in Sources */,
+				A10000000000000000000010 /* SessionStore.swift in Sources */,
+				A10000000000000000000011 /* KeychainStore.swift in Sources */,
+				A10000000000000000000012 /* HarnessAppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		A20000000000000000000021 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				A20000000000000000000018 /* en */,
+				A20000000000000000000019 /* de */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		A50000000000000000000083 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = NO;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A50000000000000000000084 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = NO;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		A50000000000000000000085 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+					ASSETCATALOG_COMPILER_APPICON_NAME = "";
+					ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGNING_ALLOWED = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"Resources\"";
+				INFOPLIST_KEY_CFBundleDisplayName = "LidlTool Harness";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Capture receipt photos for local desktop sync.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Import receipt images for local desktop sync.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+					CODE_SIGN_ENTITLEMENTS = LidlToolHarness.entitlements;
+					MARKETING_VERSION = 0.1.0;
+					PRODUCT_BUNDLE_IDENTIFIER = com.lidltool.iosharness;
+					PRODUCT_NAME = "$(TARGET_NAME)";
+					SDKROOT = iphoneos;
+					SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+					SWIFT_VERSION = 5.0;
+					TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A50000000000000000000086 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+					ASSETCATALOG_COMPILER_APPICON_NAME = "";
+					ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGNING_ALLOWED = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_KEY_CFBundleDisplayName = "LidlTool Harness";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Capture receipt photos for local desktop sync.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Import receipt images for local desktop sync.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+					CODE_SIGN_ENTITLEMENTS = LidlToolHarness.entitlements;
+					MARKETING_VERSION = 0.1.0;
+					PRODUCT_BUNDLE_IDENTIFIER = com.lidltool.iosharness;
+					PRODUCT_NAME = "$(TARGET_NAME)";
+					SDKROOT = iphoneos;
+					SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+					SWIFT_VERSION = 5.0;
+					TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A50000000000000000000081 /* Build configuration list for PBXNativeTarget "LidlToolHarness" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A50000000000000000000085 /* Debug */,
+				A50000000000000000000086 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A50000000000000000000082 /* Build configuration list for PBXProject "LidlToolHarness" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A50000000000000000000083 /* Debug */,
+				A50000000000000000000084 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A30000000000000000000074 /* Project object */;
+}

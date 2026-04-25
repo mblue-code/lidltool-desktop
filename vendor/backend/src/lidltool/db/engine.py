@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fcntl
+import os
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -75,6 +76,29 @@ def create_engine_for_url(db_url: str) -> Engine:
     return engine
 
 
+def _resolve_backend_repo_root() -> Path:
+    configured = os.getenv("LIDLTOOL_REPO_ROOT", "").strip()
+    candidate_paths: list[Path] = []
+    if configured:
+        candidate_paths.append(Path(configured).expanduser().resolve())
+
+    module_path = Path(__file__).resolve()
+    candidate_paths.extend(module_path.parents[:6])
+
+    for candidate in candidate_paths:
+        if (candidate / "alembic.ini").is_file():
+            return candidate
+
+    return module_path.parents[3]
+
+
+def _resolve_migrations_path(repo_root: Path) -> Path:
+    source_migrations = repo_root / "src" / "lidltool" / "db" / "migrations"
+    if source_migrations.is_dir():
+        return source_migrations
+    return Path(__file__).resolve().parent / "migrations"
+
+
 def migrate_db(db_url: str, *, revision: str = "head") -> None:
     if revision == "head":
         with _MIGRATION_LOCK:
@@ -89,8 +113,8 @@ def migrate_db(db_url: str, *, revision: str = "head") -> None:
                         if db_url in _MIGRATED_HEAD_URLS:
                             return
                 _ensure_parent_dir_for_sqlite(db_url)
-                repo_root = Path(__file__).resolve().parents[3]
-                migrations_path = Path(__file__).resolve().parent / "migrations"
+                repo_root = _resolve_backend_repo_root()
+                migrations_path = _resolve_migrations_path(repo_root)
                 config = Config(str(repo_root / "alembic.ini"))
                 config.set_main_option("script_location", str(migrations_path))
                 config.set_main_option("sqlalchemy.url", db_url)
