@@ -61,6 +61,9 @@ const ChatWorkspacePage = lazy(() =>
   pageLoaders.chat().then((module) => ({ default: module.ChatWorkspacePage }))
 );
 const ReliabilityPage = lazy(() => pageLoaders.reliability().then((module) => ({ default: module.ReliabilityPage })));
+const AppearanceSettingsPage = lazy(() =>
+  pageLoaders.appearanceSettings().then((module) => ({ default: module.AppearanceSettingsPage }))
+);
 const UsersSettingsPage = lazy(() =>
   pageLoaders.usersSettings().then((module) => ({ default: module.UsersSettingsPage }))
 );
@@ -159,6 +162,7 @@ async function bootstrap() {
                         </DesktopRouteGate>
                       }
                     />
+                    <Route path="settings/appearance" element={<AppearanceSettingsPage />} />
                     <Route path="settings/ai" element={<AISettingsPage />} />
                     <Route path="settings/users" element={<UsersSettingsPage />} />
                     <Route path="*" element={<Navigate to="/" replace />} />

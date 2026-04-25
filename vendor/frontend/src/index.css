@@ -193,18 +193,50 @@
         @apply border-border outline-ring/50;
     }
 
+    html {
+        font-size: calc(var(--app-ui-font-size, 16) * 1px);
+    }
+
     body {
         @apply bg-background text-foreground antialiased;
+        font-family: var(--app-ui-font-family, Inter, ui-sans-serif, system-ui, sans-serif);
         background-image: var(--app-background-image);
         background-attachment: fixed;
         background-position: center;
         background-size: cover;
     }
 
+    button,
+    input,
+    select,
+    textarea {
+        font: inherit;
+    }
+
+    code,
+    pre,
+    kbd,
+    samp {
+        font-family: var(--app-code-font-family, ui-monospace, monospace);
+        font-size: calc(var(--app-code-font-size, 13) * 1px);
+    }
+
     #root {
         min-height: 100dvh;
         isolation: isolate;
     }
+}
+
+:root[data-interactive-cursor="true"] button,
+:root[data-interactive-cursor="true"] [role="button"],
+:root[data-interactive-cursor="true"] a,
+:root[data-interactive-cursor="true"] input[type="checkbox"],
+:root[data-interactive-cursor="true"] input[type="color"],
+:root[data-interactive-cursor="true"] input[type="radio"],
+:root[data-interactive-cursor="true"] input[type="range"],
+:root[data-interactive-cursor="true"] label[for],
+:root[data-interactive-cursor="true"] summary {
+    cursor: pointer;
 }
 
 @layer components {

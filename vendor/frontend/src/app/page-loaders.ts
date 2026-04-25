@@ -27,6 +27,7 @@ export const pageLoaders = {
   automationInbox: () => import("@/pages/AutomationInboxPage"),
   chat: () => import("@/pages/ChatWorkspacePage"),
   reliability: () => import("@/pages/ReliabilityPage"),
+  appearanceSettings: () => import("@/pages/AppearanceSettingsPage"),
   usersSettings: () => import("@/pages/UsersSettingsPage"),
   aiSettings: () => import("@/pages/AISettingsPage")
 };
@@ -61,6 +62,7 @@ const ROUTE_PREFIX_PRELOADERS: Array<{
   { prefix: "/automation-inbox", preload: pageLoaders.automationInbox },
   { prefix: "/chat", preload: pageLoaders.chat },
   { prefix: "/reliability", preload: pageLoaders.reliability },
+  { prefix: "/settings/appearance", preload: pageLoaders.appearanceSettings },
   { prefix: "/settings/ai", preload: pageLoaders.aiSettings },
   { prefix: "/settings/users", preload: pageLoaders.usersSettings },
   { prefix: "/settings", preload: pageLoaders.settings },

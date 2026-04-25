@@ -132,6 +132,10 @@ function controlCenterMenuLabel(locale: "en" | "de"): string {
   return locale === "de" ? "Kontrollzentrum öffnen" : "Open control center";
 }
 
+function appearanceEditorMenuLabel(locale: "en" | "de"): string {
+  return locale === "de" ? "Darstellung bearbeiten" : "Edit appearance";
+}
+
 function notificationEmptyLabel(locale: "en" | "de"): string {
   return locale === "de" ? "Noch keine Benachrichtigungen." : "No notifications yet.";
 }
@@ -1295,6 +1299,10 @@ export function AppShell({ user }: AppShellProps) {
                         <DropdownMenuSeparator />
                       </>
                     ) : null}
+                    <DropdownMenuItem asChild>
+                      <Link to="/settings/appearance">{appearanceEditorMenuLabel(locale)}</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem asChild>
                       <Link to="/settings/users">{t("app.header.manageAccount")}</Link>
                     </DropdownMenuItem>

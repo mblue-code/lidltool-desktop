@@ -1,4 +1,4 @@
-import { Bot, Database, ShieldCheck, Users } from "lucide-react";
+import { Bot, Database, PaintBucket, ShieldCheck, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -35,6 +35,15 @@ export function SettingsPage() {
           : "Review desktop-local users and session boundaries.",
       to: "/settings/users",
       icon: Users
+    },
+    {
+      title: locale === "de" ? "Darstellung" : "Appearance",
+      description:
+        locale === "de"
+          ? "Design-Presets, Farben, Typografie und Dichte der Desktop-Shell lokal anpassen."
+          : "Adjust desktop shell presets, colors, typography, and density locally.",
+      to: "/settings/appearance",
+      icon: PaintBucket
     },
     {
       title: locale === "de" ? "Desktop-Konfiguration" : "Desktop posture",

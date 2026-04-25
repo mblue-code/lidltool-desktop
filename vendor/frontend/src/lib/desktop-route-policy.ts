@@ -50,6 +50,7 @@ export const DESKTOP_ROUTE_CAPABILITIES: DesktopRouteCapability[] = [
   { route: "/automations", availability: "unsupported", navVisible: false, redirectTo: "/", reason: "scheduler_host_required" },
   { route: "/automation-inbox", availability: "unsupported", navVisible: false, redirectTo: "/", reason: "scheduler_host_required" },
   { route: "/reliability", availability: "unsupported", navVisible: false, redirectTo: "/", reason: "operator_surface" },
+  { route: "/settings/appearance", availability: "adapted", navVisible: false, redirectTo: null, reason: "desktop_override" },
   { route: "/settings/ai", availability: "adapted", navVisible: false, redirectTo: null, reason: "desktop_override" },
   { route: "/settings/users", availability: "adapted", navVisible: false, redirectTo: null, reason: "desktop_override" }
 ];

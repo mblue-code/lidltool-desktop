@@ -237,6 +237,13 @@ describe("AppShell", () => {
     expect((window.desktopApi as { openControlCenter?: ReturnType<typeof vi.fn> } | undefined)?.openControlCenter).toHaveBeenCalledTimes(1);
   });
 
+  it("links to the appearance editor from preferences", () => {
+    renderShell();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Preferences" }));
+    expect(screen.getByRole("menuitem", { name: "Edit appearance" })).toBeInTheDocument();
+  });
+
   it("hides the global sync banner when sync status refetch fails after cached running data", async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
