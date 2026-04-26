@@ -1,0 +1,186 @@
+{
+  "manifest_version": "1",
+  "plugin_id": "local.penny_de",
+  "plugin_version": "0.1.0",
+  "connector_api_version": "1",
+  "plugin_family": "receipt",
+  "source_id": "penny_de",
+  "display_name": "PENNY",
+  "merchant_name": "PENNY",
+  "country_code": "DE",
+  "maintainer": "lidltool",
+  "license": "MIT",
+  "runtime_kind": "subprocess_python",
+  "entrypoint": "plugin.py:PennyReceiptPlugin",
+  "auth_kind": "oauth_pkce",
+  "auth": {
+    "auth_kind": "oauth_pkce",
+    "supports_live_session_bootstrap": true,
+    "supports_reauth": true,
+    "supports_headless_refresh": true,
+    "supports_manual_confirm": false,
+    "supports_oauth_callback": true,
+    "supports_session_file": false,
+    "implemented_actions": [
+      "start_auth",
+      "cancel_auth",
+      "confirm_auth"
+    ],
+    "compatibility_actions": [
+      "start_auth",
+      "cancel_auth"
+    ],
+    "reserved_actions": [
+      "start_auth",
+      "cancel_auth",
+      "confirm_auth"
+    ]
+  },
+  "capabilities": [
+    "live_session_bootstrap",
+    "healthcheck",
+    "historical_sync",
+    "manual_reauth"
+  ],
+  "trust_class": "local_custom",
+  "plugin_origin": "local_path",
+  "install_status": "installed",
+  "config_schema": {
+    "fields": [
+      {
+        "key": "merchant_label",
+        "label": "Store label",
+        "description": "Optional display name override for normalized PENNY receipts.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false
+      },
+      {
+        "key": "state_file",
+        "label": "Plugin state path",
+        "description": "Optional persistent path for Penny OAuth state.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false,
+        "operator_only": true
+      },
+      {
+        "key": "fixture_file",
+        "label": "Fixture file",
+        "description": "Optional offline JSON fixture for Penny connector tests only.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false,
+        "operator_only": true
+      },
+      {
+        "key": "auth_timeout_seconds",
+        "label": "Auth timeout seconds",
+        "description": "Optional timeout for the shared Penny browser auth flow.",
+        "input_kind": "number",
+        "required": false,
+        "sensitive": false,
+        "operator_only": true
+      },
+      {
+        "key": "import_storage_state_file",
+        "label": "Import storage state",
+        "description": "Optional Playwright-style browser storage-state JSON to import instead of running login.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false,
+        "operator_only": true
+      },
+      {
+        "key": "chrome_cookie_export",
+        "label": "Chrome session import",
+        "description": "Try to reuse the currently logged-in normal Chrome Penny session before opening the fallback browser login.",
+        "input_kind": "boolean",
+        "required": false,
+        "sensitive": false,
+        "operator_only": true
+      },
+      {
+        "key": "chrome_user_data_dir",
+        "label": "Chrome user data dir",
+        "description": "Optional Chrome user-data directory when auto-detection is not correct for this host.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false,
+        "operator_only": true
+      },
+      {
+        "key": "chrome_profile_name",
+        "label": "Chrome profile name",
+        "description": "Chrome profile directory name to inspect for the logged-in Penny session. Defaults to Default.",
+        "input_kind": "text",
+        "required": false,
+        "sensitive": false,
+        "operator_only": true
+      },
+      {
+        "key": "timeout_seconds",
+        "label": "HTTP timeout seconds",
+        "description": "Optional timeout for Penny OIDC metadata and token requests.",
+        "input_kind": "number",
+        "required": false,
+        "sensitive": false,
+        "operator_only": true
+      },
+      {
+        "key": "force_reauth",
+        "label": "Force reauth",
+        "description": "Start a fresh Penny auth flow even if plugin-local auth state already exists.",
+        "input_kind": "boolean",
+        "required": false,
+        "sensitive": false,
+        "operator_only": true
+      }
+    ]
+  },
+  "onboarding": {
+    "title": "Sign in through the PENNY account login",
+    "summary": "The plugin boots through the same account.penny.de PKCE login flow the Android app opens in a Custom Tab.",
+    "expected_speed": "Browser auth is usually quick, but Cloudflare Turnstile can make fresh sessions slower.",
+    "caution": "This plugin stores real Penny OAuth state locally and syncs receipts over the live Penny eBon backend. Fresh login still depends on Penny accepting the browser surface presented by the host.",
+    "steps": [
+      {
+        "title": "Start connector auth",
+        "description": "Run the normal connector auth/bootstrap action so the host can launch the plugin-provided Penny login flow."
+      },
+      {
+        "title": "Finish Penny login",
+        "description": "Complete the account.penny.de login in the shared browser window and let the OAuth redirect return to https://www.penny.de/app/login."
+      },
+      {
+        "title": "Sync receipts",
+        "description": "After auth completes, run discovery or sync. The plugin refreshes stored OAuth when needed, calls the live Penny eBon API directly, and parses the returned PDF receipts locally."
+      }
+    ]
+  },
+  "compatibility": {
+    "min_core_version": "0.1.0",
+    "supported_host_kinds": [
+      "self_hosted",
+      "electron"
+    ]
+  },
+  "policy": {
+    "trust": {
+      "execution_model": "sandboxed",
+      "requires_operator_approval": true
+    },
+    "ai": {
+      "allow_model_mediation": false,
+      "allow_model_generated_actions": false
+    }
+  },
+  "metadata": {
+    "maturity": "beta",
+    "repo_managed": true,
+    "bootstrap_mode": "plugin_auth_browser_plan",
+    "distribution_target": "plugin_service_addon",
+    "auth_host": "account.penny.de",
+    "backend": "direct_ebon_api"
+  }
+}

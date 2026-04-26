@@ -6,7 +6,7 @@ Do not test the self-hosted Docker app for this run.
 
 Do not use stale local dev builds, stale Electron profile data, an old SQLite database, previously installed receipt packs, or old browser/session/token state.
 
-The target is `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop`.
+The target is `/Volumes/macminiExtern/projects/lidltool-desktop`.
 
 ## Product Model To Respect
 
@@ -92,7 +92,7 @@ Recommended layout:
 
 ```bash
 STAMP="$(date +%Y%m%d-%H%M%S)"
-EVIDENCE_DIR="/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/output/manual-qa/$STAMP"
+EVIDENCE_DIR="/Volumes/macminiExtern/projects/lidltool-desktop/output/manual-qa/$STAMP"
 mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/logs"
 ```
 
@@ -174,7 +174,7 @@ Do not launch the desktop app against your normal existing Electron profile.
 Use a dedicated throwaway desktop profile for the run:
 
 ```bash
-/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data
+/Volumes/macminiExtern/projects/lidltool-desktop/.tmp/e2e-user-data
 ```
 
 Desktop honors the environment variable:
@@ -195,7 +195,7 @@ Delete that whole profile before the run starts.
 
 ## Clean Rebuild Procedure
 
-Run all commands from `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop`.
+Run all commands from `/Volumes/macminiExtern/projects/lidltool-desktop`.
 
 ### 1. Kill old desktop processes
 
@@ -206,7 +206,7 @@ Make sure no previous LidlTool Desktop process is still running.
 Use the current desktop cleanup path, not an ad hoc partial cleanup:
 
 ```bash
-cd /Volumes/macminiExtern/lidl-receipts-cli/apps/desktop
+cd /Volumes/macminiExtern/projects/lidltool-desktop
 npm run clean
 rm -rf .tmp/e2e-user-data
 mkdir -p .tmp build/plugin-packs output/manual-qa
@@ -249,10 +249,10 @@ Only use that fallback if packaged build validation is genuinely blocked.
 These ZIPs are QA artifacts, not runtime dependencies:
 
 ```bash
-python3 ../../plugins/dm_de/build_desktop_pack.py --output-dir ./build/plugin-packs
-python3 ../../plugins/rewe_de/build_desktop_pack.py --output-dir ./build/plugin-packs
-python3 ../../plugins/kaufland_de/build_desktop_pack.py --output-dir ./build/plugin-packs
-python3 ../../plugins/netto_plus_de/build_desktop_pack.py --output-dir ./build/plugin-packs
+python3 ./fixtures/plugin-sources/rewe_de/build_desktop_pack.py --output-dir ./build/plugin-packs
+python3 ./fixtures/plugin-sources/kaufland_de/build_desktop_pack.py --output-dir ./build/plugin-packs
+python3 ./fixtures/plugin-sources/netto_plus_de/build_desktop_pack.py --output-dir ./build/plugin-packs
+python3 ./fixtures/plugin-sources/penny_de/build_desktop_pack.py --output-dir ./build/plugin-packs
 ```
 
 Record the actual ZIP filenames produced.

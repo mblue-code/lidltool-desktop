@@ -284,6 +284,7 @@ Scope:
 - recurring offer scraping and alerts remain out of desktop scope
 - `dm_de` is now one of these optional receipt plugins rather than a built-in desktop connector
 - `rewe_de` is an imported receipt pack in desktop rather than a built-in connector, so the desktop auth flow can reuse a normal Chrome session instead of depending on packaged CAPTCHA automation
+- `penny_de` is a local optional receipt pack under `fixtures/plugin-sources/penny_de`; it now supports direct Penny eBon discovery and PDF-backed receipt parsing through stored OAuth state, and desktop can hand off PKCE login to a real installed Chrome/Edge window instead of Playwright Chromium
 
 Management surface:
 - use the connectors page inside the desktop app for local pack import, trusted pack install, enable/disable, and removal
@@ -364,6 +365,15 @@ Third-party authoring reference:
 - the clean-break template lives in `examples/reference_receipt_plugin_template`
 - build a manual-import ZIP with `python examples/reference_receipt_plugin_template/build_desktop_pack.py`
 - use the checklist in that template README to verify import, enable, bootstrap, sync, and uninstall behavior
+
+Local optional pack build examples:
+
+```bash
+python3 fixtures/plugin-sources/rewe_de/build_desktop_pack.py --output-dir build/plugin-packs
+python3 fixtures/plugin-sources/kaufland_de/build_desktop_pack.py --output-dir build/plugin-packs
+python3 fixtures/plugin-sources/netto_plus_de/build_desktop_pack.py --output-dir build/plugin-packs
+python3 fixtures/plugin-sources/penny_de/build_desktop_pack.py --output-dir build/plugin-packs
+```
 
 ### Pack format
 

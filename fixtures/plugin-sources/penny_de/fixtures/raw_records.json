@@ -1,0 +1,124 @@
+{
+  "records": [
+    {
+      "id": "PENNY-FIXTURE-1",
+      "purchasedAt": "2026-04-23T18:14:00+02:00",
+      "receiptNumber": "8472",
+      "store": {
+        "id": "DE-50858-001",
+        "name": "PENNY Koeln Marsdorf",
+        "address": {
+          "street": "Duersener Strasse 1",
+          "postalCode": "50858",
+          "city": "Koeln",
+          "countryCode": "DE"
+        }
+      },
+      "totals": {
+        "gross": "24.92",
+        "discount": "0.80",
+        "currency": "EUR"
+      },
+      "payments": [
+        {
+          "method": "card",
+          "amount": "24.92"
+        }
+      ],
+      "discounts": [
+        {
+          "id": "promo-1",
+          "label": "PENNY App Coupon",
+          "amount": "0.50",
+          "subkind": "coupon",
+          "funded_by": "merchant"
+        }
+      ],
+      "items": [
+        {
+          "id": "line-1",
+          "name": "Bio Avocado",
+          "quantity": "2",
+          "unit": "pcs",
+          "unitPrice": "1.99",
+          "lineTotal": "3.98",
+          "vatRate": "7%",
+          "discounts": [
+            {
+              "id": "item-discount-1",
+              "label": "Obst-Aktion",
+              "amount": "0.30",
+              "subkind": "promotion",
+              "funded_by": "merchant"
+            }
+          ]
+        },
+        {
+          "id": "line-2",
+          "name": "PENNY Gouda jung 400g",
+          "quantity": "1",
+          "unit": "pcs",
+          "unitPrice": "3.49",
+          "lineTotal": "3.49",
+          "vatRate": "7%"
+        },
+        {
+          "id": "line-3",
+          "name": "Pfand",
+          "quantity": "1",
+          "unit": "pcs",
+          "unitPrice": "0.25",
+          "lineTotal": "0.25",
+          "vatRate": "19%",
+          "isDeposit": true
+        },
+        {
+          "id": "line-4",
+          "name": "Rinderhackfleisch 500g",
+          "quantity": "1",
+          "unit": "pcs",
+          "unitPrice": "6.89",
+          "lineTotal": "6.89",
+          "vatRate": "7%"
+        },
+        {
+          "id": "line-5",
+          "name": "Mineralwasser 6x1.5L",
+          "quantity": "1",
+          "unit": "pcs",
+          "unitPrice": "2.99",
+          "lineTotal": "2.99",
+          "vatRate": "19%"
+        },
+        {
+          "id": "line-6",
+          "name": "Tomaten Mix 500g",
+          "quantity": "1",
+          "unit": "pcs",
+          "unitPrice": "2.52",
+          "lineTotal": "2.52",
+          "vatRate": "7%"
+        },
+        {
+          "id": "line-7",
+          "name": "Schoko-Croissant",
+          "quantity": "2",
+          "unit": "pcs",
+          "unitPrice": "2.40",
+          "lineTotal": "4.80",
+          "vatRate": "7%"
+        }
+      ],
+      "attachments": [
+        {
+          "kind": "pdf",
+          "url": "https://example.invalid/penny/receipts/PENNY-FIXTURE-1.pdf"
+        }
+      ],
+      "source": {
+        "fixture": true,
+        "surface": "account-ui"
+      }
+    }
+  ]
+}

@@ -3,9 +3,14 @@ from __future__ import annotations
 import html
 import os
 import secrets
+import socket
+import subprocess
 import shutil
 import sys
+import time
 import urllib.parse
+import urllib.request
+from contextlib import suppress
 from tempfile import TemporaryDirectory
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -30,6 +35,7 @@ from lidltool.connectors.sdk.runtime import (
 AUTH_BROWSER_MODE_ENV = "LIDLTOOL_AUTH_BROWSER_MODE"
 AUTH_BROWSER_EXECUTABLE_ENV = "LIDLTOOL_PLAYWRIGHT_BROWSER_EXECUTABLE_PATH"
 AUTH_BROWSER_CHANNEL_ENV = "LIDLTOOL_PLAYWRIGHT_BROWSER_CHANNEL"
+AUTH_BROWSER_PREFER_EXTERNAL_CHROMIUM_ENV = "LIDLTOOL_AUTH_BROWSER_PREFER_EXTERNAL_CHROMIUM"
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +109,15 @@ class AuthBrowserRuntimeService:
                 "interactive browser auth requires a display. Start bootstrap through the web UI "
                 "or provide DISPLAY for a local browser session."
             )
+        if _should_use_external_chromium_handoff(
+            plan=request.plan,
+            mode=mode,
+            environment=environment,
+        ):
+            return _capture_external_chromium_result(
+                request=request,
+                environment=environment,
+            )
 
         with sync_playwright() as playwright:
             with TemporaryDirectory(prefix="lidltool-auth-browser-") as user_data_dir:
@@ -112,121 +127,26 @@ class AuthBrowserRuntimeService:
                     headless=headless,
                     environment=environment,
                 )
-                captured_url: str | None = None
-                captured_error: str | None = None
-                saw_navigation_away = False
-
-                def capture(url: str | None, *, track_navigation_away: bool = False) -> None:
-                    nonlocal captured_url, saw_navigation_away
-                    if track_navigation_away:
-                        saw_navigation_away = _record_navigation_away(
-                            candidate=url,
-                            start_url=normalized_start_url,
-                            saw_navigation_away=saw_navigation_away,
-                        )
-                    matched = _match_callback_candidate(
-                        str(url or "").strip(),
-                        callback_prefixes,
-                    )
-                    if _should_accept_callback_candidate(
-                        candidate=matched,
-                        start_url=normalized_start_url,
-                        require_navigation_away_before_completion=request.plan.require_navigation_away_before_completion,
-                        expected_callback_state=request.plan.expected_callback_state,
-                        saw_navigation_away=saw_navigation_away,
-                    ):
-                        captured_url = matched
-
-                def attach_page(page: Any) -> None:
-                    def handle_frame_navigation(frame: Any) -> None:
-                        nonlocal saw_navigation_away
-                        try:
-                            is_main_frame = frame == page.main_frame
-                        except Exception:
-                            is_main_frame = True
-                        if is_main_frame:
-                            normalized_url = _normalize_browser_url(getattr(frame, "url", ""))
-                            if normalized_url and normalized_url != normalized_start_url:
-                                saw_navigation_away = True
-                        capture(getattr(frame, "url", ""), track_navigation_away=is_main_frame)
-
-                    page.on("framenavigated", handle_frame_navigation)
-
-                context.on(
-                    "request",
-                    lambda req: capture(req.url),
-                )
-                context.on(
-                    "requestfailed",
-                    lambda req: capture(req.url),
-                )
-                context.on(
-                    "response",
-                    lambda res: capture(res.headers.get("location")),
-                )
-                context.on("page", attach_page)
-
                 page = context.new_page()
-                attach_page(page)
 
                 try:
                     page.goto(request.plan.start_url, wait_until=request.plan.wait_until)
                 except PlaywrightError as exc:
                     context.close()
                     raise RuntimeError(f"browser auth session failed to open login page: {exc}") from exc
-
-                print("Browser open: complete login in the shared auth session window.", flush=True)
-                deadline = datetime.now(tz=UTC).timestamp() + request.plan.timeout_seconds
-                while captured_url is None and captured_error is None:
-                    captured_url = _discover_callback_candidate(
-                        context=context,
-                        start_url=normalized_start_url,
-                        callback_prefixes=callback_prefixes,
-                        require_navigation_away_before_completion=request.plan.require_navigation_away_before_completion,
-                        expected_callback_state=request.plan.expected_callback_state,
-                        saw_navigation_away=saw_navigation_away,
-                    )
-                    if captured_url is not None:
-                        break
-                    if datetime.now(tz=UTC).timestamp() >= deadline:
-                        break
-                    try:
-                        page.wait_for_timeout(500)
-                    except PlaywrightError as exc:
-                        captured_url = _discover_callback_candidate(
-                            context=context,
-                            start_url=normalized_start_url,
-                            callback_prefixes=callback_prefixes,
-                            require_navigation_away_before_completion=request.plan.require_navigation_away_before_completion,
-                            expected_callback_state=request.plan.expected_callback_state,
-                            saw_navigation_away=saw_navigation_away,
-                        )
-                        if captured_url is not None:
-                            break
-                        captured_error = str(exc)
-                        break
-
                 try:
-                    storage_state = context.storage_state() if request.plan.capture_storage_state else None
+                    result = _capture_callback_from_context(
+                        context=context,
+                        page=page,
+                        request=request,
+                        normalized_start_url=normalized_start_url,
+                        callback_prefixes=callback_prefixes,
+                    )
                     context.close()
                 except PlaywrightError as exc:
                     context.close()
                     raise RuntimeError(f"browser auth storage-state capture failed: {exc}") from exc
-
-        if captured_error is not None:
-            raise RuntimeError(f"browser auth session failed before callback capture: {captured_error}")
-        if captured_url is None:
-            raise RuntimeError(
-                "browser auth did not complete before timeout; retry bootstrap and finish the login flow."
-            )
-        if request.plan.capture_storage_state and not isinstance(storage_state, dict):
-            raise RuntimeError("browser auth storage-state capture returned no data")
-        if request.plan.capture_storage_state:
-            cookies = storage_state.get("cookies") if isinstance(storage_state, dict) else None
-            origins = storage_state.get("origins") if isinstance(storage_state, dict) else None
-            if not cookies and not origins:
-                raise RuntimeError("browser auth storage-state capture was empty")
-        return captured_url, storage_state
+        return result
 
     def _resolve_mode(
         self,
@@ -440,6 +360,286 @@ def _should_accept_callback_candidate(
     return actual_state == expected_callback_state
 
 
+def _capture_callback_from_context(
+    *,
+    context: Any,
+    page: Any,
+    request: AuthBrowserStartRequest,
+    normalized_start_url: str,
+    callback_prefixes: tuple[str, ...],
+    initial_navigation_away: bool = False,
+) -> tuple[str, dict[str, Any] | None]:
+    captured_url: str | None = None
+    captured_error: str | None = None
+    saw_navigation_away = initial_navigation_away
+
+    def capture(url: str | None, *, track_navigation_away: bool = False) -> None:
+        nonlocal captured_url, saw_navigation_away
+        if track_navigation_away:
+            saw_navigation_away = _record_navigation_away(
+                candidate=url,
+                start_url=normalized_start_url,
+                saw_navigation_away=saw_navigation_away,
+            )
+        matched = _match_callback_candidate(
+            str(url or "").strip(),
+            callback_prefixes,
+        )
+        if _should_accept_callback_candidate(
+            candidate=matched,
+            start_url=normalized_start_url,
+            require_navigation_away_before_completion=request.plan.require_navigation_away_before_completion,
+            expected_callback_state=request.plan.expected_callback_state,
+            saw_navigation_away=saw_navigation_away,
+        ):
+            captured_url = matched
+
+    def attach_page(connected_page: Any) -> None:
+        def handle_frame_navigation(frame: Any) -> None:
+            nonlocal saw_navigation_away
+            try:
+                is_main_frame = frame == connected_page.main_frame
+            except Exception:
+                is_main_frame = True
+            if is_main_frame:
+                normalized_url = _normalize_browser_url(getattr(frame, "url", ""))
+                if normalized_url and normalized_url != normalized_start_url:
+                    saw_navigation_away = True
+            capture(getattr(frame, "url", ""), track_navigation_away=is_main_frame)
+
+        connected_page.on("framenavigated", handle_frame_navigation)
+
+    context.on(
+        "request",
+        lambda req: capture(req.url),
+    )
+    context.on(
+        "requestfailed",
+        lambda req: capture(req.url),
+    )
+    context.on(
+        "response",
+        lambda res: capture(res.headers.get("location")),
+    )
+    context.on("page", attach_page)
+    attach_page(page)
+
+    print("Browser open: complete login in your browser window.", flush=True)
+    deadline = datetime.now(tz=UTC).timestamp() + request.plan.timeout_seconds
+    while captured_url is None and captured_error is None:
+        captured_url = _discover_callback_candidate(
+            context=context,
+            start_url=normalized_start_url,
+            callback_prefixes=callback_prefixes,
+            require_navigation_away_before_completion=request.plan.require_navigation_away_before_completion,
+            expected_callback_state=request.plan.expected_callback_state,
+            saw_navigation_away=saw_navigation_away,
+        )
+        if captured_url is not None:
+            break
+        if datetime.now(tz=UTC).timestamp() >= deadline:
+            break
+        try:
+            page.wait_for_timeout(500)
+        except PlaywrightError as exc:
+            captured_url = _discover_callback_candidate(
+                context=context,
+                start_url=normalized_start_url,
+                callback_prefixes=callback_prefixes,
+                require_navigation_away_before_completion=request.plan.require_navigation_away_before_completion,
+                expected_callback_state=request.plan.expected_callback_state,
+                saw_navigation_away=saw_navigation_away,
+            )
+            if captured_url is not None:
+                break
+            captured_error = str(exc)
+            break
+
+    if captured_error is not None:
+        raise RuntimeError(f"browser auth session failed before callback capture: {captured_error}")
+    if captured_url is None:
+        raise RuntimeError(
+            "browser auth did not complete before timeout; retry bootstrap and finish the login flow."
+        )
+
+    storage_state = context.storage_state() if request.plan.capture_storage_state else None
+    if request.plan.capture_storage_state and not isinstance(storage_state, dict):
+        raise RuntimeError("browser auth storage-state capture returned no data")
+    if request.plan.capture_storage_state:
+        cookies = storage_state.get("cookies") if isinstance(storage_state, dict) else None
+        origins = storage_state.get("origins") if isinstance(storage_state, dict) else None
+        if not cookies and not origins:
+            raise RuntimeError("browser auth storage-state capture was empty")
+    return captured_url, storage_state
+
+
+def _capture_external_chromium_result(
+    *,
+    request: AuthBrowserStartRequest,
+    environment: Mapping[str, str],
+) -> tuple[str, dict[str, Any] | None]:
+    executable_path = _resolve_system_chromium_executable(environment)
+    if executable_path is None:
+        raise RuntimeError("external browser handoff requires an installed Chromium-based browser on this host")
+
+    port = _allocate_local_port()
+    with TemporaryDirectory(prefix="lidltool-auth-browser-") as user_data_dir:
+        command = [
+            str(executable_path),
+            f"--remote-debugging-port={port}",
+            f"--user-data-dir={user_data_dir}",
+            "--profile-directory=Default",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--new-window",
+            request.plan.start_url,
+        ]
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            _wait_for_cdp_endpoint(
+                port=port,
+                process=process,
+                timeout_seconds=min(max(request.plan.timeout_seconds, 15), 30),
+            )
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
+                try:
+                    context, page = _resolve_cdp_browser_context(
+                        browser=browser,
+                        start_url=request.plan.start_url,
+                        wait_until=request.plan.wait_until,
+                    )
+                    return _capture_callback_from_context(
+                        context=context,
+                        page=page,
+                        request=request,
+                        normalized_start_url=_normalize_browser_url(request.plan.start_url),
+                        callback_prefixes=tuple(request.plan.callback_url_prefixes),
+                    )
+                finally:
+                    with suppress(Exception):
+                        browser.close()
+        finally:
+            _terminate_external_browser_process(process)
+
+
+def _should_use_external_chromium_handoff(
+    *,
+    plan: AuthBrowserPlan,
+    mode: AuthBrowserMode,
+    environment: Mapping[str, str],
+    executable_path: Path | None = None,
+) -> bool:
+    if not plan.interactive or mode == "headless_capture_only":
+        return False
+    if plan.expected_callback_state is None:
+        return False
+    if not _bool_env(
+        environment,
+        AUTH_BROWSER_PREFER_EXTERNAL_CHROMIUM_ENV,
+        default=True,
+    ):
+        return False
+    return (executable_path or _resolve_system_chromium_executable(environment)) is not None
+
+
+def _bool_env(environment: Mapping[str, str], key: str, *, default: bool) -> bool:
+    raw_value = str(environment.get(key) or "").strip().lower()
+    if not raw_value:
+        return default
+    if raw_value in {"1", "true", "yes", "on"}:
+        return True
+    if raw_value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _allocate_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(1)
+        return int(sock.getsockname()[1])
+
+
+def _wait_for_cdp_endpoint(
+    *,
+    port: int,
+    process: subprocess.Popen[Any],
+    timeout_seconds: int,
+) -> None:
+    deadline = time.monotonic() + max(timeout_seconds, 5)
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        return_code = process.poll()
+        if return_code is not None:
+            raise RuntimeError(
+                f"external browser exited before the login page became available (exit code {return_code})"
+            )
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=1) as response:
+                if response.status == 200:
+                    return
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+        time.sleep(0.25)
+    detail = f": {last_error}" if last_error is not None else ""
+    raise RuntimeError(f"external browser debugging endpoint did not become ready{detail}")
+
+
+def _resolve_cdp_browser_context(
+    *,
+    browser: Any,
+    start_url: str,
+    wait_until: Literal["domcontentloaded", "load", "networkidle"],
+) -> tuple[Any, Any]:
+    deadline = time.monotonic() + 15
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        contexts = list(getattr(browser, "contexts", lambda: [])() if callable(getattr(browser, "contexts", None)) else getattr(browser, "contexts", ()))
+        if not contexts:
+            time.sleep(0.25)
+            continue
+        context = contexts[0]
+        pages = list(getattr(context, "pages", lambda: [])() if callable(getattr(context, "pages", None)) else getattr(context, "pages", ()))
+        if pages:
+            page = pages[0]
+        else:
+            try:
+                page = context.new_page()
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                time.sleep(0.25)
+                continue
+        current_url = _normalize_browser_url(getattr(page, "url", ""))
+        if current_url in {"", "about:blank", "data:,", "chrome://newtab/", "chrome-error://chromewebdata/"}:
+            try:
+                page.goto(start_url, wait_until=wait_until)
+            except PlaywrightError as exc:
+                last_error = exc
+                time.sleep(0.25)
+                continue
+        return context, page
+    detail = f": {last_error}" if last_error is not None else ""
+    raise RuntimeError(f"external browser did not expose a usable page context{detail}")
+
+
+def _terminate_external_browser_process(process: subprocess.Popen[Any]) -> None:
+    with suppress(Exception):
+        if process.poll() is not None:
+            return
+        process.terminate()
+        process.wait(timeout=5)
+        return
+    with suppress(Exception):
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+
 def _launch_auth_browser(
     *,
     playwright: Any,
@@ -514,12 +714,20 @@ def _browser_launch_override(environment: Mapping[str, str]) -> dict[str, str] |
 
 
 def _system_browser_launch_options() -> dict[str, str] | None:
-    executable_path = _detect_system_chromium_executable()
+    executable_path = _resolve_system_chromium_executable(os.environ)
     if executable_path is not None:
         return {"executable_path": str(executable_path)}
     if shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser"):
         return {"channel": "chrome"}
     return None
+
+
+def _resolve_system_chromium_executable(environment: Mapping[str, str]) -> Path | None:
+    explicit_path = str(environment.get(AUTH_BROWSER_EXECUTABLE_ENV) or "").strip()
+    if explicit_path:
+        resolved = Path(explicit_path).expanduser().resolve()
+        return resolved if resolved.exists() else None
+    return _detect_system_chromium_executable()
 
 
 def _detect_system_chromium_executable() -> Path | None:
@@ -529,10 +737,39 @@ def _detect_system_chromium_executable() -> Path | None:
             [
                 Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
                 Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
+                Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
                 Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
                 Path.home() / "Applications/Chromium.app/Contents/MacOS/Chromium",
+                Path.home() / "Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
             ]
         )
+    elif sys.platform == "win32":
+        local_app_data = Path(os.environ.get("LOCALAPPDATA") or "")
+        program_files = Path(os.environ.get("PROGRAMFILES") or "")
+        program_files_x86 = Path(os.environ.get("PROGRAMFILES(X86)") or "")
+        candidates.extend(
+            [
+                local_app_data / "Google/Chrome/Application/chrome.exe",
+                local_app_data / "Chromium/Application/chrome.exe",
+                local_app_data / "Microsoft/Edge/Application/msedge.exe",
+                program_files / "Google/Chrome/Application/chrome.exe",
+                program_files / "Microsoft/Edge/Application/msedge.exe",
+                program_files_x86 / "Google/Chrome/Application/chrome.exe",
+                program_files_x86 / "Microsoft/Edge/Application/msedge.exe",
+            ]
+        )
+    else:
+        for binary_name in (
+            "google-chrome",
+            "google-chrome-stable",
+            "chromium",
+            "chromium-browser",
+            "microsoft-edge",
+            "microsoft-edge-stable",
+        ):
+            resolved_binary = shutil.which(binary_name)
+            if resolved_binary:
+                candidates.append(Path(resolved_binary))
     for candidate in candidates:
         resolved = candidate.expanduser().resolve()
         if resolved.exists():
