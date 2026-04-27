@@ -30,7 +30,7 @@
     "test:e2e:packaged": "node ./scripts/run-playwright-e2e.mjs test tests/e2e/packaged-first-run.spec.ts --config=playwright.config.ts",
     "test:e2e:full": "npm run test:e2e:prepare && npm run test:e2e",
     "test:control-center": "node --test --experimental-strip-types tests/control-center-model.test.ts tests/control-center-view-model.test.ts",
-    "test:runtime-contracts": "node --test --experimental-strip-types tests/runtime-contract.test.ts tests/runtime-cli-args.test.ts tests/runtime-backup-artifacts.test.ts tests/runtime-paths.test.ts tests/sqlite-artifacts.test.ts tests/vendor-patchers.test.ts",
+    "test:runtime-contracts": "node --test --experimental-strip-types tests/runtime-contract.test.ts tests/runtime-cli-args.test.ts tests/runtime-backup-artifacts.test.ts tests/runtime-paths.test.ts tests/sqlite-artifacts.test.ts tests/vendor-patchers.test.ts tests/mobile-bridge.test.ts",
     "test:plugin-packs": "node --test --experimental-strip-types tests/receipt-plugin-pack-state.test.ts tests/receipt-plugin-packs.test.ts",
     "test:release-metadata": "node --test --experimental-strip-types tests/release-metadata.test.ts",
     "test:trusted-distribution": "node --test --experimental-strip-types tests/control-center-model.test.ts tests/receipt-plugin-packs.test.ts tests/release-metadata.test.ts",

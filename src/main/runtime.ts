@@ -13,15 +13,18 @@ import type {
   DesktopReleaseMetadata,
   ExportRequest,
   ImportRequest,
+  MobileBridgeStatus,
   OcrWorkerWakeResult,
   ReceiptPluginCatalogInstallRequest,
   ReceiptPluginPackInfo,
   ReceiptPluginPackInstallResult,
   ReceiptPluginPackListResult,
+  StartMobileBridgeRequest,
   ReceiptPluginPackToggleResult,
   ReceiptPluginPackUninstallResult,
   SyncRequest
 } from "@shared/contracts";
+import { MobileBridge } from "./mobile-bridge";
 import { OcrWorkerSupervisor } from "./ocr-worker-supervisor";
 import {
   ReceiptPluginPackManager,
@@ -107,6 +110,7 @@ export class DesktopRuntime {
   private backendProcess: ChildProcessWithoutNullStreams | null = null;
   private backendStartedAt: string | null = null;
   private readonly apiPort: number;
+  private readonly mobileBridge = new MobileBridge(() => this.getConfig().apiBaseUrl);
   private readonly ocrWorkerSupervisor: OcrWorkerSupervisor;
   private readonly receiptPluginPackManager = new ReceiptPluginPackManager({
     rootDir: this.receiptPluginStorageDir(),
@@ -292,6 +296,7 @@ export class DesktopRuntime {
   }
 
   async stopBackend(): Promise<BackendStatus> {
+    await this.stopMobileBridge();
     await this.ocrWorkerSupervisor.stop();
     if (this.backendProcess === null) {
       return this.getBackendStatus();
@@ -311,6 +316,19 @@ export class DesktopRuntime {
 
   async wakeOcrWorker(): Promise<OcrWorkerWakeResult> {
     return await this.ocrWorkerSupervisor.ensureRunning();
+  }
+
+  getMobileBridgeStatus(): MobileBridgeStatus {
+    return this.mobileBridge.getStatus();
+  }
+
+  async startMobileBridge(payload: StartMobileBridgeRequest = {}): Promise<MobileBridgeStatus> {
+    await this.startBackend({ strictOverride: true });
+    return await this.mobileBridge.start(payload);
+  }
+
+  async stopMobileBridge(): Promise<MobileBridgeStatus> {
+    return await this.mobileBridge.stop();
   }
 
   async runSyncJob(payload: SyncRequest): Promise<CommandResult> {

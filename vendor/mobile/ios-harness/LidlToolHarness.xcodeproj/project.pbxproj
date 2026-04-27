@@ -26,6 +26,7 @@
 		A10000000000000000000011 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* KeychainStore.swift */; };
 		A10000000000000000000012 /* HarnessAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* HarnessAppDelegate.swift */; };
 		A10000000000000000000013 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* Localizable.strings */; };
+		A10000000000000000000014 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000022 /* QRScannerView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -51,6 +52,7 @@
 		A20000000000000000000018 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = Localization/en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		A20000000000000000000019 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = Localization/de.lproj/Localizable.strings; sourceTree = "<group>"; };
 		A20000000000000000000020 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A20000000000000000000022 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -142,6 +144,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000006 /* LoginView.swift */,
+				A20000000000000000000022 /* QRScannerView.swift */,
 			);
 			path = Auth;
 			sourceTree = "<group>";
@@ -287,6 +290,7 @@
 				A10000000000000000000004 /* Theme.swift in Sources */,
 				A10000000000000000000005 /* SharedUI.swift in Sources */,
 				A10000000000000000000006 /* LoginView.swift in Sources */,
+				A10000000000000000000014 /* QRScannerView.swift in Sources */,
 				A10000000000000000000007 /* DashboardView.swift in Sources */,
 				A10000000000000000000008 /* ReceiptsView.swift in Sources */,
 				A10000000000000000000009 /* OffersView.swift in Sources */,
@@ -378,7 +382,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Resources\"";
 				INFOPLIST_KEY_CFBundleDisplayName = "LidlTool Harness";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Capture receipt photos for local desktop sync.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scan pairing QR codes and capture receipt photos for local desktop sync.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Import receipt images for local desktop sync.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -409,7 +413,7 @@
 				CODE_SIGNING_ALLOWED = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_KEY_CFBundleDisplayName = "LidlTool Harness";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Capture receipt photos for local desktop sync.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scan pairing QR codes and capture receipt photos for local desktop sync.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Import receipt images for local desktop sync.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

@@ -58,6 +58,9 @@ Current vendored mobile baselines:
 - Android: `vendor/mobile/android-harness`
 - iOS: `vendor/mobile/ios-harness`
 
+Security hardening reference:
+- [Mobile Local Pairing Security Hardening Plan](/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-local-pairing-security-hardening-plan.md)
+
 Current upstream-derived stack:
 - Android: Kotlin + Jetpack Compose + OkHttp + Kotlin serialization
 - iOS: Swift + SwiftUI + URLSession
@@ -480,8 +483,8 @@ Delivered:
 - Desktop backend has versioned local mobile tables and endpoints for pairing, capture upload into desktop OCR, capture status sync, transaction read model sync, and budget summary sync.
 
 Current protocol v1:
-- QR/session payload contains `protocol_version`, `desktop_id`, `desktop_name`, `endpoint_url`, `pairing_token`, `public_key_fingerprint`, and `expires_at`.
-- Desktop creates a pairing payload with `POST /api/mobile-pair/v1/sessions`.
+- QR/session payload contains `protocol_version`, `desktop_id`, `desktop_name`, `endpoint_url`, `pairing_token`, `public_key_fingerprint`, `expires_at`, `transport`, and `listener_expires_at`.
+- Desktop creates a pairing payload with `POST /api/mobile-pair/v1/sessions`; Wi-Fi pairing passes the temporary LAN bridge URL as `bridge_endpoint_url`.
 - Phone completes trust with `POST /api/mobile-pair/v1/handshake`.
 - Phone uploads queued capture artifacts with `POST /api/mobile-captures/v1` using `Authorization: Bearer <sync_token>`.
 - Phone pulls desktop-owned read models with `GET /api/mobile-sync/v1/changes?cursor=...` using the same sync token.

@@ -11,12 +11,14 @@ import type {
   DesktopLocale,
   ExportRequest,
   ImportRequest,
+  MobileBridgeStatus,
   OcrWorkerWakeResult,
   ReceiptPluginCatalogInstallRequest,
   ReceiptPluginPackInstallResult,
   ReceiptPluginPackListResult,
   ReceiptPluginPackToggleResult,
   ReceiptPluginPackUninstallResult,
+  StartMobileBridgeRequest,
   SyncRequest
 } from "@shared/contracts";
 
@@ -26,6 +28,8 @@ const api = {
   getLocale: async (): Promise<DesktopLocale> => await ipcRenderer.invoke("desktop:locale:get"),
   getBootError: async (): Promise<string | null> => await ipcRenderer.invoke("desktop:boot-error:get"),
   getBackendStatus: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:status"),
+  getMobileBridgeStatus: async (): Promise<MobileBridgeStatus> =>
+    await ipcRenderer.invoke("desktop:mobile-bridge:status"),
   getRuntimeDiagnostics: async (): Promise<DesktopRuntimeDiagnostics> =>
     await ipcRenderer.invoke("desktop:runtime:diagnostics"),
   getReleaseMetadata: async (): Promise<DesktopReleaseMetadata> =>
@@ -33,6 +37,9 @@ const api = {
   setLocale: async (locale: DesktopLocale): Promise<DesktopLocale> => await ipcRenderer.invoke("desktop:locale:set", locale),
   startBackend: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:start"),
   stopBackend: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:stop"),
+  startMobileBridge: async (payload: StartMobileBridgeRequest = {}): Promise<MobileBridgeStatus> =>
+    await ipcRenderer.invoke("desktop:mobile-bridge:start", payload),
+  stopMobileBridge: async (): Promise<MobileBridgeStatus> => await ipcRenderer.invoke("desktop:mobile-bridge:stop"),
   wakeOcrWorker: async (): Promise<OcrWorkerWakeResult> => await ipcRenderer.invoke("desktop:ocr:wake"),
   openFullApp: async (): Promise<string> => await ipcRenderer.invoke("desktop:app:url"),
   openControlCenter: async (): Promise<void> => await ipcRenderer.invoke("desktop:control-center:open"),

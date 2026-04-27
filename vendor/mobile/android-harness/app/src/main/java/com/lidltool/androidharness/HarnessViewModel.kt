@@ -98,12 +98,16 @@ class HarnessViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun pairFromText() {
-        val raw = uiState.pairingText.trim()
+        pairFromPayload(uiState.pairingText)
+    }
+
+    fun pairFromPayload(rawPayload: String) {
+        val raw = rawPayload.trim()
         if (raw.isBlank()) {
             uiState = uiState.copy(errorMessage = "Paste the QR pairing payload first.")
             return
         }
-        uiState = uiState.copy(pairingBusy = true, errorMessage = null)
+        uiState = uiState.copy(pairingText = raw, pairingBusy = true, errorMessage = null)
         viewModelScope.launch {
             try {
                 val payload = decodePairingPayload(raw)

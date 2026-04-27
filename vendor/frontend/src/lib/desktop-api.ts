@@ -20,6 +20,28 @@ export type DesktopCapabilities = {
 
 export type DesktopLocale = "en" | "de";
 
+export type DesktopMobileBridgeStatus = {
+  running: boolean;
+  endpointUrl: string | null;
+  interface: {
+    name: string;
+    address: string;
+    family: "IPv4";
+    cidr: string | null;
+    mac: string | null;
+  } | null;
+  startedAt: string | null;
+  expiresAt: string | null;
+  lastMobileRequestAt: string | null;
+  lastMobileRequest: {
+    method: string;
+    path: string;
+    remoteAddress: string;
+    statusCode: number | null;
+    at: string;
+  } | null;
+};
+
 export type DesktopConnectorTrustClass =
   | "official"
   | "community_verified"
@@ -150,6 +172,12 @@ type DesktopOcrBridge = {
   wakeOcrWorker: () => Promise<{ running: boolean; started: boolean; idleTimeoutSeconds: number }>;
 };
 
+type DesktopMobileBridge = {
+  getMobileBridgeStatus: () => Promise<DesktopMobileBridgeStatus>;
+  startMobileBridge: (payload?: { address?: string; expiresInSeconds?: number }) => Promise<DesktopMobileBridgeStatus>;
+  stopMobileBridge: () => Promise<DesktopMobileBridgeStatus>;
+};
+
 type DesktopConnectorBridge = {
   getReleaseMetadata: () => Promise<DesktopReleaseMetadata>;
   listReceiptPlugins: () => Promise<DesktopReceiptPluginPackListResult>;
@@ -164,7 +192,8 @@ export type DesktopApiBridge = (
   DesktopImportBridge &
   Partial<DesktopLocaleBridge> &
   Partial<DesktopCapabilityBridge> &
-  Partial<DesktopOcrBridge>
+  Partial<DesktopOcrBridge> &
+  Partial<DesktopMobileBridge>
 ) | null;
 
 export function getDesktopApiBridge(): DesktopApiBridge {
@@ -192,6 +221,23 @@ export function getDesktopOcrBridge(): DesktopOcrBridge | null {
   }
   return {
     wakeOcrWorker: () => desktopApi.wakeOcrWorker!()
+  };
+}
+
+export function getDesktopMobileBridge(): DesktopMobileBridge | null {
+  const desktopApi = (window as unknown as { desktopApi?: Partial<DesktopMobileBridge> }).desktopApi;
+  if (
+    !desktopApi ||
+    typeof desktopApi.getMobileBridgeStatus !== "function" ||
+    typeof desktopApi.startMobileBridge !== "function" ||
+    typeof desktopApi.stopMobileBridge !== "function"
+  ) {
+    return null;
+  }
+  return {
+    getMobileBridgeStatus: () => desktopApi.getMobileBridgeStatus!(),
+    startMobileBridge: (payload) => desktopApi.startMobileBridge!(payload),
+    stopMobileBridge: () => desktopApi.stopMobileBridge!()
   };
 }
 

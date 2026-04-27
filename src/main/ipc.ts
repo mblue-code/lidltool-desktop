@@ -4,6 +4,7 @@ import type {
   DesktopLocale,
   ExportRequest,
   ImportRequest,
+  StartMobileBridgeRequest,
   ReceiptPluginCatalogInstallRequest,
   SyncRequest
 } from "@shared/contracts";
@@ -22,11 +23,16 @@ export function registerIpc(
   ipcMain.handle("desktop:locale:get", () => getLocale());
   ipcMain.handle("desktop:boot-error:get", () => getBootError());
   ipcMain.handle("desktop:backend:status", () => runtime.getBackendStatus());
+  ipcMain.handle("desktop:mobile-bridge:status", () => runtime.getMobileBridgeStatus());
   ipcMain.handle("desktop:runtime:diagnostics", () => runtime.getRuntimeDiagnostics());
   ipcMain.handle("desktop:release-metadata:get", async () => await runtime.getReleaseMetadata());
   ipcMain.handle("desktop:locale:set", (_event, locale: DesktopLocale) => setLocale(locale));
   ipcMain.handle("desktop:backend:start", async () => await runtime.startBackend());
   ipcMain.handle("desktop:backend:stop", async () => await runtime.stopBackend());
+  ipcMain.handle("desktop:mobile-bridge:start", async (_event, payload: StartMobileBridgeRequest) =>
+    await runtime.startMobileBridge(payload)
+  );
+  ipcMain.handle("desktop:mobile-bridge:stop", async () => await runtime.stopMobileBridge());
   ipcMain.handle("desktop:ocr:wake", async () => await runtime.wakeOcrWorker());
   ipcMain.handle("desktop:app:url", async () => {
     await runtime.startBackend();

@@ -33,6 +33,7 @@
     <string name="action_logout">Abmelden</string>
     <string name="action_go">Los</string>
     <string name="action_back">Zurück</string>
+    <string name="action_cancel">Abbrechen</string>
     <string name="action_open">Öffnen</string>
     <string name="action_details">Details</string>
     <string name="action_pause">Pausieren</string>
@@ -140,6 +141,12 @@
     <string name="pairing_no_cloud_body">Dieser Build koppelt direkt mit Ihrer Desktop-App. Er meldet sich nicht an einem selbst gehosteten Backend an und hält keine dauerhafte Live-Sitzung.</string>
     <string name="pairing_qr_payload">QR-Payload</string>
     <string name="pairing_payload_label">protocol_version / endpoint_url / pairing_token</string>
+    <string name="pairing_scan_action">QR scannen</string>
+    <string name="pairing_scan_title">Kopplungs-QR scannen</string>
+    <string name="pairing_scan_body">Richten Sie die Kamera auf den QR-Code in LidlTool Desktop. Der Scanner schließt automatisch, sobald ein gültiger Code erkannt wurde.</string>
+    <string name="pairing_scan_camera_unavailable">Die Kameravorschau konnte nicht gestartet werden. Sie können den Kopplungs-Payload weiterhin manuell einfügen.</string>
+    <string name="pairing_camera_denied_title">Kamerazugriff abgelehnt</string>
+    <string name="pairing_camera_denied_body">Erlauben Sie Kamerazugriff, um den Desktop-Kopplungs-QR-Code zu scannen, oder fügen Sie den Payload unten manuell ein.</string>
     <string name="pairing_action">Dieses Telefon koppeln</string>
     <string name="pairing_error_empty">Fügen Sie zuerst den QR-Kopplungs-Payload ein.</string>
     <string name="action_sync">Sync</string>

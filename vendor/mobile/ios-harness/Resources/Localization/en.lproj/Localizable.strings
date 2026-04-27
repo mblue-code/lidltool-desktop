@@ -8,6 +8,7 @@
 "tab.ocr" = "OCR";
 
 "common.close" = "Close";
+"common.cancel" = "Cancel";
 "common.na" = "N/A";
 "common.unknown" = "Unknown";
 "common.pending" = "Pending";
@@ -200,9 +201,17 @@
 "mobile.action.importing" = "Importing";
 "mobile.login.subtitle" = "This companion stores data locally and syncs only with your paired desktop while both apps are open and reachable.";
 "mobile.login.noCloud.title" = "No backend account";
-"mobile.login.noCloud.body" = "Open LidlTool Desktop, choose Pair mobile, then paste the QR payload here. The iPhone stores the sync token in Keychain and the read models in app-private storage.";
+"mobile.login.noCloud.body" = "Open LidlTool Desktop, choose Pair mobile, then scan the QR code or paste the payload here. The iPhone stores the sync token in Keychain and the read models in app-private storage.";
 "mobile.login.payload" = "QR payload version 1";
 "mobile.login.pairPhone" = "Pair this iPhone";
+"mobile.login.scanQR" = "Scan QR";
+"mobile.login.scanHint" = "Align the desktop pairing QR code inside the frame.";
+"mobile.login.manualFallback" = "Use manual paste";
+"mobile.login.openSettings" = "Open Settings";
+"mobile.login.cameraDenied.title" = "Camera access is off";
+"mobile.login.cameraDenied.body" = "Enable camera access for LidlTool Harness to scan the pairing QR code, or close this scanner and paste the payload manually.";
+"mobile.login.cameraUnavailable.title" = "Camera unavailable";
+"mobile.login.cameraUnavailable.body" = "This device cannot open the camera for QR scanning. You can still paste the desktop pairing payload manually.";
 "mobile.overview.title" = "Local finance overview";
 "mobile.overview.description" = "Synced structured data, capture queue, and review state stored on this phone.";
 "mobile.overview.syncedSpend" = "Synced spend";
