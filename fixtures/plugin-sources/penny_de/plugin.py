@@ -242,6 +242,27 @@ def _parse_redirect(url: str) -> tuple[str | None, str | None, str | None]:
     return code, state, error
 
 
+def _build_auth_start_url(pending: PendingAuthFlow) -> str:
+    digest = hashlib.sha256(pending.verifier.encode("ascii")).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return (
+        pending.auth_endpoint
+        + "?"
+        + urllib.parse.urlencode(
+            {
+                "client_id": pending.client_id,
+                "redirect_uri": pending.redirect_uri,
+                "response_type": "code",
+                "scope": pending.scope,
+                "state": pending.state,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "app_container": "android",
+            }
+        )
+    )
+
+
 def _state_file_for_context(storage_root: Path, options: Mapping[str, Any]) -> Path:
     explicit = _resolve_optional_path(options.get("state_file"))
     if explicit is not None:
@@ -1328,6 +1349,7 @@ class PennyReceiptPlugin(ReceiptConnector):
             )
             return self._ok(request.action, output.model_dump(mode="python"))
         if isinstance(pending, Mapping):
+            pending_flow = PendingAuthFlow(**dict(pending))
             output = GetAuthStatusOutput(
                 status="pending",
                 is_authenticated=False,
@@ -1338,7 +1360,10 @@ class PennyReceiptPlugin(ReceiptConnector):
                 detail="Shared browser auth is waiting for the Penny OAuth callback.",
                 metadata={
                     "state_file": str(state_path),
-                    "flow_id": str(pending.get("flow_id") or ""),
+                    "flow_id": pending_flow.flow_id,
+                    "auth_start_url": _build_auth_start_url(pending_flow),
+                    "auth_redirect_uri": pending_flow.redirect_uri,
+                    "manual_callback_supported": True,
                 },
             )
             return self._ok(request.action, output.model_dump(mode="python"))
@@ -1502,7 +1527,7 @@ class PennyReceiptPlugin(ReceiptConnector):
         except PennyPluginError as exc:
             discovery_warning = str(exc)
 
-        verifier, challenge = _pkce_pair()
+        verifier, _ = _pkce_pair()
         state_value = secrets.token_urlsafe(24)
         flow_id = secrets.token_hex(12)
         pending = PendingAuthFlow(
@@ -1516,27 +1541,13 @@ class PennyReceiptPlugin(ReceiptConnector):
             redirect_uri=DEFAULT_REDIRECT_URI,
             scope=DEFAULT_SCOPE,
         )
-        start_url = (
-            auth_endpoint
-            + "?"
-            + urllib.parse.urlencode(
-                {
-                    "client_id": pending.client_id,
-                    "redirect_uri": pending.redirect_uri,
-                    "response_type": "code",
-                    "scope": pending.scope,
-                    "state": pending.state,
-                    "code_challenge": challenge,
-                    "code_challenge_method": "S256",
-                    "app_container": "android",
-                }
-            )
-        )
+        start_url = _build_auth_start_url(pending)
         state["pending_auth"] = asdict(pending)
         _persist_state(state_path, state)
         plan = AuthBrowserPlan(
             start_url=start_url,
             callback_url_prefixes=(pending.redirect_uri,),
+            auto_launch_browser=False,
             expected_callback_state=pending.state,
             timeout_seconds=timeout_seconds,
             wait_until="domcontentloaded",

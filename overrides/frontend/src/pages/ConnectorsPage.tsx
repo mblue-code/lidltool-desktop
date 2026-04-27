@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 
 import {
   cancelConnectorBootstrap,
+  confirmConnectorBootstrap,
   fetchConnectorAuthStatus,
   fetchConnectorConfig,
   fetchConnectorBootstrapStatus,
@@ -13,6 +14,7 @@ import {
   startConnectorBootstrap,
   startConnectorSync,
   submitConnectorConfig,
+  type ConnectorAuthStatus,
   type ConnectorBootstrapStatus,
   type ConnectorConfig,
   type ConnectorConfigField,
@@ -35,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   getDesktopConnectorBridge,
   type DesktopConnectorCatalogEntry,
@@ -96,6 +99,8 @@ type FirstRunPromptState = Record<
     expiresAt: number;
   }
 >;
+
+type ManualCallbackState = Record<string, string>;
 
 const SHORT_SUCCESS_DISMISS_MS = 60_000;
 const OPTIMISTIC_SYNC_START_MS = 20_000;
@@ -378,6 +383,10 @@ function isLidlConnector(sourceId: string): boolean {
 
 function isReweConnector(sourceId: string): boolean {
   return sourceId === "rewe_de";
+}
+
+function isPennyConnector(sourceId: string): boolean {
+  return sourceId === "penny_de";
 }
 
 function connectorHasDurableAuthState(connector: ConnectorDiscoveryRow): boolean {
@@ -731,6 +740,53 @@ function localizedReweGuide(locale: SupportedLocale): ConnectorGuide {
   };
 }
 
+function localizedPennyGuide(locale: SupportedLocale): ConnectorGuide {
+  return {
+    headline: byLocale(locale, "Finish PENNY sign-in in your normal browser", "PENNY-Anmeldung im normalen Browser abschließen"),
+    summary: byLocale(
+      locale,
+      "PENNY opens the real account login in your installed browser profile. After the login finishes, the browser may land on a PENNY page that does not continue. That is expected.",
+      "PENNY öffnet die echte Konto-Anmeldung in Ihrem installierten Browserprofil. Nach dem Login kann der Browser auf einer PENNY-Seite landen, die nicht weiterführt. Das ist erwartbar."
+    ),
+    speedDescription: byLocale(
+      locale,
+      "Usually quick once the browser accepts the login and any human-check is completed.",
+      "Normalerweise schnell, sobald der Browser die Anmeldung akzeptiert und eine eventuelle Mensch-Prüfung abgeschlossen ist."
+    ),
+    caution: byLocale(
+      locale,
+      "Do not worry if the browser ends on a PENNY app redirect or not-found page. The desktop app only needs the callback URL and continues from there.",
+      "Keine Sorge, wenn der Browser am Ende auf einer PENNY-App-Weiterleitung oder einer Nicht-gefunden-Seite landet. Die Desktop-App braucht nur die Callback-URL und macht danach hier weiter."
+    ),
+    steps: [
+      {
+        title: byLocale(locale, "Start sign-in here", "Anmeldung hier starten"),
+        description: byLocale(
+          locale,
+          "Use Set up so the desktop app can open the PENNY login in your installed browser.",
+          "Nutzen Sie Einrichten, damit die Desktop-App den PENNY-Login in Ihrem installierten Browser öffnen kann."
+        )
+      },
+      {
+        title: byLocale(locale, "Finish login in the browser", "Login im Browser abschließen"),
+        description: byLocale(
+          locale,
+          "Enter your PENNY credentials there and complete any human-check Penny requires.",
+          "Geben Sie dort Ihre PENNY-Zugangsdaten ein und schließen Sie eine eventuelle Mensch-Prüfung von PENNY ab."
+        )
+      },
+      {
+        title: byLocale(locale, "Return to the app", "Zur App zurückkehren"),
+        description: byLocale(
+          locale,
+          "After the redirect happens, come back here even if the browser page looks broken. The connector will store the sign-in and let you start the first import.",
+          "Kehren Sie nach der Weiterleitung hierher zurück, auch wenn die Browserseite kaputt aussieht. Die Anbindung speichert die Anmeldung und lässt Sie dann den ersten Import starten."
+        )
+      }
+    ]
+  };
+}
+
 function pluginGuideOverride(
   pack: DesktopReceiptPluginPackInfo | null,
   locale: SupportedLocale
@@ -746,6 +802,9 @@ function pluginGuideOverride(
   }
   if (pack.sourceId === "rewe_de") {
     return localizedReweGuide(locale);
+  }
+  if (pack.sourceId === "penny_de") {
+    return localizedPennyGuide(locale);
   }
   return null;
 }
@@ -825,6 +884,13 @@ function connectorStatusSummary(
         "Öffnen Sie REWE in normalem Chrome, melden Sie sich dort an, lassen Sie den Tab offen und klicken Sie dann auf Einrichten."
       );
     }
+    if (isPennyConnector(connector.source_id)) {
+      return byLocale(
+        locale,
+        "Press Set up, finish the PENNY login in your normal browser, then return here even if the browser shows a PENNY redirect page.",
+        "Klicken Sie auf Einrichten, schließen Sie den PENNY-Login in Ihrem normalen Browser ab und kehren Sie dann hierher zurück, auch wenn der Browser eine PENNY-Weiterleitungsseite zeigt."
+      );
+    }
     return byLocale(
       locale,
       `Sign in once to import receipts from ${displayName}.`,
@@ -902,6 +968,13 @@ function connectorSecondarySummary(
         "Falls Chrome noch nicht bei REWE angemeldet ist, öffnen Sie Chrome, melden Sie sich dort an, lassen Sie den Tab offen und starten Sie die Einrichtung dann erneut."
       );
     }
+    if (isPennyConnector(connector.source_id)) {
+      return byLocale(
+        locale,
+        "Continue the PENNY login in your browser. After the redirect, the browser may show a PENNY page that does not continue. Return here when that happens.",
+        "Setzen Sie den PENNY-Login in Ihrem Browser fort. Nach der Weiterleitung kann der Browser eine PENNY-Seite anzeigen, die nicht weiterführt. Kehren Sie dann einfach hierher zurück."
+      );
+    }
     return byLocale(locale, "Finish sign-in in the browser window the app opened.", "Schließen Sie die Anmeldung im geöffneten Browserfenster ab.");
   }
   if (
@@ -938,6 +1011,7 @@ function summarizeBootstrapStatus(
   locale: SupportedLocale
 ): string | null {
   const rewe = isReweConnector(sourceId);
+  const penny = isPennyConnector(sourceId);
   if (latestLine?.startsWith("Waiting for auth step:")) {
     const step = latestLine.split(":").pop()?.trim();
     if (step === "login_required") {
@@ -946,6 +1020,13 @@ function summarizeBootstrapStatus(
           locale,
           "Open normal Chrome, sign into REWE there, leave the tab open, then run setup again.",
           "Öffnen Sie normales Chrome, melden Sie sich dort bei REWE an, lassen Sie den Tab offen und starten Sie die Einrichtung dann erneut."
+        );
+      }
+      if (penny) {
+        return byLocale(
+          locale,
+          "Finish the PENNY login in your browser. If the browser ends on a PENNY redirect or not-found page, return here; that still counts as a successful handoff.",
+          "Schließen Sie den PENNY-Login in Ihrem Browser ab. Wenn der Browser am Ende auf einer PENNY-Weiterleitungs- oder Nicht-gefunden-Seite landet, kehren Sie hierher zurück; das gilt trotzdem als erfolgreicher Handoff."
         );
       }
       return byLocale(locale, "Please finish sign-in in the browser window.", "Bitte schließen Sie die Anmeldung im Browserfenster ab.");
@@ -970,6 +1051,13 @@ function summarizeBootstrapStatus(
         "REWE versucht, die angemeldete normale Chrome-Sitzung zu übernehmen. Falls das nicht abgeschlossen wird, öffnen Sie Chrome, melden Sie sich dort bei REWE an, lassen Sie den Tab offen und starten Sie die Einrichtung erneut."
       );
     }
+    if (penny) {
+      return byLocale(
+        locale,
+        "The PENNY login is waiting in your browser. After the redirect, the browser may show a dead-end PENNY page. The desktop app will still capture the sign-in and continue here.",
+        "Der PENNY-Login wartet in Ihrem Browser. Nach der Weiterleitung kann der Browser eine Sackgassen-Seite von PENNY anzeigen. Die Desktop-App erfasst die Anmeldung trotzdem und macht hier weiter."
+      );
+    }
     return byLocale(
       locale,
       "Finish sign-in in the browser window opened by the desktop app.",
@@ -977,6 +1065,13 @@ function summarizeBootstrapStatus(
     );
   }
   if (status?.status === "succeeded") {
+    if (penny) {
+      return byLocale(
+        locale,
+        "PENNY sign-in was captured. You can return to the app even if the browser ended on a PENNY error or not-found page.",
+        "Die PENNY-Anmeldung wurde erfasst. Sie können zur App zurückkehren, auch wenn der Browser auf einer PENNY-Fehler- oder Nicht-gefunden-Seite geendet hat."
+      );
+    }
     return byLocale(
       locale,
       "The sign-in was saved successfully.",
@@ -1051,6 +1146,7 @@ export function ConnectorsPage() {
   const [selectedAmazonSourceId, setSelectedAmazonSourceId] = useState<string>("amazon_de");
   const [pendingSyncStarts, setPendingSyncStarts] = useState<PendingSyncStartState>({});
   const [firstRunPrompts, setFirstRunPrompts] = useState<FirstRunPromptState>({});
+  const [manualCallbackValues, setManualCallbackValues] = useState<ManualCallbackState>({});
 
   const connectorsQuery = useQuery({
     queryKey: ["connectors"],
@@ -1180,6 +1276,7 @@ export function ConnectorsPage() {
       queryClient.setQueryData(["connectors", "bootstrap-status", sourceId], result.bootstrap);
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["connectors", "bootstrap-status", sourceId] });
+      await queryClient.invalidateQueries({ queryKey: ["connectors", "auth-status", sourceId] });
     },
     onError: (error, sourceId) => {
       const resolvedMessage = resolveApiErrorMessage(error, t, t("pages.connectors.startBootstrapErrorTitle"));
@@ -1510,12 +1607,47 @@ export function ConnectorsPage() {
       });
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["connectors", "bootstrap-status", sourceId] });
+      await queryClient.invalidateQueries({ queryKey: ["connectors", "auth-status", sourceId] });
     },
     onError: (error) => {
       setFeedback({
         variant: "destructive",
         title: byLocale(locale, "Cancel failed", "Abbrechen fehlgeschlagen"),
         message: resolveApiErrorMessage(error, t, "Failed to cancel connector bootstrap")
+      });
+    }
+  });
+
+  const confirmBootstrapMutation = useMutation({
+    mutationFn: ({ sourceId, callbackUrl }: { sourceId: string; callbackUrl: string }) =>
+      confirmConnectorBootstrap(sourceId, callbackUrl),
+    onSuccess: async (result, variables) => {
+      setManualCallbackValues((current) => {
+        const next = { ...current };
+        delete next[variables.sourceId];
+        return next;
+      });
+      await queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      await queryClient.invalidateQueries({ queryKey: ["connectors", "bootstrap-status", variables.sourceId] });
+      await queryClient.invalidateQueries({ queryKey: ["connectors", "auth-status", variables.sourceId] });
+      setFeedback({
+        variant: "default",
+        title: byLocale(locale, "Sign-in captured", "Anmeldung erfasst"),
+        message: isPennyConnector(variables.sourceId)
+          ? byLocale(
+              locale,
+              "PENNY sign-in was captured from the callback URL. If the browser ended on a PENNY redirect or not-found page, you can ignore it and continue here.",
+              "Die PENNY-Anmeldung wurde aus der Callback-URL erfasst. Wenn der Browser auf einer PENNY-Weiterleitungs- oder Nicht-gefunden-Seite geendet hat, können Sie das ignorieren und hier fortfahren."
+            )
+          : result.auth_status.detail ?? byLocale(locale, "The sign-in was captured successfully.", "Die Anmeldung wurde erfolgreich erfasst."),
+        dismissAfterMs: SHORT_SUCCESS_DISMISS_MS
+      });
+    },
+    onError: (error) => {
+      setFeedback({
+        variant: "destructive",
+        title: byLocale(locale, "Sign-in could not be confirmed", "Anmeldung konnte nicht bestätigt werden"),
+        message: resolveApiErrorMessage(error, t, "Failed to confirm connector bootstrap")
       });
     }
   });
@@ -1561,6 +1693,26 @@ export function ConnectorsPage() {
         )
       ),
     [bootstrapCapableConnectors, connectorBootstrapQueries]
+  );
+  const connectorAuthStatusQueries = useQueries({
+    queries: bootstrapCapableConnectors.map((connector) => ({
+      queryKey: ["connectors", "auth-status", connector.source_id],
+      queryFn: () => fetchConnectorAuthStatus(connector.source_id),
+      refetchInterval: (query: { state: { data?: ConnectorAuthStatus } }) =>
+        query.state.data?.bootstrap?.status === "running" ? 1500 : false,
+      retry: false
+    }))
+  });
+  const authStatusBySourceId = useMemo(
+    () =>
+      new Map(
+        connectorAuthStatusQueries.flatMap((query, index) =>
+          query.status === "success" && query.data
+            ? [[bootstrapCapableConnectors[index]?.source_id ?? query.data.source_id, query.data] as const]
+            : []
+        )
+      ),
+    [bootstrapCapableConnectors, connectorAuthStatusQueries]
   );
   const catalogEntries = desktopContextQuery.data?.releaseMetadata?.discovery_catalog.entries ?? [];
   const receiptPlugins = desktopContextQuery.data?.receiptPlugins?.packs ?? [];
@@ -1753,11 +1905,17 @@ export function ConnectorsPage() {
           setFeedback({
             variant: "default",
             title: byLocale(locale, "Sign-in complete", "Anmeldung abgeschlossen"),
-            message: byLocale(
-              locale,
-              "Your sign-in was saved. Next, either import new receipts or run the one-time full history import.",
-              "Ihre Anmeldung wurde gespeichert. Als Nächstes können Sie entweder neue Belege importieren oder einmalig die gesamte Historie laden."
-            ),
+            message: isPennyConnector(sourceId)
+              ? byLocale(
+                  locale,
+                  "PENNY sign-in was captured successfully. If the browser ended on a PENNY redirect or not-found page, you can ignore it and continue here with the first import.",
+                  "Die PENNY-Anmeldung wurde erfolgreich erfasst. Wenn der Browser auf einer PENNY-Weiterleitungs- oder Nicht-gefunden-Seite geendet hat, können Sie das ignorieren und hier mit dem ersten Import fortfahren."
+                )
+              : byLocale(
+                  locale,
+                  "Your sign-in was saved. Next, either import new receipts or run the one-time full history import.",
+                  "Ihre Anmeldung wurde gespeichert. Als Nächstes können Sie entweder neue Belege importieren oder einmalig die gesamte Historie laden."
+                ),
             dismissAfterMs: SHORT_SUCCESS_DISMISS_MS
           });
         }
@@ -1828,6 +1986,10 @@ export function ConnectorsPage() {
     setSetupState(null);
     setSetupValues({});
     setClearSecretKeys([]);
+  }
+
+  function updateManualCallbackValue(sourceId: string, value: string): void {
+    setManualCallbackValues((current) => ({ ...current, [sourceId]: value }));
   }
 
   function openPackGuide(pack: DesktopReceiptPluginPackInfo, showEnableAction: boolean): void {
@@ -1962,6 +2124,7 @@ export function ConnectorsPage() {
       compareVersions(pack.version, catalogEntry.current_version) < 0;
     const displayName = options?.title ?? connectorDisplayName(connector);
     const bootstrapStatus = bootstrapStatusBySourceId.get(connector.source_id) ?? null;
+    const authStatus = authStatusBySourceId.get(connector.source_id) ?? null;
     const pendingSyncStart = pendingSyncStarts[connector.source_id] ?? null;
     const optimisticSyncStarting =
       pendingSyncStart !== null &&
@@ -1996,6 +2159,15 @@ export function ConnectorsPage() {
     const bootstrapLines = bootstrapStatus?.output_tail ?? [];
     const bootstrapLatestLine =
       bootstrapLines.length > 0 ? bootstrapLines[bootstrapLines.length - 1] ?? null : null;
+    const manualAuthStartUrl =
+      typeof authStatus?.metadata?.auth_start_url === "string" ? authStatus.metadata.auth_start_url : null;
+    const manualCallbackSupported = authStatus?.metadata?.manual_callback_supported === true;
+    const manualCallbackValue = manualCallbackValues[connector.source_id] ?? "";
+    const canSubmitManualCallback =
+      manualCallbackSupported &&
+      bootstrapStatus?.status === "running" &&
+      manualCallbackValue.trim().length > 0 &&
+      !confirmBootstrapMutation.isPending;
     const showBootstrapStatus = shouldShowBootstrapStatus(connector, bootstrapStatus);
     const syncLines = viewerIsAdmin ? connector.advanced.latest_sync_output : [];
     const latestSyncLine = syncLines.length > 0 ? syncLines[syncLines.length - 1] ?? null : null;
@@ -2140,16 +2312,82 @@ export function ConnectorsPage() {
               <AlertTitle>{bootstrapTitle}</AlertTitle>
               <AlertDescription className="space-y-2">
                 {bootstrapSummary ? <p>{bootstrapSummary}</p> : null}
-                {bootstrapStatus?.status === "running" && bootstrapStatus.remote_login_url ? (
-                  <div className="pt-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openExternalUrl(bootstrapStatus.remote_login_url)}
-                    >
-                      <ExternalLink className="mr-2 h-4 w-4" />
-                      {byLocale(locale, "Open sign-in window", "Anmeldefenster öffnen")}
-                    </Button>
+                {bootstrapStatus?.status === "running" ? (
+                  <div className="space-y-3 pt-1">
+                    <div className="flex flex-wrap gap-2">
+                      {manualAuthStartUrl ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openExternalUrl(manualAuthStartUrl)}
+                        >
+                          <ExternalLink className="mr-2 h-4 w-4" />
+                          {byLocale(locale, "Open in your browser", "Im Browser öffnen")}
+                        </Button>
+                      ) : null}
+                      {!manualAuthStartUrl && bootstrapStatus.remote_login_url ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openExternalUrl(bootstrapStatus.remote_login_url)}
+                        >
+                          <ExternalLink className="mr-2 h-4 w-4" />
+                          {byLocale(locale, "Open sign-in window", "Anmeldefenster öffnen")}
+                        </Button>
+                      ) : null}
+                    </div>
+                    {manualCallbackSupported ? (
+                      <div className="space-y-2 rounded-md border border-border/50 bg-background/50 p-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-foreground">
+                            {byLocale(
+                              locale,
+                              "If the app does not continue automatically, paste the final browser URL here.",
+                              "Wenn die App nicht automatisch weitergeht, fügen Sie hier die finale Browser-URL ein."
+                            )}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {byLocale(
+                              locale,
+                              "Use the full URL from the browser after the PENNY redirect, even if the page looks broken.",
+                              "Verwenden Sie die vollständige URL aus dem Browser nach der PENNY-Weiterleitung, auch wenn die Seite kaputt aussieht."
+                            )}
+                          </p>
+                        </div>
+                        <Label htmlFor={`callback-url-${connector.source_id}`} className="sr-only">
+                          {byLocale(locale, "Final browser URL", "Finale Browser-URL")}
+                        </Label>
+                        <Textarea
+                          id={`callback-url-${connector.source_id}`}
+                          rows={3}
+                          value={manualCallbackValue}
+                          onChange={(event) => updateManualCallbackValue(connector.source_id, event.target.value)}
+                          placeholder={byLocale(
+                            locale,
+                            "Paste the final PENNY redirect URL",
+                            "Finale PENNY-Weiterleitungs-URL einfügen"
+                          )}
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              void confirmBootstrapMutation.mutateAsync({
+                                sourceId: connector.source_id,
+                                callbackUrl: manualCallbackValue.trim()
+                              })
+                            }
+                            disabled={!canSubmitManualCallback}
+                          >
+                            {confirmBootstrapMutation.isPending &&
+                            confirmBootstrapMutation.variables?.sourceId === connector.source_id ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : null}
+                            {byLocale(locale, "Continue with pasted URL", "Mit eingefügter URL fortfahren")}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 {viewerIsAdmin && bootstrapLines.length > 0 ? (

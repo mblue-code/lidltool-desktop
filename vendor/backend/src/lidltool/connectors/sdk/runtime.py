@@ -57,6 +57,7 @@ class AuthBrowserPlan(BaseModel):
 
     start_url: str
     callback_url_prefixes: tuple[str, ...]
+    auto_launch_browser: bool = True
     require_navigation_away_before_completion: bool = False
     expected_callback_state: str | None = None
     timeout_seconds: int = Field(default=900, ge=1, le=7200)

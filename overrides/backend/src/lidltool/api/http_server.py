@@ -2199,6 +2199,7 @@ def _connector_any_running(
 
 def _connector_process_env(app: FastAPI, *, config: AppConfig) -> dict[str, str]:
     env = os.environ.copy()
+    env["LIDLTOOL_REPO_ROOT"] = str(_repo_root())
     env["LIDLTOOL_DB"] = str(config.db_path)
     env["LIDLTOOL_CONFIG_DIR"] = str(config.config_dir)
     if config.db_url:
@@ -3931,6 +3932,10 @@ class ConnectorCascadeRetryRequest(BaseModel):
 class ConnectorConfigUpdateRequest(BaseModel):
     values: dict[str, Any] = Field(default_factory=dict)
     clear_secret_keys: list[str] = Field(default_factory=list)
+
+
+class ConnectorBootstrapConfirmRequest(BaseModel):
+    callback_url: str
 
 
 class ConnectorUninstallRequest(BaseModel):
@@ -8920,6 +8925,48 @@ def create_app(
             if _connector_is_preview_source(source_id, config=app_config):
                 warnings.append(
                     "preview connector cancellation only; this connector is not live-validated yet"
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/connectors/{source_id}/bootstrap/confirm")
+    def confirm_connector_bootstrap(
+        request: Request,
+        source_id: str,
+        payload: ConnectorBootstrapConfirmRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                _resolve_request_user(request=request, session=session, config=app_config)
+                assert_connector_operation_allowed(
+                    session,
+                    source_id=source_id,
+                    operation="bootstrap",
+                    config=app_config,
+                )
+
+            service = _connector_auth_service(app, config=app_config)
+            confirmed = service.confirm_bootstrap(
+                source_id=source_id,
+                callback_url=payload.callback_url,
+            )
+            result = {
+                "source_id": source_id,
+                "confirmed": confirmed.ok,
+                "auth_status": serialize_source_auth_status(
+                    auth_service=service,
+                    source_id=source_id,
+                    validate_session=False,
+                ),
+            }
+            if _connector_is_preview_source(source_id, config=app_config):
+                warnings.append(
+                    "preview connector confirmation only; this connector is not live-validated yet"
                 )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001

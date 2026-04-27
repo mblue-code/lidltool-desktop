@@ -18,7 +18,7 @@
     "supports_live_session_bootstrap": true,
     "supports_reauth": true,
     "supports_headless_refresh": true,
-    "supports_manual_confirm": false,
+    "supports_manual_confirm": true,
     "supports_oauth_callback": true,
     "supports_session_file": false,
     "implemented_actions": [
@@ -28,7 +28,8 @@
     ],
     "compatibility_actions": [
       "start_auth",
-      "cancel_auth"
+      "cancel_auth",
+      "confirm_auth"
     ],
     "reserved_actions": [
       "start_auth",
@@ -176,7 +177,7 @@
     }
   },
   "metadata": {
-    "maturity": "beta",
+    "maturity": "preview",
     "repo_managed": true,
     "bootstrap_mode": "plugin_auth_browser_plan",
     "distribution_target": "plugin_service_addon",

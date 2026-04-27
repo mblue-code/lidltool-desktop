@@ -42,7 +42,7 @@ Self-hosted operator flow:
 1. Enable/install the external `penny_de` plugin.
 2. Open Penny in normal Chrome and log in there if you want the connector to try Chrome-session reuse first.
 3. Run the normal connector auth/bootstrap action.
-4. The plugin first tries to import the running Chrome session. If that fails, desktop opens a real installed Chrome/Edge window with a temporary profile, captures the PKCE callback automatically, and stores Penny OAuth inside the plugin state.
+4. The plugin first tries to import the running Chrome session. If that fails, desktop starts a PKCE flow, shows the exact PENNY login URL, and waits for the callback URL. Open that URL in your normal browser profile, finish the Penny login there, then either let desktop capture the callback automatically from a supported Chromium browser or paste the final redirect URL back into the app.
 5. Run discovery or sync. The plugin will refresh stored OAuth when needed, call the Penny eBon backend directly, and parse receipt PDFs locally.
 
 Suggested self-hosted config:

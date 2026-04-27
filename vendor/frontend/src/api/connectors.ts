@@ -186,6 +186,12 @@ const ConnectorBootstrapCancelSchema = z.object({
   bootstrap: ConnectorBootstrapStatusSchema.nullable()
 });
 
+const ConnectorBootstrapConfirmSchema = z.object({
+  source_id: z.string(),
+  confirmed: z.boolean(),
+  auth_status: ConnectorAuthStatusSchema
+});
+
 const ConnectorSyncStatusSchema = z.object({
   source_id: z.string(),
   status: z.enum(["idle", "running", "succeeded", "failed"]),
@@ -297,6 +303,7 @@ const ConnectorCascadeRetrySchema = z.object({
 export type ConnectorBootstrapStatus = z.infer<typeof ConnectorBootstrapStatusSchema>;
 export type ConnectorBootstrapStartResult = z.infer<typeof ConnectorBootstrapStartSchema>;
 export type ConnectorBootstrapCancelResult = z.infer<typeof ConnectorBootstrapCancelSchema>;
+export type ConnectorBootstrapConfirmResult = z.infer<typeof ConnectorBootstrapConfirmSchema>;
 export type ConnectorAuthStatus = z.infer<typeof ConnectorAuthStatusSchema>;
 export type ConnectorSyncStatus = z.infer<typeof ConnectorSyncStatusSchema>;
 export type ConnectorSyncStartResult = z.infer<typeof ConnectorSyncStartSchema>;
@@ -375,6 +382,15 @@ export async function fetchConnectorAuthStatus(sourceId: string): Promise<Connec
 
 export async function cancelConnectorBootstrap(sourceId: string): Promise<ConnectorBootstrapCancelResult> {
   return apiClient.post(`/api/v1/connectors/${sourceId}/bootstrap/cancel`, ConnectorBootstrapCancelSchema);
+}
+
+export async function confirmConnectorBootstrap(
+  sourceId: string,
+  callbackUrl: string
+): Promise<ConnectorBootstrapConfirmResult> {
+  return apiClient.post(`/api/v1/connectors/${sourceId}/bootstrap/confirm`, ConnectorBootstrapConfirmSchema, {
+    callback_url: callbackUrl
+  });
 }
 
 export async function startConnectorSync(sourceId: string, full = false): Promise<ConnectorSyncStartResult> {

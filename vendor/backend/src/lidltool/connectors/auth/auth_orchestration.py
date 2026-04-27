@@ -27,6 +27,7 @@ from lidltool.connectors.auth.auth_status import (
     NormalizedAuthState,
 )
 from lidltool.connectors.auth.browser_runtime import (
+    AuthBrowserResult,
     AuthBrowserRuntimeService,
     build_auth_browser_runtime_context,
     parse_auth_browser_start_request,
@@ -439,14 +440,32 @@ class ConnectorAuthOrchestrationService:
             else None
         )
         if bootstrap is not None and bootstrap.state == "running":
+            plugin_snapshot: AuthStatusSnapshot | None = None
+            if bridge is None and self._connector_builder is not None:
+                plugin_snapshot = self._plugin_runtime_auth_status(
+                    source_id=source_id,
+                    manifest=manifest,
+                    capabilities=capabilities,
+                    bootstrap=bootstrap,
+                    connector_options=resolved_options,
+                    validate_session=False,
+                )
             return self._status_snapshot(
                 manifest=manifest,
                 capabilities=capabilities,
                 state="bootstrap_running",
-                detail="auth bootstrap is currently running",
+                detail=(
+                    plugin_snapshot.detail
+                    if plugin_snapshot is not None and plugin_snapshot.detail
+                    else "auth bootstrap is currently running"
+                ),
                 bootstrap=bootstrap,
                 connector_options=resolved_options,
-                metadata={"bootstrap_command": list(bootstrap.command or ())},
+                metadata={
+                    "bootstrap_command": list(bootstrap.command or ()),
+                    **(dict(plugin_snapshot.metadata) if plugin_snapshot is not None else {}),
+                },
+                diagnostics=dict(plugin_snapshot.diagnostics) if plugin_snapshot is not None else None,
             )
         if bootstrap is not None and bootstrap.state == "canceled":
             return self._status_snapshot(
@@ -665,7 +684,7 @@ class ConnectorAuthOrchestrationService:
             bootstrap=serialize_connector_bootstrap(session),
         )
 
-    def confirm_bootstrap(self, *, source_id: str) -> AuthActionResult:
+    def confirm_bootstrap(self, *, source_id: str, callback_url: str) -> AuthActionResult:
         manifest = self._registry.require_manifest(source_id)
         capabilities = self.capabilities_for_source(source_id)
         if not capabilities.supports_manual_confirm:
@@ -677,13 +696,72 @@ class ConnectorAuthOrchestrationService:
                 ok=True,
                 detail="manual auth confirmation is not implemented for this connector",
             )
+        normalized_callback_url = str(callback_url or "").strip()
+        if not normalized_callback_url:
+            raise RuntimeError("callback_url is required to confirm connector bootstrap")
+
+        resolved_options = self._resolve_connector_options(
+            source_id=source_id,
+            connector_options=None,
+        )
+        snapshot = self.get_auth_status(
+            source_id=source_id,
+            connector_options=resolved_options,
+            validate_session=False,
+        )
+        flow_id = str(snapshot.metadata.get("flow_id") or "").strip()
+        start_url = str(snapshot.metadata.get("auth_start_url") or "").strip() or normalized_callback_url
+        if not flow_id:
+            raise RuntimeError("connector is not waiting for a manual auth callback")
+
+        session = self._session_registry.sessions.get(source_id)
+        if session is not None and connector_bootstrap_is_running(session):
+            terminate_connector_bootstrap(session)
+        self._session_registry.sessions.pop(source_id, None)
+
+        confirmed_at = datetime.now(tz=UTC).isoformat()
+        browser_result = AuthBrowserResult(
+            flow_id=flow_id,
+            session_id=f"manual-confirm-{source_id}",
+            mode="local_display",
+            start_url=start_url,
+            final_url=normalized_callback_url,
+            callback_url=normalized_callback_url,
+            started_at=confirmed_at,
+            completed_at=confirmed_at,
+        )
+        confirm_payload = self._invoke_plugin_auth_action(
+            source_id=source_id,
+            connector_options=resolved_options,
+            action="confirm_auth",
+            runtime_context=build_auth_browser_runtime_context(browser_result),
+        )
+        flow_status = str(confirm_payload.get("status") or "confirmed")
+        post_confirm_snapshot = self.get_auth_status(
+            source_id=source_id,
+            connector_options=resolved_options,
+            validate_session=False,
+        )
         return AuthActionResult(
             manifest=manifest,
             source_id=source_id,
-            state="connected",
-            status="confirmed",
-            ok=True,
-            detail="manual auth confirmation completed",
+            state=self._normalize_plugin_bootstrap_state(flow_status, post_confirm_snapshot.state),
+            status=self._normalize_plugin_bootstrap_status(flow_status),
+            ok=flow_status not in {"not_supported"},
+            detail=(
+                str(confirm_payload.get("detail") or post_confirm_snapshot.detail or "").strip()
+                or None
+            ),
+            bootstrap=post_confirm_snapshot.bootstrap,
+            metadata={
+                **dict(post_confirm_snapshot.metadata),
+                **(
+                    dict(confirm_payload.get("metadata", {}))
+                    if isinstance(confirm_payload.get("metadata"), Mapping)
+                    else {}
+                ),
+            },
+            diagnostics=dict(post_confirm_snapshot.diagnostics),
         )
 
     def any_bootstrap_running(self) -> bool:
@@ -986,7 +1064,10 @@ class ConnectorAuthOrchestrationService:
         del connector_options
         available_actions = capabilities.available_actions()
         if state == "bootstrap_running":
-            available_actions = tuple(action for action in available_actions if action == "cancel_auth")
+            allowed = {"cancel_auth"}
+            if capabilities.supports_manual_confirm:
+                allowed.add("confirm_auth")
+            available_actions = tuple(action for action in available_actions if action in allowed)
         return AuthStatusSnapshot(
             manifest=manifest,
             capabilities=capabilities,

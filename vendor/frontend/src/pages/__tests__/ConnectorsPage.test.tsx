@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   fetchConnectorBootstrapStatusMock: vi.fn(),
   fetchConnectorConfigMock: vi.fn(),
   cancelConnectorBootstrapMock: vi.fn(),
+  confirmConnectorBootstrapMock: vi.fn(),
   reloadConnectorsMock: vi.fn(),
   startConnectorBootstrapMock: vi.fn(),
   startConnectorSyncMock: vi.fn(),
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/api/connectors", () => ({
   cancelConnectorBootstrap: mocks.cancelConnectorBootstrapMock,
+  confirmConnectorBootstrap: mocks.confirmConnectorBootstrapMock,
   fetchConnectorAuthStatus: mocks.fetchConnectorAuthStatusMock,
   fetchConnectorBootstrapStatus: mocks.fetchConnectorBootstrapStatusMock,
   fetchConnectors: mocks.fetchConnectorsMock,
@@ -397,6 +399,22 @@ describe("ConnectorsPage", () => {
       source_id: "amazon_de",
       canceled: true,
       bootstrap: null
+    });
+    mocks.confirmConnectorBootstrapMock.mockResolvedValue({
+      source_id: "amazon_de",
+      confirmed: true,
+      auth_status: {
+        source_id: "amazon_de",
+        state: "connected",
+        detail: "Sign-in captured",
+        reauth_required: false,
+        needs_connection: false,
+        available_actions: [],
+        implemented_actions: [],
+        metadata: {},
+        diagnostics: {},
+        bootstrap: null
+      }
     });
 
     mocks.fetchConnectorsMock.mockResolvedValue(makeDefaultConnectorsPayload());
@@ -1913,6 +1931,441 @@ describe("ConnectorsPage", () => {
     expect(screen.getByText("The saved Chrome-backed REWE sign-in is ready for the next import.")).toBeInTheDocument();
     expect(screen.queryByText("Sign-in in progress")).not.toBeInTheDocument();
     expect(screen.queryByText(/Finish sign-in in the browser window opened by the desktop app/i)).not.toBeInTheDocument();
+  });
+
+  it("explains the PENNY browser handoff while sign-in is still running", async () => {
+    mocks.fetchConnectorsMock.mockResolvedValue({
+      generated_at: "2026-04-26T18:10:00Z",
+      viewer: { is_admin: true },
+      operator_actions: { can_reload: true, can_rescan: true },
+      summary: { total_connectors: 1, by_status: { setup_required: 1 } },
+      connectors: [
+        {
+          source_id: "penny_de",
+          plugin_id: "local.penny_de",
+          display_name: "PENNY",
+          origin: "local_path",
+          origin_label: "External",
+          runtime_kind: "subprocess_python",
+          install_origin: "local_path",
+          install_state: "installed",
+          enable_state: "enabled",
+          config_state: "complete",
+          maturity: "preview",
+          maturity_label: "Preview",
+          supports_bootstrap: true,
+          supports_sync: true,
+          supports_live_session: true,
+          supports_live_session_bootstrap: true,
+          trust_class: "official",
+          status_detail: null,
+          last_sync_summary: null,
+          last_synced_at: null,
+          ui: {
+            status: "setup_required",
+            visibility: "default",
+            description: "PENNY setup",
+            actions: {
+              primary: { kind: "set_up", enabled: true },
+              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+              operator: {
+                full_sync: true,
+                rescan: true,
+                reload: true,
+                install: false,
+                enable: false,
+                disable: false,
+                uninstall: false,
+                configure: true,
+                manual_commands: {}
+              }
+            }
+          },
+          actions: {
+            primary: { kind: "set_up", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: true,
+              manual_commands: {}
+            }
+          },
+          advanced: {
+            source_exists: true,
+            stale: false,
+            stale_reason: null,
+            auth_state: "bootstrap_running",
+            latest_sync_output: [],
+            latest_bootstrap_output: [],
+            latest_sync_status: "idle",
+            latest_bootstrap_status: "running",
+            block_reason: null,
+            policy: {
+              blocked: false,
+              block_reason: null,
+              status: "enabled",
+              status_detail: null,
+              trust_class: "official",
+              external_runtime_enabled: true,
+              external_receipt_plugins_enabled: true,
+              allowed_trust_classes: ["official"]
+            },
+            release: {
+              maturity: "preview",
+              label: "Preview",
+              support_posture: "Preview",
+              description: "Desktop-managed pack.",
+              default_visibility: "default",
+              graduation_requirements: []
+            },
+            origin: {
+              kind: "local_path",
+              runtime_kind: "subprocess_python",
+              search_path: "/tmp/plugins",
+              origin_path: "/tmp/plugins/penny_de/manifest.json",
+              origin_directory: "/tmp/plugins/penny_de"
+            },
+            diagnostics: [],
+            manual_commands: {}
+          }
+        }
+      ]
+    });
+    mocks.fetchConnectorBootstrapStatusMock.mockImplementation(async (sourceId: string) => ({
+      source_id: sourceId,
+      status: "running",
+      command: "python -m lidltool.cli connectors auth bootstrap --source-id penny_de",
+      pid: 4321,
+      started_at: "2026-04-26T18:09:45Z",
+      finished_at: null,
+      return_code: null,
+      output_tail: ["Waiting for auth step: login_required"],
+      can_cancel: true
+    }));
+
+    renderPage();
+
+    expect(await screen.findByText("PENNY")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Finish the PENNY login in your browser. If the browser ends on a PENNY redirect or not-found page, return here; that still counts as a successful handoff."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("lets PENNY open the login in the user's browser and accept a pasted callback URL", async () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    mocks.fetchConnectorsMock.mockResolvedValue({
+      generated_at: "2026-04-27T10:20:00Z",
+      viewer: { is_admin: true },
+      operator_actions: { can_reload: true, can_rescan: true },
+      summary: { total_connectors: 1, by_status: { setup_required: 1 } },
+      connectors: [
+        {
+          source_id: "penny_de",
+          plugin_id: "local.penny_de",
+          display_name: "PENNY",
+          origin: "local_path",
+          origin_label: "External",
+          runtime_kind: "subprocess_python",
+          install_origin: "local_path",
+          install_state: "installed",
+          enable_state: "enabled",
+          config_state: "complete",
+          maturity: "preview",
+          maturity_label: "Preview",
+          supports_bootstrap: true,
+          supports_sync: true,
+          supports_live_session: true,
+          supports_live_session_bootstrap: true,
+          trust_class: "official",
+          status_detail: null,
+          last_sync_summary: null,
+          last_synced_at: null,
+          ui: {
+            status: "setup_required",
+            visibility: "default",
+            description: "PENNY setup",
+            actions: {
+              primary: { kind: "set_up", enabled: true },
+              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+              operator: {
+                full_sync: true,
+                rescan: true,
+                reload: true,
+                install: false,
+                enable: false,
+                disable: false,
+                uninstall: false,
+                configure: true,
+                manual_commands: {}
+              }
+            }
+          },
+          actions: {
+            primary: { kind: "set_up", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: true,
+              manual_commands: {}
+            }
+          },
+          advanced: {
+            source_exists: true,
+            stale: false,
+            stale_reason: null,
+            auth_state: "bootstrap_running",
+            latest_sync_output: [],
+            latest_bootstrap_output: [],
+            latest_sync_status: "idle",
+            latest_bootstrap_status: "running",
+            block_reason: null,
+            policy: {
+              blocked: false,
+              block_reason: null,
+              status: "enabled",
+              status_detail: null,
+              trust_class: "official",
+              external_runtime_enabled: true,
+              external_receipt_plugins_enabled: true,
+              allowed_trust_classes: ["official"]
+            },
+            release: {
+              maturity: "preview",
+              label: "Preview",
+              support_posture: "Preview",
+              description: "Desktop-managed pack.",
+              default_visibility: "default",
+              graduation_requirements: []
+            },
+            origin: {
+              kind: "local_path",
+              runtime_kind: "subprocess_python",
+              search_path: "/tmp/plugins",
+              origin_path: "/tmp/plugins/penny_de/manifest.json",
+              origin_directory: "/tmp/plugins/penny_de"
+            },
+            diagnostics: [],
+            manual_commands: {}
+          }
+        }
+      ]
+    });
+    mocks.fetchConnectorBootstrapStatusMock.mockResolvedValue({
+      source_id: "penny_de",
+      status: "running",
+      command: "python -m lidltool.cli connectors auth bootstrap --source-id penny_de",
+      pid: 4321,
+      started_at: "2026-04-27T10:19:45Z",
+      finished_at: null,
+      return_code: null,
+      output_tail: ["Waiting for auth step: login_required"],
+      can_cancel: true
+    });
+    mocks.fetchConnectorAuthStatusMock.mockResolvedValue({
+      source_id: "penny_de",
+      state: "bootstrap_running",
+      detail: "Shared browser auth is waiting for the Penny OAuth callback.",
+      reauth_required: false,
+      needs_connection: false,
+      available_actions: ["cancel_auth", "confirm_auth"],
+      implemented_actions: ["start_auth", "cancel_auth", "confirm_auth"],
+      metadata: {
+        flow_id: "flow-1",
+        auth_start_url: "https://account.penny.de/realms/penny/protocol/openid-connect/auth?flow=1",
+        manual_callback_supported: true
+      },
+      diagnostics: {},
+      bootstrap: {
+        source_id: "penny_de",
+        status: "running",
+        started_at: "2026-04-27T10:19:45Z",
+        finished_at: null,
+        return_code: null,
+        can_cancel: true
+      }
+    });
+    mocks.confirmConnectorBootstrapMock.mockResolvedValue({
+      source_id: "penny_de",
+      confirmed: true,
+      auth_status: {
+        source_id: "penny_de",
+        state: "connected",
+        detail: "Stored Penny OAuth state for direct Penny eBon backend access.",
+        reauth_required: false,
+        needs_connection: false,
+        available_actions: ["start_auth"],
+        implemented_actions: ["start_auth", "cancel_auth", "confirm_auth"],
+        metadata: {},
+        diagnostics: {},
+        bootstrap: null
+      }
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("PENNY")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open in your browser" }));
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://account.penny.de/realms/penny/protocol/openid-connect/auth?flow=1",
+      "_blank",
+      "noopener,noreferrer"
+    );
+
+    fireEvent.change(screen.getByLabelText("Final browser URL"), {
+      target: {
+        value: "https://www.penny.de/app/login?code=test-code&state=flow-1"
+      }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continue with pasted URL" }));
+
+    await waitFor(() =>
+      expect(mocks.confirmConnectorBootstrapMock).toHaveBeenCalledWith(
+        "penny_de",
+        "https://www.penny.de/app/login?code=test-code&state=flow-1"
+      )
+    );
+    openSpy.mockRestore();
+  });
+
+  it("shows a PENNY-specific success message after the callback is captured", async () => {
+    mocks.fetchConnectorsMock.mockResolvedValue({
+      generated_at: "2026-04-26T18:15:00Z",
+      viewer: { is_admin: true },
+      operator_actions: { can_reload: true, can_rescan: true },
+      summary: { total_connectors: 1, by_status: { ready: 1 } },
+      connectors: [
+        {
+          source_id: "penny_de",
+          plugin_id: "local.penny_de",
+          display_name: "PENNY",
+          origin: "local_path",
+          origin_label: "External",
+          runtime_kind: "subprocess_python",
+          install_origin: "local_path",
+          install_state: "installed",
+          enable_state: "enabled",
+          config_state: "complete",
+          maturity: "preview",
+          maturity_label: "Preview",
+          supports_bootstrap: true,
+          supports_sync: true,
+          supports_live_session: true,
+          supports_live_session_bootstrap: true,
+          trust_class: "official",
+          status_detail: null,
+          last_sync_summary: null,
+          last_synced_at: null,
+          ui: {
+            status: "connected",
+            visibility: "default",
+            description: "PENNY is ready to import receipts.",
+            actions: {
+              primary: { kind: "sync_now", enabled: true },
+              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+              operator: {
+                full_sync: true,
+                rescan: true,
+                reload: true,
+                install: false,
+                enable: false,
+                disable: false,
+                uninstall: false,
+                configure: true,
+                manual_commands: {}
+              }
+            }
+          },
+          actions: {
+            primary: { kind: "sync_now", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: true,
+              manual_commands: {}
+            }
+          },
+          advanced: {
+            source_exists: true,
+            stale: false,
+            stale_reason: null,
+            auth_state: "connected",
+            latest_sync_output: [],
+            latest_bootstrap_output: [],
+            latest_sync_status: "idle",
+            latest_bootstrap_status: "succeeded",
+            block_reason: null,
+            policy: {
+              blocked: false,
+              block_reason: null,
+              status: "enabled",
+              status_detail: null,
+              trust_class: "official",
+              external_runtime_enabled: true,
+              external_receipt_plugins_enabled: true,
+              allowed_trust_classes: ["official"]
+            },
+            release: {
+              maturity: "preview",
+              label: "Preview",
+              support_posture: "Preview",
+              description: "Desktop-managed pack.",
+              default_visibility: "default",
+              graduation_requirements: []
+            },
+            origin: {
+              kind: "local_path",
+              runtime_kind: "subprocess_python",
+              search_path: "/tmp/plugins",
+              origin_path: "/tmp/plugins/penny_de/manifest.json",
+              origin_directory: "/tmp/plugins/penny_de"
+            },
+            diagnostics: [],
+            manual_commands: {}
+          }
+        }
+      ]
+    });
+    mocks.fetchConnectorBootstrapStatusMock.mockImplementation(async (sourceId: string) => ({
+      source_id: sourceId,
+      status: "succeeded",
+      command: "python -m lidltool.cli connectors auth bootstrap --source-id penny_de",
+      pid: null,
+      started_at: "2026-04-26T18:14:10Z",
+      finished_at: "2026-04-26T18:14:40Z",
+      return_code: 0,
+      output_tail: ["Browser callback captured"],
+      can_cancel: false
+    }));
+
+    renderPage();
+
+    expect(await screen.findByText("PENNY")).toBeInTheDocument();
+    expect(screen.getByText("Sign-in complete")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "PENNY sign-in was captured successfully. If the browser ended on a PENNY redirect or not-found page, you can ignore it and continue here with the first import."
+      )
+    ).toBeInTheDocument();
   });
 
   it("keeps REWE in setup when bootstrap or sync-looking UI signals exist without durable auth", async () => {

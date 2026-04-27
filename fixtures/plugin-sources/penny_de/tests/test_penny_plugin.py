@@ -7,6 +7,12 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+DESKTOP_ROOT = Path(__file__).resolve().parents[4]
+VENDOR_BACKEND_SRC = DESKTOP_ROOT / "vendor" / "backend" / "src"
+
+if str(VENDOR_BACKEND_SRC) not in sys.path:
+    sys.path.insert(0, str(VENDOR_BACKEND_SRC))
+
 from lidltool.config import AppConfig
 from lidltool.connectors.runtime.context import build_plugin_runtime_environment
 from lidltool.connectors.sdk import ReceiptConnectorContractFixture, assert_receipt_connector_contract
@@ -195,8 +201,15 @@ def test_penny_shared_browser_auth_flow_persists_oauth_state(monkeypatch, tmp_pa
     assert request is not None
     assert request.plan.start_url.startswith("https://account.penny.de/realms/penny/protocol/openid-connect/auth?")
     assert request.plan.callback_url_prefixes == ("https://www.penny.de/app/login",)
+    assert request.plan.auto_launch_browser is False
     assert "client_id=pennyandroid" in request.plan.start_url
     assert "app_container=android" in request.plan.start_url
+
+    pending_status = plugin.invoke_action({"action": "get_auth_status"})
+    assert pending_status["ok"] is True
+    assert pending_status["output"]["status"] == "pending"
+    assert pending_status["output"]["metadata"]["auth_start_url"] == request.plan.start_url
+    assert pending_status["output"]["metadata"]["manual_callback_supported"] is True
 
     state_payload = json.loads(state_file.read_text(encoding="utf-8"))
     callback_url = (
@@ -232,6 +245,70 @@ def test_penny_shared_browser_auth_flow_persists_oauth_state(monkeypatch, tmp_pa
     assert state_payload["oauth"]["refresh_token"] == "refresh-token"
     assert state_payload["profile"]["sub"] == "penny-user-1"
     assert "pending_auth" not in state_payload
+
+
+def test_penny_confirm_auth_accepts_manual_callback_runtime_context(monkeypatch, tmp_path: Path) -> None:
+    module = _load_plugin_module()
+    plugin = module.PennyReceiptPlugin()
+    state_file = tmp_path / "penny-state.json"
+
+    class _FakeOidcClient:
+        def __init__(self, **kwargs: object) -> None:
+            self._kwargs = kwargs
+
+        def resolve_endpoints(self) -> tuple[str, str]:
+            return (
+                "https://account.penny.de/realms/penny/protocol/openid-connect/auth",
+                "https://account.penny.de/realms/penny/protocol/openid-connect/token",
+            )
+
+        def exchange_code(self, code: str, *, pending: object) -> object:
+            del pending
+            assert code == "manual-code"
+            return module.OauthSession(
+                access_token=_encode_jwt({"sub": "penny-user-2"}),
+                refresh_token="refresh-token-2",
+                expires_at=_future_expiry(),
+            )
+
+    monkeypatch.setattr(module, "PennyOidcClient", _FakeOidcClient)
+
+    start_env = _runtime_env(tmp_path, connector_options={"state_file": str(state_file)})
+    monkeypatch.setenv(PLUGIN_RUNTIME_CONTEXT_ENV, start_env[PLUGIN_RUNTIME_CONTEXT_ENV])
+    monkeypatch.setenv("LIDLTOOL_CONFIG_DIR", start_env["LIDLTOOL_CONFIG_DIR"])
+
+    started = plugin.invoke_action({"action": "start_auth"})
+    request = parse_auth_browser_start_request(started["output"]["metadata"])
+    assert request is not None
+
+    state_payload = json.loads(state_file.read_text(encoding="utf-8"))
+    callback_url = (
+        "https://www.penny.de/app/login?code=manual-code&state="
+        + state_payload["pending_auth"]["state"]
+    )
+    manual_result = AuthBrowserResult(
+        flow_id=state_payload["pending_auth"]["flow_id"],
+        session_id="manual-session",
+        mode="local_display",
+        start_url=request.plan.start_url,
+        final_url=callback_url,
+        callback_url=callback_url,
+        started_at="2026-04-27T10:00:00+00:00",
+        completed_at="2026-04-27T10:01:00+00:00",
+    )
+    confirm_env = _runtime_env(
+        tmp_path,
+        connector_options={"state_file": str(state_file)},
+        runtime_context=build_auth_browser_runtime_context(manual_result),
+    )
+    monkeypatch.setenv(PLUGIN_RUNTIME_CONTEXT_ENV, confirm_env[PLUGIN_RUNTIME_CONTEXT_ENV])
+    monkeypatch.setenv("LIDLTOOL_CONFIG_DIR", confirm_env["LIDLTOOL_CONFIG_DIR"])
+
+    confirmed = plugin.invoke_action({"action": "confirm_auth"})
+
+    assert confirmed["ok"] is True
+    assert confirmed["output"]["status"] == "confirmed"
+    assert confirmed["output"]["metadata"]["subject"] == "penny-user-2"
 
 
 def test_penny_parses_ebon_pdf_text_into_receipt_shape() -> None:

@@ -284,7 +284,7 @@ Scope:
 - recurring offer scraping and alerts remain out of desktop scope
 - `dm_de` is now one of these optional receipt plugins rather than a built-in desktop connector
 - `rewe_de` is an imported receipt pack in desktop rather than a built-in connector, so the desktop auth flow can reuse a normal Chrome session instead of depending on packaged CAPTCHA automation
-- `penny_de` is a local optional receipt pack under `fixtures/plugin-sources/penny_de`; it now supports direct Penny eBon discovery and PDF-backed receipt parsing through stored OAuth state, and desktop can hand off PKCE login to a real installed Chrome/Edge window instead of Playwright Chromium
+- `penny_de` is a local optional receipt pack under `fixtures/plugin-sources/penny_de`; it now supports direct Penny eBon discovery and PDF-backed receipt parsing through stored OAuth state, and desktop exposes the PENNY PKCE login URL for the user's normal browser, auto-captures supported Chromium callbacks when possible, and falls back to a pasted final callback URL when browser observation is not reliable
 
 Management surface:
 - use the connectors page inside the desktop app for local pack import, trusted pack install, enable/disable, and removal
