@@ -615,6 +615,27 @@ describe("ConnectorsPage", () => {
       restartedBackend: true,
       backendStatus: { running: true }
     }));
+    const getExternalBrowserPreferenceMock = vi.fn().mockResolvedValue({
+      preferredBrowser: "system_default",
+      options: [
+        { id: "system_default", available: true },
+        { id: "arc", available: true },
+        { id: "atlas", available: true },
+        { id: "google_chrome", available: true }
+      ]
+    });
+    const setExternalBrowserPreferenceMock = vi.fn().mockImplementation(async (preferredBrowser: string) => ({
+      preferredBrowser,
+      options: [
+        { id: "system_default", available: true },
+        { id: "arc", available: true },
+        { id: "atlas", available: true },
+        { id: "google_chrome", available: true }
+      ]
+    }));
+    const openExternalUrlMock = vi.fn().mockResolvedValue(undefined);
+    const consumePendingConnectorCallbacksMock = vi.fn().mockResolvedValue([]);
+    const onConnectorCallbackMock = vi.fn().mockImplementation(() => vi.fn());
 
     Object.defineProperty(window, "desktopApi", {
       configurable: true,
@@ -623,6 +644,11 @@ describe("ConnectorsPage", () => {
         installReceiptPluginFromCatalogEntry: installReceiptPluginFromCatalogEntryMock,
         enableReceiptPlugin: enableReceiptPluginMock,
         disableReceiptPlugin: vi.fn(),
+        getExternalBrowserPreference: getExternalBrowserPreferenceMock,
+        setExternalBrowserPreference: setExternalBrowserPreferenceMock,
+        openExternalUrl: openExternalUrlMock,
+        consumePendingConnectorCallbacks: consumePendingConnectorCallbacksMock,
+        onConnectorCallback: onConnectorCallbackMock,
         uninstallReceiptPlugin: vi.fn().mockResolvedValue({
           pluginId: "community.dm_de",
           removedPath: "/tmp/plugins/dm",
@@ -2060,7 +2086,6 @@ describe("ConnectorsPage", () => {
   });
 
   it("lets PENNY open the login in the user's browser and accept a pasted callback URL", async () => {
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
     mocks.fetchConnectorsMock.mockResolvedValue({
       generated_at: "2026-04-27T10:20:00Z",
       viewer: { is_admin: true },
@@ -2219,13 +2244,13 @@ describe("ConnectorsPage", () => {
 
     expect(await screen.findByText("PENNY")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open in your browser" }));
-    expect(openSpy).toHaveBeenCalledWith(
-      "https://account.penny.de/realms/penny/protocol/openid-connect/auth?flow=1",
-      "_blank",
-      "noopener,noreferrer"
+    await waitFor(() =>
+      expect(window.desktopApi?.openExternalUrl).toHaveBeenCalledWith(
+        "https://account.penny.de/realms/penny/protocol/openid-connect/auth?flow=1"
+      )
     );
 
-    fireEvent.change(screen.getByLabelText("Final browser URL"), {
+    fireEvent.change(screen.getByLabelText("Callback URL"), {
       target: {
         value: "https://www.penny.de/app/login?code=test-code&state=flow-1"
       }
@@ -2238,7 +2263,330 @@ describe("ConnectorsPage", () => {
         "https://www.penny.de/app/login?code=test-code&state=flow-1"
       )
     );
-    openSpy.mockRestore();
+  });
+
+  it("makes Lidl a real-browser handoff with a callback fallback and browser preference", async () => {
+    mocks.fetchConnectorsMock.mockResolvedValue({
+      generated_at: "2026-04-27T21:10:00Z",
+      viewer: { is_admin: true },
+      operator_actions: { can_reload: true, can_rescan: true },
+      summary: { total_connectors: 1, by_status: { setup_required: 1 } },
+      connectors: [
+        {
+          source_id: "lidl_plus_de",
+          plugin_id: "builtin.lidl_plus_de",
+          display_name: "Lidl Plus",
+          origin: "built_in",
+          origin_label: "Built in",
+          runtime_kind: "builtin",
+          install_origin: "bundled",
+          install_state: "installed",
+          enable_state: "enabled",
+          config_state: "complete",
+          maturity: "preview",
+          maturity_label: "Preview",
+          supports_bootstrap: true,
+          supports_sync: true,
+          supports_live_session: false,
+          supports_live_session_bootstrap: true,
+          trust_class: "official",
+          status_detail: null,
+          last_sync_summary: null,
+          last_synced_at: null,
+          ui: {
+            status: "setup_required",
+            visibility: "default",
+            description: "Lidl setup",
+            actions: {
+              primary: { kind: "set_up", enabled: true },
+              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+              operator: {
+                full_sync: true,
+                rescan: true,
+                reload: true,
+                install: false,
+                enable: false,
+                disable: false,
+                uninstall: false,
+                configure: true,
+                manual_commands: {}
+              }
+            }
+          },
+          actions: {
+            primary: { kind: "set_up", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: true,
+              manual_commands: {}
+            }
+          },
+          advanced: {
+            source_exists: true,
+            stale: false,
+            stale_reason: null,
+            auth_state: "bootstrap_running",
+            latest_sync_output: [],
+            latest_bootstrap_output: [],
+            latest_sync_status: "idle",
+            latest_bootstrap_status: "running",
+            block_reason: null,
+            policy: {
+              blocked: false,
+              block_reason: null,
+              status: "enabled",
+              status_detail: null,
+              trust_class: "official",
+              external_runtime_enabled: true,
+              external_receipt_plugins_enabled: true,
+              allowed_trust_classes: ["official"]
+            },
+            release: {
+              maturity: "preview",
+              label: "Preview",
+              support_posture: "Preview",
+              description: "Desktop-managed pack.",
+              default_visibility: "default",
+              graduation_requirements: []
+            },
+            origin: {
+              kind: "bundled",
+              runtime_kind: "builtin",
+              search_path: null,
+              origin_path: null,
+              origin_directory: null
+            },
+            diagnostics: [],
+            manual_commands: {}
+          }
+        }
+      ]
+    });
+    mocks.fetchConnectorBootstrapStatusMock.mockResolvedValue({
+      source_id: "lidl_plus_de",
+      status: "running",
+      command: "desktop:manual-oauth",
+      pid: null,
+      started_at: "2026-04-27T21:09:45Z",
+      finished_at: null,
+      return_code: null,
+      output_tail: ["Waiting for Lidl callback in the desktop app."],
+      can_cancel: true,
+      remote_login_url: "https://accounts.lidl.com/connect/authorize?flow=1"
+    });
+    mocks.fetchConnectorAuthStatusMock.mockResolvedValue({
+      source_id: "lidl_plus_de",
+      state: "bootstrap_running",
+      detail: "Waiting for Lidl callback in the desktop app.",
+      reauth_required: false,
+      needs_connection: false,
+      available_actions: ["cancel_auth", "confirm_auth"],
+      implemented_actions: ["start_auth", "cancel_auth", "confirm_auth"],
+      metadata: {
+        flow_id: "flow-lidl",
+        auth_start_url: "https://accounts.lidl.com/connect/authorize?flow=1",
+        manual_callback_supported: true,
+        callback_url_prefixes: ["com.lidlplus.app://callback"]
+      },
+      diagnostics: {},
+      bootstrap: {
+        source_id: "lidl_plus_de",
+        status: "running",
+        started_at: "2026-04-27T21:09:45Z",
+        finished_at: null,
+        return_code: null,
+        can_cancel: true
+      }
+    });
+    mocks.confirmConnectorBootstrapMock.mockResolvedValue({
+      source_id: "lidl_plus_de",
+      confirmed: true,
+      auth_status: {
+        source_id: "lidl_plus_de",
+        state: "connected",
+        detail: "Lidl sign-in captured successfully",
+        reauth_required: false,
+        needs_connection: false,
+        available_actions: ["start_auth"],
+        implemented_actions: ["start_auth", "cancel_auth", "confirm_auth"],
+        metadata: {},
+        diagnostics: {},
+        bootstrap: null
+      }
+    });
+    vi.mocked(window.desktopApi!.consumePendingConnectorCallbacks!).mockResolvedValue([]);
+
+    renderPage();
+
+    expect(await screen.findByText("Lidl Plus")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Lidl always uses a real browser instead of the old embedded sign-in window. By default it opens your system browser, or you can pick another installed browser here."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("If the browser finishes but the app does not connect, paste the callback URL here.")
+    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("com.lidlplus.app://callback?code=...")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Lidl in your default browser" })).toBeInTheDocument();
+  });
+
+  it("shows a Lidl success popup when the desktop app already confirmed the callback", async () => {
+    mocks.fetchConnectorsMock.mockResolvedValue({
+      generated_at: "2026-04-28T00:40:00Z",
+      viewer: { is_admin: true },
+      operator_actions: { can_reload: true, can_rescan: true },
+      summary: { total_connectors: 1, by_status: { connected: 1 } },
+      connectors: [
+        {
+          source_id: "lidl_plus_de",
+          plugin_id: "builtin.lidl_plus_de",
+          display_name: "Lidl Plus",
+          origin: "builtin",
+          origin_label: "Built in",
+          runtime_kind: "builtin",
+          install_origin: "builtin",
+          install_state: "installed",
+          enable_state: "enabled",
+          config_state: "complete",
+          maturity: "verified",
+          maturity_label: "Verified",
+          supports_bootstrap: true,
+          supports_sync: true,
+          supports_live_session: false,
+          supports_live_session_bootstrap: false,
+          trust_class: "official",
+          status_detail: null,
+          last_sync_summary: null,
+          last_synced_at: null,
+          ui: {
+            status: "connected",
+            visibility: "default",
+            description: "Lidl is connected",
+            actions: {
+              primary: { kind: "sync_now", enabled: true },
+              secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+              operator: {
+                full_sync: true,
+                rescan: true,
+                reload: true,
+                install: false,
+                enable: false,
+                disable: false,
+                uninstall: false,
+                configure: false,
+                manual_commands: {}
+              }
+            }
+          },
+          actions: {
+            primary: { kind: "sync_now", enabled: true },
+            secondary: { kind: "view_receipts", href: "/receipts", enabled: true },
+            operator: {
+              full_sync: true,
+              rescan: true,
+              reload: true,
+              install: false,
+              enable: false,
+              disable: false,
+              uninstall: false,
+              configure: false,
+              manual_commands: {}
+            }
+          },
+          advanced: {
+            source_exists: true,
+            stale: false,
+            stale_reason: null,
+            auth_state: "connected",
+            latest_sync_output: [],
+            latest_bootstrap_output: [],
+            latest_sync_status: "idle",
+            latest_bootstrap_status: "succeeded",
+            block_reason: null,
+            policy: {
+              blocked: false,
+              block_reason: null,
+              status: "enabled",
+              status_detail: null,
+              trust_class: "official",
+              external_runtime_enabled: true,
+              external_receipt_plugins_enabled: true,
+              allowed_trust_classes: ["official"]
+            },
+            release: {
+              maturity: "verified",
+              label: "Verified",
+              support_posture: "Verified",
+              description: "Built-in connector.",
+              default_visibility: "default",
+              graduation_requirements: []
+            },
+            origin: {
+              kind: "builtin",
+              runtime_kind: "builtin",
+              search_path: null,
+              origin_path: null,
+              origin_directory: null
+            },
+            diagnostics: [],
+            manual_commands: {}
+          }
+        }
+      ]
+    });
+    mocks.fetchConnectorBootstrapStatusMock.mockResolvedValue({
+      source_id: "lidl_plus_de",
+      status: "succeeded",
+      command: "desktop:manual-oauth",
+      pid: null,
+      started_at: "2026-04-28T00:39:00Z",
+      finished_at: "2026-04-28T00:39:20Z",
+      return_code: 0,
+      output_tail: ["Lidl sign-in finished"],
+      can_cancel: false,
+      remote_login_url: null
+    });
+    mocks.fetchConnectorAuthStatusMock.mockResolvedValue({
+      source_id: "lidl_plus_de",
+      state: "connected",
+      detail: "Lidl sign-in captured successfully",
+      reauth_required: false,
+      needs_connection: false,
+      available_actions: ["sync"],
+      implemented_actions: ["start_auth", "cancel_auth", "confirm_auth"],
+      metadata: {},
+      diagnostics: {},
+      bootstrap: null
+    });
+    vi.mocked(window.desktopApi!.consumePendingConnectorCallbacks!).mockResolvedValue([
+      {
+        url: "com.lidlplus.app://callback?code=test-code",
+        sourceId: "lidl_plus_de",
+        confirmed: true,
+        confirmedAt: "2026-04-28T00:39:20Z",
+        detail: "Lidl sign-in captured successfully"
+      }
+    ]);
+
+    renderPage();
+
+    expect(await screen.findByText("Lidl sign-in saved")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Lidl handed the login back to the desktop app successfully. The browser may still stay on the SMS code page or show an error page after that. You can ignore the browser and continue here."
+      )
+    ).toBeInTheDocument();
+    expect(mocks.confirmConnectorBootstrapMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Import receipts" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Import full history" })).toBeInTheDocument();
   });
 
   it("shows a PENNY-specific success message after the callback is captured", async () => {
@@ -2360,7 +2708,7 @@ describe("ConnectorsPage", () => {
     renderPage();
 
     expect(await screen.findByText("PENNY")).toBeInTheDocument();
-    expect(screen.getByText("Sign-in complete")).toBeInTheDocument();
+    expect(screen.getAllByText("Sign-in complete").length).toBeGreaterThan(0);
     expect(
       await screen.findByText(
         "PENNY sign-in was captured successfully. If the browser ended on a PENNY redirect or not-found page, you can ignore it and continue here with the first import."
@@ -2369,7 +2717,7 @@ describe("ConnectorsPage", () => {
   });
 
   it("keeps REWE in setup when bootstrap or sync-looking UI signals exist without durable auth", async () => {
-    mocks.fetchConnectorsMock.mockResolvedValueOnce({
+    mocks.fetchConnectorsMock.mockResolvedValue({
       generated_at: "2026-04-18T17:05:00Z",
       viewer: { is_admin: true },
       operator_actions: { can_reload: true, can_rescan: true },

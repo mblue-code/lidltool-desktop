@@ -16,7 +16,7 @@ from lidltool.connectors.operator_status import (
     support_summary_payload,
 )
 from lidltool.connectors.registry import ConnectorRegistry, get_connector_registry
-from lidltool.db.models import ConnectorPayloadQuarantine, IngestionJob, Source, SourceAccount
+from lidltool.db.models import ConnectorPayloadQuarantine, IngestionJob, Source, SourceAccount, Transaction
 
 
 def plugin_management_payload(
@@ -200,27 +200,6 @@ def _catalog_context(catalog_entry: dict[str, Any] | None) -> dict[str, Any]:
 def _health_by_source(session: Session) -> dict[str, dict[str, Any]]:
     cutoff = datetime.now(tz=UTC) - timedelta(days=30)
 
-    quarantine_rows = session.execute(
-        select(
-            ConnectorPayloadQuarantine.source_id,
-            func.count(ConnectorPayloadQuarantine.id),
-            func.max(ConnectorPayloadQuarantine.created_at),
-        )
-        .where(ConnectorPayloadQuarantine.created_at >= cutoff)
-        .group_by(ConnectorPayloadQuarantine.source_id)
-    ).all()
-    pending_review_by_source = {
-        str(source_id): int(count)
-        for source_id, count in session.execute(
-            select(
-                ConnectorPayloadQuarantine.source_id,
-                func.count(ConnectorPayloadQuarantine.id),
-            )
-            .where(ConnectorPayloadQuarantine.review_status == "pending")
-            .group_by(ConnectorPayloadQuarantine.source_id)
-        ).all()
-    }
-
     failed_rows = session.execute(
         select(
             IngestionJob.source_id,
@@ -251,13 +230,43 @@ def _health_by_source(session: Session) -> dict[str, dict[str, Any]]:
             auth_issue_by_source[account.source_id] = True
 
     payload: dict[str, dict[str, Any]] = defaultdict(_empty_health)
-    for source_id, count, latest_created_at in quarantine_rows:
-        item = payload[str(source_id)]
-        item["quarantine_events_30d"] = int(count)
-        item["latest_quarantine_at"] = (
-            latest_created_at.isoformat() if latest_created_at is not None else None
+    existing_transaction_refs = {
+        (str(source_id), str(source_transaction_id))
+        for source_id, source_transaction_id in session.execute(
+            select(Transaction.source_id, Transaction.source_transaction_id)
+        ).all()
+        if isinstance(source_id, str) and isinstance(source_transaction_id, str)
+    }
+    latest_quarantine_by_record: dict[tuple[str, str], ConnectorPayloadQuarantine] = {}
+    for row in session.execute(
+        select(ConnectorPayloadQuarantine).order_by(
+            ConnectorPayloadQuarantine.created_at.desc(),
+            ConnectorPayloadQuarantine.id.desc(),
         )
-        item["pending_quarantine_reviews"] = pending_review_by_source.get(str(source_id), 0)
+    ).scalars():
+        source_key = str(row.source_id)
+        record_key = row.source_record_ref or row.id
+        latest_quarantine_by_record.setdefault((source_key, record_key), row)
+
+    for row in latest_quarantine_by_record.values():
+        source_key = str(row.source_id)
+        if row.source_record_ref and (source_key, row.source_record_ref) in existing_transaction_refs:
+            continue
+        classification = _classify_quarantine_row(row)
+        if classification == "resolved":
+            continue
+        item = payload[source_key]
+        if classification == "source_unavailable":
+            item["source_unavailable_records"] += 1
+        else:
+            item["pending_quarantine_reviews"] += 1
+        row_created_at = row.created_at.replace(tzinfo=UTC) if row.created_at.tzinfo is None else row.created_at.astimezone(UTC)
+        if row_created_at >= cutoff:
+            item["quarantine_events_30d"] += 1
+        latest_quarantine_at = item.get("latest_quarantine_at")
+        row_created_at_iso = row_created_at.isoformat()
+        if latest_quarantine_at is None or row_created_at_iso > str(latest_quarantine_at):
+            item["latest_quarantine_at"] = row_created_at_iso
     for source_id, count, latest_failed_at in failed_rows:
         item = payload[str(source_id)]
         item["recent_failures_30d"] = int(count)
@@ -278,6 +287,9 @@ def _health_by_source(session: Session) -> dict[str, dict[str, Any]]:
                 if isinstance(result_warnings, list):
                     latest_warning_messages = [str(item) for item in result_warnings if str(item)]
                     latest_warning_count = len(latest_warning_messages)
+            if _warnings_only_reflect_source_unavailable_rows(latest_job.summary):
+                latest_warning_messages = []
+                latest_warning_count = 0
         auth_issue_present = auth_issue_by_source[source_id] or source.status.lower() in {
             "expired_auth",
             "auth_required",
@@ -297,6 +309,7 @@ def _empty_health() -> dict[str, Any]:
         "summary": "No recent plugin health issues were recorded.",
         "quarantine_events_30d": 0,
         "pending_quarantine_reviews": 0,
+        "source_unavailable_records": 0,
         "latest_quarantine_at": None,
         "recent_failures_30d": 0,
         "latest_failure_at": None,
@@ -309,7 +322,7 @@ def _empty_health() -> dict[str, Any]:
 def _health_status(item: dict[str, Any]) -> str:
     if item["pending_quarantine_reviews"] or item["recent_failures_30d"] or item["auth_issue_present"]:
         return "needs_attention"
-    if item["quarantine_events_30d"] or item["latest_warning_count"]:
+    if item["source_unavailable_records"] or item["quarantine_events_30d"] or item["latest_warning_count"]:
         return "warning"
     return "healthy"
 
@@ -318,8 +331,10 @@ def _health_summary(item: dict[str, Any]) -> str:
     parts: list[str] = []
     if item["pending_quarantine_reviews"]:
         parts.append(f"{item['pending_quarantine_reviews']} quarantine item(s) still need review")
+    if item["source_unavailable_records"]:
+        parts.append(f"{item['source_unavailable_records']} receipt(s) unavailable from the retailer")
     elif item["quarantine_events_30d"]:
-        parts.append(f"{item['quarantine_events_30d']} recent quarantine event(s)")
+        parts.append(f"{item['quarantine_events_30d']} current quarantine item(s)")
     if item["recent_failures_30d"]:
         parts.append(f"{item['recent_failures_30d']} failed or canceled sync run(s) in the last 30 days")
     if item["latest_warning_count"]:
@@ -329,3 +344,49 @@ def _health_summary(item: dict[str, Any]) -> str:
     if not parts:
         return "No recent plugin health issues were recorded."
     return ". ".join(parts).capitalize() + "."
+
+
+def _classify_quarantine_row(row: ConnectorPayloadQuarantine) -> str:
+    issue_codes = {
+        str(entry.get("code"))
+        for entry in row.validation_errors
+        if isinstance(entry, dict) and isinstance(entry.get("code"), str)
+    }
+    source_detail: dict[str, Any] = {}
+    if isinstance(row.payload_snapshot, dict):
+        raw_detail = row.payload_snapshot.get("source_record_detail")
+        if isinstance(raw_detail, dict):
+            source_detail = raw_detail
+    if "source_receipt_items_unavailable" in issue_codes:
+        return "source_unavailable"
+    if (
+        str(row.source_id).startswith("lidl_plus_")
+        and source_detail.get("receiptHtmlAvailable") is False
+        and issue_codes
+        and issue_codes.issubset({"empty_items", "transaction_total_mismatch"})
+    ):
+        return "source_unavailable"
+    if row.review_status == "pending":
+        return "needs_review"
+    return "resolved"
+
+
+def _warnings_only_reflect_source_unavailable_rows(summary: dict[str, Any]) -> bool:
+    warnings = summary.get("warnings")
+    validation = summary.get("validation")
+    if not isinstance(warnings, list) or not warnings:
+        return False
+    if not isinstance(validation, dict):
+        return False
+    issue_codes = validation.get("issue_codes")
+    outcomes = validation.get("outcomes")
+    if not isinstance(issue_codes, dict) or not isinstance(outcomes, dict):
+        return False
+    source_unavailable = int(issue_codes.get("source_receipt_items_unavailable", 0) or 0)
+    blocked_total = int(outcomes.get("quarantine", 0) or 0) + int(outcomes.get("reject", 0) or 0)
+    if source_unavailable <= 0 or blocked_total != source_unavailable:
+        return False
+    return all(
+        isinstance(message, str) and message.startswith("connector validation quarantine for record ")
+        for message in warnings
+    )

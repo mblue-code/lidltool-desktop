@@ -62,7 +62,11 @@ def validate_normalized_connector_payload(
         normalized_record=normalized_record,
         inspected_at=inspected_at,
     )
-    item_index = _validate_items(report=report, normalized_record=normalized_record)
+    item_index = _validate_items(
+        report=report,
+        normalized_record=normalized_record,
+        source_record_detail=source_record_detail,
+    )
     _validate_discounts(report=report, discount_rows=discount_rows, item_index=item_index)
     _validate_cross_field_consistency(
         report=report,
@@ -215,13 +219,28 @@ def _validate_transaction_payload(
             details={"purchased_at": purchased_at.isoformat()},
         )
 
+    has_negative_or_deposit_lines = any(
+        item.line_total_cents < 0 or bool(item.is_deposit) for item in normalized_record.items
+    )
     if normalized_record.total_gross_cents < 0:
         report.add_issue(
             code="negative_total_gross",
-            severity=ValidationSeverity.REJECT,
-            message="total_gross_cents must not be negative",
+            severity=(
+                ValidationSeverity.WARN
+                if has_negative_or_deposit_lines
+                else ValidationSeverity.REJECT
+            ),
+            message=(
+                "total_gross_cents is negative but explained by negative/deposit lines; "
+                "ingesting with warning"
+                if has_negative_or_deposit_lines
+                else "total_gross_cents must not be negative"
+            ),
             path="$.normalized_record.total_gross_cents",
-            details={"total_gross_cents": normalized_record.total_gross_cents},
+            details={
+                "total_gross_cents": normalized_record.total_gross_cents,
+                "has_negative_or_deposit_lines": has_negative_or_deposit_lines,
+            },
         )
     elif normalized_record.total_gross_cents == 0:
         report.add_issue(
@@ -253,9 +272,25 @@ def _validate_items(
     *,
     report: ValidationReport,
     normalized_record: NormalizedReceiptRecord,
+    source_record_detail: Mapping[str, Any],
 ) -> dict[int, NormalizedReceiptItem]:
     item_index: dict[int, NormalizedReceiptItem] = {}
     source_item_ids: set[str] = set()
+    if not normalized_record.items:
+        source_receipt_unavailable = _source_receipt_items_unavailable(
+            source_record_detail=source_record_detail
+        )
+        report.add_issue(
+            code="source_receipt_items_unavailable" if source_receipt_unavailable else "empty_items",
+            severity=ValidationSeverity.QUARANTINE,
+            message=(
+                "retailer did not return printable receipt items for this historical record"
+                if source_receipt_unavailable
+                else "normalized receipt record must contain at least one item"
+            ),
+            path="$.normalized_record.items",
+        )
+        return item_index
     for item in normalized_record.items:
         item_path = f"$.normalized_record.items[{item.line_no}]"
         if item.line_no in item_index:
@@ -436,6 +471,8 @@ def _validate_cross_field_consistency(
     normalized_record: NormalizedReceiptRecord,
     discount_rows: Sequence[NormalizedDiscountRow],
 ) -> None:
+    if not normalized_record.items:
+        return
     item_total_cents = sum(
         item.line_total_cents for item in normalized_record.items if not bool(item.is_deposit)
     )
@@ -502,6 +539,10 @@ def _validate_cross_field_consistency(
                     "delta_cents": discount_delta,
                 },
             )
+
+
+def _source_receipt_items_unavailable(*, source_record_detail: Mapping[str, Any]) -> bool:
+    return source_record_detail.get("receiptHtmlAvailable") is False
 
 
 def _validate_ai_assistance(

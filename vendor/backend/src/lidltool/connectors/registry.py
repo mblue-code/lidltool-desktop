@@ -39,11 +39,11 @@ _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS: tuple[dict[str, Any], ...] = (
             "supports_live_session_bootstrap": True,
             "supports_reauth": True,
             "supports_headless_refresh": True,
-            "supports_manual_confirm": False,
+            "supports_manual_confirm": True,
             "supports_oauth_callback": False,
             "supports_session_file": False,
             "implemented_actions": [],
-            "compatibility_actions": ["start_auth", "cancel_auth"],
+            "compatibility_actions": ["start_auth", "cancel_auth", "confirm_auth"],
             "reserved_actions": ["start_auth", "cancel_auth", "confirm_auth"],
         },
         "capabilities": [
@@ -441,6 +441,16 @@ def _plugin_host_kind() -> str:
     return "electron" if os.getenv("LIDLTOOL_CONNECTOR_HOST_KIND", "").strip().lower() == "electron" else "self_hosted"
 
 
+def _desktop_builtin_connector_definitions() -> tuple[dict[str, Any], ...]:
+    if _plugin_host_kind() != "electron":
+        return _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS
+    return tuple(
+        definition
+        for definition in _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS
+        if definition.get("source_id") != "rossmann_de"
+    )
+
+
 class ConnectorRegistry:
     def __init__(self, entries: Iterable[PluginRegistryEntry]) -> None:
         self._entries: list[PluginRegistryEntry] = []
@@ -544,7 +554,7 @@ def build_builtin_connector_registry(
     definitions: Iterable[ConnectorManifest | Mapping[str, Any]] | None = None,
 ) -> ConnectorRegistry:
     return ConnectorRegistry.from_definitions(
-        definitions if definitions is not None else _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS
+        definitions if definitions is not None else _desktop_builtin_connector_definitions()
     )
 
 

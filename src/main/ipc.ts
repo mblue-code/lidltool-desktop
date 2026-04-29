@@ -1,7 +1,10 @@
 import { ipcMain } from "electron";
 import type {
   BackupRequest,
+  DesktopExternalBrowserId,
+  DesktopExternalBrowserPreferenceState,
   DesktopLocale,
+  DesktopConnectorCallbackEvent,
   ExportRequest,
   ImportRequest,
   StartMobileBridgeRequest,
@@ -16,7 +19,11 @@ export function registerIpc(
   getBootError: () => string | null,
   getLocale: () => DesktopLocale,
   setLocale: (locale: DesktopLocale) => DesktopLocale,
-  openControlCenter: () => Promise<void>
+  openControlCenter: () => Promise<void>,
+  consumePendingConnectorCallbacks: () => DesktopConnectorCallbackEvent[],
+  getExternalBrowserPreference: () => DesktopExternalBrowserPreferenceState,
+  setExternalBrowserPreference: (preferredBrowser: DesktopExternalBrowserId) => DesktopExternalBrowserPreferenceState,
+  openExternalUrl: (url: string) => Promise<void>
 ): void {
   ipcMain.handle("desktop:get-config", () => runtime.getConfig());
   ipcMain.handle("desktop:capabilities:get", () => DESKTOP_CAPABILITIES);
@@ -41,6 +48,13 @@ export function registerIpc(
   ipcMain.handle("desktop:control-center:open", async () => {
     await openControlCenter();
   });
+  ipcMain.handle("desktop:external-browser:get-preference", () => getExternalBrowserPreference());
+  ipcMain.handle("desktop:external-browser:set-preference", (_event, preferredBrowser: DesktopExternalBrowserId) =>
+    setExternalBrowserPreference(preferredBrowser)
+  );
+  ipcMain.handle("desktop:external-url:open", async (_event, url: string) => {
+    await openExternalUrl(url);
+  });
   ipcMain.handle("desktop:sync:run", async (_event, payload: SyncRequest) => await runtime.runSyncJob(payload));
   ipcMain.handle("desktop:export:run", async (_event, payload: ExportRequest) => await runtime.runExportJob(payload));
   ipcMain.handle("desktop:backup:run", async (_event, payload: BackupRequest) => await runtime.runBackupJob(payload));
@@ -59,4 +73,5 @@ export function registerIpc(
   ipcMain.handle("desktop:receipt-plugins:uninstall", async (_event, pluginId: string) =>
     await runtime.uninstallReceiptPluginPack(pluginId)
   );
+  ipcMain.handle("desktop:connector-callbacks:consume", () => consumePendingConnectorCallbacks());
 }

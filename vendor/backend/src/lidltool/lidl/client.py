@@ -7,6 +7,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
+from decimal import Decimal, InvalidOperation
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
@@ -73,7 +74,7 @@ class RateLimiter:
 
 _VAT_TYPE_MAP: dict[str, float] = {"A": 0.07, "B": 0.19}
 _DISCOUNT_AMOUNT_RE = re.compile(r"-\d+[,\.]\d{1,2}")
-_ANON_AMOUNT_RE = re.compile(r"^-\d+[,\.]\d{1,2}$")
+_ANON_AMOUNT_RE = re.compile(r"^-?\d+[,\.]\d{1,2}$")
 
 
 def _classify_discount(promotion_id: str) -> str:
@@ -107,6 +108,24 @@ def _parse_discount_amount(text: str) -> int:
         return 0
 
 
+def _format_ticket_total_amount(value: Any) -> Any:
+    """Preserve Lidl summary totals as euro values, even when the API returns an int.
+
+    The MRE list endpoint returns ``totalAmount`` in euros. When a receipt total is a
+    whole-euro amount, the JSON parser hands us an ``int`` (for example ``19``). The
+    generic normalizer treats plain ints as cents, so we coerce numeric values back to
+    a two-decimal euro string before they reach ``normalize_receipt``.
+    """
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float, Decimal)):
+        try:
+            return f"{Decimal(str(value)).quantize(Decimal('0.01'))}"
+        except (InvalidOperation, ValueError):
+            return value
+    return value
+
+
 class _MreReceiptParser(HTMLParser):
     """Extract line items (and their discounts) from Lidl MRE HTML receipts.
 
@@ -126,7 +145,6 @@ class _MreReceiptParser(HTMLParser):
         super().__init__()
         self.items: list[dict[str, Any]] = []
         self._seen: set[str] = set()
-        self._seen_item_keys: set[tuple[str, float, float]] = set()
         # State for the discount span currently being parsed
         self._cur_discount: dict[str, Any] | None = None
         self._discount_text: list[str] = []
@@ -144,26 +162,42 @@ class _MreReceiptParser(HTMLParser):
         self._anon_texts = []
         if not texts:
             return
-        label = texts[0]
         amount_str = next((t for t in texts if _ANON_AMOUNT_RE.match(t)), None)
         if amount_str is None:
+            return
+        non_amount_texts = [t for t in texts if not _ANON_AMOUNT_RE.match(t)]
+        if not non_amount_texts:
+            return
+        label = non_amount_texts[0]
+        if len(label) == 1 and label.isalpha():
+            return
+        if not any(ch.isalpha() for ch in label):
             return
         try:
             amount = float(amount_str.replace(",", "."))
         except ValueError:
             return
         label_lower = label.lower()
+        tax_marker = next(
+            (
+                candidate.upper()
+                for candidate in reversed(non_amount_texts[1:])
+                if len(candidate) == 1 and candidate.upper() in _VAT_TYPE_MAP
+            ),
+            None,
+        )
         if "pfand" in label_lower:
             # Pfandrückgabe — negative deposit return, tracked as a deposit item
-            self.items.append(
-                {
-                    "name": label,
-                    "qty": 1.0,
-                    "unitPrice": amount,
-                    "lineTotal": amount,
-                    "discounts": [],
-                }
-            )
+            item: dict[str, Any] = {
+                "name": label,
+                "qty": 1.0,
+                "unitPrice": amount,
+                "lineTotal": amount,
+                "discounts": [],
+            }
+            if tax_marker is not None:
+                item["vatRate"] = _VAT_TYPE_MAP[tax_marker]
+            self.items.append(item)
         elif any(k in label_lower for k in (
             "rabatt", "aktions", "reduz", "bonus",
             "preisvorteil", "vorteil", "preisreduz",
@@ -181,6 +215,17 @@ class _MreReceiptParser(HTMLParser):
                         "label": label,
                     }
                 )
+        else:
+            item = {
+                "name": label,
+                "qty": 1.0,
+                "unitPrice": amount,
+                "lineTotal": amount,
+                "discounts": [],
+            }
+            if tax_marker is not None:
+                item["vatRate"] = _VAT_TYPE_MAP[tax_marker]
+            self.items.append(item)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         # While inside a discount span, count nested tags so we know when it ends.
@@ -210,10 +255,15 @@ class _MreReceiptParser(HTMLParser):
                 qty = float((d.get("data-art-quantity") or "1").replace(",", "."))
             except ValueError:
                 return
-            item_key = (desc, qty, unit_price)
-            if item_key in self._seen_item_keys:
+            previous_item = self.items[-1] if self.items else None
+            if (
+                previous_item is not None
+                and previous_item.get("name") == desc
+                and previous_item.get("qty") == qty
+                and previous_item.get("unitPrice") == unit_price
+                and not float(qty).is_integer()
+            ):
                 return
-            self._seen_item_keys.add(item_key)
             item: dict[str, Any] = {
                 "name": desc,
                 "qty": qty,
@@ -458,7 +508,7 @@ class MreApiClient:
             {
                 "id": item["id"],
                 "purchasedAt": item.get("date"),
-                "totalAmount": item.get("totalAmount"),
+                "totalAmount": _format_ticket_total_amount(item.get("totalAmount")),
                 "storeName": item.get("store"),
                 "articlesCount": item.get("articlesCount"),
             }
@@ -492,6 +542,7 @@ class MreApiClient:
             "storeName": store.get("name"),
             "storeAddress": address or None,
             "currency": "EUR",
+            "receiptHtmlAvailable": bool(str(html).strip()),
             "items": _parse_mre_html_items(html),
         }
 

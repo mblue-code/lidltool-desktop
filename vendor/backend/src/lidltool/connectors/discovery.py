@@ -394,10 +394,14 @@ def _last_sync_summary(sync: dict[str, Any]) -> str | None:
             new_items = int(progress.get("new_items", 0) or 0)
             receipts_seen = int(progress.get("receipts_seen", 0) or 0)
             if new_receipts or new_items or receipts_seen:
-                return (
+                base_summary = (
                     f"{new_receipts} new receipt(s), {new_items} new item(s), "
                     f"{receipts_seen} checked"
                 )
+                validation_summary = _validation_user_summary(summary)
+                if validation_summary:
+                    return f"{base_summary}. {validation_summary}"
+                return base_summary
         warnings = summary.get("warnings")
         if isinstance(warnings, list) and warnings:
             return _text(warnings[0])
@@ -408,6 +412,29 @@ def _last_sync_summary(sync: dict[str, Any]) -> str | None:
     if status:
         return f"Last sync finished with status: {status.lower()}"
     return None
+
+
+def _validation_user_summary(summary: dict[str, Any]) -> str | None:
+    validation = summary.get("validation")
+    if not isinstance(validation, dict):
+        return None
+    issue_codes = validation.get("issue_codes")
+    if not isinstance(issue_codes, dict):
+        return None
+    source_unavailable = int(issue_codes.get("source_receipt_items_unavailable", 0) or 0)
+    outcomes = validation.get("outcomes")
+    blocked_total = 0
+    if isinstance(outcomes, dict):
+        blocked_total = int(outcomes.get("quarantine", 0) or 0) + int(outcomes.get("reject", 0) or 0)
+    needs_review = max(blocked_total - source_unavailable, 0)
+    parts: list[str] = []
+    if source_unavailable:
+        parts.append(f"{source_unavailable} unavailable from Lidl")
+    if needs_review:
+        parts.append(f"{needs_review} need review")
+    if not parts:
+        return None
+    return ". ".join(parts)
 
 
 def _latest_sync_output(sync: dict[str, Any]) -> list[str]:

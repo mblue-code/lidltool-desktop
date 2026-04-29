@@ -259,13 +259,13 @@ class AuthBrowserRuntimeTests(unittest.TestCase):
             )
         )
 
-    def test_external_chromium_handoff_stays_disabled_without_oauth_callback_state(self) -> None:
+    def test_external_chromium_handoff_allows_stateless_callback_flows(self) -> None:
         plan = AuthBrowserPlan(
             start_url="https://www.rewe.de/",
             callback_url_prefixes=("https://www.rewe.de/",),
         )
 
-        self.assertFalse(
+        self.assertTrue(
             _should_use_external_chromium_handoff(
                 plan=plan,
                 mode="local_display",
@@ -343,6 +343,27 @@ class AuthBrowserRuntimeTests(unittest.TestCase):
                 require_navigation_away_before_completion=True,
                 expected_callback_state=None,
                 saw_navigation_away=True,
+            )
+        )
+
+    def test_stateless_custom_scheme_callback_requires_auth_response_fields(self) -> None:
+        self.assertFalse(
+            _should_accept_callback_candidate(
+                candidate="com.lidlplus.app://callback",
+                start_url="https://accounts.lidl.com/connect/authorize",
+                require_navigation_away_before_completion=False,
+                expected_callback_state=None,
+                saw_navigation_away=False,
+            )
+        )
+
+        self.assertTrue(
+            _should_accept_callback_candidate(
+                candidate="com.lidlplus.app://callback?code=test-code",
+                start_url="https://accounts.lidl.com/connect/authorize",
+                require_navigation_away_before_completion=False,
+                expected_callback_state=None,
+                saw_navigation_away=False,
             )
         )
 

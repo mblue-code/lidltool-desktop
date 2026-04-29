@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
 import {
@@ -12,6 +12,7 @@ import {
 import { DESKTOP_CAPABILITIES as DEFAULT_DESKTOP_CAPABILITIES } from "@/lib/desktop-route-policy";
 
 const DesktopCapabilitiesContext = createContext<DesktopCapabilities>(DEFAULT_DESKTOP_CAPABILITIES);
+const DESKTOP_CAPABILITIES_TIMEOUT_MS = 2_000;
 
 export type DesktopRedirectNotice = {
   requestedPath: string;
@@ -37,14 +38,19 @@ function matchesRoute(pathname: string, route: string): boolean {
   return pathname === route || pathname.startsWith(`${route}/`);
 }
 
-export async function loadDesktopCapabilities(): Promise<DesktopCapabilities> {
+export async function loadDesktopCapabilities(timeoutMs = DESKTOP_CAPABILITIES_TIMEOUT_MS): Promise<DesktopCapabilities> {
   const bridge = getDesktopCapabilityBridge();
   if (!bridge) {
     return DEFAULT_DESKTOP_CAPABILITIES;
   }
 
   try {
-    return await bridge.getCapabilities();
+    return await Promise.race([
+      bridge.getCapabilities(),
+      new Promise<DesktopCapabilities>((resolve) => {
+        window.setTimeout(() => resolve(DEFAULT_DESKTOP_CAPABILITIES), timeoutMs);
+      })
+    ]);
   } catch (error) {
     console.warn("Failed to load desktop capabilities. Falling back to built-in defaults.", error);
     return DEFAULT_DESKTOP_CAPABILITIES;
@@ -58,7 +64,29 @@ export function DesktopCapabilitiesProvider({
   capabilities: DesktopCapabilities;
   children: ReactNode;
 }) {
-  return <DesktopCapabilitiesContext.Provider value={capabilities}>{children}</DesktopCapabilitiesContext.Provider>;
+  const [resolvedCapabilities, setResolvedCapabilities] = useState(capabilities);
+
+  useEffect(() => {
+    setResolvedCapabilities(capabilities);
+  }, [capabilities]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void loadDesktopCapabilities().then((nextCapabilities) => {
+      if (!cancelled) {
+        setResolvedCapabilities(nextCapabilities);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <DesktopCapabilitiesContext.Provider value={resolvedCapabilities}>{children}</DesktopCapabilitiesContext.Provider>
+  );
 }
 
 export function useDesktopCapabilities(): DesktopCapabilities {

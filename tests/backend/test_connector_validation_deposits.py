@@ -110,6 +110,108 @@ class ConnectorValidationDepositsTest(unittest.TestCase):
         self.assertEqual(report.outcome, ValidationOutcome.ACCEPT)
         self.assertFalse(any(issue.code == "transaction_total_mismatch" for issue in report.issues))
 
+    def test_negative_net_total_with_deposit_return_is_only_a_warning(self) -> None:
+        report = validate_normalized_connector_payload(
+            source_record_ref="23005018220250915540212",
+            source_record_detail={"transaction": {"id": "23005018220250915540212"}},
+            connector_normalized={
+                "id": "23005018220250915540212",
+                "purchased_at": "2025-09-15T15:38:48+00:00",
+                "store_id": "store:37d2502197a4c904",
+                "store_name": "Isenbuettel",
+                "store_address": "Moorstr. 2b 38550 Isenbuettel",
+                "total_gross_cents": -330,
+                "currency": "EUR",
+                "discount_total_cents": 0,
+                "fingerprint": "negative-deposit-net-total",
+                "items": [
+                    {
+                        "line_no": 1,
+                        "name": "Brot Bauernmil.",
+                        "qty": "1",
+                        "unit": "pcs",
+                        "unit_price_cents": 199,
+                        "line_total_cents": 199,
+                        "is_deposit": False,
+                        "discounts": [
+                            {
+                                "type": "promotion",
+                                "promotion_id": "_ANON_PREISVORTEIL",
+                                "amount_cents": -14,
+                                "label": "Preisvorteil",
+                            }
+                        ],
+                    },
+                    {
+                        "line_no": 2,
+                        "name": "Pure Kornkraft",
+                        "qty": "1",
+                        "unit": "pcs",
+                        "unit_price_cents": 185,
+                        "line_total_cents": 185,
+                        "is_deposit": False,
+                        "discounts": [],
+                    },
+                    {
+                        "line_no": 3,
+                        "name": "Pfandrueckgabe",
+                        "qty": "1",
+                        "unit": "pcs",
+                        "unit_price_cents": -700,
+                        "line_total_cents": -700,
+                        "is_deposit": True,
+                        "discounts": [],
+                    },
+                ],
+                "raw_json": {"source": "lidl_plus_de"},
+            },
+            extracted_discounts=[
+                {
+                    "line_no": 1,
+                    "type": "promotion",
+                    "promotion_id": "_ANON_PREISVORTEIL",
+                    "amount_cents": 14,
+                    "label": "Preisvorteil",
+                    "scope": "item",
+                    "subkind": None,
+                    "funded_by": None,
+                }
+            ],
+        )
+
+        self.assertEqual(report.outcome, ValidationOutcome.WARN)
+        negative_issue = next(issue for issue in report.issues if issue.code == "negative_total_gross")
+        self.assertEqual(negative_issue.severity, "warn")
+
+    def test_historical_lidl_receipt_without_printable_html_is_marked_unavailable(self) -> None:
+        report = validate_normalized_connector_payload(
+            source_record_ref="23005018220220826272857",
+            source_record_detail={
+                "id": "23005018220220826272857",
+                "receiptHtmlAvailable": False,
+                "items": [],
+            },
+            connector_normalized={
+                "id": "23005018220220826272857",
+                "purchased_at": "2022-08-26T12:12:12+00:00",
+                "store_id": "store:old-lidl",
+                "store_name": "Old Lidl",
+                "store_address": "Example 1",
+                "total_gross_cents": 1900,
+                "currency": "EUR",
+                "discount_total_cents": 0,
+                "fingerprint": "historical-lidl-unavailable",
+                "items": [],
+                "raw_json": {"source": "lidl_plus_de"},
+            },
+            extracted_discounts=[],
+        )
+
+        self.assertEqual(report.outcome, ValidationOutcome.QUARANTINE)
+        issue_codes = {issue.code for issue in report.issues}
+        self.assertIn("source_receipt_items_unavailable", issue_codes)
+        self.assertNotIn("transaction_total_mismatch", issue_codes)
+
 
 if __name__ == "__main__":
     unittest.main()
