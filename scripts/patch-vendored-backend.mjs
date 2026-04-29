@@ -33,11 +33,24 @@ function applyBackendOverrides(sourceDir, destDir) {
   }
 
   const copied = [];
+  function shouldSkipEntry(entry, sourcePath, stat) {
+    if (entry === "__pycache__") {
+      return true;
+    }
+    if (!stat.isDirectory() && sourcePath.endsWith(".pyc")) {
+      return true;
+    }
+    return false;
+  }
+
   function copyDir(currentSourceDir, currentRelativeDir = "") {
     for (const entry of readdirSync(currentSourceDir)) {
       const sourcePath = resolve(currentSourceDir, entry);
-      const relativePath = currentRelativeDir ? `${currentRelativeDir}/${entry}` : entry;
       const stat = statSync(sourcePath);
+      if (shouldSkipEntry(entry, sourcePath, stat)) {
+        continue;
+      }
+      const relativePath = currentRelativeDir ? `${currentRelativeDir}/${entry}` : entry;
       if (stat.isDirectory()) {
         copyDir(sourcePath, relativePath);
         continue;
@@ -618,6 +631,15 @@ function patchRegistry(current) {
     );
   }
 
+  if (!next.includes("def _desktop_builtin_connector_definitions() -> tuple[dict[str, Any], ...]:\n")) {
+    next = replaceOnce(
+      next,
+      'def _plugin_host_kind() -> str:\n    return "electron" if os.getenv("LIDLTOOL_CONNECTOR_HOST_KIND", "").strip().lower() == "electron" else "self_hosted"\n\n\nclass ConnectorRegistry:\n',
+      'def _plugin_host_kind() -> str:\n    return "electron" if os.getenv("LIDLTOOL_CONNECTOR_HOST_KIND", "").strip().lower() == "electron" else "self_hosted"\n\n\ndef _desktop_builtin_connector_definitions() -> tuple[dict[str, Any], ...]:\n    if _plugin_host_kind() != "electron":\n        return _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS\n    return tuple(\n        definition\n        for definition in _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS\n        if definition.get("source_id") != "rossmann_de"\n    )\n\n\nclass ConnectorRegistry:\n',
+      registryPath
+    );
+  }
+
   if (!next.includes('evaluate_plugin_compatibility(manifest, host_kind=_plugin_host_kind())')) {
     next = next.replaceAll(
       "evaluate_plugin_compatibility(manifest)",
@@ -631,6 +653,13 @@ function patchRegistry(current) {
       "        decision = evaluate_plugin_policy(manifest, config=config)\n",
       "        decision = evaluate_plugin_policy(manifest, config=config, host_kind=_plugin_host_kind())\n",
       registryPath
+    );
+  }
+
+  if (next.includes("definitions if definitions is not None else _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS")) {
+    next = next.replace(
+      "definitions if definitions is not None else _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS",
+      "definitions if definitions is not None else _desktop_builtin_connector_definitions()"
     );
   }
 

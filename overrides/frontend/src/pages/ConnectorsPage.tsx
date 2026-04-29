@@ -41,6 +41,9 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   getDesktopConnectorBridge,
   type DesktopConnectorCatalogEntry,
+  type DesktopConnectorCallbackEvent,
+  type DesktopExternalBrowserId,
+  type DesktopExternalBrowserPreferenceState,
   type DesktopReceiptPluginPackInfo
 } from "@/lib/desktop-api";
 import { useI18n, type SupportedLocale } from "@/i18n";
@@ -81,6 +84,12 @@ type FeedbackState = {
   dismissAfterMs?: number;
 };
 
+type AuthCompletionPromptState = {
+  sourceId: string;
+  confirmedAt: number;
+  detail: string | null;
+};
+
 type ConnectorPrimaryActionKind = "set_up" | "reconnect" | "sync_now" | "open_source" | null;
 
 type PendingSyncStartState = Record<
@@ -101,6 +110,7 @@ type FirstRunPromptState = Record<
 >;
 
 type ManualCallbackState = Record<string, string>;
+type PendingConnectorCallbackState = DesktopConnectorCallbackEvent[];
 
 const SHORT_SUCCESS_DISMISS_MS = 60_000;
 const OPTIMISTIC_SYNC_START_MS = 20_000;
@@ -109,11 +119,128 @@ function byLocale(locale: SupportedLocale, en: string, de: string): string {
   return locale === "de" ? de : en;
 }
 
-function openExternalUrl(url: string | null | undefined): void {
+async function openExternalUrl(url: string | null | undefined): Promise<void> {
   if (!url) {
     return;
   }
+  if (typeof window.desktopApi?.openExternalUrl === "function") {
+    await window.desktopApi.openExternalUrl(url);
+    return;
+  }
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function externalBrowserLabel(browserId: DesktopExternalBrowserId, locale: SupportedLocale): string {
+  switch (browserId) {
+    case "arc":
+      return "Arc";
+    case "atlas":
+      return "Atlas";
+    case "google_chrome":
+      return "Google Chrome";
+    case "system_default":
+    default:
+      return byLocale(locale, "System default", "Systemstandard");
+  }
+}
+
+function preferredBrowserCallToAction(
+  sourceId: string,
+  preferredBrowser: DesktopExternalBrowserId | null | undefined,
+  locale: SupportedLocale
+): string {
+  if (!isLidlConnector(sourceId)) {
+    return byLocale(locale, "Open in your browser", "Im Browser öffnen");
+  }
+  if (preferredBrowser && preferredBrowser !== "system_default") {
+    return byLocale(
+      locale,
+      `Open Lidl in ${externalBrowserLabel(preferredBrowser, locale)}`,
+      `Lidl in ${externalBrowserLabel(preferredBrowser, locale)} öffnen`
+    );
+  }
+  return byLocale(locale, "Open Lidl in your default browser", "Lidl im Standardbrowser öffnen");
+}
+
+function manualCallbackTitle(sourceId: string, locale: SupportedLocale): string {
+  if (isLidlConnector(sourceId)) {
+    return byLocale(
+      locale,
+      "If the browser finishes but the app does not connect, paste the callback URL here.",
+      "Wenn der Browser fertig ist, die App sich aber nicht verbindet, fügen Sie hier die Callback-URL ein."
+    );
+  }
+  return byLocale(
+    locale,
+    "If the app does not continue automatically, paste the final browser URL here.",
+    "Wenn die App nicht automatisch weitergeht, fügen Sie hier die finale Browser-URL ein."
+  );
+}
+
+function manualCallbackDescription(sourceId: string, locale: SupportedLocale): string {
+  if (isLidlConnector(sourceId)) {
+    return byLocale(
+      locale,
+      "Use the full com.lidlplus.app://callback URL if the browser shows it. If Lidl lands on an error page instead, copy the full address from the browser bar and paste it here.",
+      "Verwenden Sie die vollständige com.lidlplus.app://callback-URL, falls der Browser sie anzeigt. Wenn Lidl stattdessen auf einer Fehlerseite landet, kopieren Sie die vollständige Adresse aus der Browserleiste und fügen Sie sie hier ein."
+    );
+  }
+  return byLocale(
+    locale,
+    "Use the full URL from the browser after the PENNY redirect, even if the page looks broken.",
+    "Verwenden Sie die vollständige URL aus dem Browser nach der PENNY-Weiterleitung, auch wenn die Seite kaputt aussieht."
+  );
+}
+
+function manualCallbackPlaceholder(sourceId: string, locale: SupportedLocale): string {
+  if (isLidlConnector(sourceId)) {
+    return "com.lidlplus.app://callback?code=...";
+  }
+  return byLocale(
+    locale,
+    "https://www.penny.de/app/login?code=...",
+    "https://www.penny.de/app/login?code=..."
+  );
+}
+
+function callbackPrefixesFromMetadata(metadata: Record<string, unknown> | undefined): string[] {
+  const rawPrefixes = metadata?.callback_url_prefixes;
+  if (!Array.isArray(rawPrefixes)) {
+    return [];
+  }
+  return rawPrefixes.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+function resolveManualCallbackSourceId(
+  callbackUrl: string,
+  authStatusBySourceId: Map<string, ConnectorAuthStatus>,
+  selectedLidlSourceId: string
+): string | null {
+  for (const [sourceId, authStatus] of authStatusBySourceId.entries()) {
+    if (authStatus.bootstrap?.status !== "running") {
+      continue;
+    }
+    if (authStatus.metadata?.manual_callback_supported !== true) {
+      continue;
+    }
+    const prefixes = callbackPrefixesFromMetadata(authStatus.metadata);
+    if (prefixes.some((prefix) => callbackUrl.startsWith(prefix))) {
+      return sourceId;
+    }
+  }
+  if (callbackUrl.startsWith("com.lidlplus.app://callback")) {
+    return selectedLidlSourceId || "lidl_plus_de";
+  }
+  return null;
+}
+
+function connectorCallbackEventKey(event: DesktopConnectorCallbackEvent): string {
+  return [
+    String(event.sourceId ?? ""),
+    String(event.url ?? ""),
+    event.confirmed ? "confirmed" : "pending",
+    String(event.confirmedAt ?? "")
+  ].join("|");
 }
 
 const CONNECTOR_FIELD_LOCALIZATION_OVERRIDES: Record<
@@ -1147,6 +1274,9 @@ export function ConnectorsPage() {
   const [pendingSyncStarts, setPendingSyncStarts] = useState<PendingSyncStartState>({});
   const [firstRunPrompts, setFirstRunPrompts] = useState<FirstRunPromptState>({});
   const [manualCallbackValues, setManualCallbackValues] = useState<ManualCallbackState>({});
+  const [pendingConnectorCallbacks, setPendingConnectorCallbacks] = useState<PendingConnectorCallbackState>([]);
+  const [browserPreference, setBrowserPreference] = useState<DesktopExternalBrowserPreferenceState | null>(null);
+  const [authCompletionPrompt, setAuthCompletionPrompt] = useState<AuthCompletionPromptState | null>(null);
 
   const connectorsQuery = useQuery({
     queryKey: ["connectors"],
@@ -1177,6 +1307,24 @@ export function ConnectorsPage() {
       };
     }
   });
+
+  const browserPreferenceQuery = useQuery({
+    queryKey: ["desktop", "external-browser-preference"],
+    queryFn: async () => {
+      const bridge = getDesktopConnectorBridge();
+      if (!bridge) {
+        return null;
+      }
+      return await bridge.getExternalBrowserPreference();
+    },
+    staleTime: Number.POSITIVE_INFINITY
+  });
+
+  useEffect(() => {
+    if (browserPreferenceQuery.data !== undefined) {
+      setBrowserPreference(browserPreferenceQuery.data);
+    }
+  }, [browserPreferenceQuery.data]);
 
   const setupConfigQuery = useQuery({
     queryKey: ["connectors", "config", setupState?.connector.source_id],
@@ -1267,6 +1415,13 @@ export function ConnectorsPage() {
   const bootstrapMutation = useMutation({
     mutationFn: (sourceId: string) => startConnectorBootstrap(sourceId),
     onSuccess: async (result, sourceId) => {
+      if (isLidlConnector(sourceId) && result.remote_login_url) {
+        try {
+          await openExternalUrl(result.remote_login_url);
+        } catch {
+          // Keep the in-app fallback visible even if launching the browser fails.
+        }
+      }
       setFeedback({
         variant: "default",
         title: byLocale(locale, "Sign-in started", "Anmeldung gestartet"),
@@ -1300,6 +1455,27 @@ export function ConnectorsPage() {
                 `Schließen Sie zuerst die Anmeldung für ${blockingDisplayName} ab oder stoppen Sie sie, bevor Sie ${sourceId} starten.`
               )
             : resolvedMessage
+      });
+    }
+  });
+
+  const browserPreferenceMutation = useMutation({
+    mutationFn: async (preferredBrowser: DesktopExternalBrowserId) => {
+      const bridge = getDesktopConnectorBridge();
+      if (!bridge) {
+        throw new Error("Desktop browser preference is unavailable in this build.");
+      }
+      return await bridge.setExternalBrowserPreference(preferredBrowser);
+    },
+    onSuccess: (result) => {
+      setBrowserPreference(result);
+      void queryClient.invalidateQueries({ queryKey: ["desktop", "external-browser-preference"] });
+    },
+    onError: (error) => {
+      setFeedback({
+        variant: "destructive",
+        title: byLocale(locale, "Browser preference failed", "Browser-Einstellung fehlgeschlagen"),
+        message: String(error)
       });
     }
   });
@@ -1630,18 +1806,20 @@ export function ConnectorsPage() {
       await queryClient.invalidateQueries({ queryKey: ["connectors"] });
       await queryClient.invalidateQueries({ queryKey: ["connectors", "bootstrap-status", variables.sourceId] });
       await queryClient.invalidateQueries({ queryKey: ["connectors", "auth-status", variables.sourceId] });
-      setFeedback({
-        variant: "default",
-        title: byLocale(locale, "Sign-in captured", "Anmeldung erfasst"),
-        message: isPennyConnector(variables.sourceId)
+      activatePostAuthPrompt(
+        variables.sourceId,
+        isPennyConnector(variables.sourceId)
           ? byLocale(
               locale,
               "PENNY sign-in was captured from the callback URL. If the browser ended on a PENNY redirect or not-found page, you can ignore it and continue here.",
               "Die PENNY-Anmeldung wurde aus der Callback-URL erfasst. Wenn der Browser auf einer PENNY-Weiterleitungs- oder Nicht-gefunden-Seite geendet hat, können Sie das ignorieren und hier fortfahren."
             )
-          : result.auth_status.detail ?? byLocale(locale, "The sign-in was captured successfully.", "Die Anmeldung wurde erfolgreich erfasst."),
-        dismissAfterMs: SHORT_SUCCESS_DISMISS_MS
-      });
+          : result.auth_status.detail ??
+              byLocale(locale, "The sign-in was captured successfully.", "Die Anmeldung wurde erfolgreich erfasst."),
+        {
+          showModal: isLidlConnector(variables.sourceId)
+        }
+      );
     },
     onError: (error) => {
       setFeedback({
@@ -1880,6 +2058,156 @@ export function ConnectorsPage() {
     : null;
   const handledBootstrapCompletionsRef = useRef<Set<string>>(new Set());
   const previousSyncStatusRef = useRef<Map<string, string>>(new Map());
+  const seenConnectorCallbackKeysRef = useRef<Set<string>>(new Set());
+  const processingConnectorCallbackRef = useRef(false);
+
+  function activatePostAuthPrompt(
+    sourceId: string,
+    detail: string | null,
+    options?: { showModal?: boolean }
+  ): void {
+    const now = Date.now();
+    setFirstRunPrompts((current) => ({
+      ...current,
+      [sourceId]: {
+        activatedAt: now,
+        expiresAt: now + SHORT_SUCCESS_DISMISS_MS
+      }
+    }));
+    if (options?.showModal) {
+      setAuthCompletionPrompt({
+        sourceId,
+        confirmedAt: now,
+        detail
+      });
+    }
+    setFeedback({
+      variant: "default",
+      title: byLocale(locale, "Sign-in complete", "Anmeldung abgeschlossen"),
+      message: isLidlConnector(sourceId)
+        ? byLocale(
+            locale,
+            "Lidl sign-in was saved. The browser may still show the code page. That is normal.",
+            "Die Lidl-Anmeldung wurde gespeichert. Der Browser kann weiterhin die Code-Seite zeigen. Das ist normal."
+          )
+        : detail ??
+          byLocale(
+            locale,
+            "Your sign-in was saved successfully.",
+            "Ihre Anmeldung wurde erfolgreich gespeichert."
+          ),
+      dismissAfterMs: SHORT_SUCCESS_DISMISS_MS
+    });
+  }
+
+  useEffect(() => {
+    const bridge = getDesktopConnectorBridge();
+    if (!bridge) {
+      return;
+    }
+    let canceled = false;
+    const appendCallbacks = (events: DesktopConnectorCallbackEvent[]): void => {
+      if (events.length === 0 || canceled) {
+        return;
+      }
+      setPendingConnectorCallbacks((current) => {
+        const next = [...current];
+        for (const event of events) {
+          const normalizedUrl = String(event.url ?? "").trim();
+          if (!normalizedUrl) {
+            continue;
+          }
+          const normalizedEvent: DesktopConnectorCallbackEvent = {
+            url: normalizedUrl,
+            sourceId: typeof event.sourceId === "string" && event.sourceId.trim().length > 0 ? event.sourceId : null,
+            confirmed: event.confirmed === true,
+            confirmedAt: typeof event.confirmedAt === "string" ? event.confirmedAt : null,
+            detail: typeof event.detail === "string" ? event.detail : null
+          };
+          const eventKey = connectorCallbackEventKey(normalizedEvent);
+          if (seenConnectorCallbackKeysRef.current.has(eventKey)) {
+            continue;
+          }
+          seenConnectorCallbackKeysRef.current.add(eventKey);
+          next.push(normalizedEvent);
+        }
+        return next;
+      });
+    };
+
+    void bridge.consumePendingConnectorCallbacks().then((events) => {
+      appendCallbacks(events);
+    });
+    const unsubscribe = bridge.onConnectorCallback((event) => {
+      appendCallbacks([event]);
+    });
+    return () => {
+      canceled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (pendingConnectorCallbacks.length === 0 || processingConnectorCallbackRef.current) {
+      return;
+    }
+    const [nextCallback] = pendingConnectorCallbacks;
+    if (!nextCallback) {
+      return;
+    }
+    if (nextCallback.confirmed) {
+      const sourceId =
+        typeof nextCallback.sourceId === "string" && nextCallback.sourceId.trim().length > 0
+          ? nextCallback.sourceId
+          : resolveManualCallbackSourceId(
+              nextCallback.url,
+              authStatusBySourceId,
+              selectedLidlSourceId
+            );
+      if (!sourceId) {
+        return;
+      }
+      processingConnectorCallbackRef.current = true;
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["connectors"] }),
+        queryClient.invalidateQueries({ queryKey: ["connectors", "bootstrap-status", sourceId] }),
+        queryClient.invalidateQueries({ queryKey: ["connectors", "auth-status", sourceId] })
+      ]).finally(() => {
+        activatePostAuthPrompt(sourceId, nextCallback.detail ?? null, {
+          showModal: isLidlConnector(sourceId)
+        });
+        processingConnectorCallbackRef.current = false;
+        setPendingConnectorCallbacks((current) => current.filter((item) => item !== nextCallback));
+      });
+      return;
+    }
+    const sourceId = resolveManualCallbackSourceId(
+      nextCallback.url,
+      authStatusBySourceId,
+      selectedLidlSourceId
+    );
+    if (!sourceId) {
+      return;
+    }
+
+    processingConnectorCallbackRef.current = true;
+    void confirmBootstrapMutation
+      .mutateAsync({
+        sourceId,
+        callbackUrl: nextCallback.url
+      })
+      .finally(() => {
+        processingConnectorCallbackRef.current = false;
+        setPendingConnectorCallbacks((current) => current.filter((item) => item.url !== nextCallback.url));
+      });
+  }, [
+    activatePostAuthPrompt,
+    authStatusBySourceId,
+    confirmBootstrapMutation,
+    pendingConnectorCallbacks,
+    queryClient,
+    selectedLidlSourceId
+  ]);
 
   useEffect(() => {
     for (const [sourceId, status] of bootstrapStatusBySourceId.entries()) {
@@ -1894,18 +2222,9 @@ export function ConnectorsPage() {
       if (status.status === "succeeded") {
         const connector = connectors.find((item) => item.source_id === sourceId) ?? null;
         if (connector && connector.supports_sync && !connector.last_synced_at) {
-          const now = Date.now();
-          setFirstRunPrompts((current) => ({
-            ...current,
-            [sourceId]: {
-              activatedAt: now,
-              expiresAt: now + SHORT_SUCCESS_DISMISS_MS
-            }
-          }));
-          setFeedback({
-            variant: "default",
-            title: byLocale(locale, "Sign-in complete", "Anmeldung abgeschlossen"),
-            message: isPennyConnector(sourceId)
+          activatePostAuthPrompt(
+            sourceId,
+            isPennyConnector(sourceId)
               ? byLocale(
                   locale,
                   "PENNY sign-in was captured successfully. If the browser ended on a PENNY redirect or not-found page, you can ignore it and continue here with the first import.",
@@ -1916,15 +2235,17 @@ export function ConnectorsPage() {
                   "Your sign-in was saved. Next, either import new receipts or run the one-time full history import.",
                   "Ihre Anmeldung wurde gespeichert. Als Nächstes können Sie entweder neue Belege importieren oder einmalig die gesamte Historie laden."
                 ),
-            dismissAfterMs: SHORT_SUCCESS_DISMISS_MS
-          });
+            {
+              showModal: false
+            }
+          );
         }
       }
       if (status.status === "succeeded" || status.status === "failed") {
         void queryClient.invalidateQueries({ queryKey: ["connectors"] });
       }
     }
-  }, [bootstrapStatusBySourceId, connectors, locale, queryClient]);
+  }, [activatePostAuthPrompt, bootstrapStatusBySourceId, connectors, locale, queryClient]);
 
   useEffect(() => {
     for (const connector of connectors) {
@@ -2183,8 +2504,12 @@ export function ConnectorsPage() {
     const statusSummary = showFirstRunActions
       ? byLocale(
           locale,
-          "Your sign-in is saved. Choose the normal import or the one-time full history import next.",
-          "Ihre Anmeldung ist gespeichert. Wählen Sie jetzt entweder den normalen Import oder einmalig die gesamte Historie."
+          isLidlConnector(connector.source_id)
+            ? "Your Lidl sign-in is saved. The browser may still show the code page. Choose the normal import or the one-time full history import next."
+            : "Your sign-in is saved. Choose the normal import or the one-time full history import next.",
+          isLidlConnector(connector.source_id)
+            ? "Ihre Lidl-Anmeldung ist gespeichert. Der Browser kann weiterhin die Code-Seite zeigen. Wählen Sie jetzt entweder den normalen Import oder einmalig die gesamte Historie."
+            : "Ihre Anmeldung ist gespeichert. Wählen Sie jetzt entweder den normalen Import oder einmalig die gesamte Historie."
         )
       : optimisticSyncStarting
         ? byLocale(
@@ -2257,8 +2582,12 @@ export function ConnectorsPage() {
               <AlertDescription>
                 {byLocale(
                   locale,
-                  "Your sign-in is saved. Start the normal import now, or run the one-time full history import while everything is still fresh.",
-                  "Ihre Anmeldung ist gespeichert. Starten Sie jetzt den normalen Import oder laden Sie einmalig die gesamte Historie, solange alles noch frisch verbunden ist."
+                  isLidlConnector(connector.source_id)
+                    ? "Your Lidl sign-in is saved. The browser may still show the SMS code page or an error page. That is normal. Start the normal import now, or run the one-time full history import while everything is still fresh."
+                    : "Your sign-in is saved. Start the normal import now, or run the one-time full history import while everything is still fresh.",
+                  isLidlConnector(connector.source_id)
+                    ? "Ihre Lidl-Anmeldung ist gespeichert. Der Browser kann weiterhin die SMS-Code-Seite oder eine Fehlerseite anzeigen. Das ist normal. Starten Sie jetzt den normalen Import oder laden Sie einmalig die gesamte Historie, solange alles noch frisch verbunden ist."
+                    : "Ihre Anmeldung ist gespeichert. Starten Sie jetzt den normalen Import oder laden Sie einmalig die gesamte Historie, solange alles noch frisch verbunden ist."
                 )}
               </AlertDescription>
             </Alert>
@@ -2319,54 +2648,50 @@ export function ConnectorsPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => openExternalUrl(manualAuthStartUrl)}
+                          onClick={() => {
+                            void openExternalUrl(manualAuthStartUrl);
+                          }}
                         >
                           <ExternalLink className="mr-2 h-4 w-4" />
-                          {byLocale(locale, "Open in your browser", "Im Browser öffnen")}
+                          {preferredBrowserCallToAction(
+                            connector.source_id,
+                            browserPreference?.preferredBrowser,
+                            locale
+                          )}
                         </Button>
                       ) : null}
                       {!manualAuthStartUrl && bootstrapStatus.remote_login_url ? (
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => openExternalUrl(bootstrapStatus.remote_login_url)}
+                          onClick={() => {
+                            void openExternalUrl(bootstrapStatus.remote_login_url);
+                          }}
                         >
                           <ExternalLink className="mr-2 h-4 w-4" />
-                          {byLocale(locale, "Open sign-in window", "Anmeldefenster öffnen")}
+                          {preferredBrowserCallToAction(
+                            connector.source_id,
+                            browserPreference?.preferredBrowser,
+                            locale
+                          )}
                         </Button>
                       ) : null}
                     </div>
                     {manualCallbackSupported ? (
                       <div className="space-y-2 rounded-md border border-border/50 bg-background/50 p-3">
                         <div className="space-y-1">
-                          <p className="text-sm font-medium text-foreground">
-                            {byLocale(
-                              locale,
-                              "If the app does not continue automatically, paste the final browser URL here.",
-                              "Wenn die App nicht automatisch weitergeht, fügen Sie hier die finale Browser-URL ein."
-                            )}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {byLocale(
-                              locale,
-                              "Use the full URL from the browser after the PENNY redirect, even if the page looks broken.",
-                              "Verwenden Sie die vollständige URL aus dem Browser nach der PENNY-Weiterleitung, auch wenn die Seite kaputt aussieht."
-                            )}
-                          </p>
+                          <p className="text-sm font-medium text-foreground">{manualCallbackTitle(connector.source_id, locale)}</p>
+                          <p className="text-xs text-muted-foreground">{manualCallbackDescription(connector.source_id, locale)}</p>
                         </div>
                         <Label htmlFor={`callback-url-${connector.source_id}`} className="sr-only">
-                          {byLocale(locale, "Final browser URL", "Finale Browser-URL")}
+                          {byLocale(locale, "Callback URL", "Callback-URL")}
                         </Label>
                         <Textarea
                           id={`callback-url-${connector.source_id}`}
                           rows={3}
                           value={manualCallbackValue}
                           onChange={(event) => updateManualCallbackValue(connector.source_id, event.target.value)}
-                          placeholder={byLocale(
-                            locale,
-                            "Paste the final PENNY redirect URL",
-                            "Finale PENNY-Weiterleitungs-URL einfügen"
-                          )}
+                          placeholder={manualCallbackPlaceholder(connector.source_id, locale)}
                         />
                         <div className="flex flex-wrap gap-2">
                           <Button
@@ -2698,22 +3023,60 @@ export function ConnectorsPage() {
               key: "lidl-group",
               title: "Lidl Plus",
               headerExtra: (
-                <div className="space-y-1.5">
-                  <Label htmlFor="lidl-market-select" className="text-xs uppercase text-muted-foreground">
-                    {byLocale(locale, "Country", "Land")}
-                  </Label>
-                  <Select value={selectedLidlSourceId} onValueChange={setSelectedLidlSourceId}>
-                    <SelectTrigger id="lidl-market-select" className="w-full max-w-xs bg-background/80">
-                      <SelectValue placeholder={byLocale(locale, "Choose a country", "Land auswählen")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {lidlConnectorCards.map(({ connector }) => (
-                        <SelectItem key={connector.source_id} value={connector.source_id}>
-                          {connectorMarketLabel(connector, locale)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="lidl-market-select" className="text-xs uppercase text-muted-foreground">
+                      {byLocale(locale, "Country", "Land")}
+                    </Label>
+                    <Select value={selectedLidlSourceId} onValueChange={setSelectedLidlSourceId}>
+                      <SelectTrigger id="lidl-market-select" className="w-full max-w-xs bg-background/80">
+                        <SelectValue placeholder={byLocale(locale, "Choose a country", "Land auswählen")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {lidlConnectorCards.map(({ connector }) => (
+                          <SelectItem key={connector.source_id} value={connector.source_id}>
+                            {connectorMarketLabel(connector, locale)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="lidl-browser-select" className="text-xs uppercase text-muted-foreground">
+                      {byLocale(locale, "Browser", "Browser")}
+                    </Label>
+                    <Select
+                      value={browserPreference?.preferredBrowser ?? "system_default"}
+                      onValueChange={(value) =>
+                        void browserPreferenceMutation.mutateAsync(value as DesktopExternalBrowserId)
+                      }
+                    >
+                      <SelectTrigger id="lidl-browser-select" className="w-full max-w-xs bg-background/80">
+                        <SelectValue placeholder={byLocale(locale, "Choose a browser", "Browser auswählen")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(browserPreference?.options ?? [{ id: "system_default", available: true }]).map((option) => (
+                          <SelectItem
+                            key={option.id}
+                            value={option.id}
+                            disabled={!option.available && option.id !== "system_default"}
+                          >
+                            {externalBrowserLabel(option.id, locale)}
+                            {!option.available && option.id !== "system_default"
+                              ? byLocale(locale, " (not installed)", " (nicht installiert)")
+                              : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="max-w-xl text-xs text-muted-foreground">
+                      {byLocale(
+                        locale,
+                        "Lidl always uses a real browser instead of the old embedded sign-in window. By default it opens your system browser, or you can pick another installed browser here.",
+                        "Lidl verwendet immer einen echten Browser statt des alten eingebetteten Anmeldefensters. Standardmäßig wird Ihr Systembrowser geöffnet, oder Sie wählen hier einen anderen installierten Browser."
+                      )}
+                    </p>
+                  </div>
                 </div>
               )
             })
@@ -3085,6 +3448,79 @@ export function ConnectorsPage() {
               ) : null}
               {setupState?.mode === "configure" ? t("pages.connectors.saveSettings") : t("pages.connectors.saveAndContinue")}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={authCompletionPrompt !== null} onOpenChange={(open) => (!open ? setAuthCompletionPrompt(null) : undefined)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>
+              {authCompletionPrompt && isLidlConnector(authCompletionPrompt.sourceId)
+                ? byLocale(locale, "Lidl sign-in saved", "Lidl-Anmeldung gespeichert")
+                : byLocale(locale, "Sign-in saved", "Anmeldung gespeichert")}
+            </DialogTitle>
+            <DialogDescription>
+              {authCompletionPrompt && isLidlConnector(authCompletionPrompt.sourceId)
+                ? byLocale(
+                    locale,
+                    "Lidl handed the login back to the desktop app successfully. The browser may still stay on the SMS code page or show an error page after that. You can ignore the browser and continue here.",
+                    "Lidl hat die Anmeldung erfolgreich an die Desktop-App zurückgegeben. Der Browser kann danach weiterhin auf der SMS-Code-Seite bleiben oder eine Fehlerseite anzeigen. Sie können den Browser ignorieren und hier weitermachen."
+                  )
+                : authCompletionPrompt?.detail ??
+                  byLocale(
+                    locale,
+                    "The connector sign-in was saved successfully. You can start importing now or come back later.",
+                    "Die Anmeldung der Anbindung wurde erfolgreich gespeichert. Sie können jetzt den Import starten oder später zurückkommen."
+                  )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <p>
+              {byLocale(
+                locale,
+                "Next, either import only new receipts or run a one-time full history import while the login is still fresh.",
+                "Als Nächstes können Sie entweder nur neue Belege importieren oder einmalig die gesamte Historie laden, solange die Anmeldung noch frisch ist."
+              )}
+            </p>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button variant="outline" onClick={() => setAuthCompletionPrompt(null)}>
+              {byLocale(locale, "Later", "Später")}
+            </Button>
+            {authCompletionPrompt ? (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  void syncMutation.mutateAsync({ sourceId: authCompletionPrompt.sourceId, full: false });
+                  setAuthCompletionPrompt(null);
+                }}
+                disabled={syncMutation.isPending}
+              >
+                {syncMutation.isPending &&
+                syncMutation.variables?.sourceId === authCompletionPrompt.sourceId &&
+                !syncMutation.variables.full ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {byLocale(locale, "Import receipts", "Belege importieren")}
+              </Button>
+            ) : null}
+            {authCompletionPrompt ? (
+              <Button
+                onClick={() => {
+                  void syncMutation.mutateAsync({ sourceId: authCompletionPrompt.sourceId, full: true });
+                  setAuthCompletionPrompt(null);
+                }}
+                disabled={syncMutation.isPending}
+              >
+                {syncMutation.isPending &&
+                syncMutation.variables?.sourceId === authCompletionPrompt.sourceId &&
+                syncMutation.variables.full ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {byLocale(locale, "Import full history", "Gesamte Historie laden")}
+              </Button>
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

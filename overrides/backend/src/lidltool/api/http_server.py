@@ -2206,6 +2206,20 @@ def _connector_any_running(
     return any_connector_bootstrap_running(sessions)
 
 
+def _serialize_auth_bootstrap_snapshot(snapshot: AuthBootstrapSnapshot) -> dict[str, Any]:
+    return {
+        "source_id": snapshot.source_id,
+        "status": snapshot.state,
+        "command": " ".join(snapshot.command or ()),
+        "pid": snapshot.pid,
+        "started_at": snapshot.started_at.isoformat() if snapshot.started_at is not None else None,
+        "finished_at": snapshot.finished_at.isoformat() if snapshot.finished_at is not None else None,
+        "return_code": snapshot.return_code,
+        "output_tail": list(snapshot.output_tail),
+        "can_cancel": snapshot.can_cancel,
+    }
+
+
 def _connector_process_env(app: FastAPI, *, config: AppConfig) -> dict[str, str]:
     env = os.environ.copy()
     env["LIDLTOOL_REPO_ROOT"] = str(_repo_root())
@@ -8576,7 +8590,8 @@ def create_app(
 
                 bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
                 sync_sessions = get_connector_command_sessions(app, kind="sync")
-                if _connector_any_running(bootstrap_sessions) or _connector_any_running(sync_sessions):
+                auth_service = _connector_auth_service(app, config=app_config)
+                if auth_service.any_bootstrap_running() or _connector_any_running(sync_sessions):
                     raise RuntimeError(
                         "another connector operation is already running; wait or cancel it before starting a cascade"
                     )
@@ -8645,7 +8660,8 @@ def create_app(
 
                 bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
                 sync_sessions = get_connector_command_sessions(app, kind="sync")
-                if _connector_any_running(bootstrap_sessions) or _connector_any_running(sync_sessions):
+                auth_service = _connector_auth_service(app, config=app_config)
+                if auth_service.any_bootstrap_running() or _connector_any_running(sync_sessions):
                     raise RuntimeError(
                         "another connector operation is already running; wait or cancel it before retrying cascade"
                     )
@@ -8754,7 +8770,8 @@ def create_app(
 
             bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
             sync_sessions = get_connector_command_sessions(app, kind="sync")
-            if not _connector_any_running(bootstrap_sessions) and not _connector_any_running(sync_sessions):
+            auth_service = _connector_auth_service(app, config=app_config)
+            if not auth_service.any_bootstrap_running() and not _connector_any_running(sync_sessions):
                 _stop_vnc_runtime(app)
 
             result = _serialize_connector_cascade(cascade, request=request)
@@ -8794,13 +8811,27 @@ def create_app(
 
             service = _connector_auth_service(app, config=app_config)
             manifest = service.get_auth_status(source_id=source_id, validate_session=False).manifest
+            capabilities = service.capabilities_for_source(source_id)
+            uses_manual_browser_handoff = (
+                manifest.runtime_kind == "builtin"
+                and source_id == "lidl_plus_de"
+                and capabilities.auth_kind == "oauth_pkce"
+            )
 
             bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
+            manual_bootstrap_sessions = service.session_registry.manual_oauth_sessions
 
             for existing_source, existing in bootstrap_sessions.items():
                 if existing_source == source_id:
                     continue
                 if _connector_bootstrap_is_running(existing):
+                    raise RuntimeError(
+                        f"connector bootstrap already running for source: {existing_source}"
+                    )
+            for existing_source, existing in manual_bootstrap_sessions.items():
+                if existing_source == source_id:
+                    continue
+                if existing.finished_at is None and not existing.canceled:
                     raise RuntimeError(
                         f"connector bootstrap already running for source: {existing_source}"
                     )
@@ -8819,28 +8850,51 @@ def create_app(
                         _warning(
                             "preview connector bootstrap started; this connector is not live-validated yet",
                             code="connector_preview_bootstrap_started",
+                    )
+                    )
+                return _response(True, result=result, warnings=warnings, error=None)
+            manual_prev = manual_bootstrap_sessions.get(source_id)
+            if manual_prev is not None and manual_prev.finished_at is None and not manual_prev.canceled:
+                snapshot = service.get_bootstrap_status(source_id=source_id)
+                result = {
+                    "source_id": source_id,
+                    "reused": True,
+                    "bootstrap": _serialize_auth_bootstrap_snapshot(snapshot),
+                    "remote_login_url": str(
+                        service.get_auth_status(source_id=source_id, validate_session=False)
+                        .metadata
+                        .get("auth_start_url")
+                        or existing_remote_url
+                    ),
+                }
+                if _connector_is_preview_source(source_id, config=app_config):
+                    warnings.append(
+                        _warning(
+                            "preview connector bootstrap started; this connector is not live-validated yet",
+                            code="connector_preview_bootstrap_started",
                         )
                     )
                 return _response(True, result=result, warnings=warnings, error=None)
 
             remote_login_url: str | None = None
             env: dict[str, str] | None = None
-            try:
-                _ensure_vnc_runtime(app)
-                remote_login_url = _novnc_login_url(request)
-                runtime = get_vnc_runtime(app)
-                if runtime is not None:
-                    env = {
-                        "DISPLAY": runtime.display,
-                        "LIDLTOOL_AUTH_BROWSER_MODE": "remote_vnc",
-                    }
-            except Exception as exc:  # noqa: BLE001
-                warnings.append(
-                    _warning(
-                        f"remote browser session unavailable; falling back to local display ({exc})",
-                        code="connector_remote_browser_session_unavailable",
+            if not uses_manual_browser_handoff:
+                try:
+                    _ensure_vnc_runtime(app)
+                    remote_login_url = _novnc_login_url(request)
+                    runtime = get_vnc_runtime(app)
+                    if runtime is not None:
+                        env = {
+                            "DISPLAY": runtime.display,
+                            "LIDLTOOL_AUTH_BROWSER_MODE": "remote_vnc",
+                        }
+                except Exception as exc:  # noqa: BLE001
+                    warnings.append(
+                        _warning(
+                            f"remote browser session unavailable; falling back to local display ({exc})",
+                            code="connector_remote_browser_session_unavailable",
+                        )
                     )
-                )
 
             started = service.start_bootstrap(
                 source_id=source_id,
@@ -8849,14 +8903,16 @@ def create_app(
             if started.bootstrap is None:
                 raise RuntimeError(f"failed to start connector bootstrap for source: {source_id}")
             bootstrap = bootstrap_sessions.get(source_id)
-            if bootstrap is None:
-                raise RuntimeError(f"connector bootstrap session missing after start: {source_id}")
 
             result = {
                 "source_id": source_id,
                 "reused": started.status == "reused",
-                "bootstrap": _serialize_connector_bootstrap(bootstrap),
-                "remote_login_url": remote_login_url,
+                "bootstrap": (
+                    _serialize_connector_bootstrap(bootstrap)
+                    if bootstrap is not None
+                    else _serialize_auth_bootstrap_snapshot(started.bootstrap)
+                ),
+                "remote_login_url": remote_login_url or started.metadata.get("auth_start_url"),
             }
             if _connector_is_preview_source(
                 manifest.source_id,
@@ -8892,18 +8948,13 @@ def create_app(
             if bootstrap is None:
                 service = _connector_auth_service(app, config=app_config)
                 snapshot = service.get_bootstrap_status(source_id=source_id)
-                result: dict[str, Any] = {
-                    "source_id": snapshot.source_id,
-                    "status": snapshot.state,
-                    "command": None,
-                    "pid": None,
-                    "started_at": None,
-                    "finished_at": None,
-                    "return_code": None,
-                    "output_tail": [],
-                    "can_cancel": False,
-                    "remote_login_url": remote_login_url,
-                }
+                result = _serialize_auth_bootstrap_snapshot(snapshot)
+                result["remote_login_url"] = remote_login_url
+                if snapshot.state == "running":
+                    status = service.get_auth_status(source_id=source_id, validate_session=False)
+                    manual_remote_login_url = str(status.metadata.get("auth_start_url") or "").strip()
+                    if manual_remote_login_url:
+                        result["remote_login_url"] = manual_remote_login_url
             else:
                 result = dict(_serialize_connector_bootstrap(bootstrap))
                 result["remote_login_url"] = remote_login_url
@@ -8929,18 +8980,18 @@ def create_app(
                 _resolve_request_user(request=request, session=session, config=app_config)
 
             bootstrap_sessions = get_connector_command_sessions(app, kind="bootstrap")
-            bootstrap = bootstrap_sessions.get(source_id)
-            if bootstrap is None:
-                result = {"source_id": source_id, "canceled": False, "bootstrap": None}
-            else:
-                service = _connector_auth_service(app, config=app_config)
-                service.cancel_bootstrap(source_id=source_id)
-                result = {
-                    "source_id": source_id,
-                    "canceled": True,
-                    "bootstrap": _serialize_connector_bootstrap(bootstrap),
-                }
-            if not _connector_any_running(bootstrap_sessions):
+            service = _connector_auth_service(app, config=app_config)
+            canceled = service.cancel_bootstrap(source_id=source_id)
+            result = {
+                "source_id": source_id,
+                "canceled": canceled.status == "canceled",
+                "bootstrap": (
+                    _serialize_auth_bootstrap_snapshot(canceled.bootstrap)
+                    if canceled.bootstrap is not None
+                    else None
+                ),
+            }
+            if not service.any_bootstrap_running():
                 _stop_vnc_runtime(app)
             if _connector_is_preview_source(source_id, config=app_config):
                 warnings.append(

@@ -53,7 +53,7 @@ from lidltool.ingest.json_payloads import make_json_safe
 from lidltool.ingest.normalizer import normalize_receipt, parse_datetime, to_decimal
 from lidltool.ingest.quarantine import quarantine_connector_payload
 from lidltool.ingest.validation import validate_normalized_connector_payload
-from lidltool.ingest.validation_results import ValidationOutcome
+from lidltool.ingest.validation_results import ValidationOutcome, ValidationReport, ValidationSeverity
 from lidltool.lidl.client import LidlClient
 
 LOGGER = logging.getLogger(__name__)
@@ -217,179 +217,267 @@ class SyncService:
                     continue
 
                 detail = self._connector.fetch_record_detail(receipt_id)
-                normalized = normalize_receipt(detail, category_rules=rules)
-                canonical_normalized = self._connector.normalize(detail)
-                discounts = self._connector.extract_discounts(detail)
-                validation_report = validate_normalized_connector_payload(
-                    source_record_ref=receipt_id,
-                    source_record_detail=detail,
-                    connector_normalized=canonical_normalized,
-                    extracted_discounts=discounts,
-                )
-                validation_outcomes[validation_report.outcome.value] += 1
-                for issue in validation_report.issues:
-                    validation_issue_codes[issue.code] += 1
-
-                if validation_report.outcome in {
-                    ValidationOutcome.QUARANTINE,
-                    ValidationOutcome.REJECT,
-                }:
-                    quarantine_row = quarantine_connector_payload(
-                        session,
-                        source_id=source.id,
-                        source_account=source_account,
-                        ingestion_job_id=self._ingestion_job_id,
-                        connector=self._connector,
-                        action_name="canonical_write_gate",
-                        outcome=validation_report.outcome,
+                canonical_normalized: dict[str, Any] | None = None
+                try:
+                    try:
+                        normalized = normalize_receipt(detail, category_rules=rules)
+                    except Exception as exc:  # noqa: BLE001
+                        _quarantine_connector_action_failure(
+                            session=session,
+                            source=source,
+                            source_account=source_account,
+                            connector=self._connector,
+                            ingestion_job_id=self._ingestion_job_id,
+                            source_record_ref=receipt_id,
+                            source_record_detail=detail,
+                            action_name="normalize_receipt",
+                            error=exc,
+                            report_code="normalize_receipt_failed",
+                            report_message="receipt normalization failed; payload quarantined",
+                            state_warnings=state_warnings,
+                            blocked_outputs=blocked_outputs,
+                        )
+                        validation_outcomes[ValidationOutcome.QUARANTINE.value] += 1
+                        validation_issue_codes["normalize_receipt_failed"] += 1
+                        _emit_sync_progress(progress_cb, progress, stage="processing")
+                        continue
+                    try:
+                        canonical_normalized = self._connector.normalize(detail)
+                    except Exception as exc:  # noqa: BLE001
+                        _quarantine_connector_action_failure(
+                            session=session,
+                            source=source,
+                            source_account=source_account,
+                            connector=self._connector,
+                            ingestion_job_id=self._ingestion_job_id,
+                            source_record_ref=receipt_id,
+                            source_record_detail=detail,
+                            action_name="normalize_record",
+                            error=exc,
+                            report_code="normalize_record_failed",
+                            report_message="connector normalize_record failed; payload quarantined",
+                            state_warnings=state_warnings,
+                            blocked_outputs=blocked_outputs,
+                        )
+                        validation_outcomes[ValidationOutcome.QUARANTINE.value] += 1
+                        validation_issue_codes["normalize_record_failed"] += 1
+                        _emit_sync_progress(progress_cb, progress, stage="processing")
+                        continue
+                    try:
+                        discounts = self._connector.extract_discounts(detail)
+                    except Exception as exc:  # noqa: BLE001
+                        _quarantine_connector_action_failure(
+                            session=session,
+                            source=source,
+                            source_account=source_account,
+                            connector=self._connector,
+                            ingestion_job_id=self._ingestion_job_id,
+                            source_record_ref=receipt_id,
+                            source_record_detail=detail,
+                            action_name="extract_discounts",
+                            connector_normalized=canonical_normalized,
+                            error=exc,
+                            report_code="extract_discounts_failed",
+                            report_message="connector extract_discounts failed; payload quarantined",
+                            state_warnings=state_warnings,
+                            blocked_outputs=blocked_outputs,
+                        )
+                        validation_outcomes[ValidationOutcome.QUARANTINE.value] += 1
+                        validation_issue_codes["extract_discounts_failed"] += 1
+                        _emit_sync_progress(progress_cb, progress, stage="processing")
+                        continue
+                    validation_report = validate_normalized_connector_payload(
                         source_record_ref=receipt_id,
                         source_record_detail=detail,
                         connector_normalized=canonical_normalized,
                         extracted_discounts=discounts,
-                        report=validation_report,
                     )
-                    blocked_outputs.append(
-                        {
-                            "source_record_ref": receipt_id,
-                            "outcome": validation_report.outcome.value,
-                            "quarantine_id": quarantine_row.id,
-                            "issue_codes": [issue.code for issue in validation_report.issues],
-                        }
-                    )
-                    state_warnings.append(
-                        _validation_summary_message(
-                            record_ref=receipt_id,
-                            outcome=validation_report.outcome,
-                            issue_count=len(validation_report.issues),
-                        )
-                    )
-                    LOGGER.warning(
-                        "ingest.validation.blocked source=%s record_ref=%s outcome=%s quarantine_id=%s",
-                        source.id,
-                        receipt_id,
-                        validation_report.outcome.value,
-                        quarantine_row.id,
-                    )
-                    session.commit()
-                    _emit_sync_progress(progress_cb, progress, stage="processing")
-                    continue
+                    validation_outcomes[validation_report.outcome.value] += 1
+                    for issue in validation_report.issues:
+                        validation_issue_codes[issue.code] += 1
 
-                if validation_report.outcome is ValidationOutcome.WARN:
-                    state_warnings.append(
-                        _validation_summary_message(
-                            record_ref=receipt_id,
+                    if validation_report.outcome in {
+                        ValidationOutcome.QUARANTINE,
+                        ValidationOutcome.REJECT,
+                    }:
+                        quarantine_row = quarantine_connector_payload(
+                            session,
+                            source_id=source.id,
+                            source_account=source_account,
+                            ingestion_job_id=self._ingestion_job_id,
+                            connector=self._connector,
+                            action_name="canonical_write_gate",
                             outcome=validation_report.outcome,
-                            issue_count=len(validation_report.issues),
+                            source_record_ref=receipt_id,
+                            source_record_detail=detail,
+                            connector_normalized=canonical_normalized,
+                            extracted_discounts=discounts,
+                            report=validation_report,
                         )
-                    )
-                    LOGGER.warning(
-                        "ingest.validation.warn source=%s record_ref=%s issues=%s",
-                        source.id,
-                        receipt_id,
-                        len(validation_report.issues),
-                    )
+                        blocked_outputs.append(
+                            {
+                                "source_record_ref": receipt_id,
+                                "outcome": validation_report.outcome.value,
+                                "quarantine_id": quarantine_row.id,
+                                "issue_codes": [issue.code for issue in validation_report.issues],
+                            }
+                        )
+                        state_warnings.append(
+                            _validation_summary_message(
+                                record_ref=receipt_id,
+                                outcome=validation_report.outcome,
+                                issue_count=len(validation_report.issues),
+                            )
+                        )
+                        LOGGER.warning(
+                            "ingest.validation.blocked source=%s record_ref=%s outcome=%s quarantine_id=%s",
+                            source.id,
+                            receipt_id,
+                            validation_report.outcome.value,
+                            quarantine_row.id,
+                        )
+                        session.commit()
+                        _emit_sync_progress(progress_cb, progress, stage="processing")
+                        continue
 
-                _upsert_canonical_transaction(
-                    session=session,
-                    source=source,
-                    source_account=source_account,
-                    source_record_ref=receipt_id,
-                    source_record_detail=detail,
-                    connector_normalized=canonical_normalized,
-                    fallback_normalized=normalized,
-                    extracted_discounts=discounts,
-                    normalization_bundle=normalization_bundle,
-                    compiled_rules=rules,
-                    use_model=self._item_categorizer_model_client is not None,
-                    model_client=self._item_categorizer_model_client,
-                    model_batch_size=int(
-                        getattr(self._config, "item_categorizer_max_batch_size", 8) or 8
-                    ),
-                    model_confidence_threshold=float(
-                        getattr(
-                            self._config,
-                            "item_categorizer_confidence_threshold",
+                    if validation_report.outcome is ValidationOutcome.WARN:
+                        state_warnings.append(
+                            _validation_summary_message(
+                                record_ref=receipt_id,
+                                outcome=validation_report.outcome,
+                                issue_count=len(validation_report.issues),
+                            )
+                        )
+                        LOGGER.warning(
+                            "ingest.validation.warn source=%s record_ref=%s issues=%s",
+                            source.id,
+                            receipt_id,
+                            len(validation_report.issues),
+                        )
+
+                    _upsert_canonical_transaction(
+                        session=session,
+                        source=source,
+                        source_account=source_account,
+                        source_record_ref=receipt_id,
+                        source_record_detail=detail,
+                        connector_normalized=canonical_normalized,
+                        fallback_normalized=normalized,
+                        extracted_discounts=discounts,
+                        normalization_bundle=normalization_bundle,
+                        compiled_rules=rules,
+                        use_model=self._item_categorizer_model_client is not None,
+                        model_client=self._item_categorizer_model_client,
+                        model_batch_size=int(
+                            getattr(self._config, "item_categorizer_max_batch_size", 8) or 8
+                        ),
+                        model_confidence_threshold=float(
                             getattr(
                                 self._config,
-                                "item_categorizer_low_confidence_threshold",
-                                0.65,
-                            ),
-                        )
-                        or 0.65
-                    ),
-                )
-
-                if receipt_exists(session, normalized.id):
-                    ingested_streak += 1
-                    progress.skipped_existing += 1
-                    session.commit()
-                    _emit_sync_progress(progress_cb, progress, stage="processing")
-                    if (
-                        not full
-                        and ingested_streak >= self._config.already_ingested_streak_threshold
-                    ):
-                        break
-                    continue
-
-                if fingerprint_exists(session, normalized.fingerprint):
-                    ingested_streak += 1
-                    progress.skipped_existing += 1
-                    session.commit()
-                    _emit_sync_progress(progress_cb, progress, stage="processing")
-                    continue
-
-                ingested_streak = 0
-                _upsert_store(
-                    session,
-                    normalized.store_id,
-                    normalized.store_name,
-                    normalized.store_address,
-                )
-                receipt_row = Receipt(
-                    id=normalized.id,
-                    purchased_at=normalized.purchased_at,
-                    store_id=normalized.store_id,
-                    store_name=normalized.store_name,
-                    store_address=normalized.store_address,
-                    total_gross=normalized.total_gross,
-                    currency=normalized.currency,
-                    discount_total=normalized.discount_total,
-                    fingerprint=normalized.fingerprint,
-                    raw_json=normalized.raw_json,
-                )
-                session.add(receipt_row)
-                session.flush()
-
-                for item in normalized.items:
-                    session.add(
-                        ReceiptItem(
-                            receipt_id=normalized.id,
-                            line_no=item.line_no,
-                            name=item.name,
-                            qty=item.qty,
-                            unit=item.unit,
-                            unit_price=item.unit_price,
-                            line_total=item.line_total,
-                            vat_rate=item.vat_rate,
-                            category=item.category,
-                            discounts=item.discounts,
-                        )
+                                "item_categorizer_confidence_threshold",
+                                getattr(
+                                    self._config,
+                                    "item_categorizer_low_confidence_threshold",
+                                    0.65,
+                                ),
+                            )
+                            or 0.65
+                        ),
                     )
 
-                progress.new_receipts += 1
-                progress.new_items += len(normalized.items)
-                if newest_seen_at is None or normalized.purchased_at > newest_seen_at:
-                    newest_seen_at = normalized.purchased_at
-                    newest_seen_id = normalized.id
+                    if receipt_exists(session, normalized.id):
+                        ingested_streak += 1
+                        progress.skipped_existing += 1
+                        session.commit()
+                        _emit_sync_progress(progress_cb, progress, stage="processing")
+                        if (
+                            not full
+                            and ingested_streak >= self._config.already_ingested_streak_threshold
+                        ):
+                            break
+                        continue
 
-                if cutoff and normalized.purchased_at < cutoff:
+                    if fingerprint_exists(session, normalized.fingerprint):
+                        ingested_streak += 1
+                        progress.skipped_existing += 1
+                        session.commit()
+                        _emit_sync_progress(progress_cb, progress, stage="processing")
+                        continue
+
+                    ingested_streak = 0
+                    _upsert_store(
+                        session,
+                        normalized.store_id,
+                        normalized.store_name,
+                        normalized.store_address,
+                    )
+                    receipt_row = Receipt(
+                        id=normalized.id,
+                        purchased_at=normalized.purchased_at,
+                        store_id=normalized.store_id,
+                        store_name=normalized.store_name,
+                        store_address=normalized.store_address,
+                        total_gross=normalized.total_gross,
+                        currency=normalized.currency,
+                        discount_total=normalized.discount_total,
+                        fingerprint=normalized.fingerprint,
+                        raw_json=normalized.raw_json,
+                    )
+                    session.add(receipt_row)
+                    session.flush()
+
+                    for item in normalized.items:
+                        session.add(
+                            ReceiptItem(
+                                receipt_id=normalized.id,
+                                line_no=item.line_no,
+                                name=item.name,
+                                qty=item.qty,
+                                unit=item.unit,
+                                unit_price=item.unit_price,
+                                line_total=item.line_total,
+                                vat_rate=item.vat_rate,
+                                category=item.category,
+                                discounts=item.discounts,
+                            )
+                        )
+
+                    progress.new_receipts += 1
+                    progress.new_items += len(normalized.items)
+                    if newest_seen_at is None or normalized.purchased_at > newest_seen_at:
+                        newest_seen_at = normalized.purchased_at
+                        newest_seen_id = normalized.id
+
+                    if cutoff and normalized.purchased_at < cutoff:
+                        session.commit()
+                        _emit_sync_progress(progress_cb, progress, stage="processing")
+                        cutoff_hit = True
+                        break
+
                     session.commit()
                     _emit_sync_progress(progress_cb, progress, stage="processing")
-                    cutoff_hit = True
-                    break
-
-                session.commit()
-                _emit_sync_progress(progress_cb, progress, stage="processing")
+                except Exception as exc:  # noqa: BLE001
+                    session.rollback()
+                    _quarantine_connector_action_failure(
+                        session=session,
+                        source=source,
+                        source_account=source_account,
+                        connector=self._connector,
+                        ingestion_job_id=self._ingestion_job_id,
+                        source_record_ref=receipt_id,
+                        source_record_detail=detail,
+                        action_name="process_record",
+                        connector_normalized=canonical_normalized,
+                        error=exc,
+                        report_code="process_record_failed",
+                        report_message="record processing failed unexpectedly; payload quarantined",
+                        state_warnings=state_warnings,
+                        blocked_outputs=blocked_outputs,
+                    )
+                    validation_outcomes[ValidationOutcome.QUARANTINE.value] += 1
+                    validation_issue_codes["process_record_failed"] += 1
+                    _emit_sync_progress(progress_cb, progress, stage="processing")
+                    continue
 
             _emit_sync_progress(progress_cb, progress, stage="finalizing")
             sync_state.last_success_at = datetime.now(tz=UTC)
@@ -446,6 +534,71 @@ def _emit_sync_progress(
         progress.discovered_receipts = discovered_receipts
     if progress_cb is not None:
         progress_cb(progress)
+
+
+def _quarantine_connector_action_failure(
+    *,
+    session: Session,
+    source: Source,
+    source_account: SourceAccount | None,
+    connector: Connector,
+    ingestion_job_id: str | None,
+    source_record_ref: str,
+    source_record_detail: dict[str, Any],
+    action_name: str,
+    error: Exception,
+    report_code: str,
+    report_message: str,
+    state_warnings: list[str],
+    blocked_outputs: list[dict[str, Any]],
+    connector_normalized: dict[str, Any] | None = None,
+) -> None:
+    report = ValidationReport()
+    report.add_issue(
+        code=report_code,
+        severity=ValidationSeverity.QUARANTINE,
+        message=report_message,
+        path="$.normalized_record",
+        details={"error": str(error), "action_name": action_name},
+    )
+    quarantine_row = quarantine_connector_payload(
+        session,
+        source_id=source.id,
+        source_account=source_account,
+        ingestion_job_id=ingestion_job_id,
+        connector=connector,
+        action_name=action_name,
+        outcome=ValidationOutcome.QUARANTINE,
+        source_record_ref=source_record_ref,
+        source_record_detail=source_record_detail,
+        connector_normalized=connector_normalized or {},
+        extracted_discounts=[],
+        report=report,
+    )
+    blocked_outputs.append(
+        {
+            "source_record_ref": source_record_ref,
+            "outcome": ValidationOutcome.QUARANTINE.value,
+            "quarantine_id": quarantine_row.id,
+            "issue_codes": [report_code],
+        }
+    )
+    state_warnings.append(
+        _validation_summary_message(
+            record_ref=source_record_ref,
+            outcome=ValidationOutcome.QUARANTINE,
+            issue_count=len(report.issues),
+        )
+    )
+    LOGGER.warning(
+        "ingest.validation.connector_action_failed source=%s record_ref=%s action=%s quarantine_id=%s error=%s",
+        source.id,
+        source_record_ref,
+        action_name,
+        quarantine_row.id,
+        error,
+    )
+    session.commit()
 
 
 def _extract_receipt_id(summary: dict[str, object]) -> str | None:

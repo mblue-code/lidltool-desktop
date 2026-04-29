@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import subprocess
 import sys
 import threading
@@ -15,7 +16,12 @@ from lidltool.amazon.bootstrap_playwright import run_amazon_headful_bootstrap
 from lidltool.amazon.client_playwright import AmazonClientError
 from lidltool.amazon.profiles import get_country_profile, list_country_profiles
 from lidltool.amazon.session import default_amazon_state_file
-from lidltool.auth.bootstrap_playwright import run_headful_bootstrap
+from lidltool.auth.bootstrap_playwright import (
+    PreparedLidlBootstrap,
+    exchange_lidl_callback_url,
+    prepare_lidl_manual_bootstrap,
+    run_headful_bootstrap,
+)
 from lidltool.auth.token_store import TokenStore
 from lidltool.config import AppConfig
 from lidltool.connectors.auth.auth_capabilities import ConnectorAuthCapabilities
@@ -72,8 +78,24 @@ class ConnectorBootstrapSession:
 
 
 @dataclass(slots=True)
+class ManualOAuthBootstrapSession:
+    source_id: str
+    flow_id: str
+    start_url: str
+    callback_url_prefixes: tuple[str, ...]
+    verifier: str
+    started_at: datetime
+    output: deque[str]
+    command: tuple[str, ...] = ("desktop:manual-oauth",)
+    finished_at: datetime | None = None
+    return_code: int | None = None
+    canceled: bool = False
+
+
+@dataclass(slots=True)
 class ConnectorAuthSessionRegistry:
     sessions: dict[str, ConnectorBootstrapSession] = field(default_factory=dict)
+    manual_oauth_sessions: dict[str, ManualOAuthBootstrapSession] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,6 +324,34 @@ def serialize_connector_bootstrap(session: ConnectorBootstrapSession) -> AuthBoo
     )
 
 
+def manual_oauth_bootstrap_is_running(session: ManualOAuthBootstrapSession) -> bool:
+    return session.return_code is None
+
+
+def serialize_manual_oauth_bootstrap(session: ManualOAuthBootstrapSession) -> AuthBootstrapSnapshot:
+    started_at = session.started_at
+    finished_at = session.finished_at
+    return_code = session.return_code
+    output_tail = tuple(list(session.output)[-30:])
+    canceled = session.canceled
+    state: BootstrapLifecycleState = (
+        "running"
+        if return_code is None
+        else "canceled" if canceled else "succeeded" if return_code == 0 else "failed"
+    )
+    return AuthBootstrapSnapshot(
+        source_id=session.source_id,
+        state=state,
+        command=tuple(session.command),
+        pid=None,
+        started_at=started_at,
+        finished_at=finished_at,
+        return_code=return_code,
+        output_tail=output_tail,
+        can_cancel=return_code is None,
+    )
+
+
 def stream_connector_bootstrap_output(
     registry: ConnectorAuthSessionRegistry,
     *,
@@ -419,6 +469,81 @@ class ConnectorAuthOrchestrationService:
             raise RuntimeError(f"connector manifest auth capabilities missing for source: {source_id}")
         return manifest.auth
 
+    def _manual_oauth_session_for_source(self, source_id: str) -> ManualOAuthBootstrapSession | None:
+        return self._session_registry.manual_oauth_sessions.get(source_id)
+
+    def _is_manual_lidl_oauth_source(
+        self,
+        *,
+        source_id: str,
+        manifest: ConnectorManifest,
+        capabilities: ConnectorAuthCapabilities,
+    ) -> bool:
+        return (
+            manifest.runtime_kind == "builtin"
+            and source_id == "lidl_plus_de"
+            and capabilities.auth_kind == "oauth_pkce"
+        )
+
+    def _start_manual_lidl_oauth_bootstrap(
+        self,
+        *,
+        source_id: str,
+        manifest: ConnectorManifest,
+    ) -> AuthActionResult:
+        existing = self._manual_oauth_session_for_source(source_id)
+        if existing is not None and manual_oauth_bootstrap_is_running(existing):
+            return AuthActionResult(
+                manifest=manifest,
+                source_id=source_id,
+                state="connecting",
+                status="reused",
+                ok=True,
+                detail="reusing running manual auth bootstrap session",
+                bootstrap=serialize_manual_oauth_bootstrap(existing),
+                metadata={
+                    "supports_live_session_bootstrap": True,
+                    "auth_start_url": existing.start_url,
+                    "manual_callback_supported": True,
+                    "flow_id": existing.flow_id,
+                    "callback_url_prefixes": list(existing.callback_url_prefixes),
+                },
+            )
+
+        source_suffix = manifest.source_id.rsplit("_", 1)[-1]
+        prepared: PreparedLidlBootstrap = prepare_lidl_manual_bootstrap(
+            country=source_suffix.upper(),
+            language=source_suffix.lower(),
+        )
+        session = ManualOAuthBootstrapSession(
+            source_id=source_id,
+            flow_id=secrets.token_hex(12),
+            start_url=prepared.auth_url,
+            callback_url_prefixes=prepared.callback_url_prefixes,
+            verifier=prepared.verifier,
+            started_at=datetime.now(tz=UTC),
+            output=deque(maxlen=400),
+        )
+        session.output.append("Waiting for Lidl callback in the desktop app.")
+        session.output.append("Open the Lidl sign-in in your browser to continue.")
+        self._session_registry.manual_oauth_sessions[source_id] = session
+        return AuthActionResult(
+            manifest=manifest,
+            source_id=source_id,
+            state="connecting",
+            status="started",
+            ok=True,
+            detail="manual auth bootstrap started",
+            bootstrap=serialize_manual_oauth_bootstrap(session),
+            metadata={
+                "supports_live_session_bootstrap": True,
+                "auth_start_url": session.start_url,
+                "manual_callback_supported": True,
+                "flow_id": session.flow_id,
+                "callback_url_prefixes": list(session.callback_url_prefixes),
+            },
+        )
+
     def get_auth_status(
         self,
         *,
@@ -433,12 +558,31 @@ class ConnectorAuthOrchestrationService:
         manifest = self._registry.require_manifest(source_id)
         capabilities = self.capabilities_for_source(source_id)
         bridge = _builtin_auth_bridge_for_manifest(source_id=source_id, manifest=manifest)
+        manual_oauth_session = self._manual_oauth_session_for_source(source_id)
         bootstrap_session = self._session_registry.sessions.get(source_id)
         bootstrap = (
             serialize_connector_bootstrap(bootstrap_session)
             if bootstrap_session is not None
             else None
         )
+        if manual_oauth_session is not None:
+            bootstrap = serialize_manual_oauth_bootstrap(manual_oauth_session)
+        if bootstrap is not None and bootstrap.state == "running" and manual_oauth_session is not None:
+            return self._status_snapshot(
+                manifest=manifest,
+                capabilities=capabilities,
+                state="bootstrap_running",
+                detail="complete Lidl sign-in in your normal browser, then return to the app",
+                bootstrap=bootstrap,
+                connector_options=resolved_options,
+                metadata={
+                    "auth_start_url": manual_oauth_session.start_url,
+                    "flow_id": manual_oauth_session.flow_id,
+                    "manual_callback_supported": True,
+                    "callback_url_prefixes": list(manual_oauth_session.callback_url_prefixes),
+                },
+                diagnostics={"manual_auth_flow": "desktop_protocol_callback"},
+            )
         if bootstrap is not None and bootstrap.state == "running":
             plugin_snapshot: AuthStatusSnapshot | None = None
             if bridge is None and self._connector_builder is not None:
@@ -605,6 +749,15 @@ class ConnectorAuthOrchestrationService:
     ) -> AuthActionResult:
         manifest = self._registry.require_manifest(source_id)
         capabilities = self.capabilities_for_source(source_id)
+        if self._is_manual_lidl_oauth_source(
+            source_id=source_id,
+            manifest=manifest,
+            capabilities=capabilities,
+        ):
+            return self._start_manual_lidl_oauth_bootstrap(
+                source_id=source_id,
+                manifest=manifest,
+            )
         command = self._build_bootstrap_command(source_id, extra_args=extra_args)
         if command is None:
             raise RuntimeError(f"connector bootstrap not supported for source: {source_id}")
@@ -656,12 +809,32 @@ class ConnectorAuthOrchestrationService:
     def get_bootstrap_status(self, *, source_id: str) -> AuthBootstrapSnapshot:
         session = self._session_registry.sessions.get(source_id)
         if session is None:
+            manual_session = self._manual_oauth_session_for_source(source_id)
+            if manual_session is not None:
+                return serialize_manual_oauth_bootstrap(manual_session)
             return AuthBootstrapSnapshot(source_id=source_id, state="idle")
         return serialize_connector_bootstrap(session)
 
     def cancel_bootstrap(self, *, source_id: str) -> AuthActionResult:
         manifest = self._registry.require_manifest(source_id)
         session = self._session_registry.sessions.get(source_id)
+        manual_session = self._manual_oauth_session_for_source(source_id)
+        if manual_session is not None:
+            manual_session.canceled = True
+            manual_session.return_code = 130
+            manual_session.finished_at = datetime.now(tz=UTC)
+            manual_session.output.append("Manual auth bootstrap canceled.")
+            snapshot = serialize_manual_oauth_bootstrap(manual_session)
+            self._session_registry.manual_oauth_sessions.pop(source_id, None)
+            return AuthActionResult(
+                manifest=manifest,
+                source_id=source_id,
+                state="bootstrap_canceled",
+                status="canceled",
+                ok=True,
+                detail="auth bootstrap canceled",
+                bootstrap=snapshot,
+            )
         if session is None:
             self._cancel_plugin_auth_flow(source_id=source_id)
             return AuthActionResult(
@@ -699,6 +872,37 @@ class ConnectorAuthOrchestrationService:
         normalized_callback_url = str(callback_url or "").strip()
         if not normalized_callback_url:
             raise RuntimeError("callback_url is required to confirm connector bootstrap")
+        manual_session = self._manual_oauth_session_for_source(source_id)
+        bridge = _builtin_auth_bridge_for_manifest(source_id=source_id, manifest=manifest)
+        if manual_session is not None and bridge is not None and bridge.auth_kind == "oauth_pkce":
+            if not any(
+                normalized_callback_url.startswith(prefix)
+                for prefix in manual_session.callback_url_prefixes
+            ):
+                raise RuntimeError("callback_url does not match the expected Lidl callback URL")
+            try:
+                refresh_token = exchange_lidl_callback_url(
+                    normalized_callback_url,
+                    manual_session.verifier,
+                )
+            except Exception as exc:
+                manual_session.output.append(f"Manual callback confirm failed: {exc}")
+                raise
+            token_store = TokenStore.from_config(self._config)
+            token_store.set_refresh_token(refresh_token)
+            manual_session.output.append("Lidl callback captured and refresh token stored.")
+            manual_session.return_code = 0
+            manual_session.finished_at = datetime.now(tz=UTC)
+            self._session_registry.manual_oauth_sessions.pop(source_id, None)
+            return AuthActionResult(
+                manifest=manifest,
+                source_id=source_id,
+                state="connected",
+                status="confirmed",
+                ok=True,
+                detail="Lidl sign-in captured successfully",
+                metadata={"token_file": str(self._config.token_file)},
+            )
 
         resolved_options = self._resolve_connector_options(
             source_id=source_id,
@@ -765,7 +969,9 @@ class ConnectorAuthOrchestrationService:
         )
 
     def any_bootstrap_running(self) -> bool:
-        return any_connector_bootstrap_running(self._session_registry.sessions)
+        return any_connector_bootstrap_running(self._session_registry.sessions) or bool(
+            self._session_registry.manual_oauth_sessions
+        )
 
     def _build_process_env(self, *, extra_env: Mapping[str, str] | None = None) -> dict[str, str]:
         env = os.environ.copy()

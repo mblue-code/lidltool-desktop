@@ -381,11 +381,25 @@ def _should_accept_callback_candidate(
             navigation_ok = saw_navigation_away
     if not navigation_ok:
         return False
+    parsed = urllib.parse.urlparse(candidate)
+    if (
+        expected_callback_state is None
+        and parsed.scheme
+        and parsed.scheme not in {"http", "https"}
+        and not _callback_candidate_contains_auth_response(parsed)
+    ):
+        return False
     if expected_callback_state is None:
         return True
-    parsed = urllib.parse.urlparse(candidate)
     actual_state = urllib.parse.parse_qs(parsed.query).get("state", [None])[0]
     return actual_state == expected_callback_state
+
+
+def _callback_candidate_contains_auth_response(parsed: urllib.parse.ParseResult) -> bool:
+    query = urllib.parse.parse_qs(parsed.query)
+    fragment = urllib.parse.parse_qs(parsed.fragment)
+    auth_keys = {"code", "error", "access_token", "id_token", "oauth_token"}
+    return any(key in query or key in fragment for key in auth_keys)
 
 
 def _capture_callback_from_context(
@@ -829,8 +843,6 @@ def _should_use_external_chromium_handoff(
     executable_path: Path | None = None,
 ) -> bool:
     if not plan.interactive or mode == "headless_capture_only":
-        return False
-    if plan.expected_callback_state is None:
         return False
     if not _bool_env(
         environment,

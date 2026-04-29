@@ -7,6 +7,9 @@ import type {
   CommandLogEvent,
   CommandResult,
   DesktopCapabilities,
+  DesktopConnectorCallbackEvent,
+  DesktopExternalBrowserId,
+  DesktopExternalBrowserPreferenceState,
   DesktopReleaseMetadata,
   DesktopRuntimeDiagnostics,
   DesktopLocale,
@@ -37,6 +40,11 @@ declare global {
       wakeOcrWorker: () => Promise<OcrWorkerWakeResult>;
       openFullApp: () => Promise<string>;
       openControlCenter: () => Promise<void>;
+      getExternalBrowserPreference: () => Promise<DesktopExternalBrowserPreferenceState>;
+      setExternalBrowserPreference: (
+        preferredBrowser: DesktopExternalBrowserId
+      ) => Promise<DesktopExternalBrowserPreferenceState>;
+      openExternalUrl: (url: string) => Promise<void>;
       runSync: (payload: SyncRequest) => Promise<CommandResult>;
       runExport: (payload: ExportRequest) => Promise<CommandResult>;
       runBackup: (payload: BackupRequest) => Promise<CommandResult>;
@@ -49,9 +57,11 @@ declare global {
       enableReceiptPlugin: (pluginId: string) => Promise<ReceiptPluginPackToggleResult>;
       disableReceiptPlugin: (pluginId: string) => Promise<ReceiptPluginPackToggleResult>;
       uninstallReceiptPlugin: (pluginId: string) => Promise<ReceiptPluginPackUninstallResult>;
+      consumePendingConnectorCallbacks: () => Promise<DesktopConnectorCallbackEvent[]>;
       onLog: (handler: (event: CommandLogEvent) => void) => () => void;
       onBootError: (handler: (message: string) => void) => () => void;
       onLocaleChanged: (handler: (locale: DesktopLocale) => void) => () => void;
+      onConnectorCallback: (handler: (event: DesktopConnectorCallbackEvent) => void) => () => void;
     };
   }
 }
