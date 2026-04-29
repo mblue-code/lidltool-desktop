@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">LidlTool Companion</string>
+    <string name="app_name">Outlays Companion</string>
 
     <string name="tab_home">Überblick</string>
     <string name="tab_transactions">Prüfen</string>
@@ -10,11 +10,11 @@
     <string name="language_english">English</string>
     <string name="language_german">Deutsch</string>
 
-    <string name="app_toolbar_default_title">LidlTool</string>
+    <string name="app_toolbar_default_title">Outlays</string>
 
     <string name="login_eyebrow">Lokale mobile Kopplung</string>
-    <string name="login_title">LidlTool Companion</string>
-    <string name="login_subtitle">Koppeln Sie dieses Telefon mit LidlTool Desktop. Sync ist lokal, explizit und nur vorgesehen, wenn beide Apps geöffnet sind.</string>
+    <string name="login_title">Outlays Companion</string>
+    <string name="login_subtitle">Koppeln Sie dieses Telefon mit Outlays. Sync ist lokal, explizit und nur vorgesehen, wenn beide Apps geöffnet sind.</string>
     <string name="login_connect_label">Zugriffsmodell</string>
     <string name="login_connect_title">Mobil bleibt auf die tägliche Nutzung fokussiert</string>
     <string name="login_connect_body">Verwenden Sie das Telefon für Chat, Belegprüfung, Alarme und OCR-Uploads. Behalten Sie Ersteinrichtung, Anmeldungen für Anbindungen, Plugin-Workflows und Sync-Vorgänge auf einem normalen Computer mit Browser.</string>
@@ -27,7 +27,7 @@
     <string name="login_password">Passwort</string>
     <string name="login_sign_in">Anmelden</string>
     <string name="login_setup_required_title">Desktop-Einrichtung erforderlich</string>
-    <string name="login_setup_required_body">Schließen Sie zuerst die Desktop-Einrichtung ab und erstellen Sie danach eine mobile Kopplung in LidlTool Desktop.</string>
+    <string name="login_setup_required_body">Schließen Sie zuerst die Desktop-Einrichtung ab und erstellen Sie danach eine mobile Kopplung in Outlays.</string>
 
     <string name="action_refresh">Aktualisieren</string>
     <string name="action_logout">Abmelden</string>
@@ -135,7 +135,7 @@
     <string name="common_not_enough_data">Nicht genug Daten</string>
     <string name="common_unknown_merchant">Unbekannter Händler</string>
     <string name="common_uncategorized">Ohne Kategorie</string>
-    <string name="pairing_title">Mit LidlTool Desktop koppeln</string>
+    <string name="pairing_title">Mit Outlays koppeln</string>
     <string name="pairing_body">Öffnen Sie Desktop, wählen Sie Mobil koppeln und scannen oder fügen Sie den QR-Payload ein. Das Telefon behält lokale Daten und synchronisiert nur, wenn beide Apps geöffnet und erreichbar sind.</string>
     <string name="pairing_no_cloud_title">Kein Cloud-Konto</string>
     <string name="pairing_no_cloud_body">Dieser Build koppelt direkt mit Ihrer Desktop-App. Er meldet sich nicht an einem selbst gehosteten Backend an und hält keine dauerhafte Live-Sitzung.</string>
@@ -143,7 +143,7 @@
     <string name="pairing_payload_label">protocol_version / endpoint_url / pairing_token</string>
     <string name="pairing_scan_action">QR scannen</string>
     <string name="pairing_scan_title">Kopplungs-QR scannen</string>
-    <string name="pairing_scan_body">Richten Sie die Kamera auf den QR-Code in LidlTool Desktop. Der Scanner schließt automatisch, sobald ein gültiger Code erkannt wurde.</string>
+    <string name="pairing_scan_body">Richten Sie die Kamera auf den QR-Code in Outlays. Der Scanner schließt automatisch, sobald ein gültiger Code erkannt wurde.</string>
     <string name="pairing_scan_camera_unavailable">Die Kameravorschau konnte nicht gestartet werden. Sie können den Kopplungs-Payload weiterhin manuell einfügen.</string>
     <string name="pairing_camera_denied_title">Kamerazugriff abgelehnt</string>
     <string name="pairing_camera_denied_body">Erlauben Sie Kamerazugriff, um den Desktop-Kopplungs-QR-Code zu scannen, oder fügen Sie den Payload unten manuell ein.</string>

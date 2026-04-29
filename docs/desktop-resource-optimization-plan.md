@@ -233,7 +233,7 @@ This is not aligned with the desktop product posture, especially because desktop
 
 ### Change
 
-- introduce a desktop-specific runtime flag, for example `LIDLTOOL_DESKTOP_MODE=minimal`
+- introduce a desktop-specific runtime flag, for example `OUTLAYS_DESKTOP_MODE=minimal`
 - pass that flag from Electron in backend process env
 - use it to skip nonessential background services in desktop mode
 

@@ -380,7 +380,7 @@ class MobilePersistence(context: Context) : SQLiteOpenHelper(context, DB_NAME, n
     }
 
     companion object {
-        private const val DB_NAME = "lidltool_mobile_companion.db"
+        private const val DB_NAME = "outlays_mobile_companion.db"
         private const val DB_VERSION = 1
         const val SINGLETON_ID = "primary"
 

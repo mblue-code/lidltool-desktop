@@ -1,4 +1,4 @@
-"app.title" = "LidlTool";
+"app.title" = "Outlays";
 
 "tab.home" = "Start";
 "tab.receipts" = "Belege";
@@ -55,13 +55,13 @@
 "error.createChatThread" = "Chat-Thread konnte nicht erstellt werden.";
 "error.chatRequest" = "Chat-Anfrage fehlgeschlagen.";
 "error.ocrUpload" = "OCR-Upload fehlgeschlagen.";
-"error.signInFirst" = "Bitte zuerst mit LidlTool Desktop koppeln.";
+"error.signInFirst" = "Bitte zuerst mit Outlays koppeln.";
 "error.pushPermission" = "Benachrichtigungen sind nicht Teil dieses gekoppelten Companion-Builds.";
 "error.pushUnavailable" = "Benachrichtigungen sind in diesem Build nicht verfügbar.";
 "error.pushRegistration" = "Benachrichtigungsregistrierung ist in diesem Build nicht verfügbar.";
 
 "login.eyebrow" = "Lokale Desktop-Kopplung";
-"login.title" = "Mit LidlTool Desktop koppeln";
+"login.title" = "Mit Outlays koppeln";
 "login.subtitle" = "Verbinden Sie dieses iPhone mit dem Kopplungs-Payload aus dem Desktop. Sync läuft nur, wenn beide Apps geöffnet und erreichbar sind.";
 "login.privateAccess.title" = "Nur lokale Kopplung";
 "login.privateAccess.body" = "Der mobile Desktop-Endpunkt darf nicht direkt ins öffentliche Internet gestellt werden. Koppeln Sie im lokalen Netzwerk und halten Sie Sync bewusst im Vordergrund.";
@@ -201,7 +201,7 @@
 "mobile.action.importing" = "Importiert";
 "mobile.login.subtitle" = "Dieser Begleiter speichert Daten lokal und synchronisiert nur mit dem gekoppelten Desktop, während beide Apps geöffnet und erreichbar sind.";
 "mobile.login.noCloud.title" = "Kein Backend-Konto";
-"mobile.login.noCloud.body" = "Öffnen Sie LidlTool Desktop, wählen Sie Mobil koppeln und scannen Sie den QR-Code oder fügen Sie den Payload hier ein. Das iPhone speichert das Sync-Token im Schlüsselbund und die Lesemodelle im privaten App-Speicher.";
+"mobile.login.noCloud.body" = "Öffnen Sie Outlays, wählen Sie Mobil koppeln und scannen Sie den QR-Code oder fügen Sie den Payload hier ein. Das iPhone speichert das Sync-Token im Schlüsselbund und die Lesemodelle im privaten App-Speicher.";
 "mobile.login.payload" = "QR-Payload Version 1";
 "mobile.login.pairPhone" = "Dieses iPhone koppeln";
 "mobile.login.scanQR" = "QR scannen";
@@ -209,7 +209,7 @@
 "mobile.login.manualFallback" = "Manuell einfügen";
 "mobile.login.openSettings" = "Einstellungen öffnen";
 "mobile.login.cameraDenied.title" = "Kamerazugriff ist deaktiviert";
-"mobile.login.cameraDenied.body" = "Aktivieren Sie den Kamerazugriff für LidlTool Harness, um den Kopplungs-QR-Code zu scannen, oder schließen Sie den Scanner und fügen Sie den Payload manuell ein.";
+"mobile.login.cameraDenied.body" = "Aktivieren Sie den Kamerazugriff für Outlays Harness, um den Kopplungs-QR-Code zu scannen, oder schließen Sie den Scanner und fügen Sie den Payload manuell ein.";
 "mobile.login.cameraUnavailable.title" = "Kamera nicht verfügbar";
 "mobile.login.cameraUnavailable.body" = "Dieses Gerät kann die Kamera nicht zum QR-Scannen öffnen. Sie können den Desktop-Kopplungs-Payload weiterhin manuell einfügen.";
 "mobile.overview.title" = "Lokaler Finanzüberblick";
@@ -269,7 +269,7 @@
 "mobile.capture.cameraEncodeError" = "Kamerabild konnte nicht codiert werden.";
 "mobile.sync.eyebrow" = "Bewusster Sync";
 "mobile.sync.title" = "Desktop-Sync";
-"mobile.sync.description" = "Synchronisieren Sie, wenn LidlTool Desktop geöffnet und im lokalen Netzwerk erreichbar ist.";
+"mobile.sync.description" = "Synchronisieren Sie, wenn Outlays geöffnet und im lokalen Netzwerk erreichbar ist.";
 "mobile.sync.desktop" = "Desktop";
 "mobile.sync.endpoint" = "Endpunkt";
 "mobile.sync.cursor" = "Cursor";

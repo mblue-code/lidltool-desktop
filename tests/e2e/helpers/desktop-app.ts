@@ -71,12 +71,21 @@ async function allocateApiPort(): Promise<number> {
 }
 
 export async function launchDesktopApp(options: DesktopLaunchOptions = {}): Promise<DesktopAppSession> {
-  const explicitUserDataDir = options.userDataDir ?? process.env.LIDLTOOL_DESKTOP_TEST_USER_DATA_DIR?.trim();
-  const explicitHomeDir = options.homeDir ?? process.env.LIDLTOOL_DESKTOP_TEST_HOME_DIR?.trim();
-  const explicitTmpPath = options.tmpPath ?? process.env.LIDLTOOL_DESKTOP_TEST_TMP_DIR?.trim();
+  const explicitUserDataDir =
+    options.userDataDir ??
+    process.env.OUTLAYS_DESKTOP_TEST_USER_DATA_DIR?.trim() ??
+    process.env.LIDLTOOL_DESKTOP_TEST_USER_DATA_DIR?.trim();
+  const explicitHomeDir =
+    options.homeDir ??
+    process.env.OUTLAYS_DESKTOP_TEST_HOME_DIR?.trim() ??
+    process.env.LIDLTOOL_DESKTOP_TEST_HOME_DIR?.trim();
+  const explicitTmpPath =
+    options.tmpPath ??
+    process.env.OUTLAYS_DESKTOP_TEST_TMP_DIR?.trim() ??
+    process.env.LIDLTOOL_DESKTOP_TEST_TMP_DIR?.trim();
   const profileRoot = explicitUserDataDir
     ? dirname(explicitUserDataDir)
-    : mkdtempSync(join(tmpdir(), "lidltool-desktop-e2e-"));
+    : mkdtempSync(join(tmpdir(), "outlays-desktop-e2e-"));
   const homeDir = explicitHomeDir || join(profileRoot, "home");
   const tmpPath = explicitTmpPath || join(profileRoot, "tmp");
   const userDataDir = explicitUserDataDir || join(profileRoot, "electron-user-data");
@@ -100,10 +109,10 @@ export async function launchDesktopApp(options: DesktopLaunchOptions = {}): Prom
     XDG_CONFIG_HOME: join(homeDir, ".config"),
     XDG_DATA_HOME: join(homeDir, ".local", "share"),
     TMPDIR: tmpPath,
-    LIDLTOOL_DESKTOP_API_PORT: String(apiPort),
-    LIDLTOOL_DESKTOP_USER_DATA_DIR: userDataDir,
-    LIDLTOOL_CONFIG_DIR: configDir,
-    LIDLTOOL_DOCUMENT_STORAGE_PATH: documentsDir
+    OUTLAYS_DESKTOP_API_PORT: String(apiPort),
+    OUTLAYS_DESKTOP_USER_DATA_DIR: userDataDir,
+    OUTLAYS_DESKTOP_CONFIG_DIR: configDir,
+    OUTLAYS_DESKTOP_DOCUMENT_STORAGE_PATH: documentsDir
   };
 
   if (options.envOverrides) {
@@ -113,11 +122,12 @@ export async function launchDesktopApp(options: DesktopLaunchOptions = {}): Prom
   if (options.frontendDistMode === "missing") {
     const missingFrontendDist = join(profileRoot, "missing-frontend-dist");
     mkdirSync(missingFrontendDist, { recursive: true });
-    env.LIDLTOOL_FRONTEND_DIST = missingFrontendDist;
+    env.OUTLAYS_DESKTOP_FRONTEND_DIST = missingFrontendDist;
   }
 
   const requestedExecutablePath =
-    options.executablePath ?? (process.env.LIDLTOOL_DESKTOP_EXECUTABLE?.trim() || electronBinary);
+    options.executablePath ??
+    (process.env.OUTLAYS_DESKTOP_EXECUTABLE?.trim() || process.env.LIDLTOOL_DESKTOP_EXECUTABLE?.trim() || electronBinary);
   const isPackagedLaunch = requestedExecutablePath !== electronBinary;
 
   const electronApp = await electron.launch({

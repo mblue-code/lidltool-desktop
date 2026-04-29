@@ -50,12 +50,12 @@ This screenshot is not a literal product specification for:
 - branding or product naming
 - retailer logos or merchant identities shown in the mockup
 - sample numbers, dates, or fake account values
-- any US-centric grocery/merchant examples that do not match LidlTool’s actual domain
+- any US-centric grocery/merchant examples that do not match Outlays’ actual domain
 
 Implementation rule:
 
 - Use the screenshot as the design reference for layout, hierarchy, density, and visual tone.
-- Translate that design language into LidlTool’s real desktop product, real routes, real data model, and real supported merchants.
+- Translate that design language into Outlays’ real desktop product, real routes, real data model, and real supported merchants.
 - Do not copy the mockup literally where it conflicts with the actual product domain.
 
 ## Executive Summary
@@ -1185,7 +1185,7 @@ Run a release-candidate cycle dedicated to polish and final defects.
 - Files changed: packaged test expectations updated for the finance dashboard heading and first-run flow, docs updated to match the shipped surface.
 - Deferred issues: none.
 - Blockers: none.
-- Verification performed: `npm run dist:mac`, `LIDLTOOL_DESKTOP_EXECUTABLE='.../dist_electron/mac-arm64/LidlTool Desktop.app/Contents/MacOS/LidlTool Desktop' npm run test:e2e:packaged`.
+- Verification performed: `npm run dist:mac`, `OUTLAYS_DESKTOP_EXECUTABLE='.../dist_electron/mac-arm64/Outlays.app/Contents/MacOS/Outlays' npm run test:e2e:packaged`.
 
 ## Required New Pages
 

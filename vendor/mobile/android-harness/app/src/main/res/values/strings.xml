@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">LidlTool Companion</string>
+    <string name="app_name">Outlays Companion</string>
 
     <string name="tab_home">Home</string>
     <string name="tab_transactions">Review</string>
@@ -11,11 +11,11 @@
     <string name="language_german">Deutsch</string>
     
 
-    <string name="app_toolbar_default_title">LidlTool</string>
+    <string name="app_toolbar_default_title">Outlays</string>
 
     <string name="login_eyebrow">Local mobile pairing</string>
-    <string name="login_title">LidlTool Companion</string>
-    <string name="login_subtitle">Pair this phone with LidlTool Desktop. Sync is local, explicit, and only expected while both apps are open.</string>
+    <string name="login_title">Outlays Companion</string>
+    <string name="login_subtitle">Pair this phone with Outlays. Sync is local, explicit, and only expected while both apps are open.</string>
     <string name="login_connect_label">Connection model</string>
     <string name="login_connect_title">Mobile stays focused on daily use</string>
     <string name="login_connect_body">Use the phone for chat, receipt review, alerts, and OCR uploads. Keep first-run setup, connector auth, plugin flows, and sync operations on a normal computer with a browser.</string>
@@ -28,7 +28,7 @@
     <string name="login_password">Password</string>
     <string name="login_sign_in">Sign in</string>
     <string name="login_setup_required_title">Desktop setup required</string>
-    <string name="login_setup_required_body">Finish desktop setup first, then create a mobile pairing payload from LidlTool Desktop.</string>
+    <string name="login_setup_required_body">Finish desktop setup first, then create a mobile pairing payload from Outlays.</string>
 
     <string name="action_refresh">Refresh</string>
     <string name="action_logout">Logout</string>
@@ -136,7 +136,7 @@
     <string name="common_not_enough_data">Not enough data</string>
     <string name="common_unknown_merchant">Unknown merchant</string>
     <string name="common_uncategorized">Uncategorized</string>
-    <string name="pairing_title">Pair with LidlTool Desktop</string>
+    <string name="pairing_title">Pair with Outlays</string>
     <string name="pairing_body">Open Desktop, choose Pair mobile, then scan or paste the QR payload. The phone keeps local data and syncs only when both apps are open and reachable.</string>
     <string name="pairing_no_cloud_title">No cloud account</string>
     <string name="pairing_no_cloud_body">This build pairs directly to your desktop app. It does not sign in to a self-hosted backend or keep a long-running live session.</string>
@@ -144,7 +144,7 @@
     <string name="pairing_payload_label">protocol_version / endpoint_url / pairing_token</string>
     <string name="pairing_scan_action">Scan QR</string>
     <string name="pairing_scan_title">Scan pairing QR</string>
-    <string name="pairing_scan_body">Point the camera at the QR code shown by LidlTool Desktop. The scanner closes automatically after a valid code is found.</string>
+    <string name="pairing_scan_body">Point the camera at the QR code shown by Outlays. The scanner closes automatically after a valid code is found.</string>
     <string name="pairing_scan_camera_unavailable">Camera preview could not start. You can still paste the pairing payload manually.</string>
     <string name="pairing_camera_denied_title">Camera permission denied</string>
     <string name="pairing_camera_denied_body">Allow camera access to scan the desktop pairing QR code, or paste the payload manually below.</string>

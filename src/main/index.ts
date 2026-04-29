@@ -26,8 +26,13 @@ import {
   reloadDesktopTelemetryConfig
 } from "./diagnostics/sentry-main";
 import { DesktopUpdateManager } from "./updates/update-manager";
+import { APP_ID, PRODUCT_NAME, PACKAGE_SLUG, readDesktopEnv } from "./product-identity.ts";
 
-const userDataOverride = process.env.LIDLTOOL_DESKTOP_USER_DATA_DIR?.trim();
+const userDataOverride = readDesktopEnv(
+  process.env,
+  "OUTLAYS_DESKTOP_USER_DATA_DIR",
+  "LIDLTOOL_DESKTOP_USER_DATA_DIR"
+);
 if (userDataOverride) {
   app.setPath("userData", userDataOverride);
 }
@@ -67,7 +72,7 @@ type ConnectorCallbackConfirmationResult = {
 };
 
 function resolveDesktopIconPath(): string | null {
-  const explicitIconPath = process.env.LIDLTOOL_DESKTOP_ICON_PATH?.trim();
+  const explicitIconPath = readDesktopEnv(process.env, "OUTLAYS_DESKTOP_ICON_PATH", "LIDLTOOL_DESKTOP_ICON_PATH");
   const candidates = [
     explicitIconPath || null,
     app.isPackaged ? join(process.resourcesPath, "icon.png") : null,
@@ -609,7 +614,7 @@ function updateDesktopLocale(locale: DesktopLocale): DesktopLocale {
       if (mainWindow && !mainWindow.isDestroyed()) {
         await dialog.showMessageBox(mainWindow, {
           type: state.status === "error" ? "warning" : "info",
-          title: "LidlTool Desktop Updates",
+          title: `${PRODUCT_NAME} Updates`,
           message:
             state.status === "available"
               ? `Update available: ${state.availableVersion ?? "new version"}`
@@ -643,8 +648,8 @@ function updateDesktopLocale(locale: DesktopLocale): DesktopLocale {
     },
     openDocumentation: async () => {
       await shell.openExternal(
-        process.env.LIDLTOOL_DESKTOP_DOCUMENTATION_URL?.trim() ||
-          "https://github.com/lidltool/lidltool-desktop/blob/main/README.md"
+        readDesktopEnv(process.env, "OUTLAYS_DESKTOP_DOCUMENTATION_URL", "LIDLTOOL_DESKTOP_DOCUMENTATION_URL") ||
+          `https://github.com/mblue-code/${PACKAGE_SLUG}/blob/main/README.md`
       );
     }
   });
@@ -866,7 +871,7 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
-  app.setAppUserModelId("com.lidltool.desktop");
+  app.setAppUserModelId(APP_ID);
   applyDockIcon();
   currentLocale = loadDesktopLocale();
   registerDesktopProtocolClient();

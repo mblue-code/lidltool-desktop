@@ -6,6 +6,7 @@ import type {
   DesktopReleaseMetadata,
   DesktopRuntimeDiagnostics
 } from "@shared/contracts";
+import { DEFAULT_DB_FILENAME, LEGACY_DB_FILENAME, readDesktopEnv } from "./product-identity.ts";
 
 export interface RuntimePathContext {
   appPath: string;
@@ -34,12 +35,18 @@ export function resolveDesktopConfigDir(userDataDir: string): string {
   return join(userDataDir, "config");
 }
 
+export function resolveDesktopDbPath(userDataDir: string): string {
+  const defaultDbPath = join(userDataDir, DEFAULT_DB_FILENAME);
+  const legacyDbPath = join(userDataDir, LEGACY_DB_FILENAME);
+  return existsSync(defaultDbPath) || !existsSync(legacyDbPath) ? defaultDbPath : legacyDbPath;
+}
+
 export function resolveConfigDirPath(
   userDataDir: string,
   env: NodeJS.ProcessEnv,
   homeDir: string
 ): string {
-  const configDirRaw = env.LIDLTOOL_CONFIG_DIR?.trim();
+  const configDirRaw = readDesktopEnv(env, "OUTLAYS_DESKTOP_CONFIG_DIR", "LIDLTOOL_CONFIG_DIR");
   if (configDirRaw) {
     return resolveUserPath(configDirRaw, homeDir);
   }
@@ -67,7 +74,11 @@ export function resolveDocumentsPath(
   env: NodeJS.ProcessEnv,
   homeDir: string
 ): string {
-  const documentsPathRaw = env.LIDLTOOL_DOCUMENT_STORAGE_PATH?.trim();
+  const documentsPathRaw = readDesktopEnv(
+    env,
+    "OUTLAYS_DESKTOP_DOCUMENT_STORAGE_PATH",
+    "LIDLTOOL_DOCUMENT_STORAGE_PATH"
+  );
   if (documentsPathRaw) {
     return resolveUserPath(documentsPathRaw, homeDir);
   }
@@ -75,7 +86,7 @@ export function resolveDocumentsPath(
 }
 
 export function resolveRepoRootHint(context: RuntimePathContext, env: NodeJS.ProcessEnv): string {
-  const override = env.LIDLTOOL_REPO_ROOT?.trim();
+  const override = readDesktopEnv(env, "OUTLAYS_DESKTOP_REPO_ROOT", "LIDLTOOL_REPO_ROOT");
   if (override) {
     return override;
   }
@@ -88,7 +99,7 @@ export function resolveRepoRootHint(context: RuntimePathContext, env: NodeJS.Pro
 }
 
 export function resolveFrontendDist(context: RuntimePathContext, env: NodeJS.ProcessEnv): string {
-  const override = env.LIDLTOOL_FRONTEND_DIST?.trim();
+  const override = readDesktopEnv(env, "OUTLAYS_DESKTOP_FRONTEND_DIST", "LIDLTOOL_FRONTEND_DIST");
   if (override) {
     return override;
   }
@@ -101,7 +112,7 @@ export function resolveFrontendDist(context: RuntimePathContext, env: NodeJS.Pro
 }
 
 export function resolveRemoteCatalogUrl(env: NodeJS.ProcessEnv): string | null {
-  const raw = env.LIDLTOOL_DESKTOP_CATALOG_URL?.trim();
+  const raw = readDesktopEnv(env, "OUTLAYS_DESKTOP_CATALOG_URL", "LIDLTOOL_DESKTOP_CATALOG_URL");
   return raw ? raw : null;
 }
 
@@ -122,13 +133,19 @@ export function readJsonOverrideFromPath(
 }
 
 export function resolveTrustRootsOverride(env: NodeJS.ProcessEnv): unknown | undefined {
-  return readJsonOverrideFromPath(env, "LIDLTOOL_DESKTOP_TRUST_ROOTS_PATH", "Desktop trust roots override");
+  const envName = readDesktopEnv(env, "OUTLAYS_DESKTOP_TRUST_ROOTS_PATH")
+    ? "OUTLAYS_DESKTOP_TRUST_ROOTS_PATH"
+    : "LIDLTOOL_DESKTOP_TRUST_ROOTS_PATH";
+  return readJsonOverrideFromPath(env, envName, "Desktop trust roots override");
 }
 
 export function resolveTrustedCatalogOverride(env: NodeJS.ProcessEnv): unknown | undefined {
+  const envName = readDesktopEnv(env, "OUTLAYS_DESKTOP_TRUSTED_CATALOG_PATH")
+    ? "OUTLAYS_DESKTOP_TRUSTED_CATALOG_PATH"
+    : "LIDLTOOL_DESKTOP_TRUSTED_CATALOG_PATH";
   return readJsonOverrideFromPath(
     env,
-    "LIDLTOOL_DESKTOP_TRUSTED_CATALOG_PATH",
+    envName,
     "Desktop trusted catalog override"
   );
 }
@@ -210,7 +227,7 @@ export function inspectBackendCommand(
   source: DesktopRuntimeDiagnostics["backendCommandSource"];
   status: DesktopRuntimeDiagnostics["backendCommandStatus"];
 } {
-  const override = env.LIDLTOOL_EXECUTABLE?.trim();
+  const override = readDesktopEnv(env, "OUTLAYS_DESKTOP_EXECUTABLE", "LIDLTOOL_EXECUTABLE");
   if (override) {
     if (isPathLike(override)) {
       return {
@@ -267,7 +284,7 @@ export function resolveBackendInvocation(
   env: NodeJS.ProcessEnv,
   strictOverride: boolean
 ): BackendInvocation {
-  const override = env.LIDLTOOL_EXECUTABLE?.trim();
+  const override = readDesktopEnv(env, "OUTLAYS_DESKTOP_EXECUTABLE", "LIDLTOOL_EXECUTABLE");
   if (override) {
     if (strictOverride || !isPathLike(override) || existsSync(override)) {
       return { command: override, argsPrefix: [] };
@@ -301,7 +318,7 @@ export function resolveBackendInvocation(
 }
 
 export function resolveOcrIdleTimeoutSeconds(env: NodeJS.ProcessEnv): number {
-  const raw = env.LIDLTOOL_DESKTOP_OCR_IDLE_TIMEOUT_S?.trim();
+  const raw = readDesktopEnv(env, "OUTLAYS_DESKTOP_OCR_IDLE_TIMEOUT_S", "LIDLTOOL_DESKTOP_OCR_IDLE_TIMEOUT_S");
   if (!raw) {
     return 600;
   }

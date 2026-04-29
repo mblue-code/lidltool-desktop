@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const desktopDir = resolve(process.env.LIDLTOOL_DESKTOP_DIR?.trim() || resolve(__dirname, ".."));
+const desktopDir = resolve(
+  process.env.OUTLAYS_DESKTOP_DIR?.trim() || process.env.OUTLAYS_DESKTOP_DIR?.trim() || resolve(__dirname, "..")
+);
 const frontendDir = resolve(desktopDir, "vendor", "frontend");
 const frontendOverridesDir = resolve(desktopDir, "overrides", "frontend");
 const vendorManifestPath = resolve(desktopDir, "vendor", "vendor-manifest.json");

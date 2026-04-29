@@ -164,8 +164,8 @@ final class HarnessStore: ObservableObject {
             throw APIError(message: t("mobile.error.pairingPayload"), code: nil, statusCode: nil)
         }
 
-        let scheme = "lidltool-pair://"
-        if trimmed.lowercased().hasPrefix(scheme) {
+        let schemes = ["outlays-pair://", "lidltool-pair://"]
+        if let scheme = schemes.first(where: { trimmed.lowercased().hasPrefix($0) }) {
             let encoded = String(trimmed.dropFirst(scheme.count))
             guard let decoded = encoded.removingPercentEncoding?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !decoded.isEmpty else {
@@ -317,7 +317,7 @@ final class HarnessStore: ObservableObject {
     private func pairedAPI() -> APIClient? {
         let token = sessionStore.syncToken ?? state.local.syncTokenFallback
         guard let desktop = state.local.pairedDesktop, let token, !token.isEmpty else {
-            state.message = AppMessage(text: "Pair this iPhone with LidlTool Desktop first.")
+            state.message = AppMessage(text: "Pair this iPhone with Outlays first.")
             return nil
         }
         return APIClient(baseURL: desktop.endpointURL, bearerToken: token)

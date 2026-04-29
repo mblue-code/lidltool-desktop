@@ -3,6 +3,7 @@ import { app } from "electron";
 import { homedir } from "node:os";
 import { redactSensitiveText, sanitizeDiagnosticValue } from "./sanitization";
 import { resolveDesktopTelemetryConfig, type DesktopTelemetryConfig } from "./telemetry-config";
+import { PACKAGE_SLUG } from "../product-identity.ts";
 
 let activeConfig: DesktopTelemetryConfig | null = null;
 let sentryInitialized = false;
@@ -42,7 +43,7 @@ export function initDesktopTelemetry(): DesktopTelemetryConfig {
     }
   });
 
-  Sentry.setTag("app", "lidltool-desktop");
+  Sentry.setTag("app", PACKAGE_SLUG);
   Sentry.setTag("process", "main");
   Sentry.setTag("packaged", String(app.isPackaged));
   sentryInitialized = true;

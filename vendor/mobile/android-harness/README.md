@@ -1,6 +1,6 @@
 # Android Native Companion
 
-This is the native Android foundation for the LidlTool Desktop mobile companion.
+This is the native Android foundation for the Outlays mobile companion.
 
 The app is local-first and desktop-paired:
 - pair with a desktop-generated QR payload

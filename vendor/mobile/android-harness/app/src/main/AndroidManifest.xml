@@ -41,6 +41,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
+                <data android:scheme="outlays-pair" />
                 <data android:scheme="lidltool-pair" />
             </intent-filter>
         </activity>

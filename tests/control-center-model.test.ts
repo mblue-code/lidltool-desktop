@@ -19,11 +19,11 @@ function baseRuntimeDiagnostics(
   return {
     environment: "packaged",
     fullAppReady: true,
-    frontendDistPath: "/Applications/LidlTool Desktop.app/Contents/Resources/frontend-dist",
+    frontendDistPath: "/Applications/Outlays.app/Contents/Resources/frontend-dist",
     frontendDistStatus: "ready",
-    backendSourcePath: "/Applications/LidlTool Desktop.app/Contents/Resources/backend-src",
+    backendSourcePath: "/Applications/Outlays.app/Contents/Resources/backend-src",
     backendSourceStatus: "ready",
-    backendCommand: "/Applications/LidlTool Desktop.app/Contents/Resources/backend-venv/bin/lidltool",
+    backendCommand: "/Applications/Outlays.app/Contents/Resources/backend-venv/bin/lidltool",
     backendCommandSource: "bundled",
     backendCommandStatus: "ready",
     ...overrides

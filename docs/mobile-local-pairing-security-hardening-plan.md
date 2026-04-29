@@ -170,7 +170,7 @@ Recommended approach:
 - Request camera permission at scan time.
 - Parse QR values as:
   - raw JSON payload
-  - `lidltool-pair://<url-encoded-json>`
+  - `outlays-pair://<url-encoded-json>`
 - Reuse the existing `HarnessViewModel.pairFromText()` parsing path after decode.
 
 UI:
@@ -194,7 +194,7 @@ Recommended approach:
 
 - Use AVFoundation metadata capture for QR codes.
 - Request camera permission at scan time.
-- Parse the same raw JSON and `lidltool-pair://` formats.
+- Parse the same raw JSON and `outlays-pair://` formats.
 - Reuse the existing pairing store/client path.
 
 UI:

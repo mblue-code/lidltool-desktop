@@ -46,7 +46,7 @@ Allowed adaptation:
 
 Avoid:
 - creating a separate mobile brand language
-- introducing generic consumer-finance styling that no longer feels like LidlTool Desktop
+- introducing generic consumer-finance styling that no longer feels like Outlays
 - copying desktop screen layouts directly without adapting them for touch and smaller viewports
 
 Implementation implication:
@@ -59,7 +59,7 @@ Current vendored mobile baselines:
 - iOS: `vendor/mobile/ios-harness`
 
 Security hardening reference:
-- [Mobile Local Pairing Security Hardening Plan](/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-local-pairing-security-hardening-plan.md)
+- [Mobile Local Pairing Security Hardening Plan](/path/to/outlays-desktop/docs/mobile-local-pairing-security-hardening-plan.md)
 
 Current upstream-derived stack:
 - Android: Kotlin + Jetpack Compose + OkHttp + Kotlin serialization
@@ -79,11 +79,11 @@ They should be refit, not rewritten from zero.
 This section is specific to the current workstation and should be updated if the local toolchain paths move.
 
 Current local environment:
-- desktop repo root: `/Volumes/macminiExtern/projects/lidltool-desktop`
+- desktop repo root: `/path/to/outlays-desktop`
 - upstream mobile skeleton source: `/Volumes/macminiExtern/lidl-receipts-cli`
 - vendored mobile baselines:
-  - `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/android-harness`
-  - `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/ios-harness`
+  - `/path/to/outlays-desktop/vendor/mobile/android-harness`
+  - `/path/to/outlays-desktop/vendor/mobile/ios-harness`
 
 Android toolchain on this machine:
 - Android Studio: `/Volumes/macminiExtern/Applications/Android Studio.app`
@@ -110,13 +110,13 @@ Suggested local validation commands:
 
 Android:
 ```bash
-cd /Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/android-harness
+cd /path/to/outlays-desktop/vendor/mobile/android-harness
 ./gradlew :app:assembleDebug
 ```
 
 iOS:
 ```bash
-cd /Volumes/macminiExtern/projects/lidltool-desktop
+cd /path/to/outlays-desktop
 DEVELOPER_DIR=/Volumes/macminiExtern/Applications/Xcode.app/Contents/Developer \
 xcodebuild \
   -project vendor/mobile/ios-harness/LidlToolHarness.xcodeproj \

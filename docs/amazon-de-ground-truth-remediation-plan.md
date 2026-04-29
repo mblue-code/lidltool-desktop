@@ -426,18 +426,18 @@ Initialize schema and seed:
 
 Config dir:
 
-- `/Users/max/Library/Application Support/lidltool-desktop/config`
+- `/Users/max/Library/Application Support/outlays-desktop/config`
 
 Expected auth state file:
 
-- `/Users/max/Library/Application Support/lidltool-desktop/config/amazon_storage_state.json`
+- `/Users/max/Library/Application Support/outlays-desktop/config/amazon_storage_state.json`
 
 ### 3. Two-year validation first
 
 Command:
 
 ```bash
-LIDLTOOL_CONFIG_DIR="$HOME/Library/Application Support/lidltool-desktop/config" \
+OUTLAYS_DESKTOP_CONFIG_DIR="$HOME/Library/Application Support/outlays-desktop/config" \
 ./.backend/venv/bin/python -m lidltool.cli \
   --db /Users/max/projekte/lidltool/apps/desktop/.amazon-debug/scraper-validate-v4.sqlite \
   connectors sync \
@@ -460,7 +460,7 @@ Expected result after the recent digital fixes:
 Command:
 
 ```bash
-LIDLTOOL_CONFIG_DIR="$HOME/Library/Application Support/lidltool-desktop/config" \
+OUTLAYS_DESKTOP_CONFIG_DIR="$HOME/Library/Application Support/outlays-desktop/config" \
 ./.backend/venv/bin/python -m lidltool.cli \
   --db /Users/max/projekte/lidltool/apps/desktop/.amazon-debug/scraper-validate-v5.sqlite \
   connectors sync \

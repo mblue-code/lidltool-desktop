@@ -13,8 +13,8 @@ export const INTL_LOCALE_BY_DESKTOP_LOCALE: Record<DesktopLocale, string> = {
 
 export const DESKTOP_MESSAGES = {
   "en": {
-    "app.brand.title": "LidlTool Desktop",
-    "app.brand.subtitle": "Local finance workspace",
+    "app.brand.title": "Outlays",
+    "app.brand.subtitle": "Your Personal Spending Ledger",
     "app.header.language": "Language",
     "app.language.english": "English",
     "app.language.german": "Deutsch",
@@ -23,7 +23,7 @@ export const DESKTOP_MESSAGES = {
     "common.status": "Status",
     "common.source": "Source",
     "common.retry": "Retry",
-    "shell.windowTitle": "LidlTool Desktop",
+    "shell.windowTitle": "Outlays",
     "shell.header.title": "Desktop Control Center",
     "shell.header.subtitle": "Fallback controls for backend boot, one-time sync runs, exports, and local backup tasks.",
     "shell.backend.title": "Backend",
@@ -113,8 +113,8 @@ export const DESKTOP_MESSAGES = {
     "shell.menu.minimize": "Minimize"
   },
   "de": {
-    "app.brand.title": "LidlTool Desktop",
-    "app.brand.subtitle": "Lokaler Finanzarbeitsplatz",
+    "app.brand.title": "Outlays",
+    "app.brand.subtitle": "Dein Haushaltsbuch",
     "app.header.language": "Sprache",
     "app.language.english": "English",
     "app.language.german": "Deutsch",
@@ -123,7 +123,7 @@ export const DESKTOP_MESSAGES = {
     "common.status": "Status",
     "common.source": "Quelle",
     "common.retry": "Erneut versuchen",
-    "shell.windowTitle": "LidlTool Desktop",
+    "shell.windowTitle": "Outlays",
     "shell.header.title": "Desktop-Kontrollzentrum",
     "shell.header.subtitle": "Fallback-Steuerung für Backend-Start, einmalige Sync-Läufe, Exporte und lokale Backup-Aufgaben.",
     "shell.backend.title": "Backend",

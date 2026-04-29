@@ -22,17 +22,17 @@ The target product is:
 ## Repo Context
 
 Repo root:
-- `/Volumes/macminiExtern/projects/lidltool-desktop`
+- `/path/to/outlays-desktop`
 
 Vendored native baselines:
-- Android: `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/android-harness`
-- iOS: `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/ios-harness`
+- Android: `/path/to/outlays-desktop/vendor/mobile/android-harness`
+- iOS: `/path/to/outlays-desktop/vendor/mobile/ios-harness`
 
 Key planning docs:
-- [docs/mobile-companion-vision.md](/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-companion-vision.md:1)
-- [docs/mobile-native-implementation-plan.md](/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-native-implementation-plan.md:1)
-- [docs/mobile-foundation.md](/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-foundation.md:1)
-- [docs/mobile-local-pairing-security-hardening-plan.md](/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-local-pairing-security-hardening-plan.md:1)
+- [docs/mobile-companion-vision.md](/path/to/outlays-desktop/docs/mobile-companion-vision.md:1)
+- [docs/mobile-native-implementation-plan.md](/path/to/outlays-desktop/docs/mobile-native-implementation-plan.md:1)
+- [docs/mobile-foundation.md](/path/to/outlays-desktop/docs/mobile-foundation.md:1)
+- [docs/mobile-local-pairing-security-hardening-plan.md](/path/to/outlays-desktop/docs/mobile-local-pairing-security-hardening-plan.md:1)
 
 ## Local Toolchain
 
@@ -126,7 +126,7 @@ Preferred early work:
 
 Validation commands:
 ```bash
-cd /Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/android-harness
+cd /path/to/outlays-desktop/vendor/mobile/android-harness
 ./gradlew :app:assembleDebug
 ```
 
@@ -147,7 +147,7 @@ Preferred early work:
 
 Validation command on this machine:
 ```bash
-cd /Volumes/macminiExtern/projects/lidltool-desktop
+cd /path/to/outlays-desktop
 DEVELOPER_DIR=/Volumes/macminiExtern/Applications/Xcode.app/Contents/Developer \
 xcodebuild \
   -project vendor/mobile/ios-harness/LidlToolHarness.xcodeproj \
@@ -234,10 +234,10 @@ Desktop endpoints:
 - `POST /api/mobile-sync/v1/manual-transactions`: paired phone sends manual transaction entries.
 - `GET /api/mobile-local/v1/health`: temporary bridge health check.
 
-Wi-Fi pairing now uses a temporary Electron-owned bridge. Open it from desktop Settings, confirm the risk modal, then scan the QR payload. The bridge endpoint is the phone-persisted `endpoint_url`; USB/ADB deep-link testing can still inject the same raw JSON or `lidltool-pair://<url-encoded-json>` payload without changing the protocol.
+Wi-Fi pairing now uses a temporary Electron-owned bridge. Open it from desktop Settings, confirm the risk modal, then scan the QR payload. The bridge endpoint is the phone-persisted `endpoint_url`; USB/ADB deep-link testing can still inject the same raw JSON or `outlays-pair://<url-encoded-json>` payload without changing the protocol.
 
 Validation commands:
-- Android: `cd /Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/android-harness && ./gradlew :app:assembleDebug`
+- Android: `cd /path/to/outlays-desktop/vendor/mobile/android-harness && ./gradlew :app:assembleDebug`
 - iOS: use the `xcodebuild -target LidlToolHarness -sdk iphonesimulator` command above.
 - Desktop backend syntax: `python3 -m py_compile vendor/backend/src/lidltool/api/http_server.py vendor/backend/src/lidltool/db/models.py vendor/backend/src/lidltool/mobile/pairing.py`
 

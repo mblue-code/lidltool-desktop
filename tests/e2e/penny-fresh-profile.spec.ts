@@ -431,14 +431,15 @@ async function automatePennyLogin(email: string, password: string): Promise<void
 test("fresh packaged desktop profile completes Penny auth through host-launched Chrome and syncs into a clean DB", async () => {
   test.setTimeout(420_000);
 
-  const packagedExecutable = process.env.LIDLTOOL_DESKTOP_EXECUTABLE?.trim();
+  const packagedExecutable =
+    process.env.OUTLAYS_DESKTOP_EXECUTABLE?.trim() || process.env.LIDLTOOL_DESKTOP_EXECUTABLE?.trim();
   const pennyEmail = process.env.PENNY_TEST_EMAIL?.trim();
   const pennyPassword = process.env.PENNY_TEST_PASSWORD?.trim();
   const chromePath =
     process.env.PENNY_TEST_CHROME_PATH?.trim() ??
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
-  test.skip(!packagedExecutable, "Set LIDLTOOL_DESKTOP_EXECUTABLE to the packaged desktop binary.");
+  test.skip(!packagedExecutable, "Set OUTLAYS_DESKTOP_EXECUTABLE to the packaged desktop binary.");
   test.skip(!pennyEmail || !pennyPassword, "Set PENNY_TEST_EMAIL and PENNY_TEST_PASSWORD.");
   test.skip(!existsSync(chromePath), `Expected a Chromium browser at ${chromePath}.`);
 

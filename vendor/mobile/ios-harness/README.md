@@ -1,6 +1,6 @@
 # iOS Native Companion
 
-This is the native iPhone foundation for the LidlTool Desktop mobile companion.
+This is the native iPhone foundation for the Outlays mobile companion.
 
 The app is local-first and desktop-paired:
 - pair with a desktop-generated QR/session payload
@@ -43,10 +43,10 @@ Install and launch on a booted simulator:
 
 ```bash
 DEVELOPER_DIR=/Volumes/macminiExtern/Applications/Xcode.app/Contents/Developer \
-xcrun simctl install booted vendor/mobile/ios-harness/build/Debug-iphonesimulator/LidlToolHarness.app
+xcrun simctl install booted vendor/mobile/ios-harness/build/Debug-iphonesimulator/Outlays Companion.app
 
 DEVELOPER_DIR=/Volumes/macminiExtern/Applications/Xcode.app/Contents/Developer \
-xcrun simctl launch booted com.lidltool.iosharness
+xcrun simctl launch booted com.gluecherlab.outlays.companion
 ```
 
 ## Current Scope

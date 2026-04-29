@@ -29,7 +29,7 @@ const result = spawnSync(pythonExecutable, [smokeScript], {
   stdio: "inherit",
   env: {
     ...process.env,
-    LIDLTOOL_DESKTOP_PACKAGED_SMOKE: "1"
+    OUTLAYS_DESKTOP_PACKAGED_SMOKE: "1"
   }
 });
 

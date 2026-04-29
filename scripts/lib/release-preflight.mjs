@@ -6,6 +6,18 @@ const SECRET_PATTERNS = [
 
 const RUNTIME_BUILD_FILE_PATTERN =
   /^(?:package\.json|electron\.vite\.config\.ts|electron-builder\..*|src\/main\/.*|src\/preload\/.*|scripts\/.*)$/;
+const FORBIDDEN_PUBLIC_PRODUCT_PATTERN =
+  /\bLidlTool\b|lidltool-desktop|com\.lidltool\.desktop|lidltool-diagnostics/;
+const LEGACY_PRODUCT_ALLOWLIST_PATHS = [
+  /^vendor\/backend\/src\/lidltool\//,
+  /^overrides\/backend\/src\/lidltool\//,
+  /^tests\/backend\//,
+  /^tests\/release-preflight\.test\.mjs$/,
+  /^scripts\/lib\/release-preflight\.mjs$/,
+  /^docs\/product-rename-/,
+  /^docs\/archive\//,
+  /^docs\/.*(?:migration|rename|decision).*\.md$/
+];
 
 export function findStagedEnvFiles(paths) {
   return paths.filter((path) => /(^|\/)\.env(?:\.|$)/.test(path));
@@ -24,6 +36,14 @@ export function findRuntimeBoundaryReferences(files) {
     (file) =>
       RUNTIME_BUILD_FILE_PATTERN.test(file.path) &&
       /(?:['"`]\.\.\/\.\.\/|path\.join\([^)]*["']\.\.["'][^)]*["']\.\.["'])/.test(file.content)
+  );
+}
+
+export function findForbiddenPublicProductReferences(files) {
+  return files.filter(
+    (file) =>
+      FORBIDDEN_PUBLIC_PRODUCT_PATTERN.test(file.content) &&
+      !LEGACY_PRODUCT_ALLOWLIST_PATHS.some((pattern) => pattern.test(file.path))
   );
 }
 
@@ -48,7 +68,7 @@ export function validateReleaseChannelVersion(channel, version) {
   }
   return {
     ok: false,
-    reason: "LIDLTOOL_DESKTOP_RELEASE_CHANNEL must be beta or stable."
+    reason: "OUTLAYS_DESKTOP_RELEASE_CHANNEL must be beta or stable."
   };
 }
 
@@ -58,6 +78,7 @@ export function summarizePreflightFindings({ stagedPaths, stagedFiles, channel, 
   const diagnosticsArchives = findDiagnosticsArchives(stagedPaths);
   const privateKeyMaterial = findPrivateKeyMaterial(stagedFiles);
   const boundaryReferences = findRuntimeBoundaryReferences(stagedFiles);
+  const forbiddenProductReferences = findForbiddenPublicProductReferences(stagedFiles);
   const versionValidation = validateReleaseChannelVersion(channel, version);
 
   if (envFiles.length > 0) {
@@ -71,6 +92,11 @@ export function summarizePreflightFindings({ stagedPaths, stagedFiles, channel, 
   }
   if (boundaryReferences.length > 0) {
     findings.push(`Runtime/build files reference ../../ paths: ${boundaryReferences.map((file) => file.path).join(", ")}`);
+  }
+  if (forbiddenProductReferences.length > 0) {
+    findings.push(
+      `Forbidden legacy public product identity references found in: ${forbiddenProductReferences.map((file) => file.path).join(", ")}`
+    );
   }
   if (!versionValidation.ok) {
     findings.push(versionValidation.reason);

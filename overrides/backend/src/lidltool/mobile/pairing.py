@@ -28,7 +28,7 @@ def desktop_id() -> str:
 
 
 def desktop_name() -> str:
-    return socket.gethostname() or "LidlTool Desktop"
+    return socket.gethostname() or "Outlays"
 
 
 def _as_utc(value: datetime) -> datetime:

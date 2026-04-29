@@ -79,7 +79,10 @@ class MainActivity : ComponentActivity() {
                     val viewModel: HarnessViewModel = viewModel()
                     LaunchedEffect(Unit) {
                         val pairingUrl = intent?.dataString
-                        if (!pairingUrl.isNullOrBlank() && pairingUrl.startsWith("lidltool-pair://")) {
+                        if (
+                            !pairingUrl.isNullOrBlank() &&
+                            (pairingUrl.startsWith("outlays-pair://") || pairingUrl.startsWith("lidltool-pair://"))
+                        ) {
                             viewModel.updatePairingText(pairingUrl)
                             viewModel.pairFromText()
                         }

@@ -268,9 +268,13 @@ class HarnessViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun decodePairingPayload(raw: String): PairingQrPayload {
+        val normalized = raw.trim()
+        val outlaysScheme = "outlays-pair://"
+        val legacyScheme = "lidltool-pair://"
+        val matchedScheme = listOf(outlaysScheme, legacyScheme).firstOrNull { normalized.startsWith(it) }
         val jsonText = raw
-            .removePrefix("lidltool-pair://")
-            .let { text -> Uri.decode(text).takeIf { raw.startsWith("lidltool-pair://") } ?: text }
+            .removePrefix(matchedScheme.orEmpty())
+            .let { text -> Uri.decode(text).takeIf { matchedScheme != null } ?: text }
         return json.decodeFromString(jsonText)
     }
 

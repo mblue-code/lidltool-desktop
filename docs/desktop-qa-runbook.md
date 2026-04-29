@@ -6,7 +6,7 @@ Do not test the self-hosted Docker app for this run.
 
 Do not use stale local dev builds, stale Electron profile data, an old SQLite database, previously installed receipt packs, or old browser/session/token state.
 
-The target is `/Volumes/macminiExtern/projects/lidltool-desktop`.
+The target is `/path/to/outlays-desktop`.
 
 ## Product Model To Respect
 
@@ -92,7 +92,7 @@ Recommended layout:
 
 ```bash
 STAMP="$(date +%Y%m%d-%H%M%S)"
-EVIDENCE_DIR="/Volumes/macminiExtern/projects/lidltool-desktop/output/manual-qa/$STAMP"
+EVIDENCE_DIR="/path/to/outlays-desktop/output/manual-qa/$STAMP"
 mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/logs"
 ```
 
@@ -174,13 +174,13 @@ Do not launch the desktop app against your normal existing Electron profile.
 Use a dedicated throwaway desktop profile for the run:
 
 ```bash
-/Volumes/macminiExtern/projects/lidltool-desktop/.tmp/e2e-user-data
+/path/to/outlays-desktop/.tmp/e2e-user-data
 ```
 
 Desktop honors the environment variable:
 
 ```bash
-LIDLTOOL_DESKTOP_USER_DATA_DIR=/absolute/path/to/fresh/profile
+OUTLAYS_DESKTOP_USER_DATA_DIR=/absolute/path/to/fresh/profile
 ```
 
 That profile will contain, once the app runs:
@@ -195,18 +195,18 @@ Delete that whole profile before the run starts.
 
 ## Clean Rebuild Procedure
 
-Run all commands from `/Volumes/macminiExtern/projects/lidltool-desktop`.
+Run all commands from `/path/to/outlays-desktop`.
 
 ### 1. Kill old desktop processes
 
-Make sure no previous LidlTool Desktop process is still running.
+Make sure no previous Outlays process is still running.
 
 ### 2. Remove stale desktop build artifacts and profile state
 
 Use the current desktop cleanup path, not an ad hoc partial cleanup:
 
 ```bash
-cd /Volumes/macminiExtern/projects/lidltool-desktop
+cd /path/to/outlays-desktop
 npm run clean
 rm -rf .tmp/e2e-user-data
 mkdir -p .tmp build/plugin-packs output/manual-qa
@@ -262,7 +262,7 @@ Record the actual ZIP filenames produced.
 On macOS:
 
 ```bash
-find ./dist_electron -name "LidlTool Desktop.app" -print | sort
+find ./dist_electron -name "Outlays.app" -print | sort
 ```
 
 On Windows, use the newest unpacked executable or packaged output under `dist_electron`.
@@ -276,8 +276,8 @@ Launch the packaged desktop app with the fresh profile override.
 macOS example:
 
 ```bash
-LIDLTOOL_DESKTOP_USER_DATA_DIR="$PWD/.tmp/e2e-user-data" \
-  "/absolute/path/to/LidlTool Desktop.app/Contents/MacOS/LidlTool Desktop"
+OUTLAYS_DESKTOP_USER_DATA_DIR="$PWD/.tmp/e2e-user-data" \
+  "/absolute/path/to/Outlays.app/Contents/MacOS/Outlays"
 ```
 
 Do not launch it against the normal user profile.

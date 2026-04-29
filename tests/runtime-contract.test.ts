@@ -22,11 +22,11 @@ test("preserves supported backend OCR providers", () => {
 });
 
 test("builds backend serve args without the removed desktop flag", () => {
-  const args = buildBackendServeArgs("/tmp/lidltool.sqlite", 18765);
+  const args = buildBackendServeArgs("/tmp/outlays.sqlite", 18765);
 
   assert.deepEqual(args, [
     "--db",
-    "/tmp/lidltool.sqlite",
+    "/tmp/outlays.sqlite",
     "serve",
     "--host",
     "127.0.0.1",
@@ -44,15 +44,15 @@ test("detects when desktop should manage playwright browsers outside the venv", 
 
 test("resolves managed playwright browser storage under user data", () => {
   assert.equal(
-    resolveManagedPlaywrightBrowsersPath("/tmp/lidltool-user-data", "/tmp/backend-venv/bin/python", undefined),
-    "/tmp/lidltool-user-data/playwright-browsers"
+    resolveManagedPlaywrightBrowsersPath("/tmp/outlays-user-data", "/tmp/backend-venv/bin/python", undefined),
+    "/tmp/outlays-user-data/playwright-browsers"
   );
   assert.equal(
-    resolveManagedPlaywrightBrowsersPath("/tmp/lidltool-user-data", "/tmp/backend-venv/bin/python", "/custom/browsers"),
+    resolveManagedPlaywrightBrowsersPath("/tmp/outlays-user-data", "/tmp/backend-venv/bin/python", "/custom/browsers"),
     "/custom/browsers"
   );
   assert.equal(
-    resolveManagedPlaywrightBrowsersPath("/tmp/lidltool-user-data", "python3", undefined),
+    resolveManagedPlaywrightBrowsersPath("/tmp/outlays-user-data", "python3", undefined),
     null
   );
 });

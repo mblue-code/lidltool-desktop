@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   findDiagnosticsArchives,
+  findForbiddenPublicProductReferences,
   findPrivateKeyMaterial,
   findRuntimeBoundaryReferences,
   findStagedEnvFiles,
@@ -16,8 +17,8 @@ test("detects staged env files", () => {
 });
 
 test("detects diagnostics archives", () => {
-  assert.deepEqual(findDiagnosticsArchives(["safe.zip", "lidltool-diagnostics-2026.zip"]), [
-    "lidltool-diagnostics-2026.zip"
+  assert.deepEqual(findDiagnosticsArchives(["safe.zip", "outlays-diagnostics-2026.zip"]), [
+    "outlays-diagnostics-2026.zip"
   ]);
 });
 
@@ -44,4 +45,13 @@ test("validates beta and stable version/channel relationship", () => {
   assert.equal(validateReleaseChannelVersion("beta", "0.2.0").ok, false);
   assert.equal(validateReleaseChannelVersion("stable", "1.0.0").ok, true);
   assert.equal(validateReleaseChannelVersion("stable", "1.0.0-beta.1").ok, false);
+});
+
+test("detects forbidden legacy public product identity outside allowlisted paths", () => {
+  const findings = findForbiddenPublicProductReferences([
+    { path: "README.md", content: "LidlTool Desktop" },
+    { path: "vendor/backend/src/lidltool/config.py", content: "LidlTool internal module note" },
+    { path: "docs/product-rename-implementation-plan.md", content: "lidltool-desktop migration note" }
+  ]);
+  assert.deepEqual(findings.map((file) => file.path), ["README.md"]);
 });

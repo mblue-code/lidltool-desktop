@@ -31,7 +31,7 @@ if (process.platform !== "darwin") {
 }
 
 const iconSizes = [16, 32, 128, 256, 512];
-const iconsetDir = `${mkdtempSync(join(os.tmpdir(), "lidltool-desktop-iconset-"))}.iconset`;
+const iconsetDir = `${mkdtempSync(join(os.tmpdir(), "outlays-desktop-iconset-"))}.iconset`;
 
 mkdirSync(iconsetDir, { recursive: true });
 

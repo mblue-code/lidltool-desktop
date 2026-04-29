@@ -9,6 +9,7 @@ import {
   inspectBackendCommand,
   resolveBackendInvocation,
   resolveConfigDirPath,
+  resolveDesktopDbPath,
   resolveDocumentsPath,
   resolveFrontendDist,
   resolveOcrIdleTimeoutSeconds,
@@ -20,7 +21,7 @@ import {
 function createContext(overrides: Partial<RuntimePathContext> = {}): RuntimePathContext {
   return {
     appPath: "/workspace/apps/desktop",
-    resourcesPath: "/Applications/LidlTool.app/Contents/Resources",
+    resourcesPath: "/Applications/Outlays.app/Contents/Resources",
     isPackaged: false,
     homeDir: "/Users/tester",
     platform: "darwin",
@@ -32,14 +33,27 @@ test("resolves user, config, and documents paths with desktop defaults and overr
   assert.equal(resolveUserPath("~/Desktop", "/Users/tester"), "/Users/tester/Desktop");
   assert.equal(resolveConfigDirPath("/tmp/user", {}, "/Users/tester"), "/tmp/user/config");
   assert.equal(
-    resolveConfigDirPath("/tmp/user", { LIDLTOOL_CONFIG_DIR: "~/cfg" }, "/Users/tester"),
+    resolveConfigDirPath("/tmp/user", { OUTLAYS_DESKTOP_CONFIG_DIR: "~/cfg" }, "/Users/tester"),
     "/Users/tester/cfg"
   );
   assert.equal(resolveDocumentsPath("/tmp/user", {}, "/Users/tester"), "/tmp/user/documents");
   assert.equal(
-    resolveDocumentsPath("/tmp/user", { LIDLTOOL_DOCUMENT_STORAGE_PATH: "~/docs" }, "/Users/tester"),
+    resolveDocumentsPath("/tmp/user", { OUTLAYS_DESKTOP_DOCUMENT_STORAGE_PATH: "~/docs" }, "/Users/tester"),
     "/Users/tester/docs"
   );
+});
+
+test("uses neutral desktop database filename with legacy fallback", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "desktop-db-paths-"));
+  try {
+    assert.equal(resolveDesktopDbPath(tempRoot), join(tempRoot, "outlays.sqlite"));
+    writeFileSync(join(tempRoot, "lidltool.sqlite"), "legacy", "utf-8");
+    assert.equal(resolveDesktopDbPath(tempRoot), join(tempRoot, "lidltool.sqlite"));
+    writeFileSync(join(tempRoot, "outlays.sqlite"), "new", "utf-8");
+    assert.equal(resolveDesktopDbPath(tempRoot), join(tempRoot, "outlays.sqlite"));
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("resolves repo and frontend paths for dev and packaged modes", () => {
@@ -53,11 +67,11 @@ test("resolves repo and frontend paths for dev and packaged modes", () => {
   );
   assert.equal(
     resolveRepoRootHint(createContext({ isPackaged: true }), {}),
-    "/Applications/LidlTool.app/Contents/Resources/backend-src"
+    "/Applications/Outlays.app/Contents/Resources/backend-src"
   );
   assert.equal(
     resolveFrontendDist(createContext({ isPackaged: true }), {}),
-    "/Applications/LidlTool.app/Contents/Resources/frontend-dist"
+    "/Applications/Outlays.app/Contents/Resources/frontend-dist"
   );
 });
 
@@ -76,13 +90,32 @@ test("resolves backend command selection using explicit and managed executables"
     });
     assert.equal(inspectBackendCommand(context, {}).source, "managed_dev");
 
-    assert.deepEqual(resolveBackendInvocation(context, { LIDLTOOL_EXECUTABLE: "custom-tool" }, false), {
+    assert.deepEqual(resolveBackendInvocation(context, { OUTLAYS_DESKTOP_EXECUTABLE: "custom-tool" }, false), {
       command: "custom-tool",
       argsPrefix: []
     });
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("keeps legacy desktop path environment aliases working", () => {
+  assert.equal(
+    resolveConfigDirPath("/tmp/user", { OUTLAYS_DESKTOP_CONFIG_DIR: "~/legacy-cfg" }, "/Users/tester"),
+    "/Users/tester/legacy-cfg"
+  );
+  assert.equal(
+    resolveDocumentsPath("/tmp/user", { OUTLAYS_DESKTOP_DOCUMENT_STORAGE_PATH: "~/legacy-docs" }, "/Users/tester"),
+    "/Users/tester/legacy-docs"
+  );
+  assert.equal(
+    resolveRepoRootHint(createContext(), { OUTLAYS_DESKTOP_REPO_ROOT: "/legacy/backend" }),
+    "/legacy/backend"
+  );
+  assert.equal(
+    resolveFrontendDist(createContext(), { OUTLAYS_DESKTOP_FRONTEND_DIST: "/legacy/frontend" }),
+    "/legacy/frontend"
+  );
 });
 
 test("finds trusted desktop pack entries and rejects invalid catalog references", () => {
@@ -136,6 +169,7 @@ test("finds trusted desktop pack entries and rejects invalid catalog references"
 
 test("normalizes invalid OCR idle timeout values back to the safe default", () => {
   assert.equal(resolveOcrIdleTimeoutSeconds({}), 600);
-  assert.equal(resolveOcrIdleTimeoutSeconds({ LIDLTOOL_DESKTOP_OCR_IDLE_TIMEOUT_S: "45" }), 600);
-  assert.equal(resolveOcrIdleTimeoutSeconds({ LIDLTOOL_DESKTOP_OCR_IDLE_TIMEOUT_S: "900" }), 900);
+  assert.equal(resolveOcrIdleTimeoutSeconds({ OUTLAYS_DESKTOP_OCR_IDLE_TIMEOUT_S: "45" }), 600);
+  assert.equal(resolveOcrIdleTimeoutSeconds({ OUTLAYS_DESKTOP_OCR_IDLE_TIMEOUT_S: "900" }), 900);
+  assert.equal(resolveOcrIdleTimeoutSeconds({ OUTLAYS_DESKTOP_OCR_IDLE_TIMEOUT_S: "900" }), 900);
 });

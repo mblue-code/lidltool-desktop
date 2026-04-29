@@ -28,13 +28,21 @@ test("reads a valid backup manifest and ignores invalid JSON", () => {
 
 test("resolves db and token artifacts from manifest or fallback files", () => {
   const backupDir = tempBackupDir();
-  const dbPath = join(backupDir, "lidltool.sqlite");
+  const dbPath = join(backupDir, "outlays.sqlite");
   const tokenPath = join(backupDir, "token.json");
   writeFileSync(dbPath, "db", "utf-8");
   writeFileSync(tokenPath, "{}", "utf-8");
 
   assert.equal(resolveDbArtifact(backupDir, (value) => value), dbPath);
   assert.equal(resolveTokenArtifact(backupDir, (value) => value), tokenPath);
+});
+
+test("resolves legacy db artifact filename", () => {
+  const backupDir = tempBackupDir();
+  const dbPath = join(backupDir, "lidltool.sqlite");
+  writeFileSync(dbPath, "db", "utf-8");
+
+  assert.equal(resolveDbArtifact(backupDir, (value) => value), dbPath);
 });
 
 test("resolves moved manifest artifacts by basename inside the backup folder", () => {

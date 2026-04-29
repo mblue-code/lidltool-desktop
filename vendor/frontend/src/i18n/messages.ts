@@ -1,6 +1,6 @@
 export const EN_MESSAGES = {
-  "app.brand.title": "LidlTool Desktop",
-  "app.brand.subtitle": "Local finance workspace",
+  "app.brand.title": "Outlays",
+  "app.brand.subtitle": "Your Personal Spending Ledger",
   "nav.group.daily": "Daily",
   "nav.group.analytics": "Analytics",
   "nav.group.workspace": "Workspace",
@@ -1087,8 +1087,8 @@ export const EN_MESSAGES = {
 export type TranslationKey = keyof typeof EN_MESSAGES;
 
 export const DE_MESSAGES: Record<TranslationKey, string> = {
-  "app.brand.title": "LidlTool Desktop",
-  "app.brand.subtitle": "Lokaler Finanzarbeitsplatz",
+  "app.brand.title": "Outlays",
+  "app.brand.subtitle": "Dein Haushaltsbuch",
   "nav.group.daily": "Alltag",
   "nav.group.analytics": "Analyse",
   "nav.group.workspace": "Arbeitsbereich",

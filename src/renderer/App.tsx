@@ -165,7 +165,7 @@ export default function App() {
             <p className="eyebrow">{t("app.brand.title")}</p>
             <h1>Local receipt sync, review, export, and backup.</h1>
             <p className="shell-subtitle">
-              LidlTool Desktop is the occasional-use companion for this computer. Use it when you want a quick sync,
+              Outlays is the occasional-use spending ledger for this computer. Use it when you want a quick sync,
               a local export, a backup, or a simple connector setup without running a full self-hosted server.
             </p>
           </div>
@@ -231,7 +231,7 @@ export default function App() {
           <div className="section-heading">
             <div>
               <p className="section-kicker">Start here</p>
-              <h2>Use LidlTool on this computer</h2>
+              <h2>Use Outlays on this computer</h2>
             </div>
             <span className={`status-chip ${backend?.running ? "status-enabled" : "status-disabled"}`}>{backendStatusText}</span>
           </div>

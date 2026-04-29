@@ -3,9 +3,11 @@ import Security
 
 final class KeychainStore {
     private let service: String
+    private let legacyService: String?
 
-    init(service: String = "com.lidltool.ios-harness") {
+    init(service: String = "com.gluecherlab.outlays.companion", legacyService: String? = "com.lidltool.ios-harness") {
         self.service = service
+        self.legacyService = legacyService
     }
 
     func set(_ value: String, for key: String) {
@@ -40,10 +42,13 @@ final class KeychainStore {
 
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else {
+        if status == errSecSuccess, let data = item as? Data {
+            return String(data: data, encoding: .utf8)
+        }
+        guard let legacyService else {
             return nil
         }
-        return String(data: data, encoding: .utf8)
+        return Self(service: legacyService, legacyService: nil).get(key)
     }
 
     func delete(_ key: String) {

@@ -165,7 +165,7 @@ export function SettingsPage() {
 
   async function handleCreateMobilePairingSession(): Promise<void> {
     if (!mobileBridge) {
-      setMobilePairingError("Local phone pairing is only available inside LidlTool Desktop.");
+      setMobilePairingError("Local phone pairing is only available inside Outlays.");
       return;
     }
     setMobilePairingBusy(true);

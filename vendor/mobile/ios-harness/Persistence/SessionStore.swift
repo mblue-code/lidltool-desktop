@@ -30,7 +30,7 @@ final class SessionStore {
         self.decoder = JSONDecoder()
 
         let supportDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("LidlToolHarness", isDirectory: true)
+            .appendingPathComponent("OutlaysCompanion", isDirectory: true)
         self.stateURL = supportDirectory.appendingPathComponent("mobile-state.json")
         self.capturesDirectoryURL = supportDirectory.appendingPathComponent("captures", isDirectory: true)
 

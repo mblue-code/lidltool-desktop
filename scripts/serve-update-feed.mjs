@@ -3,7 +3,9 @@ import { createServer } from "node:http";
 import { extname, join, resolve } from "node:path";
 
 const root = resolve(process.argv[2] ?? "dist_electron");
-const port = Number(process.env.PORT ?? process.env.LIDLTOOL_DESKTOP_UPDATE_FEED_PORT ?? 47821);
+const port = Number(
+  process.env.PORT ?? process.env.OUTLAYS_DESKTOP_UPDATE_FEED_PORT ?? process.env.OUTLAYS_DESKTOP_UPDATE_FEED_PORT ?? 47821
+);
 
 if (!existsSync(root) || !statSync(root).isDirectory()) {
   console.error(`Update feed directory does not exist: ${root}`);
@@ -40,5 +42,5 @@ const server = createServer((request, response) => {
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`Serving local update feed from ${root}`);
-  console.log(`LIDLTOOL_DESKTOP_UPDATE_BASE_URL=http://127.0.0.1:${port}`);
+  console.log(`OUTLAYS_DESKTOP_UPDATE_BASE_URL=http://127.0.0.1:${port}`);
 });

@@ -12,7 +12,9 @@ const venvDir = resolve(desktopDir, ".backend", "venv");
 const vendoredBackendVenvDir = resolve(backendSource, ".venv");
 const playwrightBrowsersPath =
   process.env.PLAYWRIGHT_BROWSERS_PATH?.trim() || resolve(desktopDir, ".cache", "playwright-browsers");
-const allowUnsupportedPython = process.env.LIDLTOOL_DESKTOP_ALLOW_UNSUPPORTED_PYTHON?.trim() === "1";
+const allowUnsupportedPython =
+  (process.env.OUTLAYS_DESKTOP_ALLOW_UNSUPPORTED_PYTHON?.trim() ||
+    process.env.OUTLAYS_DESKTOP_ALLOW_UNSUPPORTED_PYTHON?.trim()) === "1";
 
 const MIN_SUPPORTED_PYTHON_MINOR = 11;
 const MAX_RECOMMENDED_PYTHON_MINOR = 12;
@@ -129,7 +131,7 @@ function resolveHostPython() {
 
   throw new Error(
     "No suitable Python interpreter found. Install Python 3.11-3.12 for desktop backend preparation. " +
-      "Set LIDLTOOL_DESKTOP_ALLOW_UNSUPPORTED_PYTHON=1 only if you intentionally want to bypass the stable OCR runtime constraint."
+      "Set OUTLAYS_DESKTOP_ALLOW_UNSUPPORTED_PYTHON=1 only if you intentionally want to bypass the stable OCR runtime constraint."
   );
 }
 

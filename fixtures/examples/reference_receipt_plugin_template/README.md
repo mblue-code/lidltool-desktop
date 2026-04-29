@@ -101,7 +101,7 @@ No `signature.json` is included because local manual import does not require tru
 ## Desktop import checklist
 
 1. Build the ZIP with `build_desktop_pack.py`.
-2. Open LidlTool Desktop and go to the connectors page.
+2. Open Outlays and go to the connectors page.
 3. Use `Import local pack` and select the generated ZIP.
 4. Confirm the pack is shown as `community_unsigned` and initially disabled.
 5. Enable the pack.

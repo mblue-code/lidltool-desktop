@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import type { DesktopUpdateChannel } from "@shared/contracts";
+import { readDesktopEnv, readDesktopFlag } from "../product-identity.ts";
 
 const require = createRequire(import.meta.url);
 
@@ -57,10 +58,24 @@ export function resolveDesktopUpdateConfig(input: ResolveDesktopUpdateConfigInpu
   const env = input.env ?? process.env;
   const electronApp = getElectronApp();
   const isPackaged = input.isPackaged ?? electronApp.isPackaged;
-  const channel = normalizeChannel(env.LIDLTOOL_DESKTOP_RELEASE_CHANNEL, isPackaged);
-  const updateBaseUrl = normalizeBaseUrl(env.LIDLTOOL_DESKTOP_UPDATE_BASE_URL, channel);
-  const allowDevUpdates = env.LIDLTOOL_DESKTOP_ALLOW_DEV_UPDATES === "1";
-  const autoCheck = env.LIDLTOOL_DESKTOP_UPDATE_AUTO_CHECK === "1";
+  const channel = normalizeChannel(
+    readDesktopEnv(env, "OUTLAYS_DESKTOP_RELEASE_CHANNEL", "LIDLTOOL_DESKTOP_RELEASE_CHANNEL"),
+    isPackaged
+  );
+  const updateBaseUrl = normalizeBaseUrl(
+    readDesktopEnv(env, "OUTLAYS_DESKTOP_UPDATE_BASE_URL", "LIDLTOOL_DESKTOP_UPDATE_BASE_URL"),
+    channel
+  );
+  const allowDevUpdates = readDesktopFlag(
+    env,
+    "OUTLAYS_DESKTOP_ALLOW_DEV_UPDATES",
+    "LIDLTOOL_DESKTOP_ALLOW_DEV_UPDATES"
+  );
+  const autoCheck = readDesktopFlag(
+    env,
+    "OUTLAYS_DESKTOP_UPDATE_AUTO_CHECK",
+    "LIDLTOOL_DESKTOP_UPDATE_AUTO_CHECK"
+  );
   const currentVersion = input.version ?? electronApp.getVersion();
 
   if (!updateBaseUrl) {

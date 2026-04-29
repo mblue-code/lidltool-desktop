@@ -1,7 +1,9 @@
-# LidlTool Desktop (Electron)
+# Outlays (Electron)
 
-LidlTool Desktop is the standalone occasional-use desktop product. It is local-first, receipt-oriented, and
+Outlays is the standalone occasional-use desktop product. It is local-first, receipt-oriented, and
 plugin-capable, but it is intentionally narrower than the self-hosted server deployment.
+
+This project is independent and is not affiliated with Lidl or any retailer.
 
 Planning note:
 - Multi-user personal + household finance direction is tracked in `docs/multi-user-household-finance-vision.md`.
@@ -38,14 +40,14 @@ Mobile foundation fork:
 Diagnostics and bug reporting:
 - GitHub Issues are the user-facing tracker for desktop bugs, beta feedback, and connector-specific reports.
 - Optional automatic error reporting is Sentry-compatible and intended for a self-hosted GlitchTip project.
-- Error reporting is disabled unless `LIDLTOOL_DESKTOP_GLITCHTIP_DSN` or `LIDLTOOL_DESKTOP_SENTRY_DSN` is set, `LIDLTOOL_DESKTOP_TELEMETRY` is `errors` or `errors_with_logs`, and the local privacy preference enables error reporting.
+- Error reporting is disabled unless `OUTLAYS_DESKTOP_GLITCHTIP_DSN` or `OUTLAYS_DESKTOP_SENTRY_DSN` is set, `OUTLAYS_DESKTOP_TELEMETRY` is `errors` or `errors_with_logs`, and the local privacy preference enables error reporting.
 - Users can create a redacted diagnostics bundle or open the logs folder from the control center or Help menu. The bundle intentionally excludes receipt databases, receipt exports, document storage, credentials, tokens, scraped retailer HTML, screenshots, and AI chat content.
 - Commit diagnostics code and docs publicly, but keep real DSNs, auth tokens, source-map upload tokens, VPS credentials, and real user diagnostics out of git; see `docs/public-repo-boundary.md`.
 
 Updates and releases:
 - Desktop uses `electron-updater` with a configurable generic update feed.
-- Set `LIDLTOOL_DESKTOP_RELEASE_CHANNEL=beta` or `stable` and inject `LIDLTOOL_DESKTOP_UPDATE_BASE_URL` during release.
-- Updates are disabled in development unless `LIDLTOOL_DESKTOP_ALLOW_DEV_UPDATES=1`.
+- Set `OUTLAYS_DESKTOP_RELEASE_CHANNEL=beta` or `stable` and inject `OUTLAYS_DESKTOP_UPDATE_BASE_URL` during release.
+- Updates are disabled in development unless `OUTLAYS_DESKTOP_ALLOW_DEV_UPDATES=1`.
 - Updates are disabled when no update base URL is configured.
 - The first update flow is manual: check, download, restart.
 - Final macOS Developer ID signing, notarization, and Windows Authenticode signing remain intentionally deferred; see `docs/signing-and-notarization.md`.
@@ -243,11 +245,11 @@ Release validation performed for the finance shell:
 - Desktop shell brand assets and packaged app icons live entirely inside `apps/desktop` (`src/renderer/assets`, `vendor/frontend/src/assets`, and generated `build/icon.*` files).
 - `npm run icons:generate` rebuilds `build/icon.png`, `build/icon.ico`, and `build/icon.icns` from `src/renderer/assets/logo-mark.svg` so packaged builds do not fall back to Electron defaults.
 - Backend receives:
-  - `LIDLTOOL_FRONTEND_DIST`
-  - `LIDLTOOL_REPO_ROOT`
-  - `LIDLTOOL_CONFIG_DIR` rooted inside the Electron `userData` profile
-  - `LIDLTOOL_DOCUMENT_STORAGE_PATH` rooted inside the Electron `userData` profile
-  - `LIDLTOOL_DESKTOP_MODE=true`
+  - `OUTLAYS_DESKTOP_FRONTEND_DIST`
+  - `OUTLAYS_DESKTOP_REPO_ROOT`
+  - `OUTLAYS_DESKTOP_CONFIG_DIR` rooted inside the Electron `userData` profile
+  - `OUTLAYS_DESKTOP_DOCUMENT_STORAGE_PATH` rooted inside the Electron `userData` profile
+  - `OUTLAYS_DESKTOP_MODE=true`
   - `LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY`
   - desktop-managed connector plugin env vars for explicitly enabled receipt plugin packs
   - `PLAYWRIGHT_BROWSERS_PATH=<profile>/playwright-browsers` for bundled or managed venv backends
@@ -282,7 +284,7 @@ User-visible OCR states:
 Idle lifecycle:
 
 - The OCR worker stays warm briefly after work completes, then exits automatically.
-- Tune the idle timeout with `LIDLTOOL_DESKTOP_OCR_IDLE_TIMEOUT_S`.
+- Tune the idle timeout with `OUTLAYS_DESKTOP_OCR_IDLE_TIMEOUT_S`.
 - Default idle timeout is `600` seconds.
 
 Control-center states:
@@ -307,7 +309,7 @@ Scope:
 - recurring offer scraping and alerts remain out of desktop scope
 - `dm_de` is now one of these optional receipt plugins rather than a built-in desktop connector
 - `lidl_plus_de` now uses a real-browser OAuth handoff instead of the old embedded Playwright login path; desktop opens Lidl in the user's selected browser target (system default by default, with optional Arc, Atlas, or Google Chrome override), captures `com.lidlplus.app://callback` in Electron, shows an in-app success prompt as soon as the callback is confirmed, and keeps a pasted callback fallback if the browser completes but the app does not reconnect automatically
-- packaged mac builds now declare `com.lidlplus.app` in the app bundle `Info.plist` through Electron Builder `protocols`, so Launch Services can bind Lidl callbacks to `com.lidltool.desktop` instead of falling back to stale generic Electron registrations
+- packaged mac builds now declare `com.lidlplus.app` in the app bundle `Info.plist` through Electron Builder `protocols`, so Launch Services can bind Lidl callbacks to `com.gluecherlab.outlays.desktop` instead of falling back to stale generic Electron registrations
 - `rewe_de` is an imported receipt pack in desktop rather than a built-in connector, so the desktop auth flow can reuse a normal Chrome session instead of depending on packaged CAPTCHA automation
 - `penny_de` is a local optional receipt pack under `fixtures/plugin-sources/penny_de`; it now supports direct Penny eBon discovery and PDF-backed receipt parsing through stored OAuth state, and desktop exposes the PENNY PKCE login URL for the user's normal browser, auto-captures supported Chromium callbacks when possible, and falls back to a pasted final callback URL when browser observation is not reliable
 
@@ -438,9 +440,9 @@ Connector status summaries are user-facing rather than quarantine-facing: succes
 Imported packs live under user-writable Electron app-data, never under packaged app resources.
 
 - macOS:
-  - `~/Library/Application Support/LidlTool Desktop/plugins/receipt-packs/`
+  - `~/Library/Application Support/Outlays/plugins/receipt-packs/`
 - Windows:
-  - `%APPDATA%/LidlTool Desktop/plugins/receipt-packs/`
+  - `%APPDATA%/Outlays/plugins/receipt-packs/`
 
 Desktop-managed layout:
 
@@ -498,7 +500,7 @@ Current desktop release variants:
   - intentionally does not imply official US connector support yet
 
 Set the active desktop release preset with:
-- `LIDLTOOL_DESKTOP_RELEASE_VARIANT`
+- `OUTLAYS_DESKTOP_RELEASE_VARIANT`
 
 Notes:
 - universal shell and regional editions share the same plugin/runtime model
@@ -509,7 +511,7 @@ Notes:
 ## Curated connector catalog
 
 Desktop consumes a signed connector catalog envelope and can optionally fetch a newer signed remote catalog when
-`LIDLTOOL_DESKTOP_CATALOG_URL` is set.
+`OUTLAYS_DESKTOP_CATALOG_URL` is set.
 
 Desktop catalog source of truth:
 - bundled signed envelope: `apps/desktop/src/main/trusted-distribution/bundled-connector-catalog.json`
@@ -589,7 +591,7 @@ That venv is what later gets copied into `build/backend-venv` for packaged deskt
 
 Desktop intentionally prefers Python `3.12`, then `3.11` for backend preparation because the bundled
 desktop OCR runtime is only treated as production-ready on that range today.
-If you intentionally need to bypass that guard, set `LIDLTOOL_DESKTOP_ALLOW_UNSUPPORTED_PYTHON=1`, but that is not
+If you intentionally need to bypass that guard, set `OUTLAYS_DESKTOP_ALLOW_UNSUPPORTED_PYTHON=1`, but that is not
 the recommended release path.
 
 Run the real desktop Electron E2E smoke suite:
@@ -750,7 +752,7 @@ Outcome summary:
 Executed:
 
 ```bash
-APP="dist_electron/mac-arm64/LidlTool Desktop.app/Contents/Resources"
+APP="dist_electron/mac-arm64/Outlays.app/Contents/Resources"
 for d in frontend-dist backend-src backend-venv; do test -d "$APP/$d" && echo "OK dir: $d"; done
 for f in frontend-dist/index.html backend-src/pyproject.toml backend-venv/bin/lidltool; do test -f "$APP/$f" && echo "OK file: $f"; done
 find "$APP/backend-venv/lib" -type d -path "*/site-packages/playwright/driver/package/.local-browsers"
@@ -768,7 +770,7 @@ Outcome:
 Success path command:
 
 ```bash
-APP="$PWD/dist_electron/mac-arm64/LidlTool Desktop.app/Contents/MacOS/LidlTool Desktop"
+APP="$PWD/dist_electron/mac-arm64/Outlays.app/Contents/MacOS/Outlays"
 "$APP" --remote-debugging-port=9333
 ```
 
@@ -779,7 +781,7 @@ Verified via DevTools target + health probe:
 Failure fallback command:
 
 ```bash
-APP="$PWD/dist_electron/mac-arm64/LidlTool Desktop.app/Contents/MacOS/LidlTool Desktop"
+APP="$PWD/dist_electron/mac-arm64/Outlays.app/Contents/MacOS/Outlays"
 LIDLTOOL_EXECUTABLE=/does/not/exist "$APP" --remote-debugging-port=9334
 ```
 
@@ -847,7 +849,7 @@ COOKIE=/tmp/lidltool-system-backup-login-cookie.txt
 LOG=/tmp/lidltool-system-backup-login.log
 rm -rf "$CFG" "$OUT" "$COOKIE" "$DB" "$LOG"
 mkdir -p "$CFG"
-LIDLTOOL_CONFIG_DIR="$CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="smoke-smoke-smoke-smoke-smoke-smoke-smoke-smoke" \
+OUTLAYS_DESKTOP_CONFIG_DIR="$CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="smoke-smoke-smoke-smoke-smoke-smoke-smoke-smoke" \
   ./.backend/venv/bin/python - <<'PY'
 from pathlib import Path
 from lidltool.auth.users import create_local_user
@@ -868,7 +870,7 @@ with session_scope(sessions) as session:
         is_admin=True,
     )
 PY
-LIDLTOOL_CONFIG_DIR="$CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="smoke-smoke-smoke-smoke-smoke-smoke-smoke-smoke" \
+OUTLAYS_DESKTOP_CONFIG_DIR="$CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="smoke-smoke-smoke-smoke-smoke-smoke-smoke-smoke" \
   ./.backend/venv/bin/lidltool --db "$DB" serve --host 127.0.0.1 --port "$PORT" >"$LOG" 2>&1 &
 PID=$!
 trap 'kill "$PID" >/dev/null 2>&1 || true' EXIT
@@ -905,7 +907,7 @@ OUT=/tmp/lidltool-ui-backup-login-output
 LOG=/tmp/lidltool-ui-backup-login.log
 rm -rf "$CFG" "$OUT" "$DB" "$LOG"
 mkdir -p "$CFG"
-LIDLTOOL_CONFIG_DIR="$CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="smoke-smoke-smoke-smoke-smoke-smoke-smoke-smoke" \
+OUTLAYS_DESKTOP_CONFIG_DIR="$CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="smoke-smoke-smoke-smoke-smoke-smoke-smoke-smoke" \
   ./.backend/venv/bin/python - <<'PY'
 from pathlib import Path
 from lidltool.auth.users import create_local_user
@@ -926,8 +928,8 @@ with session_scope(sessions) as session:
         is_admin=True,
     )
 PY
-LIDLTOOL_CONFIG_DIR="$CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="smoke-smoke-smoke-smoke-smoke-smoke-smoke-smoke" \
-LIDLTOOL_FRONTEND_DIST="$PWD/vendor/frontend/dist" LIDLTOOL_REPO_ROOT="$PWD/vendor/backend" \
+OUTLAYS_DESKTOP_CONFIG_DIR="$CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="smoke-smoke-smoke-smoke-smoke-smoke-smoke-smoke" \
+OUTLAYS_DESKTOP_FRONTEND_DIST="$PWD/vendor/frontend/dist" OUTLAYS_DESKTOP_REPO_ROOT="$PWD/vendor/backend" \
   ./.backend/venv/bin/lidltool --db "$DB" serve --host 127.0.0.1 --port "$PORT" >"$LOG" 2>&1 &
 PID=$!
 trap 'kill "$PID" >/dev/null 2>&1 || true' EXIT
@@ -991,7 +993,7 @@ RESTORE_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 rm -rf "$SOURCE_BACKUP" "$SOURCE_DB" "$SOURCE_CFG"
 mkdir -p "$SOURCE_BACKUP" "$SOURCE_CFG"
 
-LIDLTOOL_CONFIG_DIR="$SOURCE_CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="$RESTORE_KEY" \
+OUTLAYS_DESKTOP_CONFIG_DIR="$SOURCE_CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="$RESTORE_KEY" \
   ./.backend/venv/bin/python - <<'PY'
 from pathlib import Path
 from lidltool.auth.users import create_local_user
@@ -1027,7 +1029,7 @@ E_LOG=/tmp/lidltool-import-electron-fresh.log
 rm -rf "$USER_DATA_DIR" "$CONFIG_DIR" "$DOCS_DIR" "$E_LOG"
 mkdir -p "$USER_DATA_DIR" "$CONFIG_DIR" "$DOCS_DIR"
 
-LIDLTOOL_CONFIG_DIR="$CONFIG_DIR" LIDLTOOL_DOCUMENT_STORAGE_PATH="$DOCS_DIR" \
+OUTLAYS_DESKTOP_CONFIG_DIR="$CONFIG_DIR" OUTLAYS_DESKTOP_DOCUMENT_STORAGE_PATH="$DOCS_DIR" \
   ./node_modules/.bin/electron . --user-data-dir="$USER_DATA_DIR" --remote-debugging-port=9461 >"$E_LOG" 2>&1 &
 EPID=$!
 trap 'kill "$EPID" >/dev/null 2>&1 || true' EXIT

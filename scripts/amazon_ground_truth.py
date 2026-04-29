@@ -658,9 +658,9 @@ def _extract_orders(cfg: GroundTruthConfig) -> None:
 
 def _app_config() -> AppConfig:
     home = Path.home()
-    app_support = home / "Library" / "Application Support" / "lidltool-desktop"
+    app_support = home / "Library" / "Application Support" / "outlays-desktop"
     return AppConfig(
-        db_path=app_support / "lidltool.sqlite",
+        db_path=app_support / "outlays.sqlite",
         config_dir=app_support / "config",
         credential_encryption_key=(app_support / "credential_encryption_key.txt").read_text(encoding="utf-8").strip(),
         connector_live_sync_enabled=False,

@@ -1,20 +1,20 @@
 You are the lead orchestration agent for the repository at:
-`/Volumes/macminiExtern/projects/lidltool-desktop`
+`/path/to/outlays-desktop`
 
 Your mission is to execute the complete native mobile companion program for this repo from start to finish.
 
 You must treat the following documents as the primary execution contract:
 
-- `/Volumes/macminiExtern/projects/lidltool-desktop/AGENTS.md`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/README.md`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-companion-vision.md`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-native-implementation-plan.md`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-agent-runbook.md`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-foundation.md`
+- `/path/to/outlays-desktop/AGENTS.md`
+- `/path/to/outlays-desktop/README.md`
+- `/path/to/outlays-desktop/docs/mobile-companion-vision.md`
+- `/path/to/outlays-desktop/docs/mobile-native-implementation-plan.md`
+- `/path/to/outlays-desktop/docs/mobile-agent-runbook.md`
+- `/path/to/outlays-desktop/docs/mobile-foundation.md`
 
 ## Mission
 
-Implement the complete native mobile companion direction for LidlTool Desktop.
+Implement the complete native mobile companion direction for Outlays.
 
 The finished program must deliver:
 
@@ -80,59 +80,59 @@ You must preserve all of the following:
 
 Before planning or coding, read these files fully:
 
-- `/Volumes/macminiExtern/projects/lidltool-desktop/AGENTS.md`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/README.md`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-companion-vision.md`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-native-implementation-plan.md`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-agent-runbook.md`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-foundation.md`
+- `/path/to/outlays-desktop/AGENTS.md`
+- `/path/to/outlays-desktop/README.md`
+- `/path/to/outlays-desktop/docs/mobile-companion-vision.md`
+- `/path/to/outlays-desktop/docs/mobile-native-implementation-plan.md`
+- `/path/to/outlays-desktop/docs/mobile-agent-runbook.md`
+- `/path/to/outlays-desktop/docs/mobile-foundation.md`
 
 Then inspect the current baseline code paths that will anchor the program:
 
 ### Android baseline
 
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/android-harness/app/build.gradle.kts`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/android-harness/app/src/main/java/com/lidltool/androidharness/MainActivity.kt`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/android-harness/app/src/main/java/com/lidltool/androidharness/HarnessViewModel.kt`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/android-harness/app/src/main/java/com/lidltool/androidharness/HarnessApi.kt`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/android-harness/app/src/main/java/com/lidltool/androidharness/SessionStore.kt`
+- `/path/to/outlays-desktop/vendor/mobile/android-harness/app/build.gradle.kts`
+- `/path/to/outlays-desktop/vendor/mobile/android-harness/app/src/main/java/com/lidltool/androidharness/MainActivity.kt`
+- `/path/to/outlays-desktop/vendor/mobile/android-harness/app/src/main/java/com/lidltool/androidharness/HarnessViewModel.kt`
+- `/path/to/outlays-desktop/vendor/mobile/android-harness/app/src/main/java/com/lidltool/androidharness/HarnessApi.kt`
+- `/path/to/outlays-desktop/vendor/mobile/android-harness/app/src/main/java/com/lidltool/androidharness/SessionStore.kt`
 
 ### iOS baseline
 
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/ios-harness/App/LidlToolHarnessApp.swift`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/ios-harness/App/RootView.swift`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/ios-harness/Services/API/APIClient.swift`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/ios-harness/Services/Auth/HarnessStore.swift`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/ios-harness/Persistence/SessionStore.swift`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/ios-harness/Persistence/KeychainStore.swift`
+- `/path/to/outlays-desktop/vendor/mobile/ios-harness/App/LidlToolHarnessApp.swift`
+- `/path/to/outlays-desktop/vendor/mobile/ios-harness/App/RootView.swift`
+- `/path/to/outlays-desktop/vendor/mobile/ios-harness/Services/API/APIClient.swift`
+- `/path/to/outlays-desktop/vendor/mobile/ios-harness/Services/Auth/HarnessStore.swift`
+- `/path/to/outlays-desktop/vendor/mobile/ios-harness/Persistence/SessionStore.swift`
+- `/path/to/outlays-desktop/vendor/mobile/ios-harness/Persistence/KeychainStore.swift`
 
 ### Desktop backend and runtime insertion points
 
-- `/Volumes/macminiExtern/projects/lidltool-desktop/src/main/index.ts`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/src/main/ipc.ts`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/src/main/runtime.ts`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/backend/src/lidltool/api/http_server.py`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/overrides/backend/src/lidltool/api/http_server.py`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/backend/src/lidltool/db/models.py`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/overrides/backend/src/lidltool/db/models.py`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/vendor/backend/src/lidltool/mobile/service.py`
+- `/path/to/outlays-desktop/src/main/index.ts`
+- `/path/to/outlays-desktop/src/main/ipc.ts`
+- `/path/to/outlays-desktop/src/main/runtime.ts`
+- `/path/to/outlays-desktop/vendor/backend/src/lidltool/api/http_server.py`
+- `/path/to/outlays-desktop/overrides/backend/src/lidltool/api/http_server.py`
+- `/path/to/outlays-desktop/vendor/backend/src/lidltool/db/models.py`
+- `/path/to/outlays-desktop/overrides/backend/src/lidltool/db/models.py`
+- `/path/to/outlays-desktop/vendor/backend/src/lidltool/mobile/service.py`
 
 ### Desktop design-language reference
 
 Inspect the current desktop shell and finance UI so mobile stays visually and conceptually aligned:
 
-- `/Volumes/macminiExtern/projects/lidltool-desktop/src/renderer/App.tsx`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/src/renderer/styles.css`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/overrides/frontend/src/components/shared/AppShell.tsx`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/overrides/frontend/src/pages/DashboardPage.tsx`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/overrides/frontend/src/pages/BudgetPage.tsx`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/overrides/frontend/src/pages/TransactionsPage.tsx`
+- `/path/to/outlays-desktop/src/renderer/App.tsx`
+- `/path/to/outlays-desktop/src/renderer/styles.css`
+- `/path/to/outlays-desktop/overrides/frontend/src/components/shared/AppShell.tsx`
+- `/path/to/outlays-desktop/overrides/frontend/src/pages/DashboardPage.tsx`
+- `/path/to/outlays-desktop/overrides/frontend/src/pages/BudgetPage.tsx`
+- `/path/to/outlays-desktop/overrides/frontend/src/pages/TransactionsPage.tsx`
 
 ## Local Development Environment
 
 This machine-specific toolchain is available and should be used:
 
-- desktop repo root: `/Volumes/macminiExtern/projects/lidltool-desktop`
+- desktop repo root: `/path/to/outlays-desktop`
 - upstream comparison repo: `/Volumes/macminiExtern/lidl-receipts-cli`
 - Android Studio: `/Volumes/macminiExtern/Applications/Android Studio.app`
 - Android SDK: `/Volumes/macminiExtern/DevData/Android/sdk`
@@ -372,7 +372,7 @@ If desktop runtime, backend, or docs tied to behavior changed:
 Use:
 
 ```bash
-cd /Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/android-harness
+cd /path/to/outlays-desktop/vendor/mobile/android-harness
 ./gradlew :app:assembleDebug
 ```
 
@@ -381,7 +381,7 @@ cd /Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/android-harnes
 Use:
 
 ```bash
-cd /Volumes/macminiExtern/projects/lidltool-desktop
+cd /path/to/outlays-desktop
 DEVELOPER_DIR=/Volumes/macminiExtern/Applications/Xcode.app/Contents/Developer \
 xcodebuild \
   -project vendor/mobile/ios-harness/LidlToolHarness.xcodeproj \
@@ -400,15 +400,15 @@ If iOS scheme destination discovery is flaky on this machine, prefer the validat
 
 Keep these docs updated as implementation sharpens:
 
-- `/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-companion-vision.md`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-native-implementation-plan.md`
-- `/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-agent-runbook.md`
+- `/path/to/outlays-desktop/docs/mobile-companion-vision.md`
+- `/path/to/outlays-desktop/docs/mobile-native-implementation-plan.md`
+- `/path/to/outlays-desktop/docs/mobile-agent-runbook.md`
 
 If you make the orchestration prompt stale by changing the plan materially, update this file too:
 
-- `/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-native-orchestration-prompt.md`
+- `/path/to/outlays-desktop/docs/mobile-native-orchestration-prompt.md`
 
-Also update `/Volumes/macminiExtern/projects/lidltool-desktop/README.md` when repository-level workflow or scope changes.
+Also update `/path/to/outlays-desktop/README.md` when repository-level workflow or scope changes.
 
 ## Required Deliverable Outcomes
 

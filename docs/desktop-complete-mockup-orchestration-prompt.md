@@ -27,15 +27,15 @@ You must not copy the screenshot literally where it contains:
 
 - unrelated branding
 - unrelated product names
-- merchant logos or merchant examples that do not belong to LidlTool
+- merchant logos or merchant examples that do not belong to Outlays
 - invented sample balances, dates, or account numbers
-- any domain assumptions that do not map to LidlTool’s real data model
+- any domain assumptions that do not map to Outlays’ real data model
 
 Implementation rule:
 
-- Translate the visual language of the screenshot into LidlTool’s real desktop product.
+- Translate the visual language of the screenshot into Outlays’ real desktop product.
 - Preserve the layout ambition and polish of the reference image.
-- Adapt merchant, connector, and product concepts to LidlTool’s actual supported retailers and local-first receipt domain.
+- Adapt merchant, connector, and product concepts to Outlays’ actual supported retailers and local-first receipt domain.
 
 ## First Step
 

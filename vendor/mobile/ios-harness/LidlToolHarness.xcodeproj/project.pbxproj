@@ -30,7 +30,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A20000000000000000000000 /* LidlToolHarness.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LidlToolHarness.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000000 /* LidlToolHarness.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Outlays Companion.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000001 /* LidlToolHarnessApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LidlToolHarnessApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
@@ -230,7 +230,7 @@
 			dependencies = (
 			);
 			name = LidlToolHarness;
-			productName = LidlToolHarness;
+			productName = "Outlays Companion";
 			productReference = A20000000000000000000000 /* LidlToolHarness.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -381,7 +381,7 @@
 				CODE_SIGNING_ALLOWED = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Resources\"";
-				INFOPLIST_KEY_CFBundleDisplayName = "LidlTool Harness";
+				INFOPLIST_KEY_CFBundleDisplayName = "Outlays Companion";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan pairing QR codes and capture receipt photos for local desktop sync.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Import receipt images for local desktop sync.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -395,8 +395,8 @@
 				);
 					CODE_SIGN_ENTITLEMENTS = LidlToolHarness.entitlements;
 					MARKETING_VERSION = 0.1.0;
-					PRODUCT_BUNDLE_IDENTIFIER = com.lidltool.iosharness;
-					PRODUCT_NAME = "$(TARGET_NAME)";
+					PRODUCT_BUNDLE_IDENTIFIER = com.gluecherlab.outlays.companion;
+					PRODUCT_NAME = "Outlays Companion";
 					SDKROOT = iphoneos;
 					SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 					SWIFT_VERSION = 5.0;
@@ -412,7 +412,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CODE_SIGNING_ALLOWED = NO;
 				CURRENT_PROJECT_VERSION = 1;
-				INFOPLIST_KEY_CFBundleDisplayName = "LidlTool Harness";
+				INFOPLIST_KEY_CFBundleDisplayName = "Outlays Companion";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan pairing QR codes and capture receipt photos for local desktop sync.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Import receipt images for local desktop sync.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -426,8 +426,8 @@
 				);
 					CODE_SIGN_ENTITLEMENTS = LidlToolHarness.entitlements;
 					MARKETING_VERSION = 0.1.0;
-					PRODUCT_BUNDLE_IDENTIFIER = com.lidltool.iosharness;
-					PRODUCT_NAME = "$(TARGET_NAME)";
+					PRODUCT_BUNDLE_IDENTIFIER = com.gluecherlab.outlays.companion;
+					PRODUCT_NAME = "Outlays Companion";
 					SDKROOT = iphoneos;
 					SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 					SWIFT_VERSION = 5.0;

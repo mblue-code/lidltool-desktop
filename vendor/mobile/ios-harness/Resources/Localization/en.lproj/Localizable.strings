@@ -1,4 +1,4 @@
-"app.title" = "LidlTool";
+"app.title" = "Outlays";
 
 "tab.home" = "Home";
 "tab.receipts" = "Receipts";
@@ -55,13 +55,13 @@
 "error.createChatThread" = "Failed to create chat thread.";
 "error.chatRequest" = "Chat request failed.";
 "error.ocrUpload" = "OCR upload failed.";
-"error.signInFirst" = "Pair with LidlTool Desktop first.";
+"error.signInFirst" = "Pair with Outlays first.";
 "error.pushPermission" = "Notifications are not part of this paired companion build.";
 "error.pushUnavailable" = "Notifications are unavailable in this build.";
 "error.pushRegistration" = "Notification registration is unavailable in this build.";
 
 "login.eyebrow" = "Local desktop pairing";
-"login.title" = "Pair with LidlTool Desktop";
+"login.title" = "Pair with Outlays";
 "login.subtitle" = "Connect this iPhone to your desktop-generated pairing payload. Sync happens only while both apps are open and reachable.";
 "login.privateAccess.title" = "Local pairing only";
 "login.privateAccess.body" = "Do not expose the desktop mobile endpoint to the public internet. Pair on your local network and keep sync foreground-oriented.";
@@ -201,7 +201,7 @@
 "mobile.action.importing" = "Importing";
 "mobile.login.subtitle" = "This companion stores data locally and syncs only with your paired desktop while both apps are open and reachable.";
 "mobile.login.noCloud.title" = "No backend account";
-"mobile.login.noCloud.body" = "Open LidlTool Desktop, choose Pair mobile, then scan the QR code or paste the payload here. The iPhone stores the sync token in Keychain and the read models in app-private storage.";
+"mobile.login.noCloud.body" = "Open Outlays, choose Pair mobile, then scan the QR code or paste the payload here. The iPhone stores the sync token in Keychain and the read models in app-private storage.";
 "mobile.login.payload" = "QR payload version 1";
 "mobile.login.pairPhone" = "Pair this iPhone";
 "mobile.login.scanQR" = "Scan QR";
@@ -209,7 +209,7 @@
 "mobile.login.manualFallback" = "Use manual paste";
 "mobile.login.openSettings" = "Open Settings";
 "mobile.login.cameraDenied.title" = "Camera access is off";
-"mobile.login.cameraDenied.body" = "Enable camera access for LidlTool Harness to scan the pairing QR code, or close this scanner and paste the payload manually.";
+"mobile.login.cameraDenied.body" = "Enable camera access for Outlays Harness to scan the pairing QR code, or close this scanner and paste the payload manually.";
 "mobile.login.cameraUnavailable.title" = "Camera unavailable";
 "mobile.login.cameraUnavailable.body" = "This device cannot open the camera for QR scanning. You can still paste the desktop pairing payload manually.";
 "mobile.overview.title" = "Local finance overview";
@@ -269,7 +269,7 @@
 "mobile.capture.cameraEncodeError" = "Could not encode camera image.";
 "mobile.sync.eyebrow" = "Intentional sync";
 "mobile.sync.title" = "Desktop sync";
-"mobile.sync.description" = "Sync when LidlTool Desktop is open and reachable on the local network.";
+"mobile.sync.description" = "Sync when Outlays is open and reachable on the local network.";
 "mobile.sync.desktop" = "Desktop";
 "mobile.sync.endpoint" = "Endpoint";
 "mobile.sync.cursor" = "Cursor";

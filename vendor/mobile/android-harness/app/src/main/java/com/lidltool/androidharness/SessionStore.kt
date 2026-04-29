@@ -31,7 +31,7 @@ class SessionStore(context: Context) {
         }
 
     companion object {
-        private const val PREFS_NAME = "lidltool_companion_device"
+        private const val PREFS_NAME = "outlays_companion_device"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_LANGUAGE_TAG = "language_tag"
     }

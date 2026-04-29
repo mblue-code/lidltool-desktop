@@ -5,7 +5,7 @@ test("falls back to the control center when the main frontend bundle is unavaila
   const session = await launchDesktopApp({ frontendDistMode: "missing" });
   const { page, close } = session;
   const controlCenterCard = page.locator("article.card").filter({
-    has: page.getByRole("heading", { name: "Use LidlTool on this computer" })
+    has: page.getByRole("heading", { name: "Use Outlays on this computer" })
   });
 
   try {

@@ -4,7 +4,7 @@ Use this prompt for a focused remediation pass on the current manual QA findings
 
 ---
 
-You are working in the repo `/Volumes/macminiExtern/projects/lidltool-desktop`.
+You are working in the repo `/path/to/outlays-desktop`.
 
 Your job is to fix the currently logged manual QA issues in the desktop app, verify each fix properly, and then remove only the tracker entries that are fully fixed and fully tested.
 
@@ -12,7 +12,7 @@ Your job is to fix the currently logged manual QA issues in the desktop app, ver
 
 The current issue tracker is:
 
-- `/Volumes/macminiExtern/projects/lidltool-desktop/docs/manual-app-issue-tracker.md`
+- `/path/to/outlays-desktop/docs/manual-app-issue-tracker.md`
 
 Treat that file as the authoritative list of issues to address in this pass.
 
@@ -215,7 +215,7 @@ This may be a larger feature than a bug fix. If it is too large for one pass, do
 
 ### ISSUE-007
 
-The running app shows the default Electron dock icon instead of the LidlTool Desktop icon.
+The running app shows the default Electron dock icon instead of the Outlays icon.
 
 Fix goals:
 

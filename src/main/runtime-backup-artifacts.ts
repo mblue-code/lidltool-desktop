@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
+import { DEFAULT_DB_FILENAME, LEGACY_DB_FILENAME } from "./product-identity.ts";
 
 export function readBackupManifest(backupDir: string): Record<string, unknown> | null {
   const manifestPath = join(backupDir, "backup-manifest.json");
@@ -26,7 +27,7 @@ export function resolveDbArtifact(
   if (manifestCandidate) {
     return manifestCandidate;
   }
-  const direct = resolveBackupArtifact(backupDir, "lidltool.sqlite");
+  const direct = resolveBackupArtifact(backupDir, DEFAULT_DB_FILENAME) ?? resolveBackupArtifact(backupDir, LEGACY_DB_FILENAME);
   if (direct) {
     return direct;
   }

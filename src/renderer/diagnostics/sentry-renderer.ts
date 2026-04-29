@@ -1,5 +1,7 @@
 import * as Sentry from "@sentry/electron/renderer";
 
+const APP_TAG = "outlays-desktop";
+
 let initialized = false;
 
 export async function initRendererTelemetry(): Promise<void> {
@@ -29,6 +31,6 @@ export async function initRendererTelemetry(): Promise<void> {
       return event;
     }
   });
-  Sentry.setTag("app", "lidltool-desktop");
+  Sentry.setTag("app", APP_TAG);
   Sentry.setTag("process", "renderer");
 }

@@ -1,6 +1,8 @@
 # Privacy
 
-LidlTool Desktop is local-first. Receipt data, local databases, backups, document storage, retailer sessions, and AI chat content stay on your computer unless you explicitly export, back up, upload, or attach them somewhere yourself.
+Outlays is local-first. Receipt data, local databases, backups, document storage, retailer sessions, and AI chat content stay on your computer unless you explicitly export, back up, upload, or attach them somewhere yourself.
+
+This project is independent and is not affiliated with Lidl or any retailer.
 
 Automatic error reporting is off by default. It only sends events when a release is configured with a Sentry-compatible DSN and you enable error reporting in the desktop privacy controls. Diagnostic log sharing is a separate toggle.
 

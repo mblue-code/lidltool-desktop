@@ -9,8 +9,8 @@ test("installs, updates, toggles, and removes a trusted receipt pack through the
   const session = await launchDesktopApp({
     frontendDistMode: "missing",
     envOverrides: {
-      LIDLTOOL_DESKTOP_TRUSTED_CATALOG_PATH: fixtureServer.trustedCatalogPath,
-      LIDLTOOL_DESKTOP_TRUST_ROOTS_PATH: fixtureServer.trustRootsPath
+      OUTLAYS_DESKTOP_TRUSTED_CATALOG_PATH: fixtureServer.trustedCatalogPath,
+      OUTLAYS_DESKTOP_TRUST_ROOTS_PATH: fixtureServer.trustRootsPath
     }
   });
   const { page, close } = session;

@@ -3,10 +3,10 @@
 Use this file when you want to start a long-running implementation session for the native mobile companion.
 
 Primary prompt:
-- [docs/mobile-native-orchestration-prompt.md](/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-native-orchestration-prompt.md:1)
+- [docs/mobile-native-orchestration-prompt.md](/path/to/outlays-desktop/docs/mobile-native-orchestration-prompt.md:1)
 
 Paste the full prompt into the implementation agent and let it execute against this repo:
-- repo root: `/Volumes/macminiExtern/projects/lidltool-desktop`
+- repo root: `/path/to/outlays-desktop`
 
 The prompt is already grounded in:
 - the repo rules

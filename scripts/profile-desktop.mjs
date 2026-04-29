@@ -133,10 +133,10 @@ function resolveDesktopLaunchEnv(profileRoot, extraEnv, apiPort) {
       XDG_CONFIG_HOME: join(homeDir, ".config"),
       XDG_DATA_HOME: join(homeDir, ".local", "share"),
       TMPDIR: tmpDir,
-      LIDLTOOL_DESKTOP_USER_DATA_DIR: join(profileRoot, "electron-user-data"),
-      LIDLTOOL_CONFIG_DIR: configDir,
-      LIDLTOOL_DOCUMENT_STORAGE_PATH: documentsDir,
-      LIDLTOOL_DESKTOP_API_PORT: String(apiPort),
+      OUTLAYS_DESKTOP_USER_DATA_DIR: join(profileRoot, "electron-user-data"),
+      OUTLAYS_DESKTOP_CONFIG_DIR: configDir,
+      OUTLAYS_DESKTOP_DOCUMENT_STORAGE_PATH: documentsDir,
+      OUTLAYS_DESKTOP_API_PORT: String(apiPort),
       ...extraEnv
     },
     homeDir,
@@ -1098,8 +1098,8 @@ async function main() {
       pid: launched.child.pid,
       startedAt: new Date(launchedAt).toISOString(),
       env: {
-        LIDLTOOL_DESKTOP_USER_DATA_DIR: env.LIDLTOOL_DESKTOP_USER_DATA_DIR,
-        LIDLTOOL_DESKTOP_API_PORT: env.LIDLTOOL_DESKTOP_API_PORT,
+        OUTLAYS_DESKTOP_USER_DATA_DIR: env.OUTLAYS_DESKTOP_USER_DATA_DIR,
+        OUTLAYS_DESKTOP_API_PORT: env.OUTLAYS_DESKTOP_API_PORT,
         REMOTE_DEBUGGING_PORT: debugPort,
         HOME: env.HOME,
         TMPDIR: env.TMPDIR

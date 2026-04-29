@@ -30,10 +30,10 @@ This repository is intended to be safe to publish as open-source code. Keep the 
 Inject production or beta reporting endpoints at release time through CI or local release environment variables:
 
 ```bash
-LIDLTOOL_DESKTOP_GLITCHTIP_DSN=...
-LIDLTOOL_DESKTOP_TELEMETRY=errors
-LIDLTOOL_DESKTOP_RELEASE_CHANNEL=beta
-LIDLTOOL_DESKTOP_UPDATE_BASE_URL=...
+OUTLAYS_DESKTOP_GLITCHTIP_DSN=...
+OUTLAYS_DESKTOP_TELEMETRY=errors
+OUTLAYS_DESKTOP_RELEASE_CHANNEL=beta
+OUTLAYS_DESKTOP_UPDATE_BASE_URL=...
 ```
 
 Do not hardcode live endpoints or tokens in source files. A GlitchTip/Sentry public DSN is not a credential in the same sense as an auth token, but hardcoding it in a public repo can invite noisy or spam event ingestion.

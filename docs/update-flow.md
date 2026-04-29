@@ -1,14 +1,14 @@
 # Desktop Update Flow
 
-LidlTool Desktop uses `electron-updater` with a generic HTTPS feed. The update base URL is configured at release time with `LIDLTOOL_DESKTOP_UPDATE_BASE_URL`; live infrastructure URLs must not be committed.
+Outlays uses `electron-updater` with a generic HTTPS feed. The update base URL is configured at release time with `OUTLAYS_DESKTOP_UPDATE_BASE_URL`; live infrastructure URLs must not be committed.
 
 Channels:
 
 - `beta` checks only the beta feed.
 - `stable` checks only the stable feed.
-- development builds do not check updates unless `LIDLTOOL_DESKTOP_ALLOW_DEV_UPDATES=1`.
+- development builds do not check updates unless `OUTLAYS_DESKTOP_ALLOW_DEV_UPDATES=1`.
 
-The runtime appends the channel path to the configured base URL when needed, for example `https://updates.example.invalid/lidltool-desktop/beta`.
+The runtime appends the channel path to the configured base URL when needed, for example `https://updates.example.invalid/outlays-desktop/beta`.
 
 Manual flow:
 
@@ -22,7 +22,7 @@ Local testing:
 
 ```bash
 npm run updates:serve-local -- ./dist_electron
-LIDLTOOL_DESKTOP_UPDATE_BASE_URL=http://127.0.0.1:47821 LIDLTOOL_DESKTOP_ALLOW_DEV_UPDATES=1 npm run dev
+OUTLAYS_DESKTOP_UPDATE_BASE_URL=http://127.0.0.1:47821 OUTLAYS_DESKTOP_ALLOW_DEV_UPDATES=1 npm run dev
 ```
 
 Rollback policy:

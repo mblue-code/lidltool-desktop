@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "lidltool-android-harness"
+rootProject.name = "outlays-android-companion"
 include(":app")

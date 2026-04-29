@@ -1,6 +1,6 @@
 # Mobile Companion Vision
 
-This document describes the desired product shape for a future LidlTool mobile companion that pairs directly with the desktop app.
+This document describes the desired product shape for a future Outlays mobile companion that pairs directly with the desktop app.
 
 This is a desktop-side product vision document, not a self-hosted or cloud roadmap.
 

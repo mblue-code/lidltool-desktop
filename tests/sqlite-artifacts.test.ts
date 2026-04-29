@@ -61,7 +61,7 @@ connection.close()
 }
 
 test("copies SQLite artifacts through the backup API without losing rows", async () => {
-  const fixtureRoot = mkdtempSync(join(tmpdir(), "lidltool-desktop-sqlite-"));
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "outlays-desktop-sqlite-"));
   try {
     const sourcePath = join(fixtureRoot, "source.sqlite");
     const backupPath = join(fixtureRoot, "backup.sqlite");

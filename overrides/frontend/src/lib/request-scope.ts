@@ -4,7 +4,8 @@ export type ActiveWorkspace =
   | { kind: "personal" }
   | { kind: "shared-group"; groupId: string };
 
-const WORKSPACE_STORAGE_KEY = "lidltool.workspace.v1";
+const WORKSPACE_STORAGE_KEY = "outlays.workspace.v1";
+const LEGACY_WORKSPACE_STORAGE_KEY = "lidltool.workspace.v1";
 const DEFAULT_WORKSPACE: ActiveWorkspace = { kind: "personal" };
 
 let initialized = false;
@@ -44,7 +45,9 @@ function readStoredWorkspace(): ActiveWorkspace {
     return DEFAULT_WORKSPACE;
   }
   try {
-    const stored = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    const stored =
+      window.localStorage.getItem(WORKSPACE_STORAGE_KEY) ??
+      window.localStorage.getItem(LEGACY_WORKSPACE_STORAGE_KEY);
     if (!stored) {
       return DEFAULT_WORKSPACE;
     }
@@ -61,6 +64,7 @@ function writeStoredWorkspace(workspace: ActiveWorkspace): void {
   }
   try {
     window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspace));
+    window.localStorage.removeItem(LEGACY_WORKSPACE_STORAGE_KEY);
   } catch {
     // Ignore storage write failures and keep in-memory state.
   }

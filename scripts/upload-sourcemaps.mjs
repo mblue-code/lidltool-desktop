@@ -5,7 +5,7 @@ const requiredEnv = [
   "GLITCHTIP_AUTH_TOKEN",
   "GLITCHTIP_ORG",
   "GLITCHTIP_PROJECT",
-  "LIDLTOOL_DESKTOP_RELEASE"
+  "OUTLAYS_DESKTOP_RELEASE"
 ];
 
 const missing = requiredEnv.filter((name) => !process.env[name]?.trim());
@@ -30,7 +30,7 @@ const sentryCliArgs = [
   "--project",
   process.env.GLITCHTIP_PROJECT,
   "--release",
-  process.env.LIDLTOOL_DESKTOP_RELEASE
+  process.env.OUTLAYS_DESKTOP_RELEASE
 ].filter(Boolean);
 
 const env = {

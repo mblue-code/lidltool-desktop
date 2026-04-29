@@ -9,7 +9,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.lidltool.androidharness"
+        applicationId = "com.gluecherlab.outlays.companion"
         minSdk = 28
         targetSdk = 35
         versionCode = 1

@@ -1,6 +1,6 @@
 # Desktop QA Agent Prompt
 
-You are executing a full end-to-end QA run for the newest LidlTool Desktop build.
+You are executing a full end-to-end QA run for the newest Outlays build.
 
 Primary runbook:
 
@@ -33,14 +33,14 @@ This prompt extends the runbook with the current regression focus for the financ
 You must:
 
 1. Work in `/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop`.
-2. Kill any running LidlTool Desktop processes.
+2. Kill any running Outlays processes.
 3. Run the fresh-state cleanup and rebuild procedure from the runbook exactly, including `npm run clean`.
 4. Rebuild the newest packaged desktop app from scratch.
 5. Build the local receipt-pack ZIPs described in the runbook into the current QA pack output directory.
 6. Launch the packaged desktop app with:
 
 ```bash
-LIDLTOOL_DESKTOP_USER_DATA_DIR=/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data
+OUTLAYS_DESKTOP_USER_DATA_DIR=/Volumes/macminiExtern/lidl-receipts-cli/apps/desktop/.tmp/e2e-user-data
 ```
 
 7. Confirm the app is using that fresh profile and not any previous profile.

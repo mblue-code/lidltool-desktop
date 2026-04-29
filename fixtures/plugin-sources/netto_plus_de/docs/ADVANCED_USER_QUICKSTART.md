@@ -12,7 +12,7 @@ It does **not** support normal desktop email/password login. Instead:
 
 ## Requirements
 
-- LidlTool desktop app
+- Outlays desktop app
 - imported Netto Plus plugin ZIP
 - your own Netto Plus account
 - Android device or Android emulator access

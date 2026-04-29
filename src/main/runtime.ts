@@ -59,6 +59,7 @@ import {
   resolveBackendInvocation,
   resolveConfigDirPath,
   resolveConfigFilePath,
+  resolveDesktopDbPath,
   resolveDesktopConfigDir,
   resolveBundledExecutable,
   resolveDocumentsPath,
@@ -81,11 +82,12 @@ import {
   snapshotSqliteArtifact,
   type SqliteArtifactSnapshot
 } from "./sqlite-artifacts";
+import { DEFAULT_DB_FILENAME, LEGACY_DB_FILENAME, readDesktopEnv } from "./product-identity.ts";
 
 const DEFAULT_PORT = 18765;
 
 function resolveApiPort(defaultPort = DEFAULT_PORT): number {
-  const rawPort = process.env.LIDLTOOL_DESKTOP_API_PORT?.trim();
+  const rawPort = readDesktopEnv(process.env, "OUTLAYS_DESKTOP_API_PORT", "LIDLTOOL_DESKTOP_API_PORT");
   if (!rawPort) {
     return defaultPort;
   }
@@ -162,7 +164,7 @@ export class DesktopRuntime {
 
     return {
       apiBaseUrl: `http://127.0.0.1:${this.apiPort}`,
-      dbPath: join(userDataDir, "lidltool.sqlite"),
+      dbPath: resolveDesktopDbPath(userDataDir),
       userDataDir,
       receiptPluginStorageDir: this.receiptPluginStorageDir()
     };
@@ -204,7 +206,11 @@ export class DesktopRuntime {
   async getReleaseMetadata(): Promise<DesktopReleaseMetadata> {
     return await resolveDesktopReleaseMetadata({
       repoRootHint: this.resolveRepoRootHint(),
-      requestedReleaseVariantId: process.env.LIDLTOOL_DESKTOP_RELEASE_VARIANT?.trim() || null,
+      requestedReleaseVariantId: readDesktopEnv(
+        process.env,
+        "OUTLAYS_DESKTOP_RELEASE_VARIANT",
+        "LIDLTOOL_DESKTOP_RELEASE_VARIANT"
+      ) || null,
       remoteCatalogUrl: this.resolveRemoteCatalogUrl(),
       trustedCatalogOverride: this.resolveTrustedCatalogOverride(),
       trustRootsOverride: this.resolveTrustRootsOverride()
@@ -288,7 +294,7 @@ export class DesktopRuntime {
         }
         throw new Error(
           `Failed to launch backend executable '${command}'. ${String(spawnError)}. ` +
-            "Run `npm run backend:prepare` in apps/desktop or set LIDLTOOL_EXECUTABLE."
+            "Run `npm run backend:prepare` in apps/desktop or set OUTLAYS_DESKTOP_EXECUTABLE."
         );
       }
       throw err;
@@ -374,7 +380,7 @@ export class DesktopRuntime {
       throw new Error(`Database file was not found at ${cfg.dbPath}`);
     }
 
-    const dbBackupPath = join(backupDir, "lidltool.sqlite");
+    const dbBackupPath = join(backupDir, DEFAULT_DB_FILENAME);
     const sqliteHelper = await this.sqliteHelperContext();
     const liveSnapshot = await snapshotSqliteArtifact(cfg.dbPath, sqliteHelper);
     await copySqliteArtifact(cfg.dbPath, dbBackupPath, sqliteHelper);
@@ -507,7 +513,7 @@ export class DesktopRuntime {
     const dbSource = resolveDbArtifact(backupDir, (value) => this.resolveUserPath(value));
     if (!dbSource) {
       throw new Error(
-        `No database artifact found in backup directory '${backupDir}'. Expected 'lidltool.sqlite' or 'db-backup-*.sqlite'.`
+        `No database artifact found in backup directory '${backupDir}'. Expected '${DEFAULT_DB_FILENAME}', '${LEGACY_DB_FILENAME}', or 'db-backup-*.sqlite'.`
       );
     }
     const sqliteHelper = await this.sqliteHelperContext();
@@ -938,7 +944,11 @@ export class DesktopRuntime {
   private async resolveReleaseContext() {
     return await resolveDesktopReleaseContext({
       repoRootHint: this.resolveRepoRootHint(),
-      requestedReleaseVariantId: process.env.LIDLTOOL_DESKTOP_RELEASE_VARIANT?.trim() || null,
+      requestedReleaseVariantId: readDesktopEnv(
+        process.env,
+        "OUTLAYS_DESKTOP_RELEASE_VARIANT",
+        "LIDLTOOL_DESKTOP_RELEASE_VARIANT"
+      ) || null,
       remoteCatalogUrl: this.resolveRemoteCatalogUrl(),
       trustedCatalogOverride: this.resolveTrustedCatalogOverride(),
       trustRootsOverride: this.resolveTrustRootsOverride()

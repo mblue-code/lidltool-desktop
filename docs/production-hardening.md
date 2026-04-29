@@ -1,6 +1,6 @@
 # Production Hardening
 
-This plan turns LidlTool Desktop from a beta-capable Electron app into a production-ready desktop product. It intentionally excludes final code-signing and trust setup for now because the macOS Developer ID certificate is not available yet. Signing and notarization must be added before public production release, but the rest of the update, release, diagnostics, privacy, QA, and support infrastructure can be implemented now.
+This plan turns Outlays from a beta-capable Electron app into a production-ready desktop product. It intentionally excludes final code-signing and trust setup for now because the macOS Developer ID certificate is not available yet. Signing and notarization must be added before public production release, but the rest of the update, release, diagnostics, privacy, QA, and support infrastructure can be implemented now.
 
 ## Goals
 
@@ -91,17 +91,17 @@ Channel behavior:
 For generic HTTPS hosting:
 
 ```text
-https://updates.example.com/lidltool-desktop/
+https://updates.example.com/outlays-desktop/
   beta/
     latest-mac.yml
     latest.yml
-    LidlTool Desktop-0.2.0-beta.1-arm64.dmg
-    LidlTool Desktop Setup 0.2.0-beta.1.exe
+    Outlays-0.2.0-beta.1-arm64.dmg
+    Outlays Setup 0.2.0-beta.1.exe
   stable/
     latest-mac.yml
     latest.yml
-    LidlTool Desktop-1.0.0-arm64.dmg
-    LidlTool Desktop Setup 1.0.0.exe
+    Outlays-1.0.0-arm64.dmg
+    Outlays Setup 1.0.0.exe
 ```
 
 Keep each channel isolated.
@@ -133,7 +133,7 @@ Update `package.json` `build` config:
     "publish": [
       {
         "provider": "generic",
-        "url": "${env.LIDLTOOL_DESKTOP_UPDATE_BASE_URL}"
+        "url": "${env.OUTLAYS_DESKTOP_UPDATE_BASE_URL}"
       }
     ],
     "generateUpdatesFilesForAllChannels": true
@@ -152,15 +152,15 @@ Recommended: move to `electron-builder.config.cjs` so update configuration can b
 ### Required Env Vars
 
 ```bash
-LIDLTOOL_DESKTOP_RELEASE_CHANNEL=beta
-LIDLTOOL_DESKTOP_UPDATE_BASE_URL=https://updates.example.com/lidltool-desktop/beta
+OUTLAYS_DESKTOP_RELEASE_CHANNEL=beta
+OUTLAYS_DESKTOP_UPDATE_BASE_URL=https://updates.example.com/outlays-desktop/beta
 ```
 
 Optional:
 
 ```bash
-LIDLTOOL_DESKTOP_ALLOW_DEV_UPDATES=1
-LIDLTOOL_DESKTOP_UPDATE_AUTO_CHECK=1
+OUTLAYS_DESKTOP_ALLOW_DEV_UPDATES=1
+OUTLAYS_DESKTOP_UPDATE_AUTO_CHECK=1
 ```
 
 Do not commit live update URLs if they expose private infrastructure.
@@ -216,7 +216,7 @@ export interface DesktopUpdateState {
 
 Rules:
 
-- Updates disabled in dev unless `LIDLTOOL_DESKTOP_ALLOW_DEV_UPDATES=1`.
+- Updates disabled in dev unless `OUTLAYS_DESKTOP_ALLOW_DEV_UPDATES=1`.
 - Updates disabled if no update base URL is configured.
 - Production/stable builds use stable channel.
 - Beta builds use beta channel.
@@ -227,7 +227,7 @@ Pseudo:
 ```ts
 enabled =
   Boolean(updateBaseUrl) &&
-  (app.isPackaged || env.LIDLTOOL_DESKTOP_ALLOW_DEV_UPDATES === "1");
+  (app.isPackaged || env.OUTLAYS_DESKTOP_ALLOW_DEV_UPDATES === "1");
 ```
 
 ### Update Manager Responsibilities
@@ -445,7 +445,7 @@ Inputs:
 GLITCHTIP_AUTH_TOKEN=...
 GLITCHTIP_ORG=...
 GLITCHTIP_PROJECT=...
-LIDLTOOL_DESKTOP_RELEASE=lidltool-desktop@0.2.0-beta.1
+OUTLAYS_DESKTOP_RELEASE=outlays-desktop@0.2.0-beta.1
 ```
 
 Possible approaches:
@@ -484,7 +484,7 @@ Check:
 - No `../../` runtime/build references introduced.
 - Required env vars for selected release channel.
 - Package version is valid.
-- `LIDLTOOL_DESKTOP_RELEASE_CHANNEL` matches version suffix.
+- `OUTLAYS_DESKTOP_RELEASE_CHANNEL` matches version suffix.
 - No `.env` files staged.
 - No diagnostics zips staged.
 - No private key material staged.
@@ -712,7 +712,7 @@ npm run test:release-preflight
 Manual QA:
 
 1. Launch app without update URL and confirm update status is disabled.
-2. Launch app with local update URL and `LIDLTOOL_DESKTOP_ALLOW_DEV_UPDATES=1`.
+2. Launch app with local update URL and `OUTLAYS_DESKTOP_ALLOW_DEV_UPDATES=1`.
 3. Click Check for Updates.
 4. Confirm unavailable state against empty feed.
 5. Serve a valid generated feed.
@@ -735,7 +735,7 @@ Manual QA:
 Use the following prompt for an implementation agent:
 
 ```text
-You are working in /Volumes/macminiExtern/projects/lidltool-desktop.
+You are working in /path/to/outlays-desktop.
 
 Implement the full Production Hardening plan in docs/production-hardening.md, with one explicit exclusion: do not implement final macOS Developer ID signing, notarization secrets, Windows Authenticode signing, or any real certificate/trust credentials. You may add placeholder docs, env var names, and TODO-gated workflow steps for signing, but do not add real secrets or require signing to pass local verification.
 
@@ -770,7 +770,7 @@ Primary deliverables:
 
 Implementation guidance:
 - Prefer existing repo patterns in src/main/ipc.ts, src/preload/index.ts, src/shared/contracts.ts, and the control-center state/action hooks.
-- Keep update checks disabled in dev unless LIDLTOOL_DESKTOP_ALLOW_DEV_UPDATES=1.
+- Keep update checks disabled in dev unless OUTLAYS_DESKTOP_ALLOW_DEV_UPDATES=1.
 - Disable updates when no update base URL is configured.
 - Use channels beta and stable.
 - Manual update flow first: check, download, restart. Do not auto-download by default.

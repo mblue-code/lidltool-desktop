@@ -6,10 +6,10 @@ Tracking mode: Append issues from this chat as they are reported
 
 ## Session Context
 
-- App repo: `lidltool-desktop`
+- App repo: `outlays-desktop`
 - Test mode: normal app build
-- Profile root: `/tmp/lidltool-desktop-fresh-0c7FcH`
-- Fresh database: `/tmp/lidltool-desktop-fresh-0c7FcH/electron-user-data/lidltool.sqlite`
+- Profile root: `/tmp/outlays-desktop-fresh-0c7FcH`
+- Fresh database: `/tmp/outlays-desktop-fresh-0c7FcH/electron-user-data/lidltool.sqlite`
 
 ## Issue Template
 

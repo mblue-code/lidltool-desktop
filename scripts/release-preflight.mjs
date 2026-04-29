@@ -31,7 +31,7 @@ function relevantFiles(paths) {
     }));
 }
 
-const channel = process.env.LIDLTOOL_DESKTOP_RELEASE_CHANNEL;
+const channel = process.env.OUTLAYS_DESKTOP_RELEASE_CHANNEL || process.env.OUTLAYS_DESKTOP_RELEASE_CHANNEL;
 const packageJson = JSON.parse(readFileSync("package.json", "utf-8"));
 const paths = stagedPaths();
 const files = relevantFiles(paths);
@@ -55,8 +55,8 @@ if (!typecheck.ok) {
   }
 }
 
-if (!process.env.LIDLTOOL_DESKTOP_UPDATE_BASE_URL?.trim()) {
-  findings.push("LIDLTOOL_DESKTOP_UPDATE_BASE_URL is required for release preflight.");
+if (!(process.env.OUTLAYS_DESKTOP_UPDATE_BASE_URL?.trim() || process.env.OUTLAYS_DESKTOP_UPDATE_BASE_URL?.trim())) {
+  findings.push("OUTLAYS_DESKTOP_UPDATE_BASE_URL is required for release preflight.");
 }
 
 if (findings.length > 0) {

@@ -27,7 +27,7 @@ const SHARED_KEYS = [
 
 const DESKTOP_ONLY_MESSAGES = {
   en: {
-    "shell.windowTitle": "LidlTool Desktop",
+    "shell.windowTitle": "Outlays",
     "shell.header.title": "Desktop Control Center",
     "shell.header.subtitle":
       "Fallback controls for backend boot, one-time sync runs, exports, and local backup tasks.",
@@ -120,7 +120,7 @@ const DESKTOP_ONLY_MESSAGES = {
     "shell.menu.minimize": "Minimize"
   },
   de: {
-    "shell.windowTitle": "LidlTool Desktop",
+    "shell.windowTitle": "Outlays",
     "shell.header.title": "Desktop-Kontrollzentrum",
     "shell.header.subtitle":
       "Fallback-Steuerung für Backend-Start, einmalige Sync-Läufe, Exporte und lokale Backup-Aufgaben.",

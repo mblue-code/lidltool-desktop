@@ -10,6 +10,7 @@ import type {
 } from "@shared/contracts";
 import { redactSensitiveText, sanitizeDiagnosticValue } from "./sanitization";
 import { getDesktopTelemetryConfig } from "./sentry-main";
+import { DIAGNOSTICS_PREFIX, readDesktopEnv } from "../product-identity.ts";
 
 export interface DiagnosticsBundleContext {
   runtimeDiagnostics: () => DesktopRuntimeDiagnostics;
@@ -29,8 +30,8 @@ function diagnosticsDir(): string {
 
 function issueBaseUrl(): string {
   return (
-    process.env.LIDLTOOL_DESKTOP_ISSUES_URL?.trim() ||
-    "https://github.com/mblue-code/lidltool-desktop/issues/new"
+    readDesktopEnv(process.env, "OUTLAYS_DESKTOP_ISSUES_URL", "LIDLTOOL_DESKTOP_ISSUES_URL") ||
+    "https://github.com/mblue-code/outlays-desktop/issues/new"
   );
 }
 
@@ -79,7 +80,7 @@ export async function exportDesktopDiagnosticsBundle(
     includedFiles.push(windowLog);
   }
 
-  const defaultPath = join(diagnosticsDir(), `lidltool-diagnostics-${timestampForFile()}.zip`);
+  const defaultPath = join(diagnosticsDir(), `${DIAGNOSTICS_PREFIX}-${timestampForFile()}.zip`);
   const targetPath = explicitPath ?? defaultPath;
   const buffer = await zip.generateAsync({
     type: "nodebuffer",
@@ -99,7 +100,7 @@ export async function exportDesktopDiagnosticsBundleWithDialog(
 ): Promise<DesktopDiagnosticsBundleResult | null> {
   const result = await dialog.showSaveDialog({
     title: "Create Diagnostics Bundle",
-    defaultPath: join(diagnosticsDir(), `lidltool-diagnostics-${timestampForFile()}.zip`),
+    defaultPath: join(diagnosticsDir(), `${DIAGNOSTICS_PREFIX}-${timestampForFile()}.zip`),
     filters: [{ name: "Zip archive", extensions: ["zip"] }]
   });
   if (result.canceled || !result.filePath) {
@@ -122,4 +123,3 @@ export async function openBugReportUrl(context: DiagnosticsBundleContext): Promi
   await shell.openExternal(url);
   return url;
 }
-

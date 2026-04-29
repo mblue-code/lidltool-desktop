@@ -12,7 +12,7 @@ const desktopDir = resolve(__dirname, "..");
 const vendorManifestPath = join(desktopDir, "vendor", "vendor-manifest.json");
 
 function withTempDesktopFixture(run: (fixtureDir: string) => void): void {
-  const fixtureDir = mkdtempSync(join(tmpdir(), "lidltool-desktop-patcher-"));
+  const fixtureDir = mkdtempSync(join(tmpdir(), "outlays-desktop-patcher-"));
   try {
     run(fixtureDir);
   } finally {
@@ -25,7 +25,7 @@ function runNodeScript(scriptPath: string, fixtureDir: string): void {
     cwd: desktopDir,
     env: {
       ...process.env,
-      LIDLTOOL_DESKTOP_DIR: fixtureDir
+      OUTLAYS_DESKTOP_DIR: fixtureDir
     },
     encoding: "utf-8"
   });
@@ -251,7 +251,7 @@ test("frontend validator enforces the declared override surface from the vendor 
       cwd: desktopDir,
       env: {
         ...process.env,
-        LIDLTOOL_DESKTOP_DIR: fixtureDir
+        OUTLAYS_DESKTOP_DIR: fixtureDir
       },
       encoding: "utf-8"
     });

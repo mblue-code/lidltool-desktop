@@ -7,7 +7,10 @@ import {
 } from "./helpers/desktop-app";
 
 test.describe("packaged desktop first run", () => {
-  test.skip(!process.env.LIDLTOOL_DESKTOP_EXECUTABLE, "Set LIDLTOOL_DESKTOP_EXECUTABLE to the packaged app binary.");
+  test.skip(
+    !(process.env.OUTLAYS_DESKTOP_EXECUTABLE || process.env.LIDLTOOL_DESKTOP_EXECUTABLE),
+    "Set OUTLAYS_DESKTOP_EXECUTABLE to the packaged app binary."
+  );
 
   test("boots straight into the finance app flow, reaches fresh setup, creates admin, and keeps a visible window alive", async () => {
     test.setTimeout(180_000);

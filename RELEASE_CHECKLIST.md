@@ -17,7 +17,7 @@ Run all commands from the repo root.
 - [ ] `npm run backend:prepare`
   - Expected: logs `Prepared desktop backend runtime at .../.backend/venv`.
   - Expected: Playwright Chromium is installed outside the venv, by default under `.cache/playwright-browsers`.
-  - Expected: uses Python 3.11-3.12 unless `LIDLTOOL_DESKTOP_ALLOW_UNSUPPORTED_PYTHON=1` is intentionally set.
+  - Expected: uses Python 3.11-3.12 unless `OUTLAYS_DESKTOP_ALLOW_UNSUPPORTED_PYTHON=1` is intentionally set.
 - [ ] `npm run test:ocr-packaged`
   - Expected: verifies the built `build/backend-venv` + `build/backend-src` payload can process a scanned PDF via the packaged OCR worker path.
   - Expected: output includes `timeline_events` with `queued`, `starting_engine`, `processing`, and `completed`.
