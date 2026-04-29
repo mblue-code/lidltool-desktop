@@ -5,14 +5,21 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
-from sqlalchemy import Integer, cast, func, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import Integer, and_, cast, exists, func, or_, select
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from lidltool.analytics.scope import (
     VisibilityContext,
     visible_transaction_ids_subquery,
 )
-from lidltool.db.models import DiscountEvent, Document, Source, Transaction, TransactionItem
+from lidltool.db.models import (
+    DiscountEvent,
+    Document,
+    RecurringBillMatch,
+    Source,
+    Transaction,
+    TransactionItem,
+)
 
 
 def _period_bounds(year: int, month: int | None = None) -> tuple[datetime, datetime]:
@@ -57,6 +64,94 @@ def _safe_ratio(numerator: int, denominator: int) -> float:
 
 def _exclusive_window_end(value: datetime) -> datetime:
     return value + timedelta(days=1)
+
+
+SHOPPING_MANUAL_CATEGORY_PREFIXES = ("groceries", "shopping")
+SHOPPING_MANUAL_CATEGORIES = {
+    "bakery",
+    "beverages",
+    "deposit",
+    "drugstore",
+    "fish",
+    "food",
+    "frozen",
+    "groceries",
+    "household",
+    "meat",
+    "pantry",
+    "personal_care",
+    "produce",
+    "snacks",
+    "supermarket",
+}
+
+
+def _shopping_purchase_filter():
+    category_item = aliased(TransactionItem)
+    normalized_category = func.lower(func.trim(func.coalesce(category_item.category, "")))
+    has_shopping_manual_category = exists(
+        select(category_item.id).select_from(category_item).where(
+            category_item.transaction_id == Transaction.id,
+            or_(
+                *[
+                    normalized_category.like(f"{prefix}%")
+                    for prefix in SHOPPING_MANUAL_CATEGORY_PREFIXES
+                ],
+                normalized_category.in_(SHOPPING_MANUAL_CATEGORIES),
+            ),
+        ).correlate(Transaction)
+    )
+    has_recurring_match = exists(
+        select(RecurringBillMatch.id).select_from(RecurringBillMatch).where(
+            RecurringBillMatch.transaction_id == Transaction.id
+        ).correlate(Transaction)
+    )
+    return and_(
+        ~has_recurring_match,
+        or_(
+            Source.kind.in_(("connector", "ocr")),
+            and_(Source.kind == "manual", has_shopping_manual_category),
+        ),
+    )
+
+
+def _shopping_window_transactions(
+    session: Session,
+    *,
+    from_date: datetime,
+    to_date: datetime,
+    visibility: VisibilityContext,
+    limit: int,
+) -> list[dict[str, Any]]:
+    end = _exclusive_window_end(to_date)
+    stmt = (
+        select(Transaction)
+        .join(Source, Source.id == Transaction.source_id)
+        .where(
+            Transaction.purchased_at >= from_date,
+            Transaction.purchased_at < end,
+            Transaction.id.in_(visible_transaction_ids_subquery(visibility)),
+            _shopping_purchase_filter(),
+        )
+        .order_by(Transaction.purchased_at.desc(), Transaction.created_at.desc())
+        .limit(limit)
+    )
+    transactions = session.execute(stmt).scalars().all()
+    return [
+        {
+            "id": transaction.id,
+            "purchased_at": transaction.purchased_at.isoformat(),
+            "source_id": transaction.source_id,
+            "user_id": transaction.user_id,
+            "shared_group_id": transaction.shared_group_id,
+            "store_name": transaction.merchant_name,
+            "total_gross_cents": transaction.total_gross_cents,
+            "currency": transaction.currency,
+            "discount_total_cents": transaction.discount_total_cents or 0,
+            "source_transaction_id": transaction.source_transaction_id,
+        }
+        for transaction in transactions
+    ]
 
 
 def _to_int(value: object) -> int:
@@ -880,18 +975,28 @@ def grocery_workspace_summary(
     limit: int = 12,
 ) -> dict[str, Any]:
     end = _exclusive_window_end(to_date)
-    transactions = dashboard_window_transactions(
+    totals_stmt = select(
+        func.count(Transaction.id),
+        func.coalesce(func.sum(Transaction.total_gross_cents), 0),
+        func.count(func.distinct(func.coalesce(Transaction.merchant_name, Transaction.source_id))),
+    ).join(Source, Source.id == Transaction.source_id).where(
+        Transaction.purchased_at >= from_date,
+        Transaction.purchased_at < end,
+        _shopping_purchase_filter(),
+    )
+    totals_stmt = _apply_transaction_visibility(totals_stmt, visibility)
+    receipt_count, total_cents, merchant_count = session.execute(totals_stmt).one()
+
+    transactions = _shopping_window_transactions(
         session,
         from_date=from_date,
         to_date=to_date,
         visibility=visibility,
-        limit=max(limit, 24),
+        limit=limit,
     )
-    total_cents = sum(int(item["total_gross_cents"]) for item in transactions)
-    merchant_names = {
-        (item.get("store_name") or item.get("source_id") or "Unknown")
-        for item in transactions
-    }
+    total_cents = int(total_cents or 0)
+    receipt_count = int(receipt_count or 0)
+    merchant_count = int(merchant_count or 0)
     category_rows = (
         session.execute(
             select(
@@ -899,10 +1004,12 @@ def grocery_workspace_summary(
                 func.coalesce(func.sum(TransactionItem.line_total_cents), 0),
             )
             .join(Transaction, Transaction.id == TransactionItem.transaction_id)
+            .join(Source, Source.id == Transaction.source_id)
             .where(
                 Transaction.purchased_at >= from_date,
                 Transaction.purchased_at < end,
                 Transaction.id.in_(visible_transaction_ids_subquery(visibility)),
+                _shopping_purchase_filter(),
             )
             .group_by(func.coalesce(TransactionItem.category, "uncategorized"))
             .order_by(func.sum(TransactionItem.line_total_cents).desc())
@@ -917,15 +1024,15 @@ def grocery_workspace_summary(
         },
         "totals": {
             "spend_cents": total_cents,
-            "receipt_count": len(transactions),
-            "average_basket_cents": round(total_cents / len(transactions)) if transactions else 0,
-            "merchant_count": len(merchant_names),
+            "receipt_count": receipt_count,
+            "average_basket_cents": round(total_cents / receipt_count) if receipt_count else 0,
+            "merchant_count": merchant_count,
         },
         "category_breakdown": [
             {"category": str(category), "amount_cents": int(amount_cents or 0)}
             for category, amount_cents in category_rows
         ],
-        "recent_transactions": transactions[:limit],
+        "recent_transactions": transactions,
     }
 
 

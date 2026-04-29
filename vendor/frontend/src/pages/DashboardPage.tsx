@@ -42,6 +42,75 @@ function goalProgressStatusLabel(status: string, locale: "en" | "de"): string {
   return status.replace(/_/g, " ");
 }
 
+function titleCase(value: string): string {
+  return value
+    .split(/[\s_:]+/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join(" ");
+}
+
+function categoryLabel(category: string, locale: "en" | "de"): string {
+  const normalized = category.trim().toLowerCase();
+  if (locale === "de") {
+    const labels: Record<string, string> = {
+      "groceries": "Lebensmittel",
+      "groceries:bakery": "Backwaren",
+      "groceries:beverages": "Getränke",
+      "groceries:dairy": "Molkereiprodukte",
+      "groceries:fish": "Fisch",
+      "groceries:frozen": "Tiefkühlkost",
+      "groceries:household": "Haushalt",
+      "groceries:meat": "Fleisch",
+      "groceries:pantry": "Vorrat",
+      "groceries:produce": "Obst & Gemüse",
+      "groceries:snacks": "Snacks",
+      "deposit": "Pfand",
+      "household": "Haushalt",
+      "other": "Sonstiges",
+      "uncategorized": "Unkategorisiert"
+    };
+    return labels[normalized] ?? titleCase(category);
+  }
+  return titleCase(category);
+}
+
+function activitySubtitleLabel(subtitle: string, locale: "en" | "de"): string {
+  if (locale !== "de") return subtitle;
+  const labels: Record<string, string> = {
+    "Transaction imported": "Transaktion importiert",
+    "Inflow": "Zufluss",
+    "Outflow": "Abfluss",
+    "Upcoming": "Anstehend",
+    "Due": "Fällig",
+    "Overdue": "Überfällig"
+  };
+  return labels[subtitle] ?? subtitle;
+}
+
+function insightTitleLabel(insight: { kind: string; title: string }, locale: "en" | "de"): string {
+  if (locale === "de" && insight.kind === "spend_change") {
+    return "Ausgabenentwicklung";
+  }
+  return insight.title;
+}
+
+function insightBodyLabel(
+  insight: { kind: string; body: string; delta_cents: number },
+  locale: "en" | "de"
+): string {
+  if (locale !== "de" || insight.kind !== "spend_change") {
+    return insight.body;
+  }
+  if (insight.delta_cents < 0) {
+    return "Die Nettoausgaben liegen unter dem vorherigen Vergleichszeitraum.";
+  }
+  if (insight.delta_cents > 0) {
+    return "Die Nettoausgaben liegen über dem vorherigen Vergleichszeitraum.";
+  }
+  return "Die Nettoausgaben entsprechen dem vorherigen Vergleichszeitraum.";
+}
+
 function deltaLabel(deltaPct: number | null, locale: "en" | "de"): string {
   if (deltaPct === null) {
     return locale === "de" ? "Kein Vergleichszeitraum" : "No previous comparison";
@@ -117,9 +186,9 @@ function RingChart({
           className="relative h-[240px] w-[240px] rounded-full"
           style={{ background: `conic-gradient(${gradient || "#e2e8f0 0 100%"})` }}
         >
-          <div className="absolute inset-[26px] flex flex-col items-center justify-center rounded-full bg-white">
-            <span className="app-value text-3xl font-semibold">{formatEurFromCents(totalCents)}</span>
-            <span className="mt-2 text-sm text-muted-foreground">{locale === "de" ? "Nettoausgaben" : "Net spend"}</span>
+          <div className="absolute inset-[26px] flex flex-col items-center justify-center rounded-full border border-white/10 bg-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+            <span className="app-value text-3xl font-semibold text-slate-100">{formatEurFromCents(totalCents)}</span>
+            <span className="mt-2 text-sm text-slate-300">{locale === "de" ? "Nettoausgaben" : "Net spend"}</span>
           </div>
         </div>
       </div>
@@ -128,7 +197,7 @@ function RingChart({
         {visibleCategories.map((item, index) => (
           <div key={item.category} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 border-b border-border/60 py-3 last:border-b-0">
             <span className="h-3 w-3 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
-            <span className="font-medium capitalize">{item.category.replace(/:/g, " ")}</span>
+            <span className="font-medium">{categoryLabel(item.category, locale)}</span>
             <span className="text-sm text-muted-foreground">{(item.share * 100).toFixed(1)}%</span>
             <span className="font-semibold">{formatEurFromCents(item.amount_cents)}</span>
           </div>
@@ -259,7 +328,9 @@ export function DashboardPage() {
     queryFn: () => fetchDashboardOverview(fromDate, toDate),
     staleTime: 0
   });
-  const overview = overviewQuery.data;
+  const overview = overviewQuery.data?.period.from_date === fromDate && overviewQuery.data.period.to_date === toDate
+    ? overviewQuery.data
+    : undefined;
   const periodLabel = useMemo(() => {
     const start = new Date(fromDate);
     const end = new Date(toDate);
@@ -412,7 +483,7 @@ export function DashboardPage() {
                   <Link key={item.id} to={item.href} className="flex items-center justify-between gap-3 border-b border-border/60 py-3 last:border-b-0">
                     <div className="min-w-0">
                       <p className="font-medium">{item.title}</p>
-                      <p className="truncate text-sm text-muted-foreground">{item.subtitle}</p>
+                      <p className="truncate text-sm text-muted-foreground">{activitySubtitleLabel(item.subtitle, locale)}</p>
                     </div>
                     <div className="text-right">
                       <p className="font-semibold">{formatEurFromCents(item.amount_cents)}</p>
@@ -431,8 +502,8 @@ export function DashboardPage() {
                   <TrendingUp className="h-5 w-5" />
                 </div>
                 <div>
-                  <p className="text-lg font-semibold">{overview.insight.title}</p>
-                  <p className="mt-1 text-muted-foreground">{overview.insight.body}</p>
+                  <p className="text-lg font-semibold">{insightTitleLabel(overview.insight, locale)}</p>
+                  <p className="mt-1 text-muted-foreground">{insightBodyLabel(overview.insight, locale)}</p>
                 </div>
               </div>
               <Button asChild variant="outline">

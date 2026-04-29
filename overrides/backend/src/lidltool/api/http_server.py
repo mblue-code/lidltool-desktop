@@ -41,9 +41,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, aliased, sessionmaker
 from sqlalchemy.sql.elements import ColumnElement, SQLColumnExpression
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import HTTPConnection
@@ -261,6 +261,7 @@ from lidltool.db.models import (
     MobileCapture,
     MobilePairedDevice,
     RecurringBill,
+    RecurringBillMatch,
     RecurringBillOccurrence,
     Source,
     Transaction,
@@ -1344,6 +1345,136 @@ def _serialize_cashflow_points(entries: list[CashflowEntry]) -> list[dict[str, A
     ]
 
 
+def _cashflow_totals(entries: list[CashflowEntry]) -> dict[str, int]:
+    inflow_cents = sum(
+        entry.amount_cents for entry in entries if entry.direction == "inflow"
+    )
+    outflow_cents = sum(
+        entry.amount_cents for entry in entries if entry.direction == "outflow"
+    )
+    return {
+        "inflow_cents": inflow_cents,
+        "outflow_cents": outflow_cents,
+        "net_cents": inflow_cents - outflow_cents,
+    }
+
+
+SHOPPING_MANUAL_CATEGORY_PREFIXES = ("groceries", "shopping")
+SHOPPING_MANUAL_CATEGORIES = {
+    "bakery",
+    "beverages",
+    "deposit",
+    "drugstore",
+    "fish",
+    "food",
+    "frozen",
+    "groceries",
+    "household",
+    "meat",
+    "pantry",
+    "personal_care",
+    "produce",
+    "snacks",
+    "supermarket",
+}
+
+
+def _shopping_purchase_filter() -> ColumnElement[bool]:
+    category_item = aliased(TransactionItem)
+    normalized_category = func.lower(func.trim(func.coalesce(category_item.category, "")))
+    has_shopping_manual_category = exists(
+        select(category_item.id).select_from(category_item).where(
+            category_item.transaction_id == Transaction.id,
+            or_(
+                *[
+                    normalized_category.like(f"{prefix}%")
+                    for prefix in SHOPPING_MANUAL_CATEGORY_PREFIXES
+                ],
+                normalized_category.in_(SHOPPING_MANUAL_CATEGORIES),
+            ),
+        ).correlate(Transaction)
+    )
+    has_recurring_match = exists(
+        select(RecurringBillMatch.id).select_from(RecurringBillMatch).where(
+            RecurringBillMatch.transaction_id == Transaction.id
+        ).correlate(Transaction)
+    )
+    return and_(
+        ~has_recurring_match,
+        or_(
+            Source.kind.in_(("connector", "ocr")),
+            and_(Source.kind == "manual", has_shopping_manual_category),
+        ),
+    )
+
+
+def _shopping_purchase_totals(
+    session: Session,
+    *,
+    from_dt: datetime,
+    to_dt: datetime,
+    visibility: VisibilityContext,
+) -> dict[str, int]:
+    end = to_dt + timedelta(days=1)
+    stmt = (
+        select(
+            func.count(Transaction.id),
+            func.coalesce(func.sum(Transaction.total_gross_cents), 0),
+        )
+        .join(Source, Source.id == Transaction.source_id)
+        .where(
+            Transaction.purchased_at >= from_dt,
+            Transaction.purchased_at < end,
+            Transaction.id.in_(visible_transaction_ids_subquery(visibility)),
+            _shopping_purchase_filter(),
+        )
+    )
+    receipt_count, total_cents = session.execute(stmt).one()
+    return {
+        "receipt_count": int(receipt_count or 0),
+        "total_cents": int(total_cents or 0),
+    }
+
+
+def _dashboard_purchase_transactions(
+    session: Session,
+    *,
+    from_dt: datetime,
+    to_dt: datetime,
+    visibility: VisibilityContext,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    end = to_dt + timedelta(days=1)
+    stmt = (
+        select(Transaction)
+        .join(Source, Source.id == Transaction.source_id)
+        .where(
+            Transaction.purchased_at >= from_dt,
+            Transaction.purchased_at < end,
+            Transaction.id.in_(visible_transaction_ids_subquery(visibility)),
+            _shopping_purchase_filter(),
+        )
+        .order_by(Transaction.purchased_at.desc(), Transaction.created_at.desc())
+        .limit(limit)
+    )
+    transactions = session.execute(stmt).scalars().all()
+    return [
+        {
+            "id": transaction.id,
+            "purchased_at": transaction.purchased_at.isoformat(),
+            "source_id": transaction.source_id,
+            "user_id": transaction.user_id,
+            "shared_group_id": transaction.shared_group_id,
+            "store_name": transaction.merchant_name,
+            "total_gross_cents": transaction.total_gross_cents,
+            "currency": transaction.currency,
+            "discount_total_cents": transaction.discount_total_cents or 0,
+            "source_transaction_id": transaction.source_transaction_id,
+        }
+        for transaction in transactions
+    ]
+
+
 def _dashboard_overview_payload(
     session: Session,
     *,
@@ -1353,8 +1484,8 @@ def _dashboard_overview_payload(
     to_dt: datetime,
 ) -> dict[str, Any]:
     previous_days = max(1, (to_dt.date() - from_dt.date()).days + 1)
-    previous_to = from_dt - timedelta(seconds=1)
-    previous_from = previous_to - timedelta(days=previous_days - 1)
+    previous_from = from_dt - timedelta(days=previous_days)
+    previous_to = from_dt - timedelta(days=1)
 
     current_totals = dashboard_window_totals(
         session, from_date=from_dt, to_date=to_dt, visibility=visibility
@@ -1362,14 +1493,22 @@ def _dashboard_overview_payload(
     previous_totals = dashboard_window_totals(
         session, from_date=previous_from, to_date=previous_to, visibility=visibility
     )
+    current_purchase_totals = _shopping_purchase_totals(
+        session, from_dt=from_dt, to_dt=to_dt, visibility=visibility
+    )
+    previous_purchase_totals = _shopping_purchase_totals(
+        session, from_dt=previous_from, to_dt=previous_to, visibility=visibility
+    )
+    current_purchase_total_cents = current_purchase_totals["total_cents"]
+    previous_purchase_total_cents = previous_purchase_totals["total_cents"]
     category_rows = dashboard_category_spend_summary(
         session, from_date=from_dt, to_date=to_dt, visibility=visibility
     )
     merchant_rows = dashboard_merchant_summary(
         session, from_date=from_dt, to_date=to_dt, visibility=visibility
     )
-    recent_transactions = dashboard_window_transactions(
-        session, from_date=from_dt, to_date=to_dt, visibility=visibility, limit=5
+    recent_transactions = _dashboard_purchase_transactions(
+        session, from_dt=from_dt, to_dt=to_dt, visibility=visibility, limit=5
     )
 
     cashflow_entries = session.execute(
@@ -1381,12 +1520,16 @@ def _dashboard_overview_payload(
         )
         .order_by(CashflowEntry.effective_date.asc(), CashflowEntry.created_at.asc())
     ).scalars().all()
-    inflow_cents = sum(
-        entry.amount_cents for entry in cashflow_entries if entry.direction == "inflow"
-    )
-    outflow_cents = sum(
-        entry.amount_cents for entry in cashflow_entries if entry.direction == "outflow"
-    )
+    previous_cashflow_entries = session.execute(
+        select(CashflowEntry)
+        .where(
+            CashflowEntry.user_id == user.user_id,
+            CashflowEntry.effective_date >= previous_from.date(),
+            CashflowEntry.effective_date <= previous_to.date(),
+        )
+    ).scalars().all()
+    current_cashflow_totals = _cashflow_totals(cashflow_entries)
+    previous_cashflow_totals = _cashflow_totals(previous_cashflow_entries)
 
     recurring_rows = session.execute(
         select(
@@ -1416,23 +1559,9 @@ def _dashboard_overview_payload(
         for occurrence, bill in recurring_rows
     ]
 
-    grocery_total_stmt = (
-        select(func.coalesce(func.sum(TransactionItem.line_total_cents), 0))
-        .join(Transaction, Transaction.id == TransactionItem.transaction_id)
-        .where(
-            Transaction.purchased_at >= from_dt,
-            Transaction.purchased_at <= to_dt,
-            func.lower(func.coalesce(TransactionItem.category, "")).like("grocer%"),
-        )
-    )
-    grocery_total_stmt = grocery_total_stmt.where(
-        Transaction.id.in_(visible_transaction_ids_subquery(visibility))
-    )
-    grocery_total_cents = int(session.execute(grocery_total_stmt).scalar_one() or 0)
-
-    grocery_trip_count = sum(1 for item in recent_transactions if item.get("store_name"))
+    grocery_trip_count = current_purchase_totals["receipt_count"]
     grocery_average_cents = (
-        round(grocery_total_cents / grocery_trip_count) if grocery_trip_count > 0 else 0
+        round(current_purchase_total_cents / grocery_trip_count) if grocery_trip_count > 0 else 0
     )
 
     budget_rows = budget_utilization(
@@ -1526,9 +1655,15 @@ def _dashboard_overview_payload(
         },
         "kpis": {
             "total_spending": _delta(current_totals["net_cents"], previous_totals["net_cents"]),
-            "groceries": _delta(grocery_total_cents, 0),
-            "cash_inflow": _delta(inflow_cents, 0),
-            "cash_outflow": _delta(outflow_cents, 0),
+            "groceries": _delta(current_purchase_total_cents, previous_purchase_total_cents),
+            "cash_inflow": _delta(
+                current_cashflow_totals["inflow_cents"],
+                previous_cashflow_totals["inflow_cents"],
+            ),
+            "cash_outflow": _delta(
+                current_cashflow_totals["outflow_cents"],
+                previous_cashflow_totals["outflow_cents"],
+            ),
         },
         "spending_overview": {
             "total_cents": current_totals["net_cents"],
@@ -1536,9 +1671,7 @@ def _dashboard_overview_payload(
         },
         "cash_flow_summary": {
             "totals": {
-                "inflow_cents": inflow_cents,
-                "outflow_cents": outflow_cents,
-                "net_cents": inflow_cents - outflow_cents,
+                **current_cashflow_totals,
             },
             "points": _serialize_cashflow_points(cashflow_entries),
         },
@@ -1551,7 +1684,7 @@ def _dashboard_overview_payload(
         },
         "recent_grocery_transactions": {
             "count": len(recent_transactions),
-            "total_cents": grocery_total_cents,
+            "total_cents": current_purchase_total_cents,
             "average_basket_cents": grocery_average_cents,
             "items": recent_transactions,
         },

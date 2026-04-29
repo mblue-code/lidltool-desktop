@@ -12,6 +12,39 @@ import { useI18n } from "@/i18n";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDate, formatEurFromCents } from "@/utils/format";
 
+function titleCase(value: string): string {
+  return value
+    .split(/[\s_:]+/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join(" ");
+}
+
+function categoryLabel(category: string, locale: "en" | "de"): string {
+  const normalized = category.trim().toLowerCase();
+  if (locale === "de") {
+    const labels: Record<string, string> = {
+      "groceries": "Lebensmittel",
+      "groceries:bakery": "Backwaren",
+      "groceries:beverages": "Getränke",
+      "groceries:dairy": "Molkereiprodukte",
+      "groceries:fish": "Fisch",
+      "groceries:frozen": "Tiefkühlkost",
+      "groceries:household": "Haushalt",
+      "groceries:meat": "Fleisch",
+      "groceries:pantry": "Vorrat",
+      "groceries:produce": "Obst & Gemüse",
+      "groceries:snacks": "Snacks",
+      "deposit": "Pfand",
+      "household": "Haushalt",
+      "other": "Sonstiges",
+      "uncategorized": "Unkategorisiert"
+    };
+    return labels[normalized] ?? titleCase(category);
+  }
+  return titleCase(category);
+}
+
 export function GroceriesPage() {
   const { fromDate, toDate } = useDateRangeContext();
   const { locale } = useI18n();
@@ -51,7 +84,18 @@ export function GroceriesPage() {
     queryFn: () => fetchGroceriesSummary(fromDate, toDate),
     staleTime: 0
   });
-  const summary = summaryQuery.data;
+  const summary = summaryQuery.data?.period.from_date === fromDate && summaryQuery.data.period.to_date === toDate
+    ? summaryQuery.data
+    : undefined;
+  const categorySpendCents = (summary?.category_breakdown ?? []).reduce((sum, item) => sum + item.amount_cents, 0);
+  const recentSpendCents = (summary?.recent_transactions ?? []).reduce((sum, item) => sum + item.total_gross_cents, 0);
+  const recentReceiptCount = summary?.recent_transactions.length ?? 0;
+  const recentMerchantCount = new Set((summary?.recent_transactions ?? []).map((item) => item.store_name || item.source_id)).size;
+  const spendCents = recentSpendCents || summary?.totals.spend_cents || categorySpendCents || 0;
+  const averageBasketCents =
+    recentReceiptCount > 0 ? Math.round(recentSpendCents / recentReceiptCount) : summary?.totals.average_basket_cents || 0;
+  const receiptCount = recentReceiptCount || summary?.totals.receipt_count || 0;
+  const merchantCount = recentMerchantCount || summary?.totals.merchant_count || 0;
 
   return (
     <div className="space-y-6">
@@ -64,32 +108,35 @@ export function GroceriesPage() {
         </Button>
       </PageHeader>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div
+        key={`${fromDate}:${toDate}:${spendCents}:${recentReceiptCount}:${recentMerchantCount}`}
+        className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
+      >
         <Card className="app-dashboard-surface border-border/60">
           <MetricCard
             title={copy.trackedSpend}
-            value={formatEurFromCents(summary?.totals.spend_cents ?? 0)}
+            value={formatEurFromCents(spendCents)}
             icon={<ShoppingCart className="h-4 w-4" />}
           />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
           <MetricCard
             title={copy.averageBasket}
-            value={formatEurFromCents(summary?.totals.average_basket_cents ?? 0)}
+            value={formatEurFromCents(averageBasketCents)}
             icon={<TrendingUp className="h-4 w-4" />}
           />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
           <MetricCard
             title={copy.recentReceipts}
-            value={String(summary?.totals.receipt_count ?? 0)}
+            value={String(receiptCount)}
             icon={<ReceiptText className="h-4 w-4" />}
           />
         </Card>
         <Card className="app-dashboard-surface border-border/60">
           <MetricCard
             title={copy.activeMerchants}
-            value={String(summary?.totals.merchant_count ?? 0)}
+            value={String(merchantCount)}
             icon={<Database className="h-4 w-4" />}
           />
         </Card>
@@ -102,12 +149,12 @@ export function GroceriesPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {(summary?.category_breakdown ?? []).map((item) => {
-              const total = summary?.totals.spend_cents ?? 0;
+              const total = spendCents;
               const width = total > 0 ? Math.max(6, Math.round((item.amount_cents / total) * 100)) : 0;
               return (
                 <div key={item.category} className="space-y-2">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-medium capitalize">{item.category.replace(/_/g, " ")}</span>
+                    <span className="font-medium">{categoryLabel(item.category, locale)}</span>
                     <span className="text-sm text-muted-foreground">{formatEurFromCents(item.amount_cents)}</span>
                   </div>
                   <div className="h-2.5 rounded-full bg-slate-100">

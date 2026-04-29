@@ -82,6 +82,7 @@ async function request<T>({ path, query, init, schema }: RequestOptions<T>): Pro
   const response = await fetch(url.toString(), {
     credentials: "include",
     ...init,
+    cache: init?.cache ?? "no-store",
     headers: mergeHeaders(init?.headers)
   });
 
