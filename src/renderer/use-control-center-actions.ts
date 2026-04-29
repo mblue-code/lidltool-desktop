@@ -120,6 +120,43 @@ export function useControlCenterActions(args: UseControlCenterActionsArgs) {
     }
   }
 
+  async function handleCreateDiagnosticsBundle(): Promise<void> {
+    state.setBusy(true);
+    state.setError(null);
+    state.setDiagnosticsBundleResult(null);
+    try {
+      const result = await window.desktopApi.exportDiagnosticsBundle();
+      if (result) {
+        state.setDiagnosticsBundleResult(result);
+        state.setDiagnosticsSummary(await window.desktopApi.getDiagnosticsSummary());
+      }
+    } catch (err) {
+      state.setError(
+        locale === "de"
+          ? `Das Diagnosepaket konnte nicht erstellt werden. ${String(err)}`
+          : `Could not create the diagnostics bundle. ${String(err)}`
+      );
+    } finally {
+      state.setBusy(false);
+    }
+  }
+
+  async function handleOpenBugReport(): Promise<void> {
+    state.setBusy(true);
+    state.setError(null);
+    try {
+      await window.desktopApi.openBugReport();
+    } catch (err) {
+      state.setError(
+        locale === "de"
+          ? `Der Bugreport konnte nicht geöffnet werden. ${String(err)}`
+          : `Could not open the bug report. ${String(err)}`
+      );
+    } finally {
+      state.setBusy(false);
+    }
+  }
+
   async function handleRunExport(): Promise<void> {
     state.setBusy(true);
     state.setError(null);
@@ -363,8 +400,10 @@ export function useControlCenterActions(args: UseControlCenterActionsArgs) {
   return {
     handleInstallReceiptPlugin,
     handleInstallReceiptPluginFromCatalog,
+    handleCreateDiagnosticsBundle,
     handleLoadCards,
     handleOpenFullApp,
+    handleOpenBugReport,
     handleRefreshPluginState,
     handleRunBackup,
     handleRunExport,

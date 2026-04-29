@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, session } from "electron";
+import { app, BrowserWindow, dialog, Menu, nativeImage, session } from "electron";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { DesktopConnectorCallbackEvent } from "@shared/contracts";
@@ -11,11 +11,33 @@ import {
 import { registerIpc } from "./ipc";
 import { applyDesktopMenu, loadDesktopLocale, persistDesktopLocale } from "./i18n";
 import { DesktopRuntime } from "./runtime";
+import {
+  buildDesktopDiagnosticsSummary,
+  exportDesktopDiagnosticsBundleWithDialog,
+  openBugReportUrl,
+  type DiagnosticsBundleContext
+} from "./diagnostics/diagnostics-bundle";
+import {
+  addDesktopBreadcrumb,
+  captureDesktopException,
+  getDesktopTelemetryConfig,
+  initDesktopTelemetry
+} from "./diagnostics/sentry-main";
 
 const userDataOverride = process.env.LIDLTOOL_DESKTOP_USER_DATA_DIR?.trim();
 if (userDataOverride) {
   app.setPath("userData", userDataOverride);
 }
+
+initDesktopTelemetry();
+
+process.on("uncaughtException", (error) => {
+  captureDesktopException(error, { source: "main.uncaughtException" });
+});
+
+process.on("unhandledRejection", (reason) => {
+  captureDesktopException(reason, { source: "main.unhandledRejection" });
+});
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -120,6 +142,16 @@ function logWindowLifecycle(
       // Best-effort instrumentation only.
     }
   }
+
+  addDesktopBreadcrumb(event, details);
+}
+
+function diagnosticsContext(): DiagnosticsBundleContext {
+  return {
+    runtimeDiagnostics: () => runtime.getRuntimeDiagnostics(),
+    bootError: () => latestBootError,
+    surface: () => lastRequestedSurface
+  };
 }
 
 function describeWindow(window: BrowserWindow | null): Record<string, unknown> {
@@ -554,6 +586,25 @@ function updateDesktopLocale(locale: DesktopLocale): DesktopLocale {
     },
     stopBackend: async () => {
       await runtime.stopBackend();
+    },
+    reportProblem: async () => {
+      await openBugReportUrl(diagnosticsContext());
+    },
+    createDiagnosticsBundle: async () => {
+      const result = await exportDesktopDiagnosticsBundleWithDialog(diagnosticsContext());
+      if (result) {
+        const message = {
+          type: "info",
+          title: "Diagnostics Bundle Created",
+          message: "Diagnostics bundle created.",
+          detail: result.path
+        } as const;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          await dialog.showMessageBox(mainWindow, message);
+        } else {
+          await dialog.showMessageBox(message);
+        }
+      }
     }
   });
   broadcastLocaleChanged(locale);
@@ -748,6 +799,11 @@ function createWindow(): BrowserWindow {
       exitCode: details.exitCode,
       ...describeWindow(window)
     });
+    captureDesktopException(new Error(`Renderer process gone: ${details.reason}`), {
+      source: "web.render_process_gone",
+      reason: details.reason,
+      exitCode: details.exitCode
+    });
     if (window === mainWindow) {
       mainWindow = null;
     }
@@ -790,6 +846,13 @@ app.whenReady().then(() => {
         await openControlCenter(mainWindow);
       }
     },
+    () => buildDesktopDiagnosticsSummary(diagnosticsContext()),
+    () => {
+      const { enabled, mode, dsn, release, environment, sendLogs } = getDesktopTelemetryConfig();
+      return { enabled, mode, dsn, release, environment, sendLogs };
+    },
+    async () => await exportDesktopDiagnosticsBundleWithDialog(diagnosticsContext()),
+    async () => await openBugReportUrl(diagnosticsContext()),
     () => consumePendingConnectorCallbacks(),
     () => loadDesktopExternalBrowserPreference(),
     (preferredBrowser) => persistDesktopExternalBrowserPreference(preferredBrowser),

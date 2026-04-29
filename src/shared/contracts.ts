@@ -109,6 +109,41 @@ export interface DesktopRuntimeDiagnostics {
   backendCommandStatus: DesktopRuntimeAssetStatus;
 }
 
+export type DesktopTelemetryMode = "off" | "errors" | "errors_with_logs";
+export type DesktopReleaseChannel = "development" | "internal" | "beta" | "production";
+
+export interface DesktopTelemetryPublicConfig {
+  enabled: boolean;
+  mode: DesktopTelemetryMode;
+  dsn: string | null;
+  release: string;
+  environment: DesktopReleaseChannel;
+  sendLogs: boolean;
+}
+
+export interface DesktopDiagnosticsSummary {
+  appVersion: string;
+  packaged: boolean;
+  platform: NodeJS.Platform;
+  arch: string;
+  electronVersion: string | null;
+  chromeVersion: string | null;
+  nodeVersion: string;
+  releaseChannel: DesktopReleaseChannel;
+  telemetryMode: DesktopTelemetryMode;
+  telemetryEnabled: boolean;
+  surface: string;
+  bootError: string | null;
+  userDataDir: string;
+  runtime: DesktopRuntimeDiagnostics;
+}
+
+export interface DesktopDiagnosticsBundleResult {
+  path: string;
+  fileName: string;
+  includedFiles: string[];
+}
+
 export type DesktopRouteAvailability = "enabled" | "adapted" | "preview" | "unsupported";
 export type DesktopRouteReason =
   | "desktop_override"

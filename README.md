@@ -10,6 +10,8 @@ Planning note:
 - Local mobile pairing security hardening is tracked in `docs/mobile-local-pairing-security-hardening-plan.md`.
 - Agent execution guidance for the native mobile build is tracked in `docs/mobile-agent-runbook.md`.
 - Long-form orchestration prompt for a full native mobile implementation pass is tracked in `docs/mobile-native-orchestration-prompt.md`.
+- Desktop diagnostics and beta bug-reporting setup is tracked in `docs/diagnostics.md`.
+- Public/private commit boundaries for diagnostics, telemetry, and release secrets are tracked in `docs/public-repo-boundary.md`.
 
 ## Maintenance rules
 
@@ -30,6 +32,13 @@ Mobile foundation fork:
 - the old native mobile harnesses are now vendored under `vendor/mobile/` as local native companion foundations for a future desktop-paired phone product
 - sync them from the old upstream checkout with `npm run vendor:sync:mobile`
 - the current mobile fork status and reuse boundaries are documented in `docs/mobile-foundation.md`
+
+Diagnostics and bug reporting:
+- GitHub Issues are the user-facing tracker for desktop bugs, beta feedback, and connector-specific reports.
+- Optional automatic error reporting is Sentry-compatible and intended for a self-hosted GlitchTip project.
+- Error reporting is disabled unless `LIDLTOOL_DESKTOP_GLITCHTIP_DSN` or `LIDLTOOL_DESKTOP_SENTRY_DSN` is set and `LIDLTOOL_DESKTOP_TELEMETRY` is `errors` or `errors_with_logs`.
+- Users can create a redacted diagnostics bundle from the control center or Help menu. The bundle intentionally excludes receipt databases, receipt exports, document storage, credentials, tokens, scraped retailer HTML, screenshots, and AI chat content.
+- Commit diagnostics code and docs publicly, but keep real DSNs, auth tokens, source-map upload tokens, VPS credentials, and real user diagnostics out of git; see `docs/public-repo-boundary.md`.
 
 ## Desktop product scope
 

@@ -19,3 +19,10 @@ output/manual-qa
 output/playwright
 playwright-report
 test-results
+.env
+.env.*
+!.env.example
+*.sentryclirc
+*.glitchtiprc
+lidltool-diagnostics-*.zip
+diagnostics/*.zip

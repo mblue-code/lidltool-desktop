@@ -8,11 +8,14 @@ import type {
   CommandResult,
   DesktopCapabilities,
   DesktopConnectorCallbackEvent,
+  DesktopDiagnosticsBundleResult,
+  DesktopDiagnosticsSummary,
   DesktopExternalBrowserId,
   DesktopExternalBrowserPreferenceState,
   DesktopReleaseMetadata,
   DesktopRuntimeDiagnostics,
   DesktopLocale,
+  DesktopTelemetryPublicConfig,
   ExportRequest,
   ImportRequest,
   OcrWorkerWakeResult,
@@ -34,6 +37,10 @@ declare global {
       getBackendStatus: () => Promise<BackendStatus>;
       getRuntimeDiagnostics: () => Promise<DesktopRuntimeDiagnostics>;
       getReleaseMetadata: () => Promise<DesktopReleaseMetadata>;
+      getDiagnosticsSummary: () => Promise<DesktopDiagnosticsSummary>;
+      getTelemetryConfig: () => Promise<DesktopTelemetryPublicConfig>;
+      exportDiagnosticsBundle: () => Promise<DesktopDiagnosticsBundleResult | null>;
+      openBugReport: () => Promise<string>;
       setLocale: (locale: DesktopLocale) => Promise<DesktopLocale>;
       startBackend: () => Promise<BackendStatus>;
       stopBackend: () => Promise<BackendStatus>;

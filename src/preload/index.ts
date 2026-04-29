@@ -7,11 +7,14 @@ import type {
   CommandResult,
   DesktopCapabilities,
   DesktopConnectorCallbackEvent,
+  DesktopDiagnosticsBundleResult,
+  DesktopDiagnosticsSummary,
   DesktopExternalBrowserId,
   DesktopExternalBrowserPreferenceState,
   DesktopReleaseMetadata,
   DesktopRuntimeDiagnostics,
   DesktopLocale,
+  DesktopTelemetryPublicConfig,
   ExportRequest,
   ImportRequest,
   MobileBridgeStatus,
@@ -37,6 +40,13 @@ const api = {
     await ipcRenderer.invoke("desktop:runtime:diagnostics"),
   getReleaseMetadata: async (): Promise<DesktopReleaseMetadata> =>
     await ipcRenderer.invoke("desktop:release-metadata:get"),
+  getDiagnosticsSummary: async (): Promise<DesktopDiagnosticsSummary> =>
+    await ipcRenderer.invoke("desktop:diagnostics:summary"),
+  getTelemetryConfig: async (): Promise<DesktopTelemetryPublicConfig> =>
+    await ipcRenderer.invoke("desktop:telemetry:config"),
+  exportDiagnosticsBundle: async (): Promise<DesktopDiagnosticsBundleResult | null> =>
+    await ipcRenderer.invoke("desktop:diagnostics:export-bundle"),
+  openBugReport: async (): Promise<string> => await ipcRenderer.invoke("desktop:diagnostics:open-bug-report"),
   setLocale: async (locale: DesktopLocale): Promise<DesktopLocale> => await ipcRenderer.invoke("desktop:locale:set", locale),
   startBackend: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:start"),
   stopBackend: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:stop"),

@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: General questions or setup discussion
+    url: https://github.com/mblue-code/lidltool-desktop/discussions
+    about: Use discussions for questions that are not actionable bugs.
+

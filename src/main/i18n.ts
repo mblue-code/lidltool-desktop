@@ -35,6 +35,8 @@ type MenuCallbacks = {
   reloadControlCenter: () => Promise<void>;
   startBackend: () => Promise<void>;
   stopBackend: () => Promise<void>;
+  reportProblem: () => Promise<void>;
+  createDiagnosticsBundle: () => Promise<void>;
 };
 
 export function applyDesktopMenu(
@@ -71,6 +73,19 @@ export function applyDesktopMenu(
       label: translateDesktopMessage(locale, "shell.menu.stopBackend"),
       click: () => {
         void callbacks.stopBackend();
+      }
+    },
+    { type: "separator" },
+    {
+      label: translateDesktopMessage(locale, "shell.menu.reportProblem"),
+      click: () => {
+        void callbacks.reportProblem();
+      }
+    },
+    {
+      label: translateDesktopMessage(locale, "shell.menu.createDiagnosticsBundle"),
+      click: () => {
+        void callbacks.createDiagnosticsBundle();
       }
     },
     { type: "separator" },

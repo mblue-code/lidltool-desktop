@@ -6,6 +6,8 @@ import type {
   BackendStatus,
   CommandLogEvent,
   CommandResult,
+  DesktopDiagnosticsBundleResult,
+  DesktopDiagnosticsSummary,
   DesktopRuntimeDiagnostics,
   ReceiptPluginPackInfo,
   SyncSourceId
@@ -27,6 +29,10 @@ export interface ControlCenterState {
   setBackend: Dispatch<SetStateAction<BackendStatus | null>>;
   runtimeDiagnostics: DesktopRuntimeDiagnostics | null;
   setRuntimeDiagnostics: Dispatch<SetStateAction<DesktopRuntimeDiagnostics | null>>;
+  diagnosticsSummary: DesktopDiagnosticsSummary | null;
+  setDiagnosticsSummary: Dispatch<SetStateAction<DesktopDiagnosticsSummary | null>>;
+  diagnosticsBundleResult: DesktopDiagnosticsBundleResult | null;
+  setDiagnosticsBundleResult: Dispatch<SetStateAction<DesktopDiagnosticsBundleResult | null>>;
   releaseMetadata: Awaited<ReturnType<typeof window.desktopApi.getReleaseMetadata>> | null;
   setReleaseMetadata: Dispatch<
     SetStateAction<Awaited<ReturnType<typeof window.desktopApi.getReleaseMetadata>> | null>
@@ -100,6 +106,8 @@ export function useControlCenterState(args: {
   const [config, setConfig] = useState<BackendConfig | null>(null);
   const [backend, setBackend] = useState<BackendStatus | null>(null);
   const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<DesktopRuntimeDiagnostics | null>(null);
+  const [diagnosticsSummary, setDiagnosticsSummary] = useState<DesktopDiagnosticsSummary | null>(null);
+  const [diagnosticsBundleResult, setDiagnosticsBundleResult] = useState<DesktopDiagnosticsBundleResult | null>(null);
   const [releaseMetadata, setReleaseMetadata] = useState<Awaited<ReturnType<typeof window.desktopApi.getReleaseMetadata>> | null>(null);
   const [releaseMetadataError, setReleaseMetadataError] = useState<string | null>(null);
   const [pluginLoadError, setPluginLoadError] = useState<string | null>(null);
@@ -141,11 +149,20 @@ export function useControlCenterState(args: {
         window.desktopApi.getBootError(),
         window.desktopApi.getBackendStatus(),
         window.desktopApi.getRuntimeDiagnostics(),
+        window.desktopApi.getDiagnosticsSummary(),
         window.desktopApi.listReceiptPlugins(),
         window.desktopApi.getReleaseMetadata()
       ]);
 
-      const [cfgResult, bootErrorResult, statusResult, runtimeResult, receiptPluginsResult, metadataResult] = results;
+      const [
+        cfgResult,
+        bootErrorResult,
+        statusResult,
+        runtimeResult,
+        diagnosticsSummaryResult,
+        receiptPluginsResult,
+        metadataResult
+      ] = results;
 
       if (cfgResult.status === "fulfilled") {
         setConfig(cfgResult.value);
@@ -163,6 +180,10 @@ export function useControlCenterState(args: {
 
       if (runtimeResult.status === "fulfilled") {
         setRuntimeDiagnostics(runtimeResult.value);
+      }
+
+      if (diagnosticsSummaryResult.status === "fulfilled") {
+        setDiagnosticsSummary(diagnosticsSummaryResult.value);
       }
 
       if (receiptPluginsResult.status === "fulfilled") {
@@ -244,6 +265,10 @@ export function useControlCenterState(args: {
     setBackend,
     runtimeDiagnostics,
     setRuntimeDiagnostics,
+    diagnosticsSummary,
+    setDiagnosticsSummary,
+    diagnosticsBundleResult,
+    setDiagnosticsBundleResult,
     releaseMetadata,
     setReleaseMetadata,
     releaseMetadataError,

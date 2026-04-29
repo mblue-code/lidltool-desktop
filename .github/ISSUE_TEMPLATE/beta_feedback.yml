@@ -1,0 +1,25 @@
+name: Beta feedback
+description: Share beta usability feedback that is not necessarily a bug.
+title: "[beta] "
+labels: ["beta", "desktop"]
+body:
+  - type: input
+    id: app_version
+    attributes:
+      label: App version
+      placeholder: "0.2.0-beta.1"
+    validations:
+      required: true
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Feedback
+      description: What felt confusing, slow, missing, or unexpectedly useful?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Which workflow were you trying to complete?
+

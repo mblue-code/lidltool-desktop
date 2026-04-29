@@ -1,0 +1,51 @@
+name: Connector bug
+description: Report a retailer connector issue.
+title: "[connector] "
+labels: ["bug", "desktop", "connector"]
+body:
+  - type: input
+    id: connector
+    attributes:
+      label: Connector or retailer
+      placeholder: "lidl_plus_de, rewe_de, dm_de, ..."
+    validations:
+      required: true
+  - type: input
+    id: app_version
+    attributes:
+      label: App version
+      placeholder: "0.2.0-beta.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: failure_stage
+    attributes:
+      label: Failure stage
+      options:
+        - Login / authorization
+        - Sync starts but fails
+        - Missing receipts
+        - Wrong parsed receipt data
+        - Connector pack install/update
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: safe_examples
+    attributes:
+      label: Safe examples
+      description: Only include redacted examples. Do not paste full receipt contents, account data, tokens, or scraped HTML.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed personal receipt/account data and did not attach credentials, tokens, databases, or retailer HTML.
+          required: true
+

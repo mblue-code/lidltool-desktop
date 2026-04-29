@@ -31,6 +31,8 @@ export default function App() {
     busy,
     cardsResult,
     config,
+    diagnosticsBundleResult,
+    diagnosticsSummary,
     domain,
     error,
     exportOutPath,
@@ -90,8 +92,10 @@ export default function App() {
   const {
     handleInstallReceiptPlugin,
     handleInstallReceiptPluginFromCatalog,
+    handleCreateDiagnosticsBundle,
     handleLoadCards,
     handleOpenFullApp,
+    handleOpenBugReport,
     handleRefreshPluginState,
     handleRunBackup,
     handleRunExport,
@@ -708,6 +712,61 @@ export default function App() {
               </div>
             </details>
           </div>
+        </article>
+
+        <article className="card">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">Diagnostics</p>
+              <h2>Report a problem</h2>
+            </div>
+            <span className={`status-chip ${diagnosticsSummary?.telemetryEnabled ? "status-enabled" : "status-disabled"}`}>
+              {diagnosticsSummary?.telemetryEnabled ? "Error reporting on" : "Error reporting off"}
+            </span>
+          </div>
+          <p className="muted">
+            Create a redacted diagnostics zip when you want to attach local context to a GitHub bug report. Receipt
+            contents, credentials, tokens, and database files are not included.
+          </p>
+          <div className="key-value-grid">
+            <div>
+              <span className="label">Release</span>
+              <strong>{diagnosticsSummary?.appVersion ?? t("common.loading")}</strong>
+            </div>
+            <div>
+              <span className="label">Channel</span>
+              <strong>{diagnosticsSummary?.releaseChannel ?? t("common.loading")}</strong>
+            </div>
+            <div>
+              <span className="label">System</span>
+              <strong>
+                {diagnosticsSummary
+                  ? `${diagnosticsSummary.platform} / ${diagnosticsSummary.arch}`
+                  : t("common.loading")}
+              </strong>
+            </div>
+            <div>
+              <span className="label">Telemetry</span>
+              <strong>{diagnosticsSummary?.telemetryMode ?? "off"}</strong>
+            </div>
+          </div>
+          <div className="actions">
+            <button type="button" disabled={busy} onClick={() => void handleCreateDiagnosticsBundle()}>
+              Create diagnostics bundle
+            </button>
+            <button type="button" className="secondary" disabled={busy} onClick={() => void handleOpenBugReport()}>
+              Open bug report
+            </button>
+          </div>
+          {diagnosticsBundleResult ? (
+            <p className="muted">
+              Created {diagnosticsBundleResult.fileName} with {diagnosticsBundleResult.includedFiles.length} files.
+            </p>
+          ) : null}
+          <details>
+            <summary>Diagnostics summary</summary>
+            <pre>{diagnosticsSummary ? prettyJson(diagnosticsSummary) : t("common.loading")}</pre>
+          </details>
         </article>
 
         <article className="card">

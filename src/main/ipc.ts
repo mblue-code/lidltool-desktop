@@ -1,9 +1,12 @@
 import { ipcMain } from "electron";
 import type {
   BackupRequest,
+  DesktopDiagnosticsBundleResult,
+  DesktopDiagnosticsSummary,
   DesktopExternalBrowserId,
   DesktopExternalBrowserPreferenceState,
   DesktopLocale,
+  DesktopTelemetryPublicConfig,
   DesktopConnectorCallbackEvent,
   ExportRequest,
   ImportRequest,
@@ -20,6 +23,10 @@ export function registerIpc(
   getLocale: () => DesktopLocale,
   setLocale: (locale: DesktopLocale) => DesktopLocale,
   openControlCenter: () => Promise<void>,
+  getDiagnosticsSummary: () => DesktopDiagnosticsSummary,
+  getTelemetryConfig: () => DesktopTelemetryPublicConfig,
+  exportDiagnosticsBundle: () => Promise<DesktopDiagnosticsBundleResult | null>,
+  openBugReport: () => Promise<string>,
   consumePendingConnectorCallbacks: () => DesktopConnectorCallbackEvent[],
   getExternalBrowserPreference: () => DesktopExternalBrowserPreferenceState,
   setExternalBrowserPreference: (preferredBrowser: DesktopExternalBrowserId) => DesktopExternalBrowserPreferenceState,
@@ -33,6 +40,10 @@ export function registerIpc(
   ipcMain.handle("desktop:mobile-bridge:status", () => runtime.getMobileBridgeStatus());
   ipcMain.handle("desktop:runtime:diagnostics", () => runtime.getRuntimeDiagnostics());
   ipcMain.handle("desktop:release-metadata:get", async () => await runtime.getReleaseMetadata());
+  ipcMain.handle("desktop:diagnostics:summary", () => getDiagnosticsSummary());
+  ipcMain.handle("desktop:telemetry:config", () => getTelemetryConfig());
+  ipcMain.handle("desktop:diagnostics:export-bundle", async () => await exportDiagnosticsBundle());
+  ipcMain.handle("desktop:diagnostics:open-bug-report", async () => await openBugReport());
   ipcMain.handle("desktop:locale:set", (_event, locale: DesktopLocale) => setLocale(locale));
   ipcMain.handle("desktop:backend:start", async () => await runtime.startBackend());
   ipcMain.handle("desktop:backend:stop", async () => await runtime.stopBackend());
