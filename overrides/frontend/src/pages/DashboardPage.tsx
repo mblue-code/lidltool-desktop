@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
@@ -16,6 +16,7 @@ import { useDateRangeContext } from "@/app/date-range-context";
 import { fetchDashboardOverview } from "@/api/dashboard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useI18n } from "@/i18n";
 import { formatDate, formatEurFromCents } from "@/utils/format";
 
@@ -276,6 +277,9 @@ function ProgressRow({
 export function DashboardPage() {
   const { fromDate, toDate } = useDateRangeContext();
   const { locale } = useI18n();
+  const [selectedSourceId, setSelectedSourceId] = useState("all");
+  const selectedSourceIds = selectedSourceId === "all" ? undefined : [selectedSourceId];
+  const dataKey = `${fromDate}:${toDate}:${selectedSourceId}`;
   const copy = locale === "de"
     ? {
         pageTitle: "Ihre Finanzübersicht",
@@ -298,7 +302,9 @@ export function DashboardPage() {
         activityItems: "Aktivitäts-Einträge",
         activeMerchants: "Aktive Händler",
         merchants: "Händler",
-        goals: "Ziele"
+        goals: "Ziele",
+        merchantFilter: "Händlerfilter",
+        allMerchants: "Alle Händler"
       }
     : {
         pageTitle: "Your finance overview",
@@ -321,16 +327,20 @@ export function DashboardPage() {
         activityItems: "Activity items",
         activeMerchants: "Active merchants",
         merchants: "Merchants",
-        goals: "Goals"
+        goals: "Goals",
+        merchantFilter: "Merchant filter",
+        allMerchants: "All merchants"
       };
   const overviewQuery = useQuery({
-    queryKey: ["dashboard-overview", fromDate, toDate],
-    queryFn: () => fetchDashboardOverview(fromDate, toDate),
+    queryKey: ["dashboard-overview", fromDate, toDate, selectedSourceId],
+    queryFn: () => fetchDashboardOverview(fromDate, toDate, selectedSourceIds),
     staleTime: 0
   });
   const overview = overviewQuery.data?.period.from_date === fromDate && overviewQuery.data.period.to_date === toDate
+    && (selectedSourceId === "all" || overviewQuery.data.selected_source_ids.includes(selectedSourceId))
     ? overviewQuery.data
     : undefined;
+  const sourceFilters = overview?.source_filters ?? overviewQuery.data?.source_filters ?? [];
   const periodLabel = useMemo(() => {
     const start = new Date(fromDate);
     const end = new Date(toDate);
@@ -352,16 +362,36 @@ export function DashboardPage() {
               {copy.pageDescription}
             </p>
           </div>
-          <div
-            key={`${fromDate}:${toDate}`}
-            className="rounded-lg border border-white/10 bg-white/6 px-4 py-3 text-sm font-medium text-slate-200"
-          >
-            {periodLabel}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end xl:flex-col xl:items-end">
+            <div className="min-w-[210px]">
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                {copy.merchantFilter}
+              </span>
+              <Select value={selectedSourceId} onValueChange={setSelectedSourceId}>
+                <SelectTrigger className="h-10 border-white/10 bg-white/6 text-slate-100">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{copy.allMerchants}</SelectItem>
+                  {sourceFilters.map((source) => (
+                    <SelectItem key={source.source_id} value={source.source_id}>
+                      {source.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div
+              key={`${fromDate}:${toDate}`}
+              className="rounded-lg border border-white/10 bg-white/6 px-4 py-3 text-sm font-medium text-slate-200"
+            >
+              {periodLabel}
+            </div>
           </div>
         </div>
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
+      <div key={`kpis:${dataKey}`} className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
         {overview ? (
           <>
             <Card className="app-dashboard-surface border-border/60">
@@ -410,7 +440,7 @@ export function DashboardPage() {
 
       {overview ? (
         <>
-          <div className="grid gap-4 xl:grid-cols-[1.15fr_1fr_0.82fr]">
+          <div key={`main:${dataKey}`} className="grid gap-4 xl:grid-cols-[1.15fr_1fr_0.82fr]">
             <Card className="app-dashboard-surface border-border/60">
               <CardHeader>{sectionTitle(copy.spendingOverview, "/reports", locale === "de" ? "Berichte anzeigen" : "View reports")}</CardHeader>
               <CardContent>
@@ -445,7 +475,7 @@ export function DashboardPage() {
             </Card>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[1.15fr_0.9fr_0.85fr]">
+          <div key={`activity:${dataKey}`} className="grid gap-4 xl:grid-cols-[1.15fr_0.9fr_0.85fr]">
             <Card className="app-dashboard-surface border-border/60">
               <CardHeader>{sectionTitle(copy.recentGroceryTransactions, "/transactions", copy.viewAll)}</CardHeader>
               <CardContent className="space-y-3">

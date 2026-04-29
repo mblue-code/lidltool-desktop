@@ -397,7 +397,13 @@ class SyncService:
                             break
                         continue
 
-                    if fingerprint_exists(session, normalized.fingerprint):
+                    dedupe_by_source_transaction_id = bool(
+                        getattr(self._connector, "dedupe_by_source_transaction_id", False)
+                    )
+                    if (
+                        not dedupe_by_source_transaction_id
+                        and fingerprint_exists(session, normalized.fingerprint)
+                    ):
                         ingested_streak += 1
                         progress.skipped_existing += 1
                         session.commit()
@@ -768,6 +774,7 @@ def _upsert_canonical_transaction(
         else fallback_normalized.store_name
     )
     merchant_name = normalize_merchant_name(merchant_name_raw, normalization_bundle)
+    merchant_name = _source_merchant_display_name(source.id, merchant_name)
     total_gross_cents = int(
         connector_normalized.get("total_gross_cents", fallback_normalized.total_gross)
     )
@@ -783,7 +790,7 @@ def _upsert_canonical_transaction(
         source_transaction_id=source_transaction_id,
     )
     reason = "source_key"
-    if existing is None and fingerprint:
+    if existing is None and fingerprint and not source.id.startswith("amazon_"):
         existing = canonical_transaction_for_fingerprint(
             session,
             source_id=source.id,
@@ -799,6 +806,11 @@ def _upsert_canonical_transaction(
     payload = make_json_safe(payload)
 
     if existing is not None:
+        if (
+            existing.purchased_at is not None
+            and str(connector_normalized.get("date_source") or "").strip() == "page_year"
+        ):
+            purchased_at = existing.purchased_at
         if existing.user_id in {None, SERVICE_USER_ID}:
             existing.user_id = source.user_id
         existing.purchased_at = purchased_at
@@ -983,6 +995,13 @@ def _upsert_canonical_transaction(
             transaction.id,
             dedupe_key,
         )
+
+
+def _source_merchant_display_name(source_id: str, merchant_name: str | None) -> str | None:
+    value = (merchant_name or "").strip()
+    if source_id.startswith("lidl_plus") and value and not value.lower().startswith("lidl"):
+        return f"Lidl {value}"
+    return value or merchant_name
 
 
 def _to_category_decimal(value: float | None) -> Any:

@@ -19,6 +19,34 @@ from lidltool.connectors.operator_status import operator_state_payload, support_
 from lidltool.connectors.plugin_policy import evaluate_plugin_compatibility, evaluate_plugin_policy
 from lidltool.connectors.plugin_status import PluginRegistryEntry
 
+_AMAZON_CONFIG_SCHEMA: dict[str, Any] = {
+    "fields": [
+        {
+            "key": "years",
+            "label": "Years to scan",
+            "description": "How many Amazon order years to scan. More years take longer; plan for several minutes per year.",
+            "input_kind": "number",
+            "default_value": 1,
+            "placeholder": "1",
+        },
+        {
+            "key": "headless",
+            "label": "Run import in background",
+            "description": "Enabled by default. Turn this off only if you want to watch Amazon pages during sync troubleshooting.",
+            "input_kind": "boolean",
+            "default_value": True,
+        },
+        {
+            "key": "dump_html",
+            "label": "Debug HTML dump directory",
+            "description": "Optional debug folder for captured Amazon list/detail HTML during connector testing.",
+            "input_kind": "text",
+            "operator_only": True,
+            "placeholder": "/absolute/path/to/amazon-debug-html",
+        },
+    ]
+}
+
 _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {
         "plugin_id": "builtin.lidl_plus_de",
@@ -143,6 +171,7 @@ _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS: tuple[dict[str, Any], ...] = (
                 "amazon_de",
             ],
         },
+        "config_schema": _AMAZON_CONFIG_SCHEMA,
         "metadata": {"maturity": "preview"},
     },
     {
@@ -205,6 +234,7 @@ _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS: tuple[dict[str, Any], ...] = (
                 "amazon_fr",
             ],
         },
+        "config_schema": _AMAZON_CONFIG_SCHEMA,
         "metadata": {"maturity": "preview"},
     },
     {
@@ -267,6 +297,7 @@ _BUILTIN_CONNECTOR_MANIFEST_DEFINITIONS: tuple[dict[str, Any], ...] = (
                 "amazon_gb",
             ],
         },
+        "config_schema": _AMAZON_CONFIG_SCHEMA,
         "metadata": {"maturity": "preview"},
     },
     {

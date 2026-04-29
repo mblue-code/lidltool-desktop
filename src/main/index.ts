@@ -25,6 +25,7 @@ import {
   initDesktopTelemetry,
   reloadDesktopTelemetryConfig
 } from "./diagnostics/sentry-main";
+import { StalePlaywrightProcessCleaner } from "./stale-playwright-cleaner";
 import { DesktopUpdateManager } from "./updates/update-manager";
 import { APP_ID, PRODUCT_NAME, PACKAGE_SLUG, readDesktopEnv } from "./product-identity.ts";
 
@@ -55,6 +56,7 @@ if (!gotSingleInstanceLock) {
 let mainWindow: BrowserWindow | null = null;
 const runtime = new DesktopRuntime();
 const updateManager = new DesktopUpdateManager(undefined, logWindowLifecycle);
+let stalePlaywrightCleaner: StalePlaywrightProcessCleaner | null = null;
 let latestBootError: string | null = null;
 let currentLocale: DesktopLocale = "en";
 let lastRequestedSurface: "control_center" | "main_app" = "control_center";
@@ -881,6 +883,11 @@ app.whenReady().then(() => {
   }
 
   mainWindow = createWindow();
+  stalePlaywrightCleaner = new StalePlaywrightProcessCleaner({
+    userDataDir: app.getPath("userData"),
+    log: logWindowLifecycle
+  });
+  stalePlaywrightCleaner.start();
   updateManager.initialize();
   updateDesktopLocale(currentLocale);
   registerIpc(
@@ -930,6 +937,7 @@ app.on("window-all-closed", async () => {
   logWindowLifecycle("app.window_all_closed", {
     surface: lastRequestedSurface
   });
+  stalePlaywrightCleaner?.stop();
   await runtime.shutdown();
   app.quit();
 });
@@ -939,5 +947,6 @@ app.on("before-quit", async () => {
   logWindowLifecycle("app.before_quit", {
     surface: lastRequestedSurface
   });
+  stalePlaywrightCleaner?.stop();
   await runtime.shutdown();
 });

@@ -76,6 +76,14 @@ const DashboardOverviewResponseSchema = z.object({
     comparison_to_date: z.string(),
     days: z.number()
   }),
+  source_filters: z.array(
+    z.object({
+      source_id: z.string(),
+      label: z.string(),
+      transaction_count: z.number()
+    })
+  ),
+  selected_source_ids: z.array(z.string()),
   kpis: z.object({
     total_spending: z.object({
       current_cents: z.number(),
@@ -198,6 +206,7 @@ const DashboardOverviewResponseSchema = z.object({
     count: z.number(),
     items: z.array(
       z.object({
+        source_id: z.string().optional(),
         merchant: z.string(),
         receipt_count: z.number(),
         spend_cents: z.number(),
@@ -338,10 +347,12 @@ export async function fetchRetailerComposition(
 
 export async function fetchDashboardOverview(
   fromDate: string,
-  toDate: string
+  toDate: string,
+  sourceIds?: string[]
 ): Promise<DashboardOverviewResponse> {
   return apiClient.get("/api/v1/dashboard/overview", DashboardOverviewResponseSchema, {
     from_date: fromDate,
-    to_date: toDate
+    to_date: toDate,
+    source_ids: sourceIdsParam(sourceIds)
   });
 }

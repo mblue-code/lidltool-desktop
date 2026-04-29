@@ -250,7 +250,8 @@ const CONNECTOR_FIELD_LOCALIZATION_OVERRIDES: Record<
   amazon_de: {
     years: {
       label: "Zu prüfende Jahre",
-      description: "Optional. Für den ersten Desktop-Import wird standardmäßig 1 Jahr geprüft.",
+      description:
+        "Wie viele Amazon-Bestelljahre geprüft werden. Mehr Jahre dauern deutlich länger; rechnen Sie grob mit mehreren Minuten pro Jahr.",
       placeholder: "1"
     },
     headless: {
@@ -712,6 +713,65 @@ function fallbackConnectorGuide(displayName: string, locale: SupportedLocale): C
           locale,
           "Use the connector card to sign in if needed, then start your first import.",
           "Melden Sie sich bei Bedarf über diese Karte an und starten Sie dann den ersten Import."
+        )
+      }
+    ]
+  };
+}
+
+function localizedAmazonGuide(locale: SupportedLocale): ConnectorGuide {
+  return {
+    headline: byLocale(
+      locale,
+      "Amazon imports use a visible browser session",
+      "Amazon-Importe laufen über eine sichtbare Browser-Sitzung"
+    ),
+    summary: byLocale(
+      locale,
+      "Amazon does not provide a simple receipt API here. Outlays opens Chrome/Chromium, signs into your Amazon session, walks through the selected order years, opens order and item pages one by one, and then imports what it can parse.",
+      "Amazon stellt hier keine einfache Beleg-API bereit. Outlays öffnet Chrome/Chromium, nutzt Ihre Amazon-Sitzung, geht die ausgewählten Bestelljahre durch, öffnet Bestell- und Artikelseiten nacheinander und importiert anschließend, was sicher erkannt werden kann."
+    ),
+    speedDescription: byLocale(
+      locale,
+      "Plan for several minutes per year. A large first import, for example around 10 years, can take about half an hour or longer depending on Amazon, CAPTCHA checks, and network speed.",
+      "Planen Sie mehrere Minuten pro Jahr ein. Ein großer Erstimport, zum Beispiel etwa 10 Jahre, kann je nach Amazon, CAPTCHA-Prüfungen und Netzwerk ungefähr eine halbe Stunde oder länger dauern."
+    ),
+    caution: byLocale(
+      locale,
+      "Leave the browser and Outlays open while the import runs. If Amazon asks for login, MFA, or CAPTCHA, finish it in that browser; if Amazon blocks the session later, reconnect before retrying.",
+      "Lassen Sie Browser und Outlays geöffnet, während der Import läuft. Wenn Amazon Login, MFA oder CAPTCHA verlangt, schließen Sie das in diesem Browser ab; wenn Amazon die Sitzung später blockiert, melden Sie die Anbindung vor dem nächsten Versuch erneut an."
+    ),
+    steps: [
+      {
+        title: byLocale(locale, "Choose how many years to scan", "Anzahl der Jahre auswählen"),
+        description: byLocale(
+          locale,
+          "The Years field controls how much Amazon history the first full import scans. Start smaller if you want a quick test.",
+          "Das Feld Jahre steuert, wie viel Amazon-Historie der Vollimport durchsucht. Wählen Sie weniger Jahre, wenn Sie zuerst schnell testen möchten."
+        )
+      },
+      {
+        title: byLocale(locale, "Finish Amazon sign-in in Chrome", "Amazon-Anmeldung in Chrome abschließen"),
+        description: byLocale(
+          locale,
+          "Outlays opens a browser profile for Amazon. Complete login, MFA, and any human check there.",
+          "Outlays öffnet ein Browserprofil für Amazon. Schließen Sie dort Login, MFA und mögliche Mensch-Prüfungen ab."
+        )
+      },
+      {
+        title: byLocale(locale, "Let the browser work through the history", "Browser die Historie abarbeiten lassen"),
+        description: byLocale(
+          locale,
+          "During a full import the browser may visibly open many order, invoice, and item pages. That activity is expected.",
+          "Während eines Vollimports kann der Browser sichtbar viele Bestell-, Rechnungs- und Artikelseiten öffnen. Das ist erwartbar."
+        )
+      },
+      {
+        title: byLocale(locale, "Review the result in Outlays", "Ergebnis in Outlays prüfen"),
+        description: byLocale(
+          locale,
+          "When the run finishes, Outlays should show the imported transactions and any warnings instead of staying silently in a syncing state.",
+          "Nach Abschluss sollte Outlays die importierten Transaktionen und mögliche Hinweise anzeigen, statt still im Synchronisieren-Zustand zu bleiben."
         )
       }
     ]
@@ -1383,9 +1443,12 @@ export function ConnectorsPage() {
           return false;
         }
         const lastSyncedAtMs = connector.last_synced_at ? Date.parse(connector.last_synced_at) : Number.NaN;
+        const latestSyncStatus = connector.advanced.latest_sync_status;
         const shouldKeep =
           connector.ui.status !== "syncing" &&
-          connector.advanced.latest_sync_status !== "running" &&
+          latestSyncStatus !== "running" &&
+          latestSyncStatus !== "failed" &&
+          latestSyncStatus !== "canceled" &&
           !(Number.isFinite(lastSyncedAtMs) && lastSyncedAtMs >= pendingStart.startedAt - 1000);
         if (!shouldKeep) {
           changed = true;
@@ -2447,10 +2510,13 @@ export function ConnectorsPage() {
     const bootstrapStatus = bootstrapStatusBySourceId.get(connector.source_id) ?? null;
     const authStatus = authStatusBySourceId.get(connector.source_id) ?? null;
     const pendingSyncStart = pendingSyncStarts[connector.source_id] ?? null;
+    const latestSyncStatus = connector.advanced.latest_sync_status;
+    const latestSyncFailed = latestSyncStatus === "failed" || latestSyncStatus === "canceled";
     const optimisticSyncStarting =
       pendingSyncStart !== null &&
       connector.ui.status !== "syncing" &&
-      connector.advanced.latest_sync_status !== "running";
+      latestSyncStatus !== "running" &&
+      !latestSyncFailed;
     const firstRunPrompt = firstRunPrompts[connector.source_id];
     const firstRunPromptActive = Boolean(firstRunPrompt && firstRunPrompt.expiresAt > Date.now());
     const rawTaskState = connectorTaskState(connector);
@@ -2492,7 +2558,7 @@ export function ConnectorsPage() {
     const showBootstrapStatus = shouldShowBootstrapStatus(connector, bootstrapStatus);
     const syncLines = viewerIsAdmin ? connector.advanced.latest_sync_output : [];
     const latestSyncLine = syncLines.length > 0 ? syncLines[syncLines.length - 1] ?? null : null;
-    const showSyncStatus = connector.ui.status === "syncing" || optimisticSyncStarting;
+    const showSyncStatus = connector.ui.status === "syncing" || optimisticSyncStarting || latestSyncFailed;
     const secondarySummary = connectorSecondarySummary(connector, pack, locale);
     const showFirstRunActions =
       firstRunPromptActive &&
@@ -2539,7 +2605,14 @@ export function ConnectorsPage() {
       connector,
       locale
     );
-    const syncSummary = optimisticSyncStarting
+    const syncSummary = latestSyncFailed
+      ? summarizeSyncStatus(latestSyncLine, locale) ||
+        byLocale(
+          locale,
+          "The import stopped before it could finish. Sign in again, then retry the import.",
+          "Der Import wurde vor dem Abschluss gestoppt. Melden Sie sich erneut an und versuchen Sie den Import danach noch einmal."
+        )
+      : optimisticSyncStarting
       ? byLocale(
           locale,
           "The import was accepted and is being prepared in the background. The first live update can take a few seconds.",
@@ -2583,10 +2656,10 @@ export function ConnectorsPage() {
                 {byLocale(
                   locale,
                   isLidlConnector(connector.source_id)
-                    ? "Your Lidl sign-in is saved. The browser may still show the SMS code page or an error page. That is normal. Start the normal import now, or run the one-time full history import while everything is still fresh."
+                    ? "Your Lidl sign-in is saved. The browser may still show the SMS code page or an error page. That is normal. Start the normal import now, or run the one-time full history import while everything is still fresh. Turn off VPN before importing; Lidl often rejects VPN traffic during this flow."
                     : "Your sign-in is saved. Start the normal import now, or run the one-time full history import while everything is still fresh.",
                   isLidlConnector(connector.source_id)
-                    ? "Ihre Lidl-Anmeldung ist gespeichert. Der Browser kann weiterhin die SMS-Code-Seite oder eine Fehlerseite anzeigen. Das ist normal. Starten Sie jetzt den normalen Import oder laden Sie einmalig die gesamte Historie, solange alles noch frisch verbunden ist."
+                    ? "Ihre Lidl-Anmeldung ist gespeichert. Der Browser kann weiterhin die SMS-Code-Seite oder eine Fehlerseite anzeigen. Das ist normal. Starten Sie jetzt den normalen Import oder laden Sie einmalig die gesamte Historie, solange alles noch frisch verbunden ist. Schalten Sie VPN vor dem Import aus; Lidl lehnt VPN-Verbindungen in diesem Ablauf häufig ab."
                     : "Ihre Anmeldung ist gespeichert. Starten Sie jetzt den normalen Import oder laden Sie einmalig die gesamte Historie, solange alles noch frisch verbunden ist."
                 )}
               </AlertDescription>
@@ -2730,9 +2803,11 @@ export function ConnectorsPage() {
           ) : null}
 
           {showSyncStatus ? (
-            <Alert>
+            <Alert variant={latestSyncFailed ? "destructive" : "default"}>
               <AlertTitle>
-                {optimisticSyncStarting
+                {latestSyncFailed
+                  ? byLocale(locale, "Import failed", "Import fehlgeschlagen")
+                  : optimisticSyncStarting
                   ? byLocale(locale, "Import starting", "Import wird gestartet")
                   : byLocale(locale, "Import running", "Import läuft")}
               </AlertTitle>
@@ -3381,6 +3456,43 @@ export function ConnectorsPage() {
               <p className="text-sm text-muted-foreground">{t("pages.connectors.noExtraSettings")}</p>
             ) : null}
 
+            {setupState && setupState.mode !== "configure" && isAmazonConnector(setupState.connector.source_id) ? (
+              (() => {
+                const guide = localizedAmazonGuide(locale);
+                return (
+                  <div className="space-y-3">
+                    <Alert>
+                      <AlertTitle>{guide.headline}</AlertTitle>
+                      <AlertDescription>{guide.summary}</AlertDescription>
+                    </Alert>
+                    <div className="rounded-lg border border-border/60 bg-background/60 p-4">
+                      <p className="text-sm font-medium text-foreground">
+                        {byLocale(locale, "Expected duration", "Erwartete Dauer")}
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">{guide.speedDescription}</p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {guide.steps.map((step, index) => (
+                        <div
+                          key={`${step.title}-${index}`}
+                          className="rounded-lg border border-border/60 bg-background/60 p-4"
+                        >
+                          <p className="text-sm font-medium text-foreground">{step.title}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">{step.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="rounded-lg border border-border/60 bg-background/60 p-4">
+                      <p className="text-sm font-medium text-foreground">
+                        {byLocale(locale, "Important", "Wichtig")}
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">{guide.caution}</p>
+                    </div>
+                  </div>
+                );
+              })()
+            ) : null}
+
             {setupDialogFields.map((field) => (
               <div key={field.key} className="space-y-2">
                 <div className="flex items-center justify-between gap-3">
@@ -3458,15 +3570,23 @@ export function ConnectorsPage() {
             <DialogTitle>
               {authCompletionPrompt && isLidlConnector(authCompletionPrompt.sourceId)
                 ? byLocale(locale, "Lidl sign-in saved", "Lidl-Anmeldung gespeichert")
+                : authCompletionPrompt && isAmazonConnector(authCompletionPrompt.sourceId)
+                  ? byLocale(locale, "Amazon sign-in saved", "Amazon-Anmeldung gespeichert")
                 : byLocale(locale, "Sign-in saved", "Anmeldung gespeichert")}
             </DialogTitle>
             <DialogDescription>
               {authCompletionPrompt && isLidlConnector(authCompletionPrompt.sourceId)
                 ? byLocale(
                     locale,
-                    "Lidl handed the login back to the desktop app successfully. The browser may still stay on the SMS code page or show an error page after that. You can ignore the browser and continue here.",
-                    "Lidl hat die Anmeldung erfolgreich an die Desktop-App zurückgegeben. Der Browser kann danach weiterhin auf der SMS-Code-Seite bleiben oder eine Fehlerseite anzeigen. Sie können den Browser ignorieren und hier weitermachen."
+                    "Lidl handed the login back to the desktop app successfully. The browser may still stay on the SMS code page or show an error page after that. You can ignore the browser and continue here. Before starting the import, turn off VPN; Lidl often rejects VPN traffic in this flow.",
+                    "Lidl hat die Anmeldung erfolgreich an die Desktop-App zurückgegeben. Der Browser kann danach weiterhin auf der SMS-Code-Seite bleiben oder eine Fehlerseite anzeigen. Sie können den Browser ignorieren und hier weitermachen. Schalten Sie vor dem Import VPN aus; Lidl lehnt VPN-Verbindungen in diesem Ablauf häufig ab."
                   )
+                : authCompletionPrompt && isAmazonConnector(authCompletionPrompt.sourceId)
+                  ? byLocale(
+                      locale,
+                      "Amazon sign-in is saved. A full history import will open Amazon pages in Chrome/Chromium and can take a long time while it walks year by year through orders and item pages.",
+                      "Die Amazon-Anmeldung ist gespeichert. Ein Vollimport öffnet Amazon-Seiten in Chrome/Chromium und kann lange dauern, während Bestellungen und Artikelseiten Jahr für Jahr abgearbeitet werden."
+                    )
                 : authCompletionPrompt?.detail ??
                   byLocale(
                     locale,
@@ -3479,8 +3599,16 @@ export function ConnectorsPage() {
             <p>
               {byLocale(
                 locale,
-                "Next, either import only new receipts or run a one-time full history import while the login is still fresh.",
-                "Als Nächstes können Sie entweder nur neue Belege importieren oder einmalig die gesamte Historie laden, solange die Anmeldung noch frisch ist."
+                authCompletionPrompt && isAmazonConnector(authCompletionPrompt.sourceId)
+                  ? "For Amazon, the one-time full history import scans the configured number of years. Leave the browser open; a large history can take around half an hour or longer."
+                  : authCompletionPrompt && isLidlConnector(authCompletionPrompt.sourceId)
+                    ? "For Lidl Plus, use a direct non-VPN connection before importing. If VPN is active, sign-in or receipt loading can look successful at first and still be rejected by Lidl."
+                  : "Next, either import only new receipts or run a one-time full history import while the login is still fresh.",
+                authCompletionPrompt && isAmazonConnector(authCompletionPrompt.sourceId)
+                  ? "Bei Amazon durchsucht der einmalige Vollimport die konfigurierte Anzahl von Jahren. Lassen Sie den Browser geöffnet; eine große Historie kann ungefähr eine halbe Stunde oder länger dauern."
+                  : authCompletionPrompt && isLidlConnector(authCompletionPrompt.sourceId)
+                    ? "Nutzen Sie für Lidl Plus vor dem Import eine direkte Verbindung ohne VPN. Wenn VPN aktiv ist, kann die Anmeldung oder das Laden der Belege zunächst erfolgreich wirken und trotzdem von Lidl abgelehnt werden."
+                  : "Als Nächstes können Sie entweder nur neue Belege importieren oder einmalig die gesamte Historie laden, solange die Anmeldung noch frisch ist."
               )}
             </p>
           </div>

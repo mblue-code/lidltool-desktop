@@ -2,13 +2,15 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { CommandLogEvent, CommandResult } from "@shared/contracts";
+import type { CommandLogEvent, CommandResult } from "../shared/contracts.ts";
 import {
   normalizeDesktopOcrProvider,
   resolveManagedPlaywrightBrowsersPath,
   shouldManagePlaywrightBrowsers
-} from "./runtime-contract";
-import { splitLines } from "./runtime-command-runner";
+} from "./runtime-contract.ts";
+import { splitLines } from "./runtime-command-runner.ts";
+
+const playwrightBrowserInstallPromises = new Map<string, Promise<void>>();
 
 export function resolveCredentialEncryptionKey(userDataDir: string): string {
   const keyFile = join(userDataDir, "credential_encryption_key.txt");
@@ -118,6 +120,15 @@ export async function ensureManagedPlaywrightBrowsers(args: {
     return;
   }
 
+  const activeInstall = playwrightBrowserInstallPromises.get(browsersPath);
+  if (activeInstall) {
+    await activeInstall;
+    if (!hasInstalledPlaywrightBrowsers(browsersPath)) {
+      throw new Error(`Failed to install managed Playwright browsers into '${browsersPath}'.`);
+    }
+    return;
+  }
+
   if (!args.isPathLike(args.pythonExecutable) || !existsSync(args.pythonExecutable)) {
     args.emitLog({
       stream: "stderr",
@@ -129,10 +140,45 @@ export async function ensureManagedPlaywrightBrowsers(args: {
     return;
   }
 
+  const installPromise = installManagedPlaywrightBrowsers({ ...args, browsersPath });
+  playwrightBrowserInstallPromises.set(browsersPath, installPromise);
+  try {
+    await installPromise;
+  } finally {
+    playwrightBrowserInstallPromises.delete(browsersPath);
+  }
+}
+
+function hasInstalledPlaywrightBrowsers(browsersPath: string): boolean {
+  if (!existsSync(browsersPath)) {
+    return false;
+  }
+  return readdirSync(browsersPath).some((entry) => {
+    if (!/^chromium-/.test(entry)) {
+      return false;
+    }
+    return existsSync(join(browsersPath, entry, "INSTALLATION_COMPLETE"));
+  });
+}
+
+async function installManagedPlaywrightBrowsers(args: {
+  command: string;
+  userDataDir: string;
+  env: NodeJS.ProcessEnv;
+  pythonExecutable: string;
+  isPathLike: (command: string) => boolean;
+  emitLog: (payload: Omit<CommandLogEvent, "timestamp">) => void;
+  runRawCommandCapture: (
+    command: string,
+    commandArgs: string[],
+    env: NodeJS.ProcessEnv
+  ) => Promise<CommandResult>;
+  browsersPath: string;
+}): Promise<void> {
   args.emitLog({
     stream: "stdout",
     source: "backend",
-    line: `Installing Playwright Chromium into ${browsersPath}`
+    line: `Installing Playwright Chromium into ${args.browsersPath}`
   });
 
   const result = await args.runRawCommandCapture(
@@ -140,7 +186,7 @@ export async function ensureManagedPlaywrightBrowsers(args: {
     ["-m", "playwright", "install", "chromium"],
     {
       ...args.env,
-      PLAYWRIGHT_BROWSERS_PATH: browsersPath
+      PLAYWRIGHT_BROWSERS_PATH: args.browsersPath
     }
   );
 
@@ -151,16 +197,9 @@ export async function ensureManagedPlaywrightBrowsers(args: {
     args.emitLog({ stream: "stderr", source: "backend", line });
   }
 
-  if (!result.ok || !hasInstalledPlaywrightBrowsers(browsersPath)) {
+  if (!result.ok || !hasInstalledPlaywrightBrowsers(args.browsersPath)) {
     throw new Error(
-      `Failed to install managed Playwright browsers into '${browsersPath}'. ${result.stderr || result.stdout}`.trim()
+      `Failed to install managed Playwright browsers into '${args.browsersPath}'. ${result.stderr || result.stdout}`.trim()
     );
   }
-}
-
-function hasInstalledPlaywrightBrowsers(browsersPath: string): boolean {
-  if (!existsSync(browsersPath)) {
-    return false;
-  }
-  return readdirSync(browsersPath).some((entry) => /^chromium-|^chromium_headless_shell-/.test(entry));
 }

@@ -1,11 +1,13 @@
 import { BrowserWindow } from "electron";
-import { autoUpdater, type ProgressInfo, type UpdateInfo } from "electron-updater";
+import electronUpdater from "electron-updater";
+import type { ProgressInfo, UpdateInfo } from "electron-updater";
 import type { DesktopUpdateState } from "@shared/contracts";
 import { captureDesktopException } from "../diagnostics/sentry-main";
 import { redactSensitiveText } from "../diagnostics/sanitization";
 import { resolveDesktopUpdateConfig, type DesktopUpdateConfig } from "./update-config";
 
 type Logger = (event: string, details?: Record<string, unknown>) => void;
+const { autoUpdater } = electronUpdater;
 
 export class DesktopUpdateManager {
   private readonly config: DesktopUpdateConfig;

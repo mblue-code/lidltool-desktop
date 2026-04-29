@@ -967,6 +967,9 @@ export function AppShell({ user }: AppShellProps) {
       null
   );
   const topBarRangeLabel = formatTopBarRange(locale, fromDate, toDate);
+  const showDateRangeControls =
+    location.pathname === "/" || location.pathname === "/groceries";
+  const showGlobalAddReceipt = location.pathname !== "/transactions" && location.pathname !== "/add";
 
   async function handleLogout() {
     try {
@@ -1136,6 +1139,7 @@ export function AppShell({ user }: AppShellProps) {
               </div>
 
               <div className="ml-auto flex items-center gap-2">
+                {showDateRangeControls ? (
                 <div className="hidden h-10 items-center gap-1 rounded-lg border border-input bg-background px-1.5 text-sm shadow-sm dark:bg-card dark:backdrop-blur-xl lg:flex">
                   <div className="flex items-center gap-2 px-2 text-muted-foreground">
                     <CalendarCheck className="h-4 w-4" />
@@ -1156,6 +1160,7 @@ export function AppShell({ user }: AppShellProps) {
                     </Button>
                   ))}
                 </div>
+                ) : null}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -1220,12 +1225,14 @@ export function AppShell({ user }: AppShellProps) {
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {showGlobalAddReceipt ? (
                 <Button asChild size="sm" className="h-10 gap-2 rounded-lg px-3.5">
                   <Link to="/add">
                     <Plus className="h-4 w-4" />
                     {t("nav.item.manualImport")}
                   </Link>
                 </Button>
+                ) : null}
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>

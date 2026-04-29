@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any, TypedDict
 
 from fastapi import FastAPI
@@ -174,6 +175,19 @@ def serialize_source_sync_status(
     runtime = get_connector_command_sessions(app, kind="sync").get(source_id)
     latest_job = _latest_source_job(session, source_id=source_id)
     sync_state = session.get(SyncState, source_id)
+    last_success_at = (
+        sync_state.last_success_at
+        if sync_state is not None and sync_state.last_success_at is not None
+        else None
+    )
+    if (
+        latest_job is not None
+        and last_success_at is not None
+        and latest_job.finished_at is not None
+        and _as_utc(latest_job.finished_at) < _as_utc(last_success_at)
+        and latest_job.status.lower() in {"failed", "canceled"}
+    ):
+        latest_job = None
     if runtime is not None:
         runtime_payload = serialize_connector_bootstrap_payload(runtime)
         status = runtime_payload["status"]
@@ -187,7 +201,7 @@ def serialize_source_sync_status(
             status = latest_job_status
         runtime_payload = None
     else:
-        status = "idle"
+        status = "succeeded" if last_success_at is not None else "idle"
         runtime_payload = None
     return {
         "source_id": source_id,
@@ -212,9 +226,7 @@ def serialize_source_sync_status(
             else None
         ),
         "last_success_at": (
-            sync_state.last_success_at.isoformat()
-            if sync_state is not None and sync_state.last_success_at is not None
-            else None
+            last_success_at.isoformat() if last_success_at is not None else None
         ),
         "last_seen_receipt_at": (
             sync_state.last_seen_receipt_at.isoformat()
@@ -225,6 +237,12 @@ def serialize_source_sync_status(
             sync_state.last_seen_receipt_id if sync_state is not None else None
         ),
     }
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def build_source_status_payload(

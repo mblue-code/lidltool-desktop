@@ -80,6 +80,7 @@ from lidltool.analytics.recategorization import recategorize_transactions
 from lidltool.analytics.queries import (
     dashboard_available_years,
     dashboard_category_spend_summary,
+    display_merchant_name,
     dashboard_merchant_summary,
     dashboard_retailer_composition,
     dashboard_savings_breakdown,
@@ -1414,6 +1415,7 @@ def _shopping_purchase_totals(
     from_dt: datetime,
     to_dt: datetime,
     visibility: VisibilityContext,
+    source_ids: list[str] | None = None,
 ) -> dict[str, int]:
     end = to_dt + timedelta(days=1)
     stmt = (
@@ -1429,6 +1431,8 @@ def _shopping_purchase_totals(
             _shopping_purchase_filter(),
         )
     )
+    if source_ids:
+        stmt = stmt.where(Transaction.source_id.in_(source_ids))
     receipt_count, total_cents = session.execute(stmt).one()
     return {
         "receipt_count": int(receipt_count or 0),
@@ -1442,6 +1446,7 @@ def _dashboard_purchase_transactions(
     from_dt: datetime,
     to_dt: datetime,
     visibility: VisibilityContext,
+    source_ids: list[str] | None = None,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
     end = to_dt + timedelta(days=1)
@@ -1457,6 +1462,8 @@ def _dashboard_purchase_transactions(
         .order_by(Transaction.purchased_at.desc(), Transaction.created_at.desc())
         .limit(limit)
     )
+    if source_ids:
+        stmt = stmt.where(Transaction.source_id.in_(source_ids))
     transactions = session.execute(stmt).scalars().all()
     return [
         {
@@ -1465,7 +1472,7 @@ def _dashboard_purchase_transactions(
             "source_id": transaction.source_id,
             "user_id": transaction.user_id,
             "shared_group_id": transaction.shared_group_id,
-            "store_name": transaction.merchant_name,
+            "store_name": display_merchant_name(transaction.source_id, transaction.merchant_name),
             "total_gross_cents": transaction.total_gross_cents,
             "currency": transaction.currency,
             "discount_total_cents": transaction.discount_total_cents or 0,
@@ -1475,6 +1482,40 @@ def _dashboard_purchase_transactions(
     ]
 
 
+def _dashboard_source_filters(
+    session: Session,
+    *,
+    visibility: VisibilityContext,
+) -> list[dict[str, Any]]:
+    stmt = (
+        select(
+            Transaction.source_id,
+            func.coalesce(Source.display_name, Transaction.source_id),
+            func.count(Transaction.id),
+        )
+        .select_from(Transaction)
+        .join(Source, Source.id == Transaction.source_id, isouter=True)
+        .where(Transaction.id.in_(visible_transaction_ids_subquery(visibility)))
+        .group_by(Transaction.source_id, func.coalesce(Source.display_name, Transaction.source_id))
+        .order_by(func.coalesce(Source.display_name, Transaction.source_id).asc())
+    )
+    rows = session.execute(stmt).all()
+    filters: list[dict[str, Any]] = []
+    for source_id, display_name, count in rows:
+        source_id_text = str(source_id or "")
+        label = str(display_name or source_id_text)
+        if source_id_text.startswith("lidl_plus"):
+            label = "Lidl"
+        filters.append(
+            {
+                "source_id": source_id_text,
+                "label": label,
+                "transaction_count": int(count or 0),
+            }
+        )
+    return filters
+
+
 def _dashboard_overview_payload(
     session: Session,
     *,
@@ -1482,36 +1523,38 @@ def _dashboard_overview_payload(
     visibility: VisibilityContext,
     from_dt: datetime,
     to_dt: datetime,
+    source_ids: list[str] | None = None,
 ) -> dict[str, Any]:
+    normalized_source_ids = sorted({source_id.strip() for source_id in source_ids or [] if source_id.strip()}) or None
     previous_days = max(1, (to_dt.date() - from_dt.date()).days + 1)
     previous_from = from_dt - timedelta(days=previous_days)
     previous_to = from_dt - timedelta(days=1)
 
     current_totals = dashboard_window_totals(
-        session, from_date=from_dt, to_date=to_dt, visibility=visibility
+        session, from_date=from_dt, to_date=to_dt, visibility=visibility, source_ids=normalized_source_ids
     )
     previous_totals = dashboard_window_totals(
-        session, from_date=previous_from, to_date=previous_to, visibility=visibility
+        session, from_date=previous_from, to_date=previous_to, visibility=visibility, source_ids=normalized_source_ids
     )
     current_purchase_totals = _shopping_purchase_totals(
-        session, from_dt=from_dt, to_dt=to_dt, visibility=visibility
+        session, from_dt=from_dt, to_dt=to_dt, visibility=visibility, source_ids=normalized_source_ids
     )
     previous_purchase_totals = _shopping_purchase_totals(
-        session, from_dt=previous_from, to_dt=previous_to, visibility=visibility
+        session, from_dt=previous_from, to_dt=previous_to, visibility=visibility, source_ids=normalized_source_ids
     )
     current_purchase_total_cents = current_purchase_totals["total_cents"]
     previous_purchase_total_cents = previous_purchase_totals["total_cents"]
     category_rows = dashboard_category_spend_summary(
-        session, from_date=from_dt, to_date=to_dt, visibility=visibility
+        session, from_date=from_dt, to_date=to_dt, visibility=visibility, source_ids=normalized_source_ids
     )
     merchant_rows = dashboard_merchant_summary(
-        session, from_date=from_dt, to_date=to_dt, visibility=visibility
+        session, from_date=from_dt, to_date=to_dt, visibility=visibility, source_ids=normalized_source_ids
     )
     recent_transactions = _dashboard_purchase_transactions(
-        session, from_dt=from_dt, to_dt=to_dt, visibility=visibility, limit=5
+        session, from_dt=from_dt, to_dt=to_dt, visibility=visibility, source_ids=normalized_source_ids, limit=5
     )
 
-    cashflow_entries = session.execute(
+    cashflow_entries = [] if normalized_source_ids else session.execute(
         select(CashflowEntry)
         .where(
             CashflowEntry.user_id == user.user_id,
@@ -1520,7 +1563,7 @@ def _dashboard_overview_payload(
         )
         .order_by(CashflowEntry.effective_date.asc(), CashflowEntry.created_at.asc())
     ).scalars().all()
-    previous_cashflow_entries = session.execute(
+    previous_cashflow_entries = [] if normalized_source_ids else session.execute(
         select(CashflowEntry)
         .where(
             CashflowEntry.user_id == user.user_id,
@@ -1653,6 +1696,8 @@ def _dashboard_overview_payload(
             "comparison_to_date": previous_to.date().isoformat(),
             "days": previous_days,
         },
+        "source_filters": _dashboard_source_filters(session, visibility=visibility),
+        "selected_source_ids": normalized_source_ids or [],
         "kpis": {
             "total_spending": _delta(current_totals["net_cents"], previous_totals["net_cents"]),
             "groceries": _delta(current_purchase_total_cents, previous_purchase_total_cents),
@@ -2379,7 +2424,7 @@ def _start_connector_command_session(
     thread_name: str,
 ) -> ConnectorBootstrapSession:
     sessions = get_connector_command_sessions(app, kind=session_kind)
-    return start_connector_command_session(
+    connector_session = start_connector_command_session(
         ConnectorAuthSessionRegistry(sessions),
         source_id=source_id,
         command=command,
@@ -2388,6 +2433,92 @@ def _start_connector_command_session(
         process_factory=subprocess.Popen,
         thread_name=thread_name,
     )
+    if session_kind == "sync":
+        request_context = getattr(app.state, "request_context", None)
+        session_factory_for_jobs = (
+            request_context.sessions if isinstance(request_context, RequestContext) else None
+        )
+        if session_factory_for_jobs is not None:
+            threading.Thread(
+                target=_persist_connector_sync_session,
+                kwargs={
+                    "session_factory_for_jobs": session_factory_for_jobs,
+                    "connector_session": connector_session,
+                },
+                daemon=True,
+                name=f"{thread_name}-job-persist",
+            ).start()
+    return connector_session
+
+
+def _persist_connector_sync_session(
+    *,
+    session_factory_for_jobs: sessionmaker[Session],
+    connector_session: ConnectorBootstrapSession,
+) -> None:
+    _wait_for_connector_session(connector_session)
+    with connector_session.lock:
+        return_code = connector_session.return_code
+        canceled = connector_session.canceled
+        source_id = connector_session.source_id
+        started_at = connector_session.started_at
+        finished_at = connector_session.finished_at or datetime.now(tz=UTC)
+        command = list(connector_session.command)
+        output_tail = list(connector_session.output)[-30:]
+    status = "success" if return_code == 0 else "canceled" if canceled else "failed"
+    error = None if status == "success" else _connector_command_failure_message(output_tail, status=status)
+    try:
+        with session_scope(session_factory_for_jobs) as session:
+            if session.get(Source, source_id) is None:
+                return
+            duplicate = (
+                session.query(IngestionJob)
+                .filter(
+                    IngestionJob.source_id == source_id,
+                    IngestionJob.trigger_type == "connector_sync_command",
+                    IngestionJob.started_at == started_at,
+                    IngestionJob.status == status,
+                )
+                .one_or_none()
+            )
+            if duplicate is not None:
+                return
+            session.add(
+                IngestionJob(
+                    source_id=source_id,
+                    status=status,
+                    trigger_type="connector_sync_command",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    error=error,
+                    summary={
+                        "command": command,
+                        "return_code": return_code,
+                        "output_tail": output_tail,
+                        "warnings": [error] if error else [],
+                    },
+                )
+            )
+    except Exception:  # noqa: BLE001
+        LOGGER.exception("connector.sync_job_persist.failed source_id=%s", source_id)
+
+
+def _connector_command_failure_message(output_tail: list[str], *, status: str) -> str:
+    for line in reversed(output_tail):
+        stripped = str(line).strip().strip("│╭╰─ ")
+        if not stripped:
+            continue
+        lowered = stripped.lower()
+        if lowered in {
+            "error",
+            "usage: python -m lidltool.cli connectors sync [options]",
+            "try 'python -m lidltool.cli connectors sync --help' for help.",
+        }:
+            continue
+        if "info  [alembic.runtime.migration]" in lowered:
+            continue
+        return stripped
+    return f"connector sync {status}"
 
 
 def _wait_for_connector_session(
@@ -8205,6 +8336,7 @@ def create_app(
         request: Request,
         from_date: str | None = None,
         to_date: str | None = None,
+        source_ids: str | None = None,
         scope: str = "personal",
     ) -> Any:
         try:
@@ -8224,6 +8356,7 @@ def create_app(
                     visibility=visibility,
                     from_dt=resolved_from,
                     to_dt=resolved_to,
+                    source_ids=_parse_source_ids(source_ids),
                 )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001

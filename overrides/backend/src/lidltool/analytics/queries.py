@@ -253,6 +253,14 @@ def _apply_source_filter(stmt: Any, source_ids: list[str] | None) -> Any:
     return stmt.where(Transaction.source_id.in_(source_ids))
 
 
+def display_merchant_name(source_id: str | None, merchant_name: str | None) -> str:
+    raw_name = (merchant_name or "").strip()
+    raw_source = (source_id or "").strip()
+    if raw_source.startswith("lidl_plus") and raw_name and not raw_name.lower().startswith("lidl"):
+        return f"Lidl {raw_name}"
+    return raw_name or raw_source or "Unknown"
+
+
 def _shifted_datetime_expr(timestamp_expr: Any, tz_offset_minutes: int) -> Any:
     if tz_offset_minutes == 0:
         return timestamp_expr
@@ -857,8 +865,10 @@ def dashboard_window_totals(
     from_date: datetime,
     to_date: datetime,
     visibility: VisibilityContext | None = None,
+    source_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     end = _exclusive_window_end(to_date)
+    normalized_source_ids = _normalize_source_ids(source_ids)
     stmt = select(
         func.count(Transaction.id),
         func.coalesce(func.sum(Transaction.total_gross_cents), 0),
@@ -867,6 +877,7 @@ def dashboard_window_totals(
         Transaction.purchased_at >= from_date,
         Transaction.purchased_at < end,
     )
+    stmt = _apply_source_filter(stmt, normalized_source_ids)
     stmt = _apply_transaction_visibility(stmt, visibility)
     receipt_count, gross_cents, discount_cents = session.execute(stmt).one()
     net_cents = int(gross_cents or 0) - int(discount_cents or 0)
@@ -884,9 +895,11 @@ def dashboard_category_spend_summary(
     from_date: datetime,
     to_date: datetime,
     visibility: VisibilityContext | None = None,
+    source_ids: list[str] | None = None,
     limit: int = 6,
 ) -> list[dict[str, Any]]:
     end = _exclusive_window_end(to_date)
+    normalized_source_ids = _normalize_source_ids(source_ids)
     stmt = (
         select(
             func.coalesce(TransactionItem.category, "uncategorized"),
@@ -898,6 +911,7 @@ def dashboard_category_spend_summary(
         .order_by(func.coalesce(func.sum(TransactionItem.line_total_cents), 0).desc())
         .limit(limit)
     )
+    stmt = _apply_source_filter(stmt, normalized_source_ids)
     stmt = _apply_transaction_visibility(stmt, visibility)
     rows = session.execute(stmt).all()
     total_cents = sum(int(amount or 0) for _, amount in rows)
@@ -936,11 +950,14 @@ def dashboard_merchant_summary(
     from_date: datetime,
     to_date: datetime,
     visibility: VisibilityContext | None = None,
+    source_ids: list[str] | None = None,
     limit: int = 6,
 ) -> list[dict[str, Any]]:
     end = _exclusive_window_end(to_date)
+    normalized_source_ids = _normalize_source_ids(source_ids)
     stmt = (
         select(
+            Transaction.source_id,
             func.coalesce(Transaction.merchant_name, Source.display_name, Transaction.source_id),
             func.count(Transaction.id),
             func.coalesce(func.sum(Transaction.total_gross_cents), 0),
@@ -949,20 +966,22 @@ def dashboard_merchant_summary(
         .select_from(Transaction)
         .join(Source, Source.id == Transaction.source_id, isouter=True)
         .where(Transaction.purchased_at >= from_date, Transaction.purchased_at < end)
-        .group_by(func.coalesce(Transaction.merchant_name, Source.display_name, Transaction.source_id))
+        .group_by(Transaction.source_id, func.coalesce(Transaction.merchant_name, Source.display_name, Transaction.source_id))
         .order_by(func.coalesce(func.sum(Transaction.total_gross_cents), 0).desc())
         .limit(limit)
     )
+    stmt = _apply_source_filter(stmt, normalized_source_ids)
     stmt = _apply_transaction_visibility(stmt, visibility)
     rows = session.execute(stmt).all()
     return [
         {
-            "merchant": str(name or "Unknown"),
+            "source_id": str(source_id or ""),
+            "merchant": display_merchant_name(str(source_id or ""), str(name or "")),
             "receipt_count": int(count or 0),
             "spend_cents": int(spend or 0),
             "last_purchased_at": last_purchased_at.isoformat() if last_purchased_at else None,
         }
-        for name, count, spend, last_purchased_at in rows
+        for source_id, name, count, spend, last_purchased_at in rows
     ]
 
 

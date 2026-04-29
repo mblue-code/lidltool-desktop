@@ -1800,9 +1800,15 @@ def _contains_any_hint(values: Sequence[str], hints: Sequence[str]) -> bool:
     for value in values:
         if not value:
             continue
-        if any(hint in value for hint in hints):
+        if any(_contains_hint(value, hint) for hint in hints):
             return True
     return False
+
+
+def _contains_hint(value: str, hint: str) -> bool:
+    if hint == "brot":
+        return any(token == hint or token.endswith(hint) for token in value.split("_") if token)
+    return hint in value
 
 
 def _validate_model_runtime_endpoint(

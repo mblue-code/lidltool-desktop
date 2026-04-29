@@ -633,6 +633,33 @@ function patchRegistry(current) {
     );
   }
 
+  if (!next.includes("_AMAZON_CONFIG_SCHEMA: dict[str, Any] = {")) {
+    next = replaceOnce(
+      next,
+      "from lidltool.connectors.plugin_status import PluginRegistryEntry\n\n",
+      `from lidltool.connectors.plugin_status import PluginRegistryEntry\n\n_AMAZON_CONFIG_SCHEMA: dict[str, Any] = {\n    "fields": [\n        {\n            "key": "years",\n            "label": "Years to scan",\n            "description": "How many Amazon order years to scan. More years take longer; plan for several minutes per year.",\n            "input_kind": "number",\n            "default_value": 1,\n            "placeholder": "1",\n        },\n        {\n            "key": "headless",\n            "label": "Run import in background",\n            "description": "Enabled by default. Turn this off only if you want to watch Amazon pages during sync troubleshooting.",\n            "input_kind": "boolean",\n            "default_value": True,\n        },\n        {\n            "key": "dump_html",\n            "label": "Debug HTML dump directory",\n            "description": "Optional debug folder for captured Amazon list/detail HTML during connector testing.",\n            "input_kind": "text",\n            "operator_only": True,\n            "placeholder": "/absolute/path/to/amazon-debug-html",\n        },\n    ]\n}\n\n`,
+      registryPath
+    );
+  }
+
+  for (const sourceId of ["amazon_de", "amazon_fr", "amazon_gb"]) {
+    const sourceMarker = `"source_id": "${sourceId}",`;
+    const sourceIndex = next.indexOf(sourceMarker);
+    if (sourceIndex === -1) {
+      continue;
+    }
+    const metadataMarker = '        "metadata": {"maturity": "preview"},';
+    const metadataIndex = next.indexOf(metadataMarker, sourceIndex);
+    if (metadataIndex === -1) {
+      continue;
+    }
+    const manifestSlice = next.slice(sourceIndex, metadataIndex);
+    if (manifestSlice.includes('"config_schema":')) {
+      continue;
+    }
+    next = `${next.slice(0, metadataIndex)}        "config_schema": _AMAZON_CONFIG_SCHEMA,\n${next.slice(metadataIndex)}`;
+  }
+
   if (!next.includes("def _desktop_builtin_connector_definitions() -> tuple[dict[str, Any], ...]:\n")) {
     next = replaceOnce(
       next,
