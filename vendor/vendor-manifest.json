@@ -101,6 +101,7 @@
       "pages/__tests__/DocumentsUploadPage.test.tsx",
       "pages/__tests__/LaunchCriticalI18nRoutes.test.tsx",
       "pages/__tests__/MerchantsPage.test.tsx",
+      "pages/__tests__/ReportsPage.test.tsx",
       "pages/__tests__/SettingsPage.test.tsx",
       "pages/__tests__/SourcesPage.test.tsx",
       "pages/__tests__/TransactionDetailPage.test.tsx",

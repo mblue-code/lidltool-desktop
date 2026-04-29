@@ -510,6 +510,9 @@ function connectorIsConnected(connector: ConnectorDiscoveryRow): boolean {
   if (connector.enable_state !== "enabled") {
     return false;
   }
+  if (connector.supports_bootstrap && connector.advanced.auth_state !== "hidden") {
+    return connector.advanced.auth_state === "connected";
+  }
   return ["connected", "ready", "syncing"].includes(connector.ui?.status ?? "");
 }
 
@@ -517,10 +520,10 @@ function shouldShowSidebarConnector(connector: ConnectorDiscoveryRow): boolean {
   if (!connector.supports_sync || connector.install_state !== "installed") {
     return false;
   }
-  if (connectorIsBuiltin(connector)) {
-    return true;
+  if (!connectorIsBuiltin(connector) && connector.enable_state !== "enabled") {
+    return false;
   }
-  return connector.enable_state === "enabled";
+  return connectorIsConnected(connector);
 }
 
 function buildSidebarMerchantSummaries(connectors: ConnectorDiscoveryRow[]): SidebarMerchantSummary[] {
@@ -595,7 +598,7 @@ function NavItems({ groups }: { groups: NavGroup[] }) {
     <nav className="flex flex-col gap-7" aria-label={t("nav.primary")}>
       {groups.map((group, index) => (
         <div key={`${group.labelKey}-${index}`}>
-          <p className="mb-3 px-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-sidebar-foreground/35">
+          <p className="mb-3 px-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-sidebar-foreground/55">
             {t(group.labelKey)}
           </p>
           <div className="flex flex-col gap-1.5">
@@ -608,10 +611,10 @@ function NavItems({ groups }: { groups: NavGroup[] }) {
                 onFocus={() => preloadRouteModule(item.to)}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-3 rounded-[24px] px-4 py-3.5 text-left text-base font-medium tracking-[-0.02em] transition-colors",
+                    "flex items-center gap-3 rounded-lg px-3.5 py-3 text-left text-sm font-medium transition-colors",
                     isActive
-                      ? "bg-emerald-500/78 text-white shadow-[0_16px_30px_rgba(16,185,129,0.22)]"
-                      : "text-sidebar-foreground/72 hover:bg-white/7 hover:text-white"
+                      ? "bg-emerald-500/82 text-white shadow-[0_10px_24px_rgba(16,185,129,0.18)]"
+                      : "text-sidebar-foreground/76 hover:bg-white/7 hover:text-white"
                   )
                 }
               >
@@ -665,12 +668,12 @@ function SidebarContent({
     <div className="flex h-full flex-col bg-[linear-gradient(180deg,rgba(7,20,35,0.98),rgba(5,16,30,0.98))] text-sidebar-foreground">
       <div className="px-6 pb-4 pt-6">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/6 p-2 shadow-[0_16px_34px_rgba(2,12,24,0.42)]">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/6 p-2 shadow-[0_12px_28px_rgba(2,12,24,0.34)]">
           <img src={logoMark} alt="" aria-hidden="true" className="h-full w-full" />
         </div>
           <div>
             <p className="text-lg font-semibold tracking-tight text-white">{t("app.brand.title")}</p>
-            <p className="text-sm text-sidebar-foreground/60">{t("app.brand.subtitle")}</p>
+            <p className="text-sm text-sidebar-foreground/78">{t("app.brand.subtitle")}</p>
           </div>
         </div>
       </div>
@@ -679,8 +682,8 @@ function SidebarContent({
         <NavItems groups={primaryGroups} />
 
         {quickActions.length > 0 ? (
-          <div className="mt-8 rounded-[28px] border border-white/8 bg-white/4 p-4 shadow-[0_20px_44px_rgba(2,12,24,0.26)]">
-            <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-sidebar-foreground/40">
+          <div className="mt-8 rounded-xl border border-white/8 bg-white/4 p-4 shadow-[0_14px_32px_rgba(2,12,24,0.22)]">
+            <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-sidebar-foreground/60">
               {t("nav.group.shortcuts")}
             </p>
             <div className="mt-3 grid gap-2">
@@ -689,7 +692,7 @@ function SidebarContent({
                   key={item.to}
                   asChild
                   variant="ghost"
-                  className="h-11 justify-start gap-3 rounded-2xl border border-transparent bg-white/4 px-3 text-sidebar-foreground/78 hover:border-white/8 hover:bg-white/8 hover:text-white"
+                  className="h-11 justify-start gap-3 rounded-lg border border-transparent bg-white/4 px-3 text-sidebar-foreground/90 hover:border-white/8 hover:bg-white/8 hover:text-white"
                 >
                   <Link
                     to={item.to}
@@ -705,11 +708,11 @@ function SidebarContent({
           </div>
         ) : null}
 
-        <div className="mt-8 rounded-[28px] border border-white/8 bg-white/4 p-4 shadow-[0_20px_44px_rgba(2,12,24,0.26)]">
+        <div className="mt-8 rounded-xl border border-white/8 bg-white/4 p-4 shadow-[0_14px_32px_rgba(2,12,24,0.22)]">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-white">{t("app.sidebar.connectedMerchants")}</p>
-              <p className="text-xs text-sidebar-foreground/55">{t("app.sidebar.connectedMerchantsHint")}</p>
+              <p className="text-xs text-sidebar-foreground/72">{t("app.sidebar.connectedMerchantsHint")}</p>
             </div>
             <div className="rounded-full bg-white/10 px-3 py-1 text-sm font-semibold text-white">
               {connectedMerchantCount}
@@ -721,10 +724,10 @@ function SidebarContent({
                 <div
                   key={merchant.label}
                   className={cn(
-                    "rounded-2xl border px-3 py-3 text-sm font-medium",
+                    "rounded-lg border px-3 py-3 text-sm font-medium",
                     merchant.connected
                       ? "border-emerald-400/30 bg-emerald-500/14 text-emerald-100"
-                      : "border-white/8 bg-white/6 text-sidebar-foreground/82"
+                      : "border-white/8 bg-white/6 text-sidebar-foreground/90"
                   )}
                 >
                   {merchant.label}
@@ -732,23 +735,23 @@ function SidebarContent({
               ))}
             </div>
           ) : (
-            <p className="mt-4 text-sm text-sidebar-foreground/55">{t("app.sidebar.connectedMerchantsEmpty")}</p>
+            <p className="mt-4 text-sm text-sidebar-foreground/72">{t("app.sidebar.connectedMerchantsEmpty")}</p>
           )}
         </div>
 
-        <div className="mt-4 rounded-[28px] border border-emerald-400/18 bg-emerald-400/8 p-4 shadow-[0_20px_44px_rgba(2,12,24,0.22)]">
+        <div className="mt-4 rounded-xl border border-emerald-400/18 bg-emerald-400/8 p-4 shadow-[0_14px_32px_rgba(2,12,24,0.18)]">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200/70">
             {t("app.sidebar.localData")}
           </p>
           <p className="mt-3 text-sm font-medium text-white">{lastUpdatedLabel}</p>
-          <p className="mt-1 text-xs text-sidebar-foreground/55">{t("app.sidebar.localDataHint")}</p>
+          <p className="mt-1 text-xs text-sidebar-foreground/72">{t("app.sidebar.localDataHint")}</p>
         </div>
       </div>
 
       <div className="px-4 pb-3">
         <Button
           variant="outline"
-          className="relative h-11 w-full justify-start gap-2 rounded-2xl border-white/10 bg-white/4 text-sidebar-foreground/78 hover:bg-white/8 hover:text-white"
+          className="relative h-11 w-full justify-start gap-2 rounded-lg border-white/10 bg-white/4 text-sidebar-foreground/90 hover:bg-white/8 hover:text-white"
           onClick={onOpenChat}
         >
           <MessageCircle className="h-4 w-4" />
@@ -769,14 +772,14 @@ function SidebarContent({
               {user.display_name ?? user.username}
             </p>
             {user.is_admin ? (
-              <p className="text-[10px] text-sidebar-foreground/40">{t("app.role.admin")}</p>
+              <p className="text-[10px] text-sidebar-foreground/62">{t("app.role.admin")}</p>
             ) : null}
           </div>
           <Button
             variant="ghost"
             size="icon"
             aria-label={t("action.signOut")}
-            className="h-8 w-8 shrink-0 rounded-full text-sidebar-foreground/60 hover:bg-white/8 hover:text-white"
+            className="h-8 w-8 shrink-0 rounded-full text-sidebar-foreground/78 hover:bg-white/8 hover:text-white"
             onClick={onLogout}
           >
             <LogOut className="h-3.5 w-3.5" />
@@ -1056,7 +1059,7 @@ export function AppShell({ user }: AppShellProps) {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#f3f6fb] dark:bg-transparent">
+    <div className="min-h-screen bg-[#f5f7fb] dark:bg-transparent">
       <a
         href="#main-content"
         className="sr-only rounded-md bg-background px-3 py-2 text-sm font-medium focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50"
@@ -1090,8 +1093,8 @@ export function AppShell({ user }: AppShellProps) {
             } as CSSProperties
           }
         >
-          <header className="sticky top-0 z-30 border-b border-border/50 bg-background/88 backdrop-blur-xl dark:bg-[var(--app-header-surface)]">
-            <div className="mx-auto flex w-full max-w-[1720px] items-center gap-3 px-4 py-4 md:px-6 lg:px-8">
+          <header className="sticky top-0 z-30 border-b border-border/55 bg-background/92 backdrop-blur-xl dark:bg-[var(--app-header-surface)]">
+            <div className="mx-auto flex w-full max-w-[1720px] items-center gap-3 px-4 py-3 md:px-6 lg:px-8">
               <div className="md:hidden">
                 <Sheet>
                   <SheetTrigger asChild>
@@ -1120,7 +1123,7 @@ export function AppShell({ user }: AppShellProps) {
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
                   {activeNavItem ? <activeNavItem.icon className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
-                  <h1 className="truncate text-base font-semibold tracking-[-0.02em]">
+                  <h1 className="truncate text-base font-semibold">
                     {t(activeNavItem?.labelKey ?? "app.defaultPageTitle")}
                   </h1>
                   <Badge variant="secondary" className="hidden max-w-[16rem] truncate rounded-full md:inline-flex">
@@ -1133,31 +1136,33 @@ export function AppShell({ user }: AppShellProps) {
               </div>
 
               <div className="ml-auto flex items-center gap-2">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="hidden h-12 rounded-2xl px-4 text-sm lg:flex">
-                      <CalendarCheck className="mr-2 h-4 w-4" />
+                <div className="hidden h-10 items-center gap-1 rounded-lg border border-input bg-background px-1.5 text-sm shadow-sm dark:bg-card dark:backdrop-blur-xl lg:flex">
+                  <div className="flex items-center gap-2 px-2 text-muted-foreground">
+                    <CalendarCheck className="h-4 w-4" />
+                    <span key={`${fromDate}:${toDate}`} className="min-w-[8.5rem] text-foreground">
                       {topBarRangeLabel}
+                    </span>
+                  </div>
+                  {(["this_week", "last_7_days", "this_month", "last_month"] as DateRangePreset[]).map((datePreset) => (
+                    <Button
+                      key={datePreset}
+                      type="button"
+                      variant={preset === datePreset ? "default" : "ghost"}
+                      size="sm"
+                      className="h-7 rounded-md px-2 text-xs"
+                      onClick={() => setPreset(datePreset)}
+                    >
+                      {datePresetLabel(locale, datePreset)}
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuLabel>{datePresetLabel(locale, preset)}</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuRadioGroup value={preset} onValueChange={(value) => setPreset(value as DateRangePreset)}>
-                      <DropdownMenuRadioItem value="this_week">{datePresetLabel(locale, "this_week")}</DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="last_7_days">{datePresetLabel(locale, "last_7_days")}</DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="this_month">{datePresetLabel(locale, "this_month")}</DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="last_month">{datePresetLabel(locale, "last_month")}</DropdownMenuRadioItem>
-                    </DropdownMenuRadioGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  ))}
+                </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="relative h-12 w-12 rounded-2xl"
+                      className="relative h-10 w-10 rounded-lg"
                       aria-label={t("app.header.notifications")}
                     >
                       <BellRing className="h-4 w-4" />
@@ -1215,7 +1220,7 @@ export function AppShell({ user }: AppShellProps) {
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>
-                <Button asChild size="sm" className="h-12 gap-2 rounded-2xl px-4">
+                <Button asChild size="sm" className="h-10 gap-2 rounded-lg px-3.5">
                   <Link to="/add">
                     <Plus className="h-4 w-4" />
                     {t("nav.item.manualImport")}
@@ -1224,7 +1229,7 @@ export function AppShell({ user }: AppShellProps) {
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-12 rounded-2xl px-4" aria-label={t("app.header.preferences")}>
+                    <Button variant="outline" size="sm" className="h-10 rounded-lg px-3.5" aria-label={t("app.header.preferences")}>
                       <SlidersHorizontal className="h-4 w-4" />
                       <span className="hidden sm:inline">{t("app.header.preferences")}</span>
                     </Button>

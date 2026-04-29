@@ -23,7 +23,7 @@ function sectionTitle(title: string, actionHref?: string, actionLabel?: string) 
   return (
     <div className="flex items-center justify-between gap-3">
       <div>
-        <h2 className="text-xl font-semibold tracking-[-0.02em]">{title}</h2>
+        <h2 className="text-lg font-semibold">{title}</h2>
       </div>
       {actionHref && actionLabel ? (
         <Button asChild variant="ghost" size="sm">
@@ -80,9 +80,11 @@ function RingChart({
   locale: "en" | "de";
 }) {
   const colors = ["#14b8a6", "#2563eb", "#7c3aed", "#fb923c", "#ec4899", "#cbd5e1"];
+  const visibleCategories = categories.filter((item) => item.amount_cents > 0 && item.share > 0);
+  const hasData = totalCents > 0 && visibleCategories.length > 0;
   const gradient = useMemo(() => {
     let offset = 0;
-    return categories
+    return visibleCategories
       .map((item, index) => {
         const next = offset + item.share * 100;
         const slice = `${colors[index % colors.length]} ${offset}% ${next}%`;
@@ -90,7 +92,23 @@ function RingChart({
         return slice;
       })
       .join(", ");
-  }, [categories]);
+  }, [visibleCategories]);
+
+  if (!hasData) {
+    return (
+      <div className="app-soft-surface flex min-h-[270px] flex-col items-center justify-center rounded-lg border border-dashed border-border/70 px-6 py-10 text-center">
+        <ReceiptText className="h-10 w-10 text-muted-foreground/70" />
+        <p className="mt-4 text-base font-semibold">
+          {locale === "de" ? "Noch keine Ausgaben im gewählten Zeitraum" : "No spending in the selected period yet"}
+        </p>
+        <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+          {locale === "de"
+            ? "Importiere Belege oder erfasse eine Ausgabe, damit die Kategorienübersicht hier erscheint."
+            : "Import receipts or add spending, then the category breakdown will appear here."}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-6 xl:grid-cols-[280px_1fr]">
@@ -100,14 +118,14 @@ function RingChart({
           style={{ background: `conic-gradient(${gradient || "#e2e8f0 0 100%"})` }}
         >
           <div className="absolute inset-[26px] flex flex-col items-center justify-center rounded-full bg-white">
-            <span className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(totalCents)}</span>
+            <span className="app-value text-3xl font-semibold">{formatEurFromCents(totalCents)}</span>
             <span className="mt-2 text-sm text-muted-foreground">{locale === "de" ? "Nettoausgaben" : "Net spend"}</span>
           </div>
         </div>
       </div>
 
       <div className="space-y-3">
-        {categories.map((item, index) => (
+        {visibleCategories.map((item, index) => (
           <div key={item.category} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 border-b border-border/60 py-3 last:border-b-0">
             <span className="h-3 w-3 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
             <span className="font-medium capitalize">{item.category.replace(/:/g, " ")}</span>
@@ -243,27 +261,30 @@ export function DashboardPage() {
   });
   const overview = overviewQuery.data;
   const periodLabel = useMemo(() => {
-    const start = new Date(overview?.period.from_date ?? fromDate);
-    const end = new Date(overview?.period.to_date ?? toDate);
+    const start = new Date(fromDate);
+    const end = new Date(toDate);
     const formatter = new Intl.DateTimeFormat(locale === "de" ? "de-DE" : "en-US", {
       month: "short",
       day: "numeric"
     });
     return `${formatter.format(start)} - ${formatter.format(end)}`;
-  }, [fromDate, locale, overview?.period.from_date, overview?.period.to_date, toDate]);
+  }, [fromDate, locale, toDate]);
 
   return (
     <div className="space-y-6">
-      <section className="app-dashboard-surface-strong rounded-[32px] border border-border/60 px-6 py-7 lg:px-8">
-        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+      <section className="app-dashboard-surface-strong rounded-xl border border-border/60 px-5 py-6 lg:px-7">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-400">Dashboard</p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white">{copy.pageTitle}</h1>
-            <p className="mt-3 max-w-2xl text-base text-slate-300">
+            <h1 className="mt-2 text-3xl font-semibold text-white md:text-4xl">{copy.pageTitle}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 md:text-base">
               {copy.pageDescription}
             </p>
           </div>
-          <div className="rounded-[24px] border border-white/10 bg-white/6 px-5 py-4 text-sm text-slate-200">
+          <div
+            key={`${fromDate}:${toDate}`}
+            className="rounded-lg border border-white/10 bg-white/6 px-4 py-3 text-sm font-medium text-slate-200"
+          >
             {periodLabel}
           </div>
         </div>
@@ -278,7 +299,7 @@ export function DashboardPage() {
                   <span className="text-sm font-medium text-muted-foreground">{copy.totalSpending}</span>
                   <Wallet className="h-5 w-5 text-rose-500" />
                 </div>
-                <div className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(overview.kpis.total_spending.current_cents)}</div>
+                <div className="app-value text-3xl font-semibold">{formatEurFromCents(overview.kpis.total_spending.current_cents)}</div>
                 <DeltaPill deltaPct={overview.kpis.total_spending.delta_pct} locale={locale} />
               </CardContent>
             </Card>
@@ -288,7 +309,7 @@ export function DashboardPage() {
                   <span className="text-sm font-medium text-muted-foreground">{copy.purchases}</span>
                   <ReceiptText className="h-5 w-5 text-emerald-500" />
                 </div>
-                <div className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(overview.kpis.groceries.current_cents)}</div>
+                <div className="app-value text-3xl font-semibold">{formatEurFromCents(overview.kpis.groceries.current_cents)}</div>
                 <DeltaPill deltaPct={overview.kpis.groceries.delta_pct} locale={locale} />
               </CardContent>
             </Card>
@@ -298,7 +319,7 @@ export function DashboardPage() {
                   <span className="text-sm font-medium text-muted-foreground">{copy.cashInflow}</span>
                   <ArrowDownRight className="h-5 w-5 text-emerald-500" />
                 </div>
-                <div className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(overview.kpis.cash_inflow.current_cents)}</div>
+                <div className="app-value text-3xl font-semibold">{formatEurFromCents(overview.kpis.cash_inflow.current_cents)}</div>
                 <DeltaPill deltaPct={overview.kpis.cash_inflow.delta_pct} locale={locale} />
               </CardContent>
             </Card>
@@ -308,7 +329,7 @@ export function DashboardPage() {
                   <span className="text-sm font-medium text-muted-foreground">{copy.cashOutflow}</span>
                   <ArrowUpRight className="h-5 w-5 text-rose-500" />
                 </div>
-                <div className="text-4xl font-semibold tracking-[-0.03em]">{formatEurFromCents(overview.kpis.cash_outflow.current_cents)}</div>
+                <div className="app-value text-3xl font-semibold">{formatEurFromCents(overview.kpis.cash_outflow.current_cents)}</div>
                 <DeltaPill deltaPct={overview.kpis.cash_outflow.delta_pct} locale={locale} />
               </CardContent>
             </Card>
@@ -341,12 +362,12 @@ export function DashboardPage() {
               <CardHeader>{sectionTitle(copy.upcomingBills, "/bills", copy.viewAll)}</CardHeader>
               <CardContent className="space-y-3">
                 {overview.upcoming_bills.items.map((bill) => (
-                  <div key={bill.occurrence_id} className="flex items-center justify-between gap-3 rounded-[22px] bg-slate-50 px-4 py-3">
+                  <div key={bill.occurrence_id} className="app-row-surface flex items-center justify-between gap-3 rounded-lg px-4 py-3">
                     <div>
                       <p className="font-medium">{bill.bill_name}</p>
                       <p className="text-sm text-muted-foreground">{formatDate(bill.due_date)}</p>
                     </div>
-                    <div className="text-right font-semibold">{formatEurFromCents(bill.expected_amount_cents ?? 0)}</div>
+                    <div className="app-value text-right font-semibold">{formatEurFromCents(bill.expected_amount_cents ?? 0)}</div>
                   </div>
                 ))}
               </CardContent>
@@ -363,7 +384,7 @@ export function DashboardPage() {
                       <p className="font-medium">{item.store_name || item.source_id}</p>
                       <p className="text-sm text-muted-foreground">{formatDate(item.purchased_at)}</p>
                     </div>
-                    <div className="font-semibold">{formatEurFromCents(item.total_gross_cents)}</div>
+                    <div className="app-value font-semibold">{formatEurFromCents(item.total_gross_cents)}</div>
                   </div>
                 ))}
               </CardContent>
@@ -410,7 +431,7 @@ export function DashboardPage() {
                   <TrendingUp className="h-5 w-5" />
                 </div>
                 <div>
-                  <p className="text-lg font-semibold tracking-[-0.02em]">{overview.insight.title}</p>
+                  <p className="text-lg font-semibold">{overview.insight.title}</p>
                   <p className="mt-1 text-muted-foreground">{overview.insight.body}</p>
                 </div>
               </div>
@@ -425,14 +446,14 @@ export function DashboardPage() {
               <CardHeader>{sectionTitle(locale === "de" ? "Händler" : "Merchants", "/merchants", copy.manageMerchants)}</CardHeader>
               <CardContent className="space-y-3">
                 {overview.merchants.items.map((merchant) => (
-                  <div key={merchant.merchant} className="flex items-center justify-between gap-3 rounded-[22px] bg-slate-50 px-4 py-3">
+                  <div key={merchant.merchant} className="app-row-surface flex items-center justify-between gap-3 rounded-lg px-4 py-3">
                     <div>
                       <p className="font-medium">{merchant.merchant}</p>
                       <p className="text-sm text-muted-foreground">
                         {locale === "de" ? `${merchant.receipt_count} Belege` : `${merchant.receipt_count} receipts`}
                       </p>
                     </div>
-                    <div className="font-semibold">{formatEurFromCents(merchant.spend_cents)}</div>
+                    <div className="app-value font-semibold">{formatEurFromCents(merchant.spend_cents)}</div>
                   </div>
                 ))}
               </CardContent>
@@ -444,15 +465,15 @@ export function DashboardPage() {
                 {(overview.top_goals?.items ?? []).map((goal) => {
                   const percent = Math.min(100, Math.round(goal.progress.progress_ratio * 100));
                   return (
-                    <div key={goal.id} className="space-y-2 rounded-[22px] bg-slate-50 px-4 py-3">
+                    <div key={goal.id} className="app-row-surface space-y-2 rounded-lg px-4 py-3">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="font-medium">{goal.name}</p>
                           <p className="text-sm text-muted-foreground">{goalProgressStatusLabel(goal.progress.status, locale)}</p>
                         </div>
-                        <div className="font-semibold">{formatEurFromCents(goal.target_amount_cents)}</div>
+                        <div className="app-value font-semibold">{formatEurFromCents(goal.target_amount_cents)}</div>
                       </div>
-                      <div className="h-2 rounded-full bg-white">
+                      <div className="h-2 rounded-full bg-muted">
                         <div className="h-2 rounded-full bg-sky-500" style={{ width: `${percent}%` }} />
                       </div>
                     </div>
@@ -464,17 +485,17 @@ export function DashboardPage() {
             <Card className="app-dashboard-surface border-border/60">
               <CardHeader>{sectionTitle(copy.workspaceStatus)}</CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-[24px] bg-slate-50 p-4">
+                <div className="app-row-surface rounded-lg p-4">
                   <Activity className="mb-3 h-5 w-5 text-slate-700" />
                   <p className="text-sm text-muted-foreground">{copy.activityItems}</p>
                   <p className="mt-2 text-2xl font-semibold">{overview.recent_activity.count}</p>
                 </div>
-                <div className="rounded-[24px] bg-slate-50 p-4">
+                <div className="app-row-surface rounded-lg p-4">
                   <CalendarCheck className="mb-3 h-5 w-5 text-slate-700" />
                   <p className="text-sm text-muted-foreground">{copy.upcomingBills}</p>
                   <p className="mt-2 text-2xl font-semibold">{overview.upcoming_bills.count}</p>
                 </div>
-                <div className="rounded-[24px] bg-slate-50 p-4">
+                <div className="app-row-surface rounded-lg p-4">
                   <Database className="mb-3 h-5 w-5 text-slate-700" />
                   <p className="text-sm text-muted-foreground">{copy.activeMerchants}</p>
                   <p className="mt-2 text-2xl font-semibold">{overview.merchants.count}</p>

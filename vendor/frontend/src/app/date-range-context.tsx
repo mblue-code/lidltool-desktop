@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 
 export type DateRangePreset = "this_week" | "last_7_days" | "this_month" | "last_month" | "custom";
 
@@ -109,27 +109,24 @@ function resolvePreset(preset: DateRangePreset): DateRangeSelection {
 export function DateRangeProvider({ children }: { children: ReactNode }) {
   const [selection, setSelection] = useState<DateRangeSelection>(() => resolvePreset("this_week"));
 
-  const value = useMemo<DateRangeContextValue>(
-    () => ({
-      ...selection,
-      setPreset: (preset) => {
-        setSelection(resolvePreset(preset));
-      },
-      setCustomRange: (fromDate, toDate) => {
-        const from = new Date(fromDate);
-        const to = new Date(toDate);
-        const days = Math.max(1, Math.round((to.getTime() - from.getTime()) / 86_400_000) + 1);
-        setSelection({
-          preset: "custom",
-          fromDate,
-          toDate,
-          comparisonFromDate: formatDateOnly(addDays(from, -days)),
-          comparisonToDate: formatDateOnly(addDays(to, -days))
-        });
-      }
-    }),
-    [selection]
-  );
+  const value: DateRangeContextValue = {
+    ...selection,
+    setPreset: (preset) => {
+      setSelection(resolvePreset(preset));
+    },
+    setCustomRange: (fromDate, toDate) => {
+      const from = new Date(fromDate);
+      const to = new Date(toDate);
+      const days = Math.max(1, Math.round((to.getTime() - from.getTime()) / 86_400_000) + 1);
+      setSelection({
+        preset: "custom",
+        fromDate,
+        toDate,
+        comparisonFromDate: formatDateOnly(addDays(from, -days)),
+        comparisonToDate: formatDateOnly(addDays(to, -days))
+      });
+    }
+  };
 
   return <DateRangeContext.Provider value={value}>{children}</DateRangeContext.Provider>;
 }

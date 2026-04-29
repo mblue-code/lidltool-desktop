@@ -52,16 +52,17 @@ function isVisibleMerchantConnector(connector: ConnectorDiscoveryRow): boolean {
   if (!isExternalPlugin(connector)) {
     return true;
   }
-  return connector.enable_state === "enabled" || connector.ui.status === "connected" || connector.ui.status === "ready";
+  return connector.install_state === "installed" && connector.enable_state === "enabled";
 }
 
 function isConnectedMerchantConnector(connector: ConnectorDiscoveryRow): boolean {
-  return (
-    connector.enable_state === "enabled" ||
-    connector.ui.status === "connected" ||
-    connector.ui.status === "ready" ||
-    connector.ui.status === "syncing"
-  );
+  if (connector.enable_state !== "enabled") {
+    return false;
+  }
+  if (connector.supports_bootstrap && connector.advanced.auth_state !== "hidden") {
+    return connector.advanced.auth_state === "connected";
+  }
+  return connector.ui.status === "connected" || connector.ui.status === "ready" || connector.ui.status === "syncing";
 }
 
 function merchantStatusLabel(connector: ConnectorDiscoveryRow, locale: "en" | "de"): string {
@@ -77,7 +78,10 @@ function merchantStatusLabel(connector: ConnectorDiscoveryRow, locale: "en" | "d
   if (connector.ui.status === "syncing") {
     return locale === "de" ? "Synchronisierung läuft" : "Syncing";
   }
-  return locale === "de" ? "Vorschau" : "Preview";
+  if (!isExternalPlugin(connector)) {
+    return locale === "de" ? "Verfügbar" : "Available";
+  }
+  return locale === "de" ? "Installiert" : "Installed";
 }
 
 function statusChipClass(card: MerchantConnectorCard): string {

@@ -3,8 +3,8 @@
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   --bg-top: #10151d;
   --bg-bottom: #091018;
-  --card: rgba(11, 16, 25, 0.84);
-  --card-strong: rgba(15, 21, 31, 0.94);
+  --card: rgba(11, 16, 25, 0.80);
+  --card-strong: rgba(15, 21, 31, 0.92);
   --line: rgba(210, 226, 255, 0.12);
   --text: #f5f7fb;
   --muted: rgba(245, 247, 251, 0.72);
@@ -29,8 +29,8 @@ body {
   min-height: 100vh;
   color: var(--text);
   background:
-    radial-gradient(circle at top right, rgba(74, 154, 242, 0.26), transparent 26%),
-    radial-gradient(circle at 15% 10%, rgba(234, 184, 98, 0.16), transparent 22%),
+    radial-gradient(circle at top right, rgba(74, 154, 242, 0.18), transparent 28%),
+    radial-gradient(circle at 15% 10%, rgba(234, 184, 98, 0.10), transparent 24%),
     linear-gradient(160deg, var(--bg-top) 0%, #0b1119 45%, var(--bg-bottom) 100%);
 }
 
@@ -48,10 +48,10 @@ dl {
 }
 
 h1 {
-  font-size: clamp(2.1rem, 4vw, 3.5rem);
-  line-height: 0.95;
-  letter-spacing: -0.045em;
-  max-width: 12ch;
+  font-size: clamp(1.9rem, 3.2vw, 3rem);
+  line-height: 1;
+  letter-spacing: 0;
+  max-width: 16ch;
 }
 
 h2 {
@@ -165,12 +165,12 @@ h3 {
   display: grid;
   gap: 14px;
   padding: 18px;
-  border-radius: 20px;
+  border-radius: 12px;
   border: 1px solid var(--line);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0)),
     var(--card);
-  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.24);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
   backdrop-filter: blur(16px);
 }
 
@@ -202,7 +202,7 @@ h3 {
   display: grid;
   gap: 8px;
   padding: 16px;
-  border-radius: 18px;
+  border-radius: 12px;
   border: 1px solid rgba(210, 226, 255, 0.1);
   background: rgba(255, 255, 255, 0.035);
   text-decoration: none;
@@ -226,7 +226,7 @@ h3 {
   display: grid;
   gap: 8px;
   padding: 14px;
-  border-radius: 16px;
+  border-radius: 12px;
   border: 1px solid rgba(210, 226, 255, 0.1);
   background: rgba(255, 255, 255, 0.03);
 }
@@ -248,7 +248,7 @@ h3 {
   display: grid;
   gap: 6px;
   padding: 12px;
-  border-radius: 14px;
+  border-radius: 10px;
   border: 1px solid rgba(210, 226, 255, 0.09);
   background: rgba(255, 255, 255, 0.025);
 }
@@ -256,6 +256,7 @@ h3 {
 .key-value-grid strong {
   font-size: 0.98rem;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .stack-fields {
@@ -272,7 +273,7 @@ label {
 input,
 select,
 button {
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid rgba(156, 178, 214, 0.32);
   background: rgba(10, 15, 24, 0.88);
   color: var(--text);
@@ -319,7 +320,7 @@ button.secondary,
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.7;
   cursor: not-allowed;
 }
 
@@ -365,7 +366,7 @@ button:not(:disabled):hover,
   display: grid;
   gap: 6px;
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: 10px;
 }
 
 .callout.warning {
@@ -377,7 +378,7 @@ button:not(:disabled):hover,
   display: grid;
   gap: 8px;
   padding: 18px;
-  border-radius: 16px;
+  border-radius: 12px;
   border: 1px dashed rgba(210, 226, 255, 0.14);
   background: rgba(255, 255, 255, 0.02);
 }
@@ -386,7 +387,7 @@ button:not(:disabled):hover,
   display: grid;
   gap: 14px;
   padding: 16px;
-  border-radius: 18px;
+  border-radius: 12px;
   border: 1px solid rgba(210, 226, 255, 0.1);
   background: rgba(255, 255, 255, 0.025);
 }
@@ -405,7 +406,7 @@ button:not(:disabled):hover,
   display: grid;
   gap: 10px;
   padding: 14px;
-  border-radius: 16px;
+  border-radius: 12px;
   border: 1px solid rgba(210, 226, 255, 0.12);
   background: var(--card-strong);
 }
@@ -482,7 +483,7 @@ details {
   display: grid;
   gap: 10px;
   padding: 12px 14px;
-  border-radius: 16px;
+  border-radius: 12px;
   border: 1px solid rgba(210, 226, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
 }
@@ -496,7 +497,7 @@ details summary {
 .error {
   margin: 0;
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: 10px;
   border: 1px solid rgba(240, 91, 91, 0.42);
   background: rgba(120, 24, 24, 0.4);
 }
