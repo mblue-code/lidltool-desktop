@@ -31,11 +31,18 @@
     "test:e2e:full": "npm run test:e2e:prepare && npm run test:e2e",
     "test:control-center": "node --test --experimental-strip-types tests/control-center-model.test.ts tests/control-center-view-model.test.ts",
     "test:diagnostics": "node --test --experimental-strip-types tests/diagnostics-redaction.test.ts",
+    "test:updates": "node --test --experimental-strip-types tests/update-config.test.ts",
+    "test:release-preflight": "node --test tests/release-preflight.test.mjs",
     "test:runtime-contracts": "node --test --experimental-strip-types tests/runtime-contract.test.ts tests/runtime-cli-args.test.ts tests/runtime-backup-artifacts.test.ts tests/runtime-paths.test.ts tests/sqlite-artifacts.test.ts tests/vendor-patchers.test.ts tests/mobile-bridge.test.ts",
     "test:plugin-packs": "node --test --experimental-strip-types tests/receipt-plugin-pack-state.test.ts tests/receipt-plugin-packs.test.ts",
     "test:release-metadata": "node --test --experimental-strip-types tests/release-metadata.test.ts",
     "test:trusted-distribution": "node --test --experimental-strip-types tests/control-center-model.test.ts tests/receipt-plugin-packs.test.ts tests/release-metadata.test.ts",
     "profile:desktop": "node ./scripts/profile-desktop.mjs",
+    "release:preflight": "node ./scripts/release-preflight.mjs",
+    "release:beta": "LIDLTOOL_DESKTOP_RELEASE_CHANNEL=beta npm run release:preflight && npm run dist:full",
+    "release:stable": "LIDLTOOL_DESKTOP_RELEASE_CHANNEL=stable npm run release:preflight && npm run dist:full",
+    "updates:serve-local": "node ./scripts/serve-update-feed.mjs",
+    "sourcemaps:upload": "node ./scripts/upload-sourcemaps.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dist": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
     "dist:mac": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
@@ -55,6 +62,7 @@
     "asar": true,
     "files": [
       "out/**/*",
+      "!out/**/*.map",
       "package.json"
     ],
     "extraResources": [
@@ -115,10 +123,18 @@
         ]
       }
     ],
-    "afterSign": "scripts/notarize.mjs"
+    "afterSign": "scripts/notarize.mjs",
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.invalid/lidltool-desktop"
+      }
+    ],
+    "generateUpdatesFilesForAllChannels": true
   },
   "dependencies": {
     "@sentry/electron": "^7.12.0",
+    "electron-updater": "^6.8.3",
     "jszip": "^3.10.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"

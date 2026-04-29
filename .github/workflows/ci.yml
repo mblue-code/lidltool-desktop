@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:diagnostics
+      - run: npm run test:runtime-contracts
+      - run: npm run test:updates
+      - run: npm run test:release-preflight
+      - run: npm run typecheck
+      - run: npm run build

@@ -47,6 +47,7 @@ export default function App() {
     importResult,
     logs,
     maxPages,
+    privacyPreferences,
     pluginLoadError,
     pluginStatusMessage,
     releaseMetadata,
@@ -69,6 +70,7 @@ export default function App() {
     setYears,
     source,
     syncResult,
+    updateState,
     years
   } = state;
 
@@ -93,14 +95,19 @@ export default function App() {
     handleInstallReceiptPlugin,
     handleInstallReceiptPluginFromCatalog,
     handleCreateDiagnosticsBundle,
+    handleCheckForUpdates,
+    handleDownloadUpdate,
+    handleInstallUpdate,
     handleLoadCards,
     handleOpenFullApp,
     handleOpenBugReport,
+    handleOpenLogsFolder,
     handleRefreshPluginState,
     handleRunBackup,
     handleRunExport,
     handleRunImport,
     handleRunSync,
+    handleSetPrivacyPreferences,
     handleStartBackend,
     handleStopBackend,
     handleToggleReceiptPlugin,
@@ -137,6 +144,15 @@ export default function App() {
     () => describeControlCenterMode(bootError, runtimeDiagnostics, locale),
     [bootError, locale, runtimeDiagnostics]
   );
+
+  const updateCheckEnabled =
+    updateState?.status === "idle" || updateState?.status === "not_available" || updateState?.status === "error";
+  const updateProgress =
+    updateState?.downloadProgress && updateState.downloadProgress.total > 0
+      ? `${Math.round(updateState.downloadProgress.percent)}%`
+      : updateState?.status === "downloading"
+        ? "Starting"
+        : null;
 
   return (
     <main className="shell">
@@ -633,6 +649,56 @@ export default function App() {
         <article className="card">
           <div className="section-heading">
             <div>
+              <p className="section-kicker">Updates</p>
+              <h2>Desktop updates</h2>
+            </div>
+            <span className={`status-chip ${updateState?.enabled ? "status-enabled" : "status-disabled"}`}>
+              {updateState?.status ?? "loading"}
+            </span>
+          </div>
+          <p className="muted">
+            Updates use a configured beta or stable feed. The first production flow is manual: check, download, then restart.
+          </p>
+          <div className="key-value-grid">
+            <div>
+              <span className="label">Current version</span>
+              <strong>{updateState?.currentVersion ?? t("common.loading")}</strong>
+            </div>
+            <div>
+              <span className="label">Channel</span>
+              <strong>{updateState?.channel ?? t("common.loading")}</strong>
+            </div>
+            <div>
+              <span className="label">Available version</span>
+              <strong>{updateState?.availableVersion ?? "None"}</strong>
+            </div>
+            <div>
+              <span className="label">Last checked</span>
+              <strong>{updateState?.lastCheckedAt ?? "Never"}</strong>
+            </div>
+          </div>
+          {updateProgress ? <p className="success-text">Download progress: {updateProgress}</p> : null}
+          {updateState?.error ? <p className="error compact">{updateState.error}</p> : null}
+          <div className="actions">
+            <button type="button" disabled={busy || !updateState?.enabled || !updateCheckEnabled} onClick={() => void handleCheckForUpdates()}>
+              Check for updates
+            </button>
+            <button type="button" className="secondary" disabled={busy || updateState?.status !== "available"} onClick={() => void handleDownloadUpdate()}>
+              Download update
+            </button>
+            <button type="button" className="secondary" disabled={busy || updateState?.status !== "downloaded"} onClick={() => void handleInstallUpdate()}>
+              Restart to update
+            </button>
+          </div>
+          <details>
+            <summary>Update feed</summary>
+            <pre>{updateState?.updateBaseUrl ?? "No update feed configured."}</pre>
+          </details>
+        </article>
+
+        <article className="card">
+          <div className="section-heading">
+            <div>
               <p className="section-kicker">Protect your data</p>
               <h2>Backup, export, and restore</h2>
             </div>
@@ -757,6 +823,32 @@ export default function App() {
             <button type="button" className="secondary" disabled={busy} onClick={() => void handleOpenBugReport()}>
               Open bug report
             </button>
+            <button type="button" className="secondary" disabled={busy} onClick={() => void handleOpenLogsFolder()}>
+              Open logs folder
+            </button>
+          </div>
+          <div className="stack-fields">
+            <label className="inline-checkbox">
+              <input
+                checked={privacyPreferences?.errorReportingEnabled ?? false}
+                type="checkbox"
+                onChange={(event) => void handleSetPrivacyPreferences({ errorReportingEnabled: event.target.checked })}
+              />
+              Error reporting enabled
+            </label>
+            <label className="inline-checkbox">
+              <input
+                checked={privacyPreferences?.diagnosticLogSharingEnabled ?? false}
+                type="checkbox"
+                onChange={(event) =>
+                  void handleSetPrivacyPreferences({ diagnosticLogSharingEnabled: event.target.checked })
+                }
+              />
+              Include diagnostic logs with error reports
+            </label>
+            <p className="muted">
+              Error reports include sanitized app/runtime details when a DSN is configured. Diagnostics bundles are created locally and continue to exclude receipts, credentials, tokens, and database files.
+            </p>
           </div>
           {diagnosticsBundleResult ? (
             <p className="muted">

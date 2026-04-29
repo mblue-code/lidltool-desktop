@@ -5,6 +5,8 @@ import type {
   DesktopDiagnosticsSummary,
   DesktopExternalBrowserId,
   DesktopExternalBrowserPreferenceState,
+  DesktopPrivacyPreferences,
+  DesktopUpdateState,
   DesktopLocale,
   DesktopTelemetryPublicConfig,
   DesktopConnectorCallbackEvent,
@@ -26,7 +28,14 @@ export function registerIpc(
   getDiagnosticsSummary: () => DesktopDiagnosticsSummary,
   getTelemetryConfig: () => DesktopTelemetryPublicConfig,
   exportDiagnosticsBundle: () => Promise<DesktopDiagnosticsBundleResult | null>,
+  openLogsFolder: () => Promise<string>,
   openBugReport: () => Promise<string>,
+  getPrivacyPreferences: () => DesktopPrivacyPreferences,
+  setPrivacyPreferences: (preferences: Partial<DesktopPrivacyPreferences>) => DesktopPrivacyPreferences,
+  getUpdateState: () => DesktopUpdateState,
+  checkForUpdates: () => Promise<DesktopUpdateState>,
+  downloadUpdate: () => Promise<DesktopUpdateState>,
+  installUpdate: () => void,
   consumePendingConnectorCallbacks: () => DesktopConnectorCallbackEvent[],
   getExternalBrowserPreference: () => DesktopExternalBrowserPreferenceState,
   setExternalBrowserPreference: (preferredBrowser: DesktopExternalBrowserId) => DesktopExternalBrowserPreferenceState,
@@ -43,7 +52,16 @@ export function registerIpc(
   ipcMain.handle("desktop:diagnostics:summary", () => getDiagnosticsSummary());
   ipcMain.handle("desktop:telemetry:config", () => getTelemetryConfig());
   ipcMain.handle("desktop:diagnostics:export-bundle", async () => await exportDiagnosticsBundle());
+  ipcMain.handle("desktop:diagnostics:open-logs-folder", async () => await openLogsFolder());
   ipcMain.handle("desktop:diagnostics:open-bug-report", async () => await openBugReport());
+  ipcMain.handle("desktop:privacy:get", () => getPrivacyPreferences());
+  ipcMain.handle("desktop:privacy:set", (_event, preferences: Partial<DesktopPrivacyPreferences>) =>
+    setPrivacyPreferences(preferences)
+  );
+  ipcMain.handle("desktop:updates:state", () => getUpdateState());
+  ipcMain.handle("desktop:updates:check", async () => await checkForUpdates());
+  ipcMain.handle("desktop:updates:download", async () => await downloadUpdate());
+  ipcMain.handle("desktop:updates:install", () => installUpdate());
   ipcMain.handle("desktop:locale:set", (_event, locale: DesktopLocale) => setLocale(locale));
   ipcMain.handle("desktop:backend:start", async () => await runtime.startBackend());
   ipcMain.handle("desktop:backend:stop", async () => await runtime.stopBackend());

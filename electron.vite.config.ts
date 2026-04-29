@@ -5,6 +5,9 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    build: {
+      sourcemap: "hidden"
+    },
     resolve: {
       alias: {
         "@shared": resolve(__dirname, "src/shared")
@@ -13,6 +16,9 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
+    build: {
+      sourcemap: "hidden"
+    },
     resolve: {
       alias: {
         "@shared": resolve(__dirname, "src/shared")
@@ -21,6 +27,9 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react()],
+    build: {
+      sourcemap: "hidden"
+    },
     resolve: {
       alias: {
         "@renderer": resolve(__dirname, "src/renderer"),

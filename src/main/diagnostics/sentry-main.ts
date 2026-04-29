@@ -5,6 +5,7 @@ import { redactSensitiveText, sanitizeDiagnosticValue } from "./sanitization";
 import { resolveDesktopTelemetryConfig, type DesktopTelemetryConfig } from "./telemetry-config";
 
 let activeConfig: DesktopTelemetryConfig | null = null;
+let sentryInitialized = false;
 
 export function getDesktopTelemetryConfig(): DesktopTelemetryConfig {
   activeConfig ??= resolveDesktopTelemetryConfig();
@@ -13,7 +14,7 @@ export function getDesktopTelemetryConfig(): DesktopTelemetryConfig {
 
 export function initDesktopTelemetry(): DesktopTelemetryConfig {
   const config = getDesktopTelemetryConfig();
-  if (!config.enabled || !config.dsn) {
+  if (!config.enabled || !config.dsn || sentryInitialized) {
     return config;
   }
 
@@ -44,7 +45,16 @@ export function initDesktopTelemetry(): DesktopTelemetryConfig {
   Sentry.setTag("app", "lidltool-desktop");
   Sentry.setTag("process", "main");
   Sentry.setTag("packaged", String(app.isPackaged));
+  sentryInitialized = true;
   return config;
+}
+
+export function reloadDesktopTelemetryConfig(): DesktopTelemetryConfig {
+  activeConfig = resolveDesktopTelemetryConfig();
+  if (activeConfig.enabled && activeConfig.dsn && !sentryInitialized) {
+    return initDesktopTelemetry();
+  }
+  return activeConfig;
 }
 
 export function captureDesktopException(error: unknown, context: Record<string, unknown> = {}): void {

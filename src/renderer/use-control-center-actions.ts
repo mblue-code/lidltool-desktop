@@ -157,6 +157,72 @@ export function useControlCenterActions(args: UseControlCenterActionsArgs) {
     }
   }
 
+  async function handleOpenLogsFolder(): Promise<void> {
+    state.setBusy(true);
+    state.setError(null);
+    try {
+      await window.desktopApi.openLogsFolder();
+    } catch (err) {
+      state.setError(
+        locale === "de"
+          ? `Der Protokollordner konnte nicht geöffnet werden. ${String(err)}`
+          : `Could not open the logs folder. ${String(err)}`
+      );
+    } finally {
+      state.setBusy(false);
+    }
+  }
+
+  async function handleSetPrivacyPreferences(
+    preferences: Parameters<typeof window.desktopApi.setPrivacyPreferences>[0]
+  ): Promise<void> {
+    state.setError(null);
+    try {
+      const next = await window.desktopApi.setPrivacyPreferences(preferences);
+      state.setPrivacyPreferences(next);
+      state.setDiagnosticsSummary(await window.desktopApi.getDiagnosticsSummary());
+    } catch (err) {
+      state.setError(
+        locale === "de"
+          ? `Die Datenschutzeinstellungen konnten nicht gespeichert werden. ${String(err)}`
+          : `Could not save privacy preferences. ${String(err)}`
+      );
+    }
+  }
+
+  async function handleCheckForUpdates(): Promise<void> {
+    state.setBusy(true);
+    state.setError(null);
+    try {
+      state.setUpdateState(await window.desktopApi.checkForUpdates());
+    } catch (err) {
+      state.setError(locale === "de" ? `Update-Prüfung fehlgeschlagen. ${String(err)}` : `Update check failed. ${String(err)}`);
+    } finally {
+      state.setBusy(false);
+    }
+  }
+
+  async function handleDownloadUpdate(): Promise<void> {
+    state.setBusy(true);
+    state.setError(null);
+    try {
+      state.setUpdateState(await window.desktopApi.downloadUpdate());
+    } catch (err) {
+      state.setError(locale === "de" ? `Update-Download fehlgeschlagen. ${String(err)}` : `Update download failed. ${String(err)}`);
+    } finally {
+      state.setBusy(false);
+    }
+  }
+
+  async function handleInstallUpdate(): Promise<void> {
+    state.setError(null);
+    try {
+      await window.desktopApi.installUpdate();
+    } catch (err) {
+      state.setError(locale === "de" ? `Update-Neustart fehlgeschlagen. ${String(err)}` : `Update restart failed. ${String(err)}`);
+    }
+  }
+
   async function handleRunExport(): Promise<void> {
     state.setBusy(true);
     state.setError(null);
@@ -401,14 +467,19 @@ export function useControlCenterActions(args: UseControlCenterActionsArgs) {
     handleInstallReceiptPlugin,
     handleInstallReceiptPluginFromCatalog,
     handleCreateDiagnosticsBundle,
+    handleCheckForUpdates,
+    handleDownloadUpdate,
+    handleInstallUpdate,
     handleLoadCards,
     handleOpenFullApp,
     handleOpenBugReport,
+    handleOpenLogsFolder,
     handleRefreshPluginState,
     handleRunBackup,
     handleRunExport,
     handleRunImport,
     handleRunSync,
+    handleSetPrivacyPreferences,
     handleStartBackend,
     handleStopBackend,
     handleToggleReceiptPlugin,

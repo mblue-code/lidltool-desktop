@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, nativeImage, session } from "electron";
+import { app, BrowserWindow, dialog, Menu, nativeImage, session, shell } from "electron";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { DesktopConnectorCallbackEvent } from "@shared/contracts";
@@ -11,6 +11,7 @@ import {
 import { registerIpc } from "./ipc";
 import { applyDesktopMenu, loadDesktopLocale, persistDesktopLocale } from "./i18n";
 import { DesktopRuntime } from "./runtime";
+import { loadDesktopPrivacyPreferences, persistDesktopPrivacyPreferences } from "./diagnostics/privacy-preferences";
 import {
   buildDesktopDiagnosticsSummary,
   exportDesktopDiagnosticsBundleWithDialog,
@@ -21,8 +22,10 @@ import {
   addDesktopBreadcrumb,
   captureDesktopException,
   getDesktopTelemetryConfig,
-  initDesktopTelemetry
+  initDesktopTelemetry,
+  reloadDesktopTelemetryConfig
 } from "./diagnostics/sentry-main";
+import { DesktopUpdateManager } from "./updates/update-manager";
 
 const userDataOverride = process.env.LIDLTOOL_DESKTOP_USER_DATA_DIR?.trim();
 if (userDataOverride) {
@@ -46,6 +49,7 @@ if (!gotSingleInstanceLock) {
 
 let mainWindow: BrowserWindow | null = null;
 const runtime = new DesktopRuntime();
+const updateManager = new DesktopUpdateManager(undefined, logWindowLifecycle);
 let latestBootError: string | null = null;
 let currentLocale: DesktopLocale = "en";
 let lastRequestedSurface: "control_center" | "main_app" = "control_center";
@@ -152,6 +156,16 @@ function diagnosticsContext(): DiagnosticsBundleContext {
     bootError: () => latestBootError,
     surface: () => lastRequestedSurface
   };
+}
+
+async function openLogsFolder(): Promise<string> {
+  const logsDir = app.getPath("userData");
+  mkdirSync(logsDir, { recursive: true });
+  const error = await shell.openPath(logsDir);
+  if (error) {
+    throw new Error(error);
+  }
+  return logsDir;
 }
 
 function describeWindow(window: BrowserWindow | null): Record<string, unknown> {
@@ -590,6 +604,24 @@ function updateDesktopLocale(locale: DesktopLocale): DesktopLocale {
     reportProblem: async () => {
       await openBugReportUrl(diagnosticsContext());
     },
+    checkForUpdates: async () => {
+      const state = await updateManager.checkForUpdates();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        await dialog.showMessageBox(mainWindow, {
+          type: state.status === "error" ? "warning" : "info",
+          title: "LidlTool Desktop Updates",
+          message:
+            state.status === "available"
+              ? `Update available: ${state.availableVersion ?? "new version"}`
+              : state.status === "not_available"
+                ? "No update is available."
+                : state.status === "disabled"
+                  ? "Updates are disabled for this build."
+                  : "Update check finished.",
+          detail: state.error ?? state.updateBaseUrl ?? undefined
+        });
+      }
+    },
     createDiagnosticsBundle: async () => {
       const result = await exportDesktopDiagnosticsBundleWithDialog(diagnosticsContext());
       if (result) {
@@ -605,6 +637,15 @@ function updateDesktopLocale(locale: DesktopLocale): DesktopLocale {
           await dialog.showMessageBox(message);
         }
       }
+    },
+    openLogsFolder: async () => {
+      await openLogsFolder();
+    },
+    openDocumentation: async () => {
+      await shell.openExternal(
+        process.env.LIDLTOOL_DESKTOP_DOCUMENTATION_URL?.trim() ||
+          "https://github.com/lidltool/lidltool-desktop/blob/main/README.md"
+      );
     }
   });
   broadcastLocaleChanged(locale);
@@ -835,6 +876,7 @@ app.whenReady().then(() => {
   }
 
   mainWindow = createWindow();
+  updateManager.initialize();
   updateDesktopLocale(currentLocale);
   registerIpc(
     runtime,
@@ -852,7 +894,18 @@ app.whenReady().then(() => {
       return { enabled, mode, dsn, release, environment, sendLogs };
     },
     async () => await exportDesktopDiagnosticsBundleWithDialog(diagnosticsContext()),
+    async () => await openLogsFolder(),
     async () => await openBugReportUrl(diagnosticsContext()),
+    () => loadDesktopPrivacyPreferences(),
+    (preferences) => {
+      const next = persistDesktopPrivacyPreferences(preferences);
+      reloadDesktopTelemetryConfig();
+      return next;
+    },
+    () => updateManager.getState(),
+    async () => await updateManager.checkForUpdates(),
+    async () => await updateManager.downloadUpdate(),
+    () => updateManager.installUpdate(),
     () => consumePendingConnectorCallbacks(),
     () => loadDesktopExternalBrowserPreference(),
     (preferredBrowser) => persistDesktopExternalBrowserPreference(preferredBrowser),

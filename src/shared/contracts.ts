@@ -111,6 +111,41 @@ export interface DesktopRuntimeDiagnostics {
 
 export type DesktopTelemetryMode = "off" | "errors" | "errors_with_logs";
 export type DesktopReleaseChannel = "development" | "internal" | "beta" | "production";
+export type DesktopUpdateChannel = "development" | "beta" | "stable";
+export type DesktopUpdateStatus =
+  | "disabled"
+  | "idle"
+  | "checking"
+  | "available"
+  | "not_available"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+export interface DesktopUpdateProgress {
+  percent: number;
+  transferred: number;
+  total: number;
+  bytesPerSecond: number;
+}
+
+export interface DesktopUpdateState {
+  enabled: boolean;
+  channel: DesktopUpdateChannel;
+  status: DesktopUpdateStatus;
+  currentVersion: string;
+  availableVersion: string | null;
+  updateBaseUrl: string | null;
+  downloaded: boolean;
+  error: string | null;
+  lastCheckedAt: string | null;
+  downloadProgress: DesktopUpdateProgress | null;
+}
+
+export interface DesktopPrivacyPreferences {
+  errorReportingEnabled: boolean;
+  diagnosticLogSharingEnabled: boolean;
+}
 
 export interface DesktopTelemetryPublicConfig {
   enabled: boolean;

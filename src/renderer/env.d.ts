@@ -12,10 +12,12 @@ import type {
   DesktopDiagnosticsSummary,
   DesktopExternalBrowserId,
   DesktopExternalBrowserPreferenceState,
+  DesktopPrivacyPreferences,
   DesktopReleaseMetadata,
   DesktopRuntimeDiagnostics,
   DesktopLocale,
   DesktopTelemetryPublicConfig,
+  DesktopUpdateState,
   ExportRequest,
   ImportRequest,
   OcrWorkerWakeResult,
@@ -40,7 +42,14 @@ declare global {
       getDiagnosticsSummary: () => Promise<DesktopDiagnosticsSummary>;
       getTelemetryConfig: () => Promise<DesktopTelemetryPublicConfig>;
       exportDiagnosticsBundle: () => Promise<DesktopDiagnosticsBundleResult | null>;
+      openLogsFolder: () => Promise<string>;
       openBugReport: () => Promise<string>;
+      getPrivacyPreferences: () => Promise<DesktopPrivacyPreferences>;
+      setPrivacyPreferences: (preferences: Partial<DesktopPrivacyPreferences>) => Promise<DesktopPrivacyPreferences>;
+      getUpdateState: () => Promise<DesktopUpdateState>;
+      checkForUpdates: () => Promise<DesktopUpdateState>;
+      downloadUpdate: () => Promise<DesktopUpdateState>;
+      installUpdate: () => Promise<void>;
       setLocale: (locale: DesktopLocale) => Promise<DesktopLocale>;
       startBackend: () => Promise<BackendStatus>;
       stopBackend: () => Promise<BackendStatus>;
@@ -68,6 +77,7 @@ declare global {
       onLog: (handler: (event: CommandLogEvent) => void) => () => void;
       onBootError: (handler: (message: string) => void) => () => void;
       onLocaleChanged: (handler: (locale: DesktopLocale) => void) => () => void;
+      onUpdateStateChanged: (handler: (state: DesktopUpdateState) => void) => () => void;
       onConnectorCallback: (handler: (event: DesktopConnectorCallbackEvent) => void) => () => void;
     };
   }

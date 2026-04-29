@@ -35,8 +35,11 @@ type MenuCallbacks = {
   reloadControlCenter: () => Promise<void>;
   startBackend: () => Promise<void>;
   stopBackend: () => Promise<void>;
+  checkForUpdates: () => Promise<void>;
   reportProblem: () => Promise<void>;
   createDiagnosticsBundle: () => Promise<void>;
+  openLogsFolder: () => Promise<void>;
+  openDocumentation: () => Promise<void>;
 };
 
 export function applyDesktopMenu(
@@ -137,6 +140,43 @@ export function applyDesktopMenu(
         {
           label: translateDesktopMessage(locale, "shell.menu.minimize"),
           role: "minimize"
+        }
+      ]
+    },
+    {
+      label: translateDesktopMessage(locale, "shell.menu.help"),
+      submenu: [
+        {
+          label: translateDesktopMessage(locale, "shell.menu.checkForUpdates"),
+          click: () => {
+            void callbacks.checkForUpdates();
+          }
+        },
+        { type: "separator" },
+        {
+          label: translateDesktopMessage(locale, "shell.menu.reportProblem"),
+          click: () => {
+            void callbacks.reportProblem();
+          }
+        },
+        {
+          label: translateDesktopMessage(locale, "shell.menu.createDiagnosticsBundle"),
+          click: () => {
+            void callbacks.createDiagnosticsBundle();
+          }
+        },
+        {
+          label: translateDesktopMessage(locale, "shell.menu.openLogsFolder"),
+          click: () => {
+            void callbacks.openLogsFolder();
+          }
+        },
+        { type: "separator" },
+        {
+          label: translateDesktopMessage(locale, "shell.menu.documentation"),
+          click: () => {
+            void callbacks.openDocumentation();
+          }
         }
       ]
     }

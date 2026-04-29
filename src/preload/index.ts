@@ -11,10 +11,12 @@ import type {
   DesktopDiagnosticsSummary,
   DesktopExternalBrowserId,
   DesktopExternalBrowserPreferenceState,
+  DesktopPrivacyPreferences,
   DesktopReleaseMetadata,
   DesktopRuntimeDiagnostics,
   DesktopLocale,
   DesktopTelemetryPublicConfig,
+  DesktopUpdateState,
   ExportRequest,
   ImportRequest,
   MobileBridgeStatus,
@@ -46,7 +48,16 @@ const api = {
     await ipcRenderer.invoke("desktop:telemetry:config"),
   exportDiagnosticsBundle: async (): Promise<DesktopDiagnosticsBundleResult | null> =>
     await ipcRenderer.invoke("desktop:diagnostics:export-bundle"),
+  openLogsFolder: async (): Promise<string> => await ipcRenderer.invoke("desktop:diagnostics:open-logs-folder"),
   openBugReport: async (): Promise<string> => await ipcRenderer.invoke("desktop:diagnostics:open-bug-report"),
+  getPrivacyPreferences: async (): Promise<DesktopPrivacyPreferences> => await ipcRenderer.invoke("desktop:privacy:get"),
+  setPrivacyPreferences: async (
+    preferences: Partial<DesktopPrivacyPreferences>
+  ): Promise<DesktopPrivacyPreferences> => await ipcRenderer.invoke("desktop:privacy:set", preferences),
+  getUpdateState: async (): Promise<DesktopUpdateState> => await ipcRenderer.invoke("desktop:updates:state"),
+  checkForUpdates: async (): Promise<DesktopUpdateState> => await ipcRenderer.invoke("desktop:updates:check"),
+  downloadUpdate: async (): Promise<DesktopUpdateState> => await ipcRenderer.invoke("desktop:updates:download"),
+  installUpdate: async (): Promise<void> => await ipcRenderer.invoke("desktop:updates:install"),
   setLocale: async (locale: DesktopLocale): Promise<DesktopLocale> => await ipcRenderer.invoke("desktop:locale:set", locale),
   startBackend: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:start"),
   stopBackend: async (): Promise<BackendStatus> => await ipcRenderer.invoke("desktop:backend:stop"),
@@ -108,6 +119,15 @@ const api = {
     ipcRenderer.on("desktop:locale-changed", listener);
     return () => {
       ipcRenderer.removeListener("desktop:locale-changed", listener);
+    };
+  },
+  onUpdateStateChanged: (handler: (state: DesktopUpdateState) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: DesktopUpdateState): void => {
+      handler(state);
+    };
+    ipcRenderer.on("desktop:updates:state-changed", listener);
+    return () => {
+      ipcRenderer.removeListener("desktop:updates:state-changed", listener);
     };
   },
   onConnectorCallback: (handler: (event: DesktopConnectorCallbackEvent) => void): (() => void) => {

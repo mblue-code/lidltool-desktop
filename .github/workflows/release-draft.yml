@@ -1,0 +1,56 @@
+name: Draft Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version to validate
+        required: true
+      channel:
+        description: Release channel
+        required: true
+        type: choice
+        options:
+          - beta
+          - stable
+      upload_artifacts:
+        description: Upload packaged artifacts
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  draft:
+    runs-on: macos-latest
+    env:
+      LIDLTOOL_DESKTOP_RELEASE_CHANNEL: ${{ inputs.channel }}
+      LIDLTOOL_DESKTOP_UPDATE_BASE_URL: ${{ vars.LIDLTOOL_DESKTOP_UPDATE_BASE_URL }}
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:updates
+      - run: npm run test:release-preflight
+      - run: npm run release:preflight
+      - run: npm run dist
+      - name: Signing placeholder
+        if: false
+        run: |
+          echo "TODO: enable macOS Developer ID, notarization, and Windows Authenticode only after real signing secrets are available."
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.upload_artifacts }}
+        with:
+          name: lidltool-desktop-${{ inputs.version }}-${{ inputs.channel }}
+          path: dist_electron/**
+      - uses: softprops/action-gh-release@v2
+        if: ${{ inputs.upload_artifacts }}
+        with:
+          tag_name: v${{ inputs.version }}
+          name: LidlTool Desktop ${{ inputs.version }} ${{ inputs.channel }}
+          draft: true
+          prerelease: ${{ inputs.channel == 'beta' }}
+          files: dist_electron/**

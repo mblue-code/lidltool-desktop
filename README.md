@@ -11,6 +11,8 @@ Planning note:
 - Agent execution guidance for the native mobile build is tracked in `docs/mobile-agent-runbook.md`.
 - Long-form orchestration prompt for a full native mobile implementation pass is tracked in `docs/mobile-native-orchestration-prompt.md`.
 - Desktop diagnostics and beta bug-reporting setup is tracked in `docs/diagnostics.md`.
+- Desktop update flow is tracked in `docs/update-flow.md`.
+- Release process and production QA are tracked in `docs/release-process.md` and `docs/production-qa-checklist.md`.
 - Public/private commit boundaries for diagnostics, telemetry, and release secrets are tracked in `docs/public-repo-boundary.md`.
 
 ## Maintenance rules
@@ -36,9 +38,17 @@ Mobile foundation fork:
 Diagnostics and bug reporting:
 - GitHub Issues are the user-facing tracker for desktop bugs, beta feedback, and connector-specific reports.
 - Optional automatic error reporting is Sentry-compatible and intended for a self-hosted GlitchTip project.
-- Error reporting is disabled unless `LIDLTOOL_DESKTOP_GLITCHTIP_DSN` or `LIDLTOOL_DESKTOP_SENTRY_DSN` is set and `LIDLTOOL_DESKTOP_TELEMETRY` is `errors` or `errors_with_logs`.
-- Users can create a redacted diagnostics bundle from the control center or Help menu. The bundle intentionally excludes receipt databases, receipt exports, document storage, credentials, tokens, scraped retailer HTML, screenshots, and AI chat content.
+- Error reporting is disabled unless `LIDLTOOL_DESKTOP_GLITCHTIP_DSN` or `LIDLTOOL_DESKTOP_SENTRY_DSN` is set, `LIDLTOOL_DESKTOP_TELEMETRY` is `errors` or `errors_with_logs`, and the local privacy preference enables error reporting.
+- Users can create a redacted diagnostics bundle or open the logs folder from the control center or Help menu. The bundle intentionally excludes receipt databases, receipt exports, document storage, credentials, tokens, scraped retailer HTML, screenshots, and AI chat content.
 - Commit diagnostics code and docs publicly, but keep real DSNs, auth tokens, source-map upload tokens, VPS credentials, and real user diagnostics out of git; see `docs/public-repo-boundary.md`.
+
+Updates and releases:
+- Desktop uses `electron-updater` with a configurable generic update feed.
+- Set `LIDLTOOL_DESKTOP_RELEASE_CHANNEL=beta` or `stable` and inject `LIDLTOOL_DESKTOP_UPDATE_BASE_URL` during release.
+- Updates are disabled in development unless `LIDLTOOL_DESKTOP_ALLOW_DEV_UPDATES=1`.
+- Updates are disabled when no update base URL is configured.
+- The first update flow is manual: check, download, restart.
+- Final macOS Developer ID signing, notarization, and Windows Authenticode signing remain intentionally deferred; see `docs/signing-and-notarization.md`.
 
 ## Desktop product scope
 

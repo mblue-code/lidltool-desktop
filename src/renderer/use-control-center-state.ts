@@ -8,7 +8,9 @@ import type {
   CommandResult,
   DesktopDiagnosticsBundleResult,
   DesktopDiagnosticsSummary,
+  DesktopPrivacyPreferences,
   DesktopRuntimeDiagnostics,
+  DesktopUpdateState,
   ReceiptPluginPackInfo,
   SyncSourceId
 } from "@shared/contracts";
@@ -33,6 +35,10 @@ export interface ControlCenterState {
   setDiagnosticsSummary: Dispatch<SetStateAction<DesktopDiagnosticsSummary | null>>;
   diagnosticsBundleResult: DesktopDiagnosticsBundleResult | null;
   setDiagnosticsBundleResult: Dispatch<SetStateAction<DesktopDiagnosticsBundleResult | null>>;
+  privacyPreferences: DesktopPrivacyPreferences | null;
+  setPrivacyPreferences: Dispatch<SetStateAction<DesktopPrivacyPreferences | null>>;
+  updateState: DesktopUpdateState | null;
+  setUpdateState: Dispatch<SetStateAction<DesktopUpdateState | null>>;
   releaseMetadata: Awaited<ReturnType<typeof window.desktopApi.getReleaseMetadata>> | null;
   setReleaseMetadata: Dispatch<
     SetStateAction<Awaited<ReturnType<typeof window.desktopApi.getReleaseMetadata>> | null>
@@ -108,6 +114,8 @@ export function useControlCenterState(args: {
   const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<DesktopRuntimeDiagnostics | null>(null);
   const [diagnosticsSummary, setDiagnosticsSummary] = useState<DesktopDiagnosticsSummary | null>(null);
   const [diagnosticsBundleResult, setDiagnosticsBundleResult] = useState<DesktopDiagnosticsBundleResult | null>(null);
+  const [privacyPreferences, setPrivacyPreferences] = useState<DesktopPrivacyPreferences | null>(null);
+  const [updateState, setUpdateState] = useState<DesktopUpdateState | null>(null);
   const [releaseMetadata, setReleaseMetadata] = useState<Awaited<ReturnType<typeof window.desktopApi.getReleaseMetadata>> | null>(null);
   const [releaseMetadataError, setReleaseMetadataError] = useState<string | null>(null);
   const [pluginLoadError, setPluginLoadError] = useState<string | null>(null);
@@ -142,6 +150,7 @@ export function useControlCenterState(args: {
   useEffect(() => {
     let disposeLogs: (() => void) | null = null;
     let disposeBootError: (() => void) | null = null;
+    let disposeUpdateState: (() => void) | null = null;
 
     async function boot(): Promise<void> {
       const results = await Promise.allSettled([
@@ -150,6 +159,8 @@ export function useControlCenterState(args: {
         window.desktopApi.getBackendStatus(),
         window.desktopApi.getRuntimeDiagnostics(),
         window.desktopApi.getDiagnosticsSummary(),
+        window.desktopApi.getPrivacyPreferences(),
+        window.desktopApi.getUpdateState(),
         window.desktopApi.listReceiptPlugins(),
         window.desktopApi.getReleaseMetadata()
       ]);
@@ -160,6 +171,8 @@ export function useControlCenterState(args: {
         statusResult,
         runtimeResult,
         diagnosticsSummaryResult,
+        privacyPreferencesResult,
+        updateStateResult,
         receiptPluginsResult,
         metadataResult
       ] = results;
@@ -186,6 +199,14 @@ export function useControlCenterState(args: {
         setDiagnosticsSummary(diagnosticsSummaryResult.value);
       }
 
+      if (privacyPreferencesResult.status === "fulfilled") {
+        setPrivacyPreferences(privacyPreferencesResult.value);
+      }
+
+      if (updateStateResult.status === "fulfilled") {
+        setUpdateState(updateStateResult.value);
+      }
+
       if (receiptPluginsResult.status === "fulfilled") {
         setPluginPacks(receiptPluginsResult.value.packs);
         setPluginSearchPaths(receiptPluginsResult.value.activePluginSearchPaths);
@@ -207,6 +228,9 @@ export function useControlCenterState(args: {
       disposeBootError = window.desktopApi.onBootError((message) => {
         setBootError(message);
       });
+      disposeUpdateState = window.desktopApi.onUpdateStateChanged((state) => {
+        setUpdateState(state);
+      });
     }
 
     void boot();
@@ -214,6 +238,7 @@ export function useControlCenterState(args: {
     return () => {
       disposeLogs?.();
       disposeBootError?.();
+      disposeUpdateState?.();
     };
   }, [args.t]);
 
@@ -269,6 +294,10 @@ export function useControlCenterState(args: {
     setDiagnosticsSummary,
     diagnosticsBundleResult,
     setDiagnosticsBundleResult,
+    privacyPreferences,
+    setPrivacyPreferences,
+    updateState,
+    setUpdateState,
     releaseMetadata,
     setReleaseMetadata,
     releaseMetadataError,
