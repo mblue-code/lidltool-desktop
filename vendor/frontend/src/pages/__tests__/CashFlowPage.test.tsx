@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,8 +8,7 @@ import { CashFlowPage } from "../CashFlowPage";
 const mocks = vi.hoisted(() => ({
   fetchBudgetSummaryMock: vi.fn(),
   fetchCashflowEntriesMock: vi.fn(),
-  fetchRecurringCalendarMock: vi.fn(),
-  useDateRangeContextMock: vi.fn()
+  fetchRecurringCalendarMock: vi.fn()
 }));
 
 vi.mock("@/api/budget", () => ({
@@ -19,10 +18,6 @@ vi.mock("@/api/budget", () => ({
 
 vi.mock("@/api/recurringBills", () => ({
   fetchRecurringCalendar: mocks.fetchRecurringCalendarMock
-}));
-
-vi.mock("@/app/date-range-context", () => ({
-  useDateRangeContext: mocks.useDateRangeContextMock
 }));
 
 function renderPage(): void {
@@ -61,18 +56,8 @@ describe("CashFlowPage", () => {
       }
     });
 
-    mocks.useDateRangeContextMock.mockReturnValue({
-      preset: "last_month",
-      fromDate: "2026-03-01",
-      toDate: "2026-03-31",
-      comparisonFromDate: "2026-02-01",
-      comparisonToDate: "2026-02-28",
-      setPreset: vi.fn(),
-      setCustomRange: vi.fn()
-    });
-
     mocks.fetchBudgetSummaryMock.mockResolvedValue({
-      period: { year: 2026, month: 3 },
+      period: { year: 2026, month: 4 },
       month: null,
       totals: {
         planned_income_cents: 0,
@@ -83,7 +68,7 @@ describe("CashFlowPage", () => {
         opening_balance_cents: 0,
         receipt_spend_cents: 0,
         manual_outflow_cents: 0,
-        total_outflow_cents: 0,
+        total_outflow_cents: 50_159,
         recurring_expected_cents: 0,
         recurring_paid_cents: 0,
         available_cents: 0,
@@ -105,17 +90,40 @@ describe("CashFlowPage", () => {
         reconciled_count: 0
       }
     });
-    mocks.fetchCashflowEntriesMock.mockResolvedValue({ items: [], total: 0 });
-    mocks.fetchRecurringCalendarMock.mockResolvedValue({ year: 2026, month: 3, days: [], count: 0 });
+    mocks.fetchCashflowEntriesMock.mockResolvedValue({
+      items: [
+        {
+          id: "cash-1",
+          user_id: "user-1",
+          effective_date: "2026-04-01",
+          direction: "outflow",
+          category: "cash",
+          amount_cents: 24_900,
+          currency: "EUR",
+          description: "Bargeldausgabe",
+          source_type: "manual_cash",
+          linked_transaction_id: null,
+          is_reconciled: false,
+          linked_transaction: null,
+          linked_recurring_occurrence_id: null,
+          notes: null,
+          created_at: "2026-04-01T00:00:00Z",
+          updated_at: "2026-04-01T00:00:00Z"
+        }
+      ],
+      total: 1
+    });
+    mocks.fetchRecurringCalendarMock.mockResolvedValue({ year: 2026, month: 4, days: [], count: 0 });
   });
 
-  it("uses the shared date window month instead of the current clock month", async () => {
+  it("uses its own current month and shows summary outflow including receipts", async () => {
     renderPage();
 
     await waitFor(() => {
-      expect(mocks.fetchBudgetSummaryMock).toHaveBeenCalledWith(2026, 3);
-      expect(mocks.fetchCashflowEntriesMock).toHaveBeenCalledWith(2026, 3);
-      expect(mocks.fetchRecurringCalendarMock).toHaveBeenCalledWith({ year: 2026, month: 3 });
+      expect(mocks.fetchBudgetSummaryMock).toHaveBeenCalledWith(2026, 4);
+      expect(mocks.fetchCashflowEntriesMock).toHaveBeenCalledWith(2026, 4);
+      expect(mocks.fetchRecurringCalendarMock).toHaveBeenCalledWith({ year: 2026, month: 4 });
     });
+    expect(await screen.findByText(/501[,.]59/)).toBeInTheDocument();
   });
 });

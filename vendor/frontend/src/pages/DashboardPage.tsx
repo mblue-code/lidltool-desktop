@@ -212,7 +212,7 @@ function CashFlowBars({
   points,
   locale
 }: {
-  points: Array<{ date: string; inflow_cents: number; outflow_cents: number; net_cents: number }>;
+  points: Array<{ date: string; label?: string; inflow_cents: number; outflow_cents: number; net_cents: number }>;
   locale: "en" | "de";
 }) {
   const maxAbs = Math.max(
@@ -224,7 +224,7 @@ function CashFlowBars({
       <div className="grid h-64 grid-cols-[repeat(auto-fit,minmax(36px,1fr))] items-end gap-4">
         {points.map((point) => {
           const inflowHeight = Math.max(8, (Math.abs(point.inflow_cents) / maxAbs) * 170);
-          const outflowHeight = Math.max(8, (Math.abs(point.outflow_cents) / maxAbs) * 70);
+          const outflowHeight = Math.max(8, (Math.abs(point.outflow_cents) / maxAbs) * 170);
           const netBottom = 30 + (Math.max(point.net_cents, 0) / maxAbs) * 140;
           return (
             <div key={point.date} className="relative flex h-full flex-col items-center justify-end gap-3">
@@ -233,7 +233,7 @@ function CashFlowBars({
                 <div className="w-3 rounded-full bg-rose-400" style={{ height: outflowHeight }} />
                 <div className="absolute left-1/2 h-2.5 w-2.5 -translate-x-1/2 rounded-full border-2 border-slate-900 bg-white" style={{ bottom: `${netBottom}px` }} />
               </div>
-              <span className="text-xs text-muted-foreground">{formatDate(point.date)}</span>
+              <span className="text-xs text-muted-foreground">{point.label ?? formatDate(point.date)}</span>
             </div>
           );
         })}
@@ -350,6 +350,19 @@ export function DashboardPage() {
     });
     return `${formatter.format(start)} - ${formatter.format(end)}`;
   }, [fromDate, locale, toDate]);
+  const cashFlowSummaryPoints = useMemo(() => {
+    if (!overview) return [];
+    const totals = overview.cash_flow_summary.totals;
+    return [
+      {
+        date: toDate,
+        label: periodLabel,
+        inflow_cents: totals.inflow_cents,
+        outflow_cents: totals.outflow_cents,
+        net_cents: totals.net_cents
+      }
+    ];
+  }, [overview, periodLabel, toDate]);
 
   return (
     <div className="space-y-6">
@@ -455,7 +468,7 @@ export function DashboardPage() {
             <Card className="app-dashboard-surface border-border/60">
               <CardHeader>{sectionTitle(copy.cashFlowSummary, "/cash-flow", locale === "de" ? "Cashflow anzeigen" : "View cash flow")}</CardHeader>
               <CardContent>
-                <CashFlowBars points={overview.cash_flow_summary.points} locale={locale} />
+                <CashFlowBars points={cashFlowSummaryPoints} locale={locale} />
               </CardContent>
             </Card>
 

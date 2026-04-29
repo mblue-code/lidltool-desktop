@@ -211,10 +211,32 @@ def test_dashboard_overview_compares_groceries_and_cashflow_against_previous_win
     assert overview["recent_grocery_transactions"]["average_basket_cents"] == 1000
     assert overview["kpis"]["groceries"]["previous_cents"] == 1000
     assert overview["kpis"]["groceries"]["delta_pct"] == 1.0
-    assert overview["kpis"]["cash_outflow"]["previous_cents"] == 500
-    assert overview["kpis"]["cash_outflow"]["delta_pct"] == 0.5
+    assert overview["kpis"]["cash_outflow"]["current_cents"] == 21637
+    assert overview["kpis"]["cash_outflow"]["previous_cents"] == 1500
+    assert overview["kpis"]["cash_outflow"]["delta_pct"] == 13.4247
     assert overview["kpis"]["cash_inflow"]["previous_cents"] == 2000
     assert overview["kpis"]["cash_inflow"]["delta_pct"] == 0.25
+    assert overview["cash_flow_summary"]["totals"]["outflow_cents"] == 21637
+    assert overview["cash_flow_summary"]["points"] == [
+        {
+            "date": "2026-04-27",
+            "inflow_cents": 2500,
+            "outflow_cents": 2365,
+            "net_cents": 135,
+        },
+        {
+            "date": "2026-04-28",
+            "inflow_cents": 0,
+            "outflow_cents": 10384,
+            "net_cents": -10384,
+        },
+        {
+            "date": "2026-04-29",
+            "inflow_cents": 0,
+            "outflow_cents": 8888,
+            "net_cents": -8888,
+        },
+    ]
     engine.dispose()
 
 

@@ -1326,15 +1326,22 @@ def _normalize_dashboard_window(
     return parsed_from, parsed_to
 
 
-def _serialize_cashflow_points(entries: list[CashflowEntry]) -> list[dict[str, Any]]:
+def _serialize_cashflow_points(
+    entries: list[CashflowEntry],
+    transaction_outflows: list[tuple[date, int]] | None = None,
+) -> list[dict[str, Any]]:
     by_day: dict[str, dict[str, int]] = {}
     for entry in entries:
         key = entry.effective_date.isoformat()
         bucket = by_day.setdefault(key, {"inflow_cents": 0, "outflow_cents": 0})
         if entry.direction == "inflow":
             bucket["inflow_cents"] += entry.amount_cents
-        else:
+        elif entry.linked_transaction_id is None:
             bucket["outflow_cents"] += entry.amount_cents
+    for outflow_date, amount_cents in transaction_outflows or []:
+        key = outflow_date.isoformat()
+        bucket = by_day.setdefault(key, {"inflow_cents": 0, "outflow_cents": 0})
+        bucket["outflow_cents"] += amount_cents
     return [
         {
             "date": day,
@@ -1346,18 +1353,60 @@ def _serialize_cashflow_points(entries: list[CashflowEntry]) -> list[dict[str, A
     ]
 
 
-def _cashflow_totals(entries: list[CashflowEntry]) -> dict[str, int]:
+def _cashflow_totals(
+    entries: list[CashflowEntry],
+    transaction_outflow_cents: int = 0,
+) -> dict[str, int]:
     inflow_cents = sum(
         entry.amount_cents for entry in entries if entry.direction == "inflow"
     )
     outflow_cents = sum(
-        entry.amount_cents for entry in entries if entry.direction == "outflow"
-    )
+        entry.amount_cents
+        for entry in entries
+        if entry.direction == "outflow" and entry.linked_transaction_id is None
+    ) + transaction_outflow_cents
     return {
         "inflow_cents": inflow_cents,
         "outflow_cents": outflow_cents,
         "net_cents": inflow_cents - outflow_cents,
     }
+
+
+def _dashboard_transaction_cashflow_outflows(
+    session: Session,
+    *,
+    from_dt: datetime,
+    to_dt: datetime,
+    visibility: VisibilityContext,
+    source_ids: list[str] | None = None,
+) -> list[tuple[date, int]]:
+    end = to_dt + timedelta(days=1)
+    purchased_day = func.date(Transaction.purchased_at)
+    paid_cents = Transaction.total_gross_cents - func.coalesce(Transaction.discount_total_cents, 0)
+    stmt = (
+        select(
+            purchased_day,
+            func.coalesce(func.sum(paid_cents), 0),
+        )
+        .where(
+            Transaction.purchased_at >= from_dt,
+            Transaction.purchased_at < end,
+            Transaction.id.in_(visible_transaction_ids_subquery(visibility)),
+        )
+        .group_by(purchased_day)
+        .order_by(purchased_day.asc())
+    )
+    if source_ids:
+        stmt = stmt.where(Transaction.source_id.in_(source_ids))
+    rows = session.execute(stmt).all()
+    outflows: list[tuple[date, int]] = []
+    for raw_day, amount_cents in rows:
+        if isinstance(raw_day, date):
+            outflow_date = raw_day
+        else:
+            outflow_date = date.fromisoformat(str(raw_day))
+        outflows.append((outflow_date, int(amount_cents or 0)))
+    return outflows
 
 
 SHOPPING_MANUAL_CATEGORY_PREFIXES = ("groceries", "shopping")
@@ -1571,8 +1620,30 @@ def _dashboard_overview_payload(
             CashflowEntry.effective_date <= previous_to.date(),
         )
     ).scalars().all()
-    current_cashflow_totals = _cashflow_totals(cashflow_entries)
-    previous_cashflow_totals = _cashflow_totals(previous_cashflow_entries)
+    current_transaction_outflows = _dashboard_transaction_cashflow_outflows(
+        session,
+        from_dt=from_dt,
+        to_dt=to_dt,
+        visibility=visibility,
+        source_ids=normalized_source_ids,
+    )
+    previous_transaction_outflows = _dashboard_transaction_cashflow_outflows(
+        session,
+        from_dt=previous_from,
+        to_dt=previous_to,
+        visibility=visibility,
+        source_ids=normalized_source_ids,
+    )
+    current_transaction_outflow_cents = sum(amount for _, amount in current_transaction_outflows)
+    previous_transaction_outflow_cents = sum(amount for _, amount in previous_transaction_outflows)
+    current_cashflow_totals = _cashflow_totals(
+        cashflow_entries,
+        transaction_outflow_cents=current_transaction_outflow_cents,
+    )
+    previous_cashflow_totals = _cashflow_totals(
+        previous_cashflow_entries,
+        transaction_outflow_cents=previous_transaction_outflow_cents,
+    )
 
     recurring_rows = session.execute(
         select(
@@ -1718,7 +1789,10 @@ def _dashboard_overview_payload(
             "totals": {
                 **current_cashflow_totals,
             },
-            "points": _serialize_cashflow_points(cashflow_entries),
+            "points": _serialize_cashflow_points(
+                cashflow_entries,
+                transaction_outflows=current_transaction_outflows,
+            ),
         },
         "upcoming_bills": {
             "count": len(upcoming_bill_items),

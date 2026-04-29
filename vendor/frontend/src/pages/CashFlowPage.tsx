@@ -1,10 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDownCircle, ArrowUpCircle, CalendarCheck, Wallet } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, Wallet } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { fetchBudgetSummary, fetchCashflowEntries } from "@/api/budget";
-import { useDateRangeContext } from "@/app/date-range-context";
 import { fetchRecurringCalendar } from "@/api/recurringBills";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { MetricCard } from "@/components/shared/MetricCard";
@@ -14,22 +13,33 @@ import { useI18n } from "@/i18n";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDate, formatEurFromCents } from "@/utils/format";
 
-function monthFromDateString(value: string): { year: number; month: number } {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) {
-    const now = new Date();
-    return { year: now.getFullYear(), month: now.getMonth() + 1 };
-  }
-  return { year: Number(match[1]), month: Number(match[2]) };
+function currentMonth(): { year: number; month: number } {
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+}
+
+function shiftMonth(value: { year: number; month: number }, delta: number): { year: number; month: number } {
+  const next = new Date(Date.UTC(value.year, value.month - 1 + delta, 1));
+  return { year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 };
+}
+
+function monthLabel(value: { year: number; month: number }, locale: "en" | "de"): string {
+  return new Intl.DateTimeFormat(locale === "de" ? "de-DE" : "en-US", {
+    month: "long",
+    year: "numeric"
+  }).format(new Date(Date.UTC(value.year, value.month - 1, 1)));
 }
 
 export function CashFlowPage() {
-  const { toDate } = useDateRangeContext();
   const { locale } = useI18n();
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const copy = locale === "de"
     ? {
         description: "Verfolge Geld hinein und hinaus aus dem Monat und springe dann direkt zum Cashflow-Ledger oder zu wiederkehrenden Rechnungen.",
         openBudget: "Budget öffnen",
+        currentMonth: "Dieser Monat",
+        previousMonth: "Vorheriger Monat",
+        nextMonth: "Nächster Monat",
         inflow: "Einnahmen",
         outflow: "Ausgaben",
         remaining: "Verbleibend",
@@ -46,6 +56,9 @@ export function CashFlowPage() {
     : {
         description: "Follow money in and out of the month, then jump straight into the cash ledger or recurring commitments.",
         openBudget: "Open budget",
+        currentMonth: "Current month",
+        previousMonth: "Previous month",
+        nextMonth: "Next month",
         inflow: "Inflow",
         outflow: "Outflow",
         remaining: "Remaining",
@@ -59,7 +72,8 @@ export function CashFlowPage() {
         amount: "Amount",
         manualEntry: "Manual entry"
       };
-  const { year, month } = monthFromDateString(toDate);
+  const { year, month } = selectedMonth;
+  const selectedMonthLabel = useMemo(() => monthLabel(selectedMonth, locale), [locale, selectedMonth]);
   const budgetSummaryQuery = useQuery({
     queryKey: ["cash-flow-page", "summary", year, month],
     queryFn: () => fetchBudgetSummary(year, month),
@@ -87,7 +101,7 @@ export function CashFlowPage() {
       .reduce((sum, entry) => sum + entry.amount_cents, 0);
     return {
       inflow: ledgerInflow || summary?.actual_income_cents || 0,
-      outflow: ledgerOutflow || summary?.total_outflow_cents || 0,
+      outflow: summary?.total_outflow_cents ?? ledgerOutflow,
       remaining: summary?.remaining_cents ?? 0,
       upcomingBills: recurringCalendarQuery.data?.days.reduce((sum, day) => sum + day.total_expected_cents, 0) ?? 0
     };
@@ -99,9 +113,38 @@ export function CashFlowPage() {
         title={locale === "de" ? "Cashflow" : "Cash Flow"}
         description={copy.description}
       >
-        <Button asChild variant="outline">
-          <Link to="/budget">{copy.openBudget}</Link>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center rounded-lg border border-border/70 bg-background/60">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={copy.previousMonth}
+              onClick={() => setSelectedMonth((value) => shiftMonth(value, -1))}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex min-w-[170px] items-center justify-center gap-2 px-3 text-sm font-medium">
+              <CalendarDays className="h-4 w-4 text-muted-foreground" />
+              <span>{selectedMonthLabel}</span>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={copy.nextMonth}
+              onClick={() => setSelectedMonth((value) => shiftMonth(value, 1))}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+          <Button type="button" variant="outline" onClick={() => setSelectedMonth(currentMonth())}>
+            {copy.currentMonth}
+          </Button>
+          <Button asChild variant="outline">
+            <Link to="/budget">{copy.openBudget}</Link>
+          </Button>
+        </div>
       </PageHeader>
 
       <div className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
