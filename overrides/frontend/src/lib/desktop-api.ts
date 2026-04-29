@@ -19,6 +19,22 @@ export type DesktopCapabilities = {
 };
 
 export type DesktopLocale = "en" | "de";
+export type DesktopExternalBrowserId = "system_default" | "arc" | "atlas" | "google_chrome";
+export type DesktopConnectorCallbackEvent = {
+  url: string;
+  sourceId?: string | null;
+  confirmed?: boolean;
+  confirmedAt?: string | null;
+  detail?: string | null;
+};
+export type DesktopExternalBrowserOption = {
+  id: DesktopExternalBrowserId;
+  available: boolean;
+};
+export type DesktopExternalBrowserPreferenceState = {
+  preferredBrowser: DesktopExternalBrowserId;
+  options: DesktopExternalBrowserOption[];
+};
 
 export type DesktopConnectorTrustClass =
   | "official"
@@ -158,6 +174,13 @@ type DesktopConnectorBridge = {
   enableReceiptPlugin: (pluginId: string) => Promise<DesktopReceiptPluginPackToggleResult>;
   disableReceiptPlugin: (pluginId: string) => Promise<DesktopReceiptPluginPackToggleResult>;
   uninstallReceiptPlugin: (pluginId: string) => Promise<DesktopReceiptPluginPackUninstallResult>;
+  getExternalBrowserPreference: () => Promise<DesktopExternalBrowserPreferenceState>;
+  setExternalBrowserPreference: (
+    preferredBrowser: DesktopExternalBrowserId
+  ) => Promise<DesktopExternalBrowserPreferenceState>;
+  openExternalUrl: (url: string) => Promise<void>;
+  consumePendingConnectorCallbacks: () => Promise<DesktopConnectorCallbackEvent[]>;
+  onConnectorCallback: (handler: (event: DesktopConnectorCallbackEvent) => void) => () => void;
 };
 
 export type DesktopApiBridge = (
@@ -205,7 +228,12 @@ export function getDesktopConnectorBridge(): DesktopConnectorBridge | null {
     typeof desktopApi.installReceiptPluginFromCatalogEntry !== "function" ||
     typeof desktopApi.enableReceiptPlugin !== "function" ||
     typeof desktopApi.disableReceiptPlugin !== "function" ||
-    typeof desktopApi.uninstallReceiptPlugin !== "function"
+    typeof desktopApi.uninstallReceiptPlugin !== "function" ||
+    typeof desktopApi.getExternalBrowserPreference !== "function" ||
+    typeof desktopApi.setExternalBrowserPreference !== "function" ||
+    typeof desktopApi.openExternalUrl !== "function" ||
+    typeof desktopApi.consumePendingConnectorCallbacks !== "function" ||
+    typeof desktopApi.onConnectorCallback !== "function"
   ) {
     return null;
   }
@@ -216,6 +244,11 @@ export function getDesktopConnectorBridge(): DesktopConnectorBridge | null {
     installReceiptPluginFromCatalogEntry: (payload) => desktopApi.installReceiptPluginFromCatalogEntry!(payload),
     enableReceiptPlugin: (pluginId) => desktopApi.enableReceiptPlugin!(pluginId),
     disableReceiptPlugin: (pluginId) => desktopApi.disableReceiptPlugin!(pluginId),
-    uninstallReceiptPlugin: (pluginId) => desktopApi.uninstallReceiptPlugin!(pluginId)
+    uninstallReceiptPlugin: (pluginId) => desktopApi.uninstallReceiptPlugin!(pluginId),
+    getExternalBrowserPreference: () => desktopApi.getExternalBrowserPreference!(),
+    setExternalBrowserPreference: (preferredBrowser) => desktopApi.setExternalBrowserPreference!(preferredBrowser),
+    openExternalUrl: (url) => desktopApi.openExternalUrl!(url),
+    consumePendingConnectorCallbacks: () => desktopApi.consumePendingConnectorCallbacks!(),
+    onConnectorCallback: (handler) => desktopApi.onConnectorCallback!(handler)
   };
 }

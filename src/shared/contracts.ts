@@ -35,6 +35,63 @@ export interface BackendStatus {
   command: string;
 }
 
+export interface DesktopConnectorCallbackEvent {
+  url: string;
+  sourceId?: string | null;
+  confirmed?: boolean;
+  confirmedAt?: string | null;
+  detail?: string | null;
+}
+
+export type DesktopExternalBrowserId = "system_default" | "arc" | "atlas" | "google_chrome";
+
+export interface DesktopExternalBrowserOption {
+  id: DesktopExternalBrowserId;
+  available: boolean;
+}
+
+export interface DesktopExternalBrowserPreferenceState {
+  preferredBrowser: DesktopExternalBrowserId;
+  options: DesktopExternalBrowserOption[];
+}
+
+export interface MobileBridgeInterface {
+  name: string;
+  address: string;
+  family: "IPv4";
+  cidr: string | null;
+  mac: string | null;
+}
+
+export interface MobileBridgeRequestSummary {
+  method: string;
+  path: string;
+  remoteAddress: string;
+  statusCode: number | null;
+  at: string;
+}
+
+export interface MobileBridgeStatus {
+  running: boolean;
+  endpointUrl: string | null;
+  interface: MobileBridgeInterface | null;
+  startedAt: string | null;
+  expiresAt: string | null;
+  lastMobileRequestAt: string | null;
+  lastMobileRequest: MobileBridgeRequestSummary | null;
+}
+
+export interface StartMobileBridgeRequest {
+  address?: string;
+  expiresInSeconds?: number;
+}
+
+export interface MobileBridgeRouteDecision {
+  allowed: boolean;
+  method: string;
+  path: string;
+  bodyLimitBytes: number;
+}
 export type DesktopRuntimeEnvironment = "development" | "packaged";
 export type DesktopRuntimeAssetStatus = "ready" | "missing" | "lookup";
 export type DesktopBackendCommandSource = "env_override" | "bundled" | "managed_dev" | "path_lookup";

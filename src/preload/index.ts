@@ -6,6 +6,9 @@ import type {
   CommandLogEvent,
   CommandResult,
   DesktopCapabilities,
+  DesktopConnectorCallbackEvent,
+  DesktopExternalBrowserId,
+  DesktopExternalBrowserPreferenceState,
   DesktopReleaseMetadata,
   DesktopRuntimeDiagnostics,
   DesktopLocale,
@@ -36,6 +39,13 @@ const api = {
   wakeOcrWorker: async (): Promise<OcrWorkerWakeResult> => await ipcRenderer.invoke("desktop:ocr:wake"),
   openFullApp: async (): Promise<string> => await ipcRenderer.invoke("desktop:app:url"),
   openControlCenter: async (): Promise<void> => await ipcRenderer.invoke("desktop:control-center:open"),
+  getExternalBrowserPreference: async (): Promise<DesktopExternalBrowserPreferenceState> =>
+    await ipcRenderer.invoke("desktop:external-browser:get-preference"),
+  setExternalBrowserPreference: async (
+    preferredBrowser: DesktopExternalBrowserId
+  ): Promise<DesktopExternalBrowserPreferenceState> =>
+    await ipcRenderer.invoke("desktop:external-browser:set-preference", preferredBrowser),
+  openExternalUrl: async (url: string): Promise<void> => await ipcRenderer.invoke("desktop:external-url:open", url),
   runSync: async (payload: SyncRequest): Promise<CommandResult> => await ipcRenderer.invoke("desktop:sync:run", payload),
   runExport: async (payload: ExportRequest): Promise<CommandResult> => await ipcRenderer.invoke("desktop:export:run", payload),
   runBackup: async (payload: BackupRequest): Promise<CommandResult> => await ipcRenderer.invoke("desktop:backup:run", payload),
@@ -54,6 +64,8 @@ const api = {
     await ipcRenderer.invoke("desktop:receipt-plugins:disable", pluginId),
   uninstallReceiptPlugin: async (pluginId: string): Promise<ReceiptPluginPackUninstallResult> =>
     await ipcRenderer.invoke("desktop:receipt-plugins:uninstall", pluginId),
+  consumePendingConnectorCallbacks: async (): Promise<DesktopConnectorCallbackEvent[]> =>
+    await ipcRenderer.invoke("desktop:connector-callbacks:consume"),
   onLog: (handler: (event: CommandLogEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: CommandLogEvent): void => {
       handler(payload);
@@ -79,6 +91,15 @@ const api = {
     ipcRenderer.on("desktop:locale-changed", listener);
     return () => {
       ipcRenderer.removeListener("desktop:locale-changed", listener);
+    };
+  },
+  onConnectorCallback: (handler: (event: DesktopConnectorCallbackEvent) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: DesktopConnectorCallbackEvent): void => {
+      handler(payload);
+    };
+    ipcRenderer.on("desktop:connector-callback", listener);
+    return () => {
+      ipcRenderer.removeListener("desktop:connector-callback", listener);
     };
   }
 };

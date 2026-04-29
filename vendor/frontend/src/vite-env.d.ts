@@ -2,6 +2,9 @@
 
 import type {
   DesktopApiBridge,
+  DesktopConnectorCallbackEvent,
+  DesktopExternalBrowserId,
+  DesktopExternalBrowserPreferenceState,
   DesktopLocale,
   DesktopReceiptPluginPackInstallResult,
   DesktopReceiptPluginPackListResult,
@@ -35,6 +38,13 @@ declare global {
       enableReceiptPlugin?: (pluginId: string) => Promise<DesktopReceiptPluginPackToggleResult>;
       disableReceiptPlugin?: (pluginId: string) => Promise<DesktopReceiptPluginPackToggleResult>;
       uninstallReceiptPlugin?: (pluginId: string) => Promise<DesktopReceiptPluginPackUninstallResult>;
+      getExternalBrowserPreference?: () => Promise<DesktopExternalBrowserPreferenceState>;
+      setExternalBrowserPreference?: (
+        preferredBrowser: DesktopExternalBrowserId
+      ) => Promise<DesktopExternalBrowserPreferenceState>;
+      openExternalUrl?: (url: string) => Promise<void>;
+      consumePendingConnectorCallbacks?: () => Promise<DesktopConnectorCallbackEvent[]>;
+      onConnectorCallback?: (handler: (event: DesktopConnectorCallbackEvent) => void) => (() => void);
     };
   }
 }

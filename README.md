@@ -283,6 +283,8 @@ Scope:
 - offer/deal plugins remain out of desktop scope
 - recurring offer scraping and alerts remain out of desktop scope
 - `dm_de` is now one of these optional receipt plugins rather than a built-in desktop connector
+- `lidl_plus_de` now uses a real-browser OAuth handoff instead of the old embedded Playwright login path; desktop opens Lidl in the user's selected browser target (system default by default, with optional Arc, Atlas, or Google Chrome override), captures `com.lidlplus.app://callback` in Electron, shows an in-app success prompt as soon as the callback is confirmed, and keeps a pasted callback fallback if the browser completes but the app does not reconnect automatically
+- packaged mac builds now declare `com.lidlplus.app` in the app bundle `Info.plist` through Electron Builder `protocols`, so Launch Services can bind Lidl callbacks to `com.lidltool.desktop` instead of falling back to stale generic Electron registrations
 - `rewe_de` is an imported receipt pack in desktop rather than a built-in connector, so the desktop auth flow can reuse a normal Chrome session instead of depending on packaged CAPTCHA automation
 - `penny_de` is a local optional receipt pack under `fixtures/plugin-sources/penny_de`; it now supports direct Penny eBon discovery and PDF-backed receipt parsing through stored OAuth state, and desktop exposes the PENNY PKCE login URL for the user's normal browser, auto-captures supported Chromium callbacks when possible, and falls back to a pasted final callback URL when browser observation is not reliable
 
@@ -312,7 +314,8 @@ Desktop workflow:
 4. Enable the pack explicitly if you want desktop to load it into the next backend run.
 5. For built-in browser connectors such as Amazon, use `Connector settings` to tune saved defaults like scan depth, headless mode, and optional HTML debug dumps before running a real-account test.
 6. For imported REWE packs, log into the REWE website in normal Chrome first, then use the connector auth/setup flow so the pack can import that authenticated Chrome session into its own saved state.
-7. Use the same connectors page to install a trusted update, disable a pack, or remove it from local storage.
+7. For Lidl Plus, complete login and SMS confirmation in the real browser, allow the browser to open the desktop app, then continue from the in-app success prompt. The Lidl browser tab may still remain on the code screen or a final error page; that does not block the desktop sync once the callback has been confirmed.
+8. Use the same connectors page to install a trusted update, disable a pack, or remove it from local storage.
 
 ### Amazon multicountry
 
@@ -405,6 +408,7 @@ Plugin authors can provide an `onboarding` block there with:
 - `steps`: array of `{ "title", "description" }`
 
 The desktop connectors page uses that manifest-owned onboarding to explain connector-specific behavior such as slower scraping or first-run expectations.
+Connector status summaries are user-facing rather than quarantine-facing: successful first-run auth can immediately switch to `Connected` / `Starting first sync`, and retailer-side historical gaps such as Lidl receipts with no returned detail HTML are surfaced as `unavailable from retailer` instead of a generic sync failure.
 
 ### Storage layout
 

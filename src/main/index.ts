@@ -1,7 +1,13 @@
-import { app, BrowserWindow, Menu, shell } from "electron";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { app, BrowserWindow, Menu, nativeImage, session } from "electron";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import type { DesktopConnectorCallbackEvent } from "@shared/contracts";
 import type { DesktopLocale } from "@shared/contracts";
+import {
+  loadDesktopExternalBrowserPreference,
+  openUrlWithDesktopBrowserPreference,
+  persistDesktopExternalBrowserPreference
+} from "./browser-preferences";
 import { registerIpc } from "./ipc";
 import { applyDesktopMenu, loadDesktopLocale, persistDesktopLocale } from "./i18n";
 import { DesktopRuntime } from "./runtime";
@@ -24,6 +30,45 @@ let lastRequestedSurface: "control_center" | "main_app" = "control_center";
 let appIsQuitting = false;
 let lastCloseRequestHint: { source: string; at: string } | null = null;
 let windowLifecycleConsoleLoggingEnabled = true;
+const LIDL_PROTOCOL_SCHEME = "com.lidlplus.app";
+const LIDL_CALLBACK_PREFIX = `${LIDL_PROTOCOL_SCHEME}://callback`;
+const DESKTOP_SESSION_COOKIE_NAME = "lidltool_session";
+const pendingConnectorCallbacks: DesktopConnectorCallbackEvent[] = [];
+
+type ConnectorCallbackConfirmationResult = {
+  confirmed: boolean;
+  detail: string | null;
+};
+
+function resolveDesktopIconPath(): string | null {
+  const explicitIconPath = process.env.LIDLTOOL_DESKTOP_ICON_PATH?.trim();
+  const candidates = [
+    explicitIconPath || null,
+    app.isPackaged ? join(process.resourcesPath, "icon.png") : null,
+    join(app.getAppPath(), "build", "icon.png"),
+    join(process.cwd(), "build", "icon.png")
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function applyDockIcon(): void {
+  if (process.platform !== "darwin" || !app.dock) {
+    return;
+  }
+  const iconPath = resolveDesktopIconPath();
+  if (!iconPath) {
+    logWindowLifecycle("app.dock_icon.missing");
+    return;
+  }
+  const image = nativeImage.createFromPath(iconPath);
+  if (image.isEmpty()) {
+    logWindowLifecycle("app.dock_icon.empty", { iconPath });
+    return;
+  }
+  app.dock.setIcon(image);
+  logWindowLifecycle("app.dock_icon.applied", { iconPath });
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -134,6 +179,203 @@ function syncSurfaceFromWindow(window: BrowserWindow): void {
   if (inferredSurface) {
     lastRequestedSurface = inferredSurface;
   }
+}
+
+function isConnectorCallbackUrl(url: string): boolean {
+  const normalizedUrl = url.trim();
+  return normalizedUrl.startsWith(LIDL_CALLBACK_PREFIX);
+}
+
+function consumePendingConnectorCallbacks(): DesktopConnectorCallbackEvent[] {
+  const next = [...pendingConnectorCallbacks];
+  pendingConnectorCallbacks.length = 0;
+  return next;
+}
+
+function deliverConnectorCallbackToWindows(payload: DesktopConnectorCallbackEvent): void {
+  const windows = BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed());
+  if (windows.length === 0) {
+    pendingConnectorCallbacks.push(payload);
+    return;
+  }
+  for (const window of windows) {
+    window.webContents.send("desktop:connector-callback", payload);
+  }
+}
+
+async function readDesktopSessionCookieValue(): Promise<string | null> {
+  const cookies = await session.defaultSession.cookies.get({
+    url: runtime.getFullAppUrl(),
+    name: DESKTOP_SESSION_COOKIE_NAME
+  });
+  const cookieValue = cookies[0]?.value?.trim() ?? "";
+  return cookieValue.length > 0 ? cookieValue : null;
+}
+
+async function confirmLidlConnectorCallback(callbackUrl: string): Promise<ConnectorCallbackConfirmationResult> {
+  await runtime.startBackend();
+  const sessionCookie = await readDesktopSessionCookieValue();
+  if (!sessionCookie) {
+    logWindowLifecycle("connector.callback.confirm_skipped", {
+      sourceId: "lidl_plus_de",
+      reason: "missing_session_cookie"
+    });
+    return {
+      confirmed: false,
+      detail: null
+    };
+  }
+
+  const response = await fetch(
+    `${runtime.getFullAppUrl()}/api/v1/connectors/lidl_plus_de/bootstrap/confirm`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `${DESKTOP_SESSION_COOKIE_NAME}=${sessionCookie}`
+      },
+      body: JSON.stringify({ callback_url: callbackUrl })
+    }
+  );
+  const responseText = await response.text();
+
+  let payload: Record<string, unknown> | null = null;
+  try {
+    payload = JSON.parse(responseText) as Record<string, unknown>;
+  } catch {
+    payload = null;
+  }
+
+  const confirmed =
+    response.ok &&
+    payload?.ok === true &&
+    typeof payload.result === "object" &&
+    payload.result !== null &&
+    (payload.result as { confirmed?: unknown }).confirmed === true;
+  const detail =
+    typeof payload?.result === "object" &&
+    payload.result !== null &&
+    typeof (payload.result as { auth_status?: { detail?: unknown } }).auth_status?.detail === "string"
+      ? String((payload.result as { auth_status?: { detail?: unknown } }).auth_status?.detail)
+      : null;
+
+  logWindowLifecycle(confirmed ? "connector.callback.confirmed" : "connector.callback.confirm_failed", {
+    sourceId: "lidl_plus_de",
+    httpStatus: response.status,
+    ok: payload?.ok ?? null,
+    error: payload?.error ?? null,
+    errorCode: payload?.error_code ?? null,
+    responseSnippet: responseText.slice(0, 500)
+  });
+
+  return {
+    confirmed,
+    detail
+  };
+}
+
+async function handleConnectorCallback(payload: DesktopConnectorCallbackEvent, reason: string): Promise<void> {
+  logWindowLifecycle("connector.callback", {
+    reason,
+    callbackUrl: payload.url
+  });
+
+  let confirmation: ConnectorCallbackConfirmationResult = {
+    confirmed: false,
+    detail: null
+  };
+  try {
+    confirmation = await confirmLidlConnectorCallback(payload.url);
+  } catch (error) {
+    logWindowLifecycle("connector.callback.confirm_exception", {
+      sourceId: "lidl_plus_de",
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+
+  if (!confirmation.confirmed) {
+    deliverConnectorCallbackToWindows({
+      ...payload,
+      sourceId: payload.sourceId ?? "lidl_plus_de",
+      confirmed: false,
+      confirmedAt: null,
+      detail: confirmation.detail
+    });
+    return;
+  }
+
+  const confirmedPayload: DesktopConnectorCallbackEvent = {
+    url: payload.url,
+    sourceId: payload.sourceId ?? "lidl_plus_de",
+    confirmed: true,
+    confirmedAt: nowIso(),
+    detail: confirmation.detail
+  };
+  pendingConnectorCallbacks.push(confirmedPayload);
+
+  await recoverMainWindow("connector-auth-confirmed");
+  const targetUrl = new URL("/connectors", runtime.getFullAppUrl()).toString();
+  const windows = BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed());
+  await Promise.all(
+    windows.map(async (window) => {
+      const currentUrl = window.webContents.getURL();
+      if (currentUrl !== targetUrl) {
+        await window.loadURL(targetUrl);
+      }
+    })
+  );
+  deliverConnectorCallbackToWindows(confirmedPayload);
+}
+
+function dispatchConnectorCallback(url: string, reason: string): void {
+  const normalizedUrl = url.trim();
+  if (!isConnectorCallbackUrl(normalizedUrl)) {
+    return;
+  }
+  const payload: DesktopConnectorCallbackEvent = {
+    url: normalizedUrl,
+    sourceId: "lidl_plus_de"
+  };
+  void handleConnectorCallback(payload, reason);
+}
+
+function registerDesktopProtocolClient(): void {
+  try {
+    const registrationArgs =
+      process.defaultApp || !app.isPackaged
+        ? [app.getAppPath()]
+        : [];
+    const registered =
+      registrationArgs.length > 0
+        ? app.setAsDefaultProtocolClient(LIDL_PROTOCOL_SCHEME, process.execPath, registrationArgs)
+        : app.setAsDefaultProtocolClient(LIDL_PROTOCOL_SCHEME);
+    logWindowLifecycle("protocol.register", {
+      scheme: LIDL_PROTOCOL_SCHEME,
+      registered,
+      execPath: process.execPath,
+      registrationArgs
+    });
+  } catch (error) {
+    logWindowLifecycle("protocol.register_failed", {
+      scheme: LIDL_PROTOCOL_SCHEME,
+      execPath: process.execPath,
+      registrationArgs:
+        process.defaultApp || !app.isPackaged
+          ? [app.getAppPath()]
+          : [],
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+function extractConnectorCallbackFromArgv(argv: readonly string[]): string | null {
+  for (const value of argv) {
+    const candidate = String(value || "").trim();
+    if (isConnectorCallbackUrl(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 function restoreWindowVisibility(window: BrowserWindow, reason: string): void {
@@ -269,11 +511,21 @@ async function recoverMainWindow(reason: string): Promise<void> {
   updateDesktopLocale(currentLocale);
 }
 
-app.on("second-instance", () => {
+app.on("second-instance", (_event, argv) => {
   logWindowLifecycle("app.second_instance", {
     surface: lastRequestedSurface
   });
+  const callbackUrl = extractConnectorCallbackFromArgv(argv);
+  if (callbackUrl) {
+    dispatchConnectorCallback(callbackUrl, "second-instance");
+  }
   void recoverMainWindow("second-instance");
+});
+
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  dispatchConnectorCallback(url, "open-url");
+  void recoverMainWindow("open-url");
 });
 
 function broadcastLocaleChanged(locale: DesktopLocale): void {
@@ -362,7 +614,7 @@ function createWindow(): BrowserWindow {
   });
 
   window.webContents.setWindowOpenHandler((details) => {
-    void shell.openExternal(details.url);
+    void openUrlWithDesktopBrowserPreference(details.url);
     return { action: "deny" };
   });
 
@@ -518,7 +770,13 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   app.setAppUserModelId("com.lidltool.desktop");
+  applyDockIcon();
   currentLocale = loadDesktopLocale();
+  registerDesktopProtocolClient();
+  const startupCallbackUrl = extractConnectorCallbackFromArgv(process.argv);
+  if (startupCallbackUrl) {
+    pendingConnectorCallbacks.push({ url: startupCallbackUrl });
+  }
 
   mainWindow = createWindow();
   updateDesktopLocale(currentLocale);
@@ -531,6 +789,12 @@ app.whenReady().then(() => {
       if (mainWindow) {
         await openControlCenter(mainWindow);
       }
+    },
+    () => consumePendingConnectorCallbacks(),
+    () => loadDesktopExternalBrowserPreference(),
+    (preferredBrowser) => persistDesktopExternalBrowserPreference(preferredBrowser),
+    async (url) => {
+      await openUrlWithDesktopBrowserPreference(url);
     }
   );
 
@@ -539,7 +803,6 @@ app.whenReady().then(() => {
       void recoverMainWindow("activate");
     }
   });
-
 });
 
 app.on("window-all-closed", async () => {

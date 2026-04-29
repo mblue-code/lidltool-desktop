@@ -58,6 +58,10 @@
     ],
     "extraResources": [
       {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
+      {
         "from": "build/frontend-dist",
         "to": "frontend-dist",
         "filter": [
@@ -102,6 +106,14 @@
     "extraMetadata": {
       "main": "out/main/index.js"
     },
+    "protocols": [
+      {
+        "name": "LidlTool Desktop",
+        "schemes": [
+          "com.lidlplus.app"
+        ]
+      }
+    ],
     "afterSign": "scripts/notarize.mjs"
   },
   "dependencies": {
