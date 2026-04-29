@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ArrowUpDown, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ReceiptText, Search, X } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { TransactionsFilters, transactionsQueryOptions } from "@/app/queries";
@@ -385,19 +385,19 @@ export function TransactionsPage() {
 
       <div className="overflow-x-auto">
         <div className="flex flex-nowrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => applyQuickFilter("thisMonth")}>
+          <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => applyQuickFilter("thisMonth")}>
             {t("pages.transactions.quickFilter.thisMonth")}
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => applyQuickFilter("last7Days")}>
+          <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => applyQuickFilter("last7Days")}>
             {t("pages.transactions.quickFilter.last7Days")}
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => applyQuickFilter("highValue")}>
+          <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => applyQuickFilter("highValue")}>
             {t("pages.transactions.quickFilter.highValue")}
           </Button>
         </div>
       </div>
 
-      <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]" onSubmit={submitFilters}>
+      <form className="app-dashboard-surface grid gap-3 rounded-xl border border-border/60 p-4 md:grid-cols-[minmax(0,1fr)_auto]" onSubmit={submitFilters}>
         <div className="space-y-2">
           <Label htmlFor="transactions-search">{t("pages.transactions.filter.query")}</Label>
           <SearchInput
@@ -409,7 +409,7 @@ export function TransactionsPage() {
             debounceMs={0}
           />
         </div>
-        <div className="self-end flex gap-2">
+        <div className="flex gap-2 self-end">
           <Button type="submit">
             {t("pages.transactions.applyFilters")}
           </Button>
@@ -593,7 +593,13 @@ export function TransactionsPage() {
 
       <Card>
         <CardContent className="pt-5">
-          {loading ? <Skeleton className="h-52 w-full" /> : null}
+          {loading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : null}
 
           <div className="md:hidden divide-y divide-border/40">
             {(data?.items || []).map((item) => (
@@ -602,16 +608,17 @@ export function TransactionsPage() {
                 to={`/transactions/${item.id}`}
                 className="block py-3 transition-colors hover:bg-muted/30"
               >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{item.store_name || "—"}</span>
-                  <span className="text-sm text-muted-foreground">
+                <div className="flex items-start justify-between gap-3">
+                  <span className="min-w-0 font-medium">{item.store_name || "—"}</span>
+                  <span className="shrink-0 text-right text-xs text-muted-foreground">
                     {formatDateTime(item.purchased_at)}
                   </span>
                 </div>
                 <div className="mt-1 flex items-center justify-between">
-                  <span className="tabular-nums font-semibold">
+                  <span className="app-value font-semibold">
                     {formatEurFromCents(item.total_gross_cents)}
                   </span>
+                  <span className="truncate text-xs text-muted-foreground">{item.source_id}</span>
                 </div>
               </Link>
             ))}
@@ -642,11 +649,11 @@ export function TransactionsPage() {
             <TableBody>
               {(data?.items || []).map((item) => (
                 <TableRow key={item.id}>
-                  <TableCell>{formatDateTime(item.purchased_at)}</TableCell>
-                  <TableCell>{item.store_name || "—"}</TableCell>
-                  <TableCell>{item.source_id}</TableCell>
-                  <TableCell className="tabular-nums">{formatEurFromCents(item.total_gross_cents)}</TableCell>
-                  <TableCell className="tabular-nums">{formatEurFromCents(item.discount_total_cents ?? 0)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateTime(item.purchased_at)}</TableCell>
+                  <TableCell className="font-medium">{item.store_name || "—"}</TableCell>
+                  <TableCell className="max-w-[14rem] truncate text-muted-foreground">{item.source_id}</TableCell>
+                  <TableCell className="app-value font-semibold">{formatEurFromCents(item.total_gross_cents)}</TableCell>
+                  <TableCell className="app-value text-muted-foreground">{formatEurFromCents(item.discount_total_cents ?? 0)}</TableCell>
                   <TableCell>
                     <Button asChild variant="link" className="px-0">
                       <Link to={`/transactions/${item.id}`}>{t("pages.transactions.details")}</Link>
@@ -658,7 +665,9 @@ export function TransactionsPage() {
                 <TableRow>
                   <TableCell colSpan={6}>
                     <EmptyState
+                      icon={<Search className="h-8 w-8" />}
                       title={t("pages.transactions.empty")}
+                      description={appliedFilters.length > 0 ? t("pages.transactions.clearFilters") : t("pages.transactions.description")}
                       action={appliedFilters.length > 0 ? { label: t("pages.transactions.clearFilters"), onClick: clearFilters } : undefined}
                     />
                   </TableCell>
@@ -671,7 +680,9 @@ export function TransactionsPage() {
           {data && data.items.length === 0 ? (
             <div className="md:hidden">
               <EmptyState
+                icon={<ReceiptText className="h-8 w-8" />}
                 title={t("pages.transactions.empty")}
+                description={appliedFilters.length > 0 ? t("pages.transactions.clearFilters") : t("pages.transactions.description")}
                 action={appliedFilters.length > 0 ? { label: t("pages.transactions.clearFilters"), onClick: clearFilters } : undefined}
               />
             </div>

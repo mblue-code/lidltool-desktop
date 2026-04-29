@@ -53,10 +53,8 @@ export function buildDesktopBackendEnv(args: {
     nextEnv.LIDLTOOL_AUTH_BROWSER_MODE = "local_display";
   }
 
-  if (args.isPackaged) {
-    const packagedSrc = join(args.repoRootHint, "src");
-    nextEnv.PYTHONPATH = nextEnv.PYTHONPATH?.trim() ? `${packagedSrc}:${nextEnv.PYTHONPATH}` : packagedSrc;
-  }
+  const backendSrc = join(args.repoRootHint, "src");
+  nextEnv.PYTHONPATH = nextEnv.PYTHONPATH?.trim() ? `${backendSrc}:${nextEnv.PYTHONPATH}` : backendSrc;
 
   return nextEnv;
 }

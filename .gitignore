@@ -1,5 +1,7 @@
 node_modules
 .DS_Store
+.cache
+.tmp
 out
 dist_electron
 .backend
@@ -12,6 +14,8 @@ vendor/frontend/dist
 fixtures/**/__pycache__/
 vendor/**/*.tsbuildinfo
 vendor/**/__pycache__/
+vendor/backend/uv.lock
+output/manual-qa
 output/playwright
 playwright-report
 test-results
