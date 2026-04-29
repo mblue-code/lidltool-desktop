@@ -7,6 +7,7 @@ Planning note:
 - Multi-user personal + household finance direction is tracked in `docs/multi-user-household-finance-vision.md`.
 - Mobile companion product direction is tracked in `docs/mobile-companion-vision.md`.
 - Concrete native iOS/Android implementation planning is tracked in `docs/mobile-native-implementation-plan.md`.
+- Local mobile pairing security hardening is tracked in `docs/mobile-local-pairing-security-hardening-plan.md`.
 - Agent execution guidance for the native mobile build is tracked in `docs/mobile-agent-runbook.md`.
 - Long-form orchestration prompt for a full native mobile implementation pass is tracked in `docs/mobile-native-orchestration-prompt.md`.
 
@@ -49,6 +50,7 @@ Desktop is not for:
 Current mobile direction:
 - mobile is being explored as a paired local companion, not as a cloud or self-hosted client
 - the forked iOS/Android foundations now use the first local pairing/sync protocol and still need product-depth work beyond the foundation
+- LAN pairing must remain opt-in, temporary, and limited to mobile endpoints; see `docs/mobile-local-pairing-security-hardening-plan.md`.
 
 Current native mobile companion implementation:
 - Android and iOS live under `vendor/mobile/` and are now pairing-first native companion foundations rather than backend URL login harnesses.
@@ -58,6 +60,8 @@ Current native mobile companion implementation:
   - `POST /api/mobile-pair/v1/handshake`
   - `POST /api/mobile-captures/v1`
   - `GET /api/mobile-sync/v1/changes`
+- Wi-Fi phone pairing uses an Electron-owned temporary LAN bridge that is opened only from Settings after an explicit risk confirmation. The main backend remains bound to `127.0.0.1`; the bridge binds to one private IPv4 interface and forwards only mobile protocol routes.
+- The QR payload includes the LAN bridge endpoint plus `transport` and `listener_expires_at`. Android and iOS can scan the QR directly, while manual paste remains available.
 - Mobile receipt captures upload to desktop as OCR documents; desktop remains the OCR and ingestion authority.
 - Synced mobile read models currently include capture status, recent transactions, transaction items, and current budget summary.
 

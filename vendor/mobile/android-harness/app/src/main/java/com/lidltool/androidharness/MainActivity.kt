@@ -117,6 +117,7 @@ private fun HarnessRoot(viewModel: HarnessViewModel) {
                     state = state,
                     onPayloadChanged = viewModel::updatePairingText,
                     onPair = viewModel::pairFromText,
+                    onPayloadScanned = viewModel::pairFromPayload,
                     onLanguageChanged = viewModel::setLanguage,
                 )
             } else {
@@ -142,9 +143,38 @@ private fun PairingScreen(
     state: HarnessUiState,
     onPayloadChanged: (String) -> Unit,
     onPair: () -> Unit,
+    onPayloadScanned: (String) -> Unit,
     onLanguageChanged: (AppLanguage) -> Unit,
 ) {
+    val context = LocalContext.current
     val t = rememberStrings(state.language)
+    var scannerVisible by remember { mutableStateOf(false) }
+    var cameraPermissionDenied by remember { mutableStateOf(false) }
+    val cameraPermission = rememberLauncherForActivityResult(RequestPermission()) { granted ->
+        if (granted) {
+            cameraPermissionDenied = false
+            scannerVisible = true
+        } else {
+            cameraPermissionDenied = true
+        }
+    }
+
+    if (scannerVisible) {
+        PairingQrScannerScreen(
+            title = t(R.string.pairing_scan_title),
+            body = t(R.string.pairing_scan_body),
+            cancelLabel = t(R.string.action_cancel),
+            errorTitle = t(R.string.pairing_scan_camera_unavailable),
+            onCancel = { scannerVisible = false },
+            onPayloadScanned = { payload ->
+                scannerVisible = false
+                cameraPermissionDenied = false
+                onPayloadScanned(payload)
+            },
+        )
+        return
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -177,6 +207,39 @@ private fun PairingScreen(
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(t(R.string.pairing_qr_payload), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(
+                            onClick = {
+                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                    cameraPermissionDenied = false
+                                    scannerVisible = true
+                                } else {
+                                    cameraPermission.launch(Manifest.permission.CAMERA)
+                                }
+                            },
+                            enabled = !state.pairingBusy,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(t(R.string.pairing_scan_action))
+                        }
+                        OutlinedButton(
+                            onClick = onPair,
+                            enabled = !state.pairingBusy,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            if (state.pairingBusy) {
+                                CircularProgressIndicator(strokeWidth = 2.dp)
+                            } else {
+                                Text(t(R.string.pairing_action))
+                            }
+                        }
+                    }
+                    if (cameraPermissionDenied) {
+                        InfoCard(
+                            title = t(R.string.pairing_camera_denied_title),
+                            body = t(R.string.pairing_camera_denied_body),
+                        )
+                    }
                     OutlinedTextField(
                         value = state.pairingText,
                         onValueChange = onPayloadChanged,
@@ -186,17 +249,6 @@ private fun PairingScreen(
                         label = { Text(t(R.string.pairing_payload_label)) },
                         minLines = 5,
                     )
-                    Button(
-                        onClick = onPair,
-                        enabled = !state.pairingBusy,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        if (state.pairingBusy) {
-                            CircularProgressIndicator(strokeWidth = 2.dp)
-                        } else {
-                            Text(t(R.string.pairing_action))
-                        }
-                    }
                 }
             }
         }

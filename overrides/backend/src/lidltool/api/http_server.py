@@ -293,6 +293,10 @@ from lidltool.mobile import (
     upsert_mobile_device,
 )
 from lidltool.mobile.pairing import (
+    DEFAULT_PAIRING_EXPIRES_IN_SECONDS,
+    DEFAULT_TRANSPORT as MOBILE_DEFAULT_TRANSPORT,
+    MAX_PAIRING_EXPIRES_IN_SECONDS,
+    MIN_PAIRING_EXPIRES_IN_SECONDS,
     PROTOCOL_VERSION as MOBILE_PROTOCOL_VERSION,
     complete_pairing_handshake,
     create_pairing_session,
@@ -738,6 +742,8 @@ def _status_code_for_exception(exc: Exception) -> int:
         message = str(exc).lower()
         if "setup required" in message:
             return 503
+        if "mobile sync token" in message:
+            return 401
         if "already running" in message:
             return 409
         if "unauthorized" in message:
@@ -818,6 +824,8 @@ def _error_code_from_message(message: str | None, *, status_code: int) -> str | 
         "invalid field value": "invalid_field_value",
         "invalid json payload": "invalid_json_payload",
         "invalid or expired session token": "invalid_or_expired_session_token",
+        "invalid or expired pairing token": "invalid_or_expired_pairing_token",
+        "invalid mobile sync token": "invalid_mobile_sync_token",
         "invalid related resource reference": "invalid_related_resource_reference",
         "invalid request payload": "invalid_request_payload",
         "invalid source; register source before upload": "invalid_source_for_upload",
@@ -826,6 +834,7 @@ def _error_code_from_message(message: str | None, *, status_code: int) -> str | 
         "missing required field": "missing_required_field",
         "missing retryable sources; no failed or remaining sources to retry": "connector_retryable_sources_missing",
         "missing token signing secret": "missing_token_signing_secret",
+        "mobile sync token required": "mobile_sync_token_required",
         "rate limit exceeded; retry after retry-after seconds": "rate_limited",
         "resource conflict": "resource_conflict",
         "request runtime override(s) are not supported: config": "request_runtime_override_not_supported",
@@ -3808,7 +3817,13 @@ class MobileDeviceRegisterRequest(BaseModel):
 
 class MobilePairingSessionCreateRequest(BaseModel):
     endpoint_url: str | None = None
-    expires_in_seconds: int = Field(default=600, ge=60, le=3600)
+    bridge_endpoint_url: str | None = None
+    expires_in_seconds: int = Field(
+        default=DEFAULT_PAIRING_EXPIRES_IN_SECONDS,
+        ge=MIN_PAIRING_EXPIRES_IN_SECONDS,
+        le=MAX_PAIRING_EXPIRES_IN_SECONDS,
+    )
+    transport: Literal["lan_http"] = MOBILE_DEFAULT_TRANSPORT
 
 
 class MobilePairingHandshakeRequest(BaseModel):
@@ -4764,12 +4779,17 @@ def create_app(
                     session=session,
                     config=context.config,
                 )
-                endpoint_url = (payload.endpoint_url or "").strip() or _default_mobile_endpoint_url(request)
+                endpoint_url = (
+                    (payload.bridge_endpoint_url or "").strip()
+                    or (payload.endpoint_url or "").strip()
+                    or _default_mobile_endpoint_url(request)
+                )
                 result = create_pairing_session(
                     session,
                     endpoint_url=endpoint_url,
                     created_by_user_id=auth_context.user.user_id,
                     expires_in_seconds=payload.expires_in_seconds,
+                    transport=payload.transport,
                 )
             return _response(True, result=result, warnings=[], error=None)
         except Exception as exc:  # noqa: BLE001

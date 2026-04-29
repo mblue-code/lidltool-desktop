@@ -32,6 +32,7 @@ Key planning docs:
 - [docs/mobile-companion-vision.md](/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-companion-vision.md:1)
 - [docs/mobile-native-implementation-plan.md](/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-native-implementation-plan.md:1)
 - [docs/mobile-foundation.md](/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-foundation.md:1)
+- [docs/mobile-local-pairing-security-hardening-plan.md](/Volumes/macminiExtern/projects/lidltool-desktop/docs/mobile-local-pairing-security-hardening-plan.md:1)
 
 ## Local Toolchain
 
@@ -230,6 +231,10 @@ Desktop endpoints:
 - `POST /api/mobile-pair/v1/handshake`: phone exchanges the QR pairing token for a local sync token.
 - `POST /api/mobile-captures/v1`: paired phone uploads a receipt artifact; desktop stores it as a document and queues OCR.
 - `GET /api/mobile-sync/v1/changes?cursor=...`: paired phone pulls capture status, recent transactions, transaction items, and current budget summary.
+- `POST /api/mobile-sync/v1/manual-transactions`: paired phone sends manual transaction entries.
+- `GET /api/mobile-local/v1/health`: temporary bridge health check.
+
+Wi-Fi pairing now uses a temporary Electron-owned bridge. Open it from desktop Settings, confirm the risk modal, then scan the QR payload. The bridge endpoint is the phone-persisted `endpoint_url`; USB/ADB deep-link testing can still inject the same raw JSON or `lidltool-pair://<url-encoded-json>` payload without changing the protocol.
 
 Validation commands:
 - Android: `cd /Volumes/macminiExtern/projects/lidltool-desktop/vendor/mobile/android-harness && ./gradlew :app:assembleDebug`

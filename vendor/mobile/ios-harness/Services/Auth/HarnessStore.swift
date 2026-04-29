@@ -104,8 +104,10 @@ final class HarnessStore: ObservableObject {
     }
 
     func pairFromPayloadText(_ text: String) async {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else {
+        let normalizedPayload: String
+        do {
+            normalizedPayload = try pairingJSONPayload(from: text)
+        } catch {
             state.message = AppMessage(text: t("mobile.error.pairingPayload"))
             return
         }
@@ -115,6 +117,9 @@ final class HarnessStore: ObservableObject {
 
         do {
             let decoder = JSONDecoder()
+            guard let data = normalizedPayload.data(using: .utf8) else {
+                throw APIError(message: t("mobile.error.pairingPayload"), code: nil, statusCode: nil)
+            }
             let payload = try decoder.decode(MobilePairingPayload.self, from: data)
             guard payload.protocolVersion == 1 else {
                 throw APIError(message: "Unsupported pairing protocol version \(payload.protocolVersion).", code: nil, statusCode: nil)
@@ -151,6 +156,25 @@ final class HarnessStore: ObservableObject {
         }
 
         state.pairingBusy = false
+    }
+
+    private func pairingJSONPayload(from text: String) throws -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw APIError(message: t("mobile.error.pairingPayload"), code: nil, statusCode: nil)
+        }
+
+        let scheme = "lidltool-pair://"
+        if trimmed.lowercased().hasPrefix(scheme) {
+            let encoded = String(trimmed.dropFirst(scheme.count))
+            guard let decoded = encoded.removingPercentEncoding?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !decoded.isEmpty else {
+                throw APIError(message: t("mobile.error.pairingPayload"), code: nil, statusCode: nil)
+            }
+            return decoded
+        }
+
+        return trimmed
     }
 
     func syncNow() async {

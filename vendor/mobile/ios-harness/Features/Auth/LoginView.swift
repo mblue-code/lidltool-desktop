@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LoginView: View {
     @EnvironmentObject private var store: HarnessStore
+    @State private var showingQRScanner = false
 
     var body: some View {
         ScrollView {
@@ -23,6 +24,16 @@ struct LoginView: View {
                     bodyText: store.t("mobile.login.noCloud.body"),
                     tint: HarnessColors.warningTint
                 )
+
+                Button {
+                    showingQRScanner = true
+                } label: {
+                    Label(store.t("mobile.login.scanQR"), systemImage: "qrcode.viewfinder")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(HarnessColors.primary)
+                .disabled(store.state.pairingBusy)
 
                 VStack(alignment: .leading, spacing: 12) {
                     EyebrowLabel(text: store.t("mobile.login.payload"))
@@ -59,5 +70,11 @@ struct LoginView: View {
             .padding(20)
         }
         .background(Color.clear)
+        .sheet(isPresented: $showingQRScanner) {
+            QRScannerView { scannedPayload in
+                showingQRScanner = false
+                Task { await store.pairFromPayloadText(scannedPayload) }
+            }
+        }
     }
 }

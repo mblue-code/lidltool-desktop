@@ -8,6 +8,7 @@
 "tab.ocr" = "OCR";
 
 "common.close" = "Schließen";
+"common.cancel" = "Abbrechen";
 "common.na" = "k. A.";
 "common.unknown" = "Unbekannt";
 "common.pending" = "Ausstehend";
@@ -200,9 +201,17 @@
 "mobile.action.importing" = "Importiert";
 "mobile.login.subtitle" = "Dieser Begleiter speichert Daten lokal und synchronisiert nur mit dem gekoppelten Desktop, während beide Apps geöffnet und erreichbar sind.";
 "mobile.login.noCloud.title" = "Kein Backend-Konto";
-"mobile.login.noCloud.body" = "Öffnen Sie LidlTool Desktop, wählen Sie Mobil koppeln und fügen Sie den QR-Payload hier ein. Das iPhone speichert das Sync-Token im Schlüsselbund und die Lesemodelle im privaten App-Speicher.";
+"mobile.login.noCloud.body" = "Öffnen Sie LidlTool Desktop, wählen Sie Mobil koppeln und scannen Sie den QR-Code oder fügen Sie den Payload hier ein. Das iPhone speichert das Sync-Token im Schlüsselbund und die Lesemodelle im privaten App-Speicher.";
 "mobile.login.payload" = "QR-Payload Version 1";
 "mobile.login.pairPhone" = "Dieses iPhone koppeln";
+"mobile.login.scanQR" = "QR scannen";
+"mobile.login.scanHint" = "Richten Sie den Desktop-Kopplungs-QR-Code im Rahmen aus.";
+"mobile.login.manualFallback" = "Manuell einfügen";
+"mobile.login.openSettings" = "Einstellungen öffnen";
+"mobile.login.cameraDenied.title" = "Kamerazugriff ist deaktiviert";
+"mobile.login.cameraDenied.body" = "Aktivieren Sie den Kamerazugriff für LidlTool Harness, um den Kopplungs-QR-Code zu scannen, oder schließen Sie den Scanner und fügen Sie den Payload manuell ein.";
+"mobile.login.cameraUnavailable.title" = "Kamera nicht verfügbar";
+"mobile.login.cameraUnavailable.body" = "Dieses Gerät kann die Kamera nicht zum QR-Scannen öffnen. Sie können den Desktop-Kopplungs-Payload weiterhin manuell einfügen.";
 "mobile.overview.title" = "Lokaler Finanzüberblick";
 "mobile.overview.description" = "Synchronisierte strukturierte Daten, Erfassungswarteschlange und Prüfstatus auf diesem Telefon.";
 "mobile.overview.syncedSpend" = "Synchronisierte Ausgaben";

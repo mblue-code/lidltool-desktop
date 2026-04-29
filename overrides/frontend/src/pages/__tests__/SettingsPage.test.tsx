@@ -55,8 +55,10 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Anbindungsverwaltung")).toBeInTheDocument();
     expect(screen.getByText("KI-Assistent")).toBeInTheDocument();
     expect(screen.getByText("Benutzer und Zugriff")).toBeInTheDocument();
+    expect(screen.getByText("Mobile Kopplung")).toBeInTheDocument();
     expect(screen.getByText("Darstellung")).toBeInTheDocument();
     expect(screen.getByText("Desktop-Konfiguration")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Öffnen" })).toHaveLength(5);
+    expect(screen.getAllByRole("link", { name: "Öffnen" })).toHaveLength(6);
+    expect(screen.getByText("Telefon koppeln")).toBeInTheDocument();
   });
 });

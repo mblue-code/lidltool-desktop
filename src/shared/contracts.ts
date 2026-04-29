@@ -92,6 +92,7 @@ export interface MobileBridgeRouteDecision {
   path: string;
   bodyLimitBytes: number;
 }
+
 export type DesktopRuntimeEnvironment = "development" | "packaged";
 export type DesktopRuntimeAssetStatus = "ready" | "missing" | "lookup";
 export type DesktopBackendCommandSource = "env_override" | "bundled" | "managed_dev" | "path_lookup";

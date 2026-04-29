@@ -13,6 +13,10 @@ from sqlalchemy.orm import Session
 from lidltool.db.models import MobilePairedDevice, MobilePairingSession
 
 PROTOCOL_VERSION = 1
+DEFAULT_PAIRING_EXPIRES_IN_SECONDS = 600
+MIN_PAIRING_EXPIRES_IN_SECONDS = 60
+MAX_PAIRING_EXPIRES_IN_SECONDS = 600
+DEFAULT_TRANSPORT = "lan_http"
 
 
 def token_hash(token: str) -> str:
@@ -38,11 +42,18 @@ def create_pairing_session(
     *,
     endpoint_url: str,
     created_by_user_id: str | None,
-    expires_in_seconds: int = 600,
+    expires_in_seconds: int = DEFAULT_PAIRING_EXPIRES_IN_SECONDS,
+    transport: str = DEFAULT_TRANSPORT,
 ) -> dict[str, Any]:
     pairing_token = secrets.token_urlsafe(32)
     fingerprint = hashlib.sha256(f"{desktop_id()}:{pairing_token}".encode("utf-8")).hexdigest()[:32]
     now = datetime.now(tz=UTC)
+    expires_at = now + timedelta(
+        seconds=max(
+            MIN_PAIRING_EXPIRES_IN_SECONDS,
+            min(expires_in_seconds, MAX_PAIRING_EXPIRES_IN_SECONDS),
+        )
+    )
     record = MobilePairingSession(
         desktop_id=desktop_id(),
         desktop_name=desktop_name(),
@@ -51,7 +62,7 @@ def create_pairing_session(
         public_key_fingerprint=fingerprint,
         status="pending",
         created_by_user_id=created_by_user_id,
-        expires_at=now + timedelta(seconds=max(60, min(expires_in_seconds, 3600))),
+        expires_at=expires_at,
         created_at=now,
         updated_at=now,
     )
@@ -65,6 +76,8 @@ def create_pairing_session(
         "pairing_token": pairing_token,
         "public_key_fingerprint": record.public_key_fingerprint,
         "expires_at": record.expires_at.isoformat(),
+        "transport": transport,
+        "listener_expires_at": record.expires_at.isoformat(),
     }
     return {
         "session_id": record.session_id,
@@ -72,6 +85,7 @@ def create_pairing_session(
         "payload": payload,
         "qr_payload": payload,
         "expires_at": record.expires_at.isoformat(),
+        "listener_expires_at": record.expires_at.isoformat(),
     }
 
 
@@ -146,6 +160,8 @@ def complete_pairing_handshake(
             "issued_at": now.isoformat(),
             "expires_at": _as_utc(pairing.expires_at).isoformat(),
             "protocol_version": PROTOCOL_VERSION,
+            "device_id": existing.device_id,
+            "transport": DEFAULT_TRANSPORT,
         },
         sync_token,
     )
