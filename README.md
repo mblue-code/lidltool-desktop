@@ -618,7 +618,8 @@ should be saved as CSV until the side repo ships a local backend spreadsheet par
 Sprints 4 through 9 add constrained YOLO Auto settings, PDF/image intake as review proposals, recurring bill
 candidates, batch review actions, safe undo for agent-created transactions, and final hardening checks. Review First
 remains the default approval mode; YOLO Auto is visible in `/ingestion` and only commits high-confidence safe actions.
-See `docs/ingestion-agent-sprints-4-to-9.md`.
+The model-facing agent surface is an allowlisted ingestion tool layer, not arbitrary Python, shell, SQL, filesystem, or
+direct ledger write access. See `docs/ingestion-agent-sprints-4-to-9.md`.
 
 Run the real desktop Electron E2E smoke suite:
 

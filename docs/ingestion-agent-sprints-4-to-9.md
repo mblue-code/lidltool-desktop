@@ -42,6 +42,8 @@ This note records the remaining implementation sprints for the desktop ingestion
 
 - Fresh install database creation is covered by migration-backed backend tests.
 - Proposal payloads remain strict Pydantic contracts with `extra="forbid"`.
+- Model-facing freedom is constrained to `IngestionAgentToolRunner`, which allowlists ingestion tools for statement previews, transaction search, match search, proposal creation/update, row classification, and summaries.
+- The model does not receive arbitrary Python, shell, filesystem, SQL, delete, overwrite, or direct ledger commit tools.
 - Runtime/build paths remain local to this side repo.
 - Final verification should run:
   - `npm run typecheck`
