@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from lidltool.config import AppConfig
 from lidltool.db.engine import session_scope
 from lidltool.db.models import Transaction
 from lidltool.ingestion_agent.schemas import validate_proposal_payload
@@ -15,6 +16,7 @@ from lidltool.ingestion_agent.service import IngestionAgentService, _parse_state
 
 IngestionToolName = Literal[
     "parse_statement_preview",
+    "extract_document_proposals",
     "classify_statement_rows",
     "search_transactions",
     "search_match_candidates",
@@ -42,6 +44,12 @@ class ClassifyStatementRowsInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     session_id: str = Field(min_length=1)
+
+
+class ExtractDocumentProposalsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_id: str = Field(min_length=1)
 
 
 class SearchTransactionsInput(BaseModel):
@@ -86,6 +94,7 @@ class RenderIngestionSummaryInput(BaseModel):
 
 ToolInput = (
     ParseStatementPreviewInput
+    | ExtractDocumentProposalsInput
     | ClassifyStatementRowsInput
     | SearchTransactionsInput
     | SearchMatchCandidatesInput
@@ -96,6 +105,7 @@ ToolInput = (
 
 TOOL_INPUT_ADAPTERS: dict[str, TypeAdapter[Any]] = {
     "parse_statement_preview": TypeAdapter(ParseStatementPreviewInput),
+    "extract_document_proposals": TypeAdapter(ExtractDocumentProposalsInput),
     "classify_statement_rows": TypeAdapter(ClassifyStatementRowsInput),
     "search_transactions": TypeAdapter(SearchTransactionsInput),
     "search_match_candidates": TypeAdapter(SearchMatchCandidatesInput),
@@ -113,9 +123,9 @@ class IngestionAgentToolRunner:
     direct canonical ledger writes.
     """
 
-    def __init__(self, *, session_factory: sessionmaker[Session]) -> None:
+    def __init__(self, *, session_factory: sessionmaker[Session], config: AppConfig | None = None) -> None:
         self._session_factory = session_factory
-        self._service = IngestionAgentService(session_factory=session_factory)
+        self._service = IngestionAgentService(session_factory=session_factory, config=config)
 
     @property
     def tool_names(self) -> tuple[str, ...]:
@@ -134,6 +144,12 @@ class IngestionAgentToolRunner:
         parsed = adapter.validate_python(arguments)
         if isinstance(parsed, ParseStatementPreviewInput):
             return self._parse_statement_preview(parsed)
+        if isinstance(parsed, ExtractDocumentProposalsInput):
+            return self._service.parse_file(
+                file_id=parsed.file_id,
+                user_id=context.user_id,
+                shared_group_id=context.shared_group_id,
+            )
         if isinstance(parsed, ClassifyStatementRowsInput):
             return self._service.classify_rows(
                 session_id=parsed.session_id,
@@ -191,6 +207,7 @@ class IngestionAgentToolRunner:
                     "description": row.get("description"),
                     "amount_cents": row.get("amount_cents"),
                     "currency": row.get("currency"),
+                    "raw_json": row.get("raw_json"),
                 }
                 for row in visible_rows
             ],

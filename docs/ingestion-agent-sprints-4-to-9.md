@@ -6,13 +6,16 @@ This note records the remaining implementation sprints for the desktop ingestion
 
 - Added persisted ingestion-agent settings at `GET/POST /api/v1/settings/ingestion-agent`.
 - Default approval mode remains `review_first`.
-- `yolo_auto` can auto-approve and auto-commit only safe high-confidence actions:
-  - new transactions above the create threshold and without a high-scoring existing match
-  - already-covered/link proposals above the deterministic link threshold
-  - ignore proposals above the ignore threshold
+- The UI labels the default mode as Agent Review: the agent interprets and matches, but the user approves and commits.
+- `yolo_auto` auto-approves and auto-commits complete agent proposals:
+  - new transactions with required fields and without a high-scoring existing match
+  - cashflow entries with required fields
+  - already-covered/link proposals
+  - ignore proposals
 - Recurring candidates are never auto-committed.
+- Incomplete rows and high-confidence existing matches that were not converted to already-covered proposals stay in review instead of creating duplicates.
 - Auto-approval and commit paths write audit events.
-- `/ingestion` shows a persistent mode indicator and a visible toggle.
+- `/ingestion` shows an explicit mode panel and a visible toggle.
 
 ## Sprint 5: PDF, Image, Photo, and Screenshot Intake
 

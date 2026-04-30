@@ -97,7 +97,7 @@ describe("AISettingsPage", () => {
       model: "grok-3-mini",
       api_key_set: true,
       oauth_provider: "openai-codex",
-      oauth_model: "gpt-5.4",
+      oauth_model: "gpt-5.4-mini",
       remote_enabled: true,
       local_runtime_enabled: true,
       local_runtime_ready: true,
@@ -142,7 +142,7 @@ describe("AISettingsPage", () => {
       expect(document.getElementById("oauth-chat-model")).not.toBeNull();
     });
 
-    expect((document.getElementById("oauth-chat-model") as HTMLSelectElement).value).toBe("gpt-5.4");
+    expect((document.getElementById("oauth-chat-model") as HTMLSelectElement).value).toBe("gpt-5.4-mini");
     expect((document.getElementById("categorization-provider") as HTMLSelectElement).value).toBe("api_compatible");
     expect((document.getElementById("categorization-api-base-url") as HTMLInputElement).value).toBe(
       "https://categorization.example/v1"

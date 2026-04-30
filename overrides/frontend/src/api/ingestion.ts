@@ -93,6 +93,7 @@ const StatementRowSchema = z.object({
   description: z.string().nullable(),
   amount_cents: z.number().nullable(),
   currency: z.string(),
+  raw_json: z.record(z.string(), z.unknown()).nullable().optional(),
   status: z.string(),
   created_at: z.string(),
   updated_at: z.string()
@@ -111,6 +112,7 @@ const IngestionAgentSettingsSchema = z.object({
   auto_link_confidence_threshold: z.number(),
   auto_ignore_confidence_threshold: z.number(),
   auto_create_recurring_enabled: z.boolean(),
+  personal_system_prompt: z.string(),
   updated_at: z.string()
 });
 
@@ -125,6 +127,9 @@ export type CreateTransactionProposalPayload = {
   purchased_at: string;
   merchant_name: string;
   total_gross_cents: number;
+  direction?: "outflow" | "inflow";
+  ledger_scope?: "household" | "investment" | "internal" | "unknown";
+  dashboard_include?: boolean;
   currency: string;
   source_id: string;
   source_display_name: string;
@@ -151,6 +156,21 @@ export async function createIngestionSession(body: {
   return apiClient.post("/api/v1/ingestion/sessions", IngestionSessionSchema, body);
 }
 
+export async function fetchIngestionSession(sessionId: string): Promise<IngestionSession> {
+  return apiClient.get(`/api/v1/ingestion/sessions/${sessionId}`, IngestionSessionSchema);
+}
+
+export async function updateIngestionSession(
+  sessionId: string,
+  body: Partial<Pick<IngestionSession, "title" | "status" | "approval_mode">>
+): Promise<IngestionSession> {
+  return apiClient.patch(`/api/v1/ingestion/sessions/${sessionId}`, IngestionSessionSchema, body);
+}
+
+export async function archiveIngestionSession(sessionId: string): Promise<IngestionSession> {
+  return apiClient.delete(`/api/v1/ingestion/sessions/${sessionId}`, IngestionSessionSchema);
+}
+
 export async function fetchIngestionAgentSettings(): Promise<IngestionAgentSettings> {
   return apiClient.get("/api/v1/settings/ingestion-agent", IngestionAgentSettingsSchema);
 }
@@ -172,9 +192,16 @@ export async function fetchIngestionProposals(sessionId: string): Promise<z.infe
   return apiClient.get(`/api/v1/ingestion/sessions/${sessionId}/proposals`, IngestionProposalListSchema);
 }
 
-export async function uploadIngestionFile(sessionId: string, file: File): Promise<z.infer<typeof IngestionFileSchema>> {
+export async function uploadIngestionFile(
+  sessionId: string,
+  file: File,
+  contextText?: string
+): Promise<z.infer<typeof IngestionFileSchema>> {
   const formData = new FormData();
   formData.set("file", file);
+  if (contextText?.trim()) {
+    formData.set("context_text", contextText.trim());
+  }
   return apiClient.postForm(`/api/v1/ingestion/sessions/${sessionId}/files`, IngestionFileSchema, formData);
 }
 

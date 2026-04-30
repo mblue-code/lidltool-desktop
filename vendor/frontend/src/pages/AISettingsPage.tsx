@@ -73,8 +73,8 @@ const CATEGORIZATION_PROVIDER_OPTIONS = [
 ] as const;
 
 const CODEX_SUBSCRIPTION_MODELS = [
-  { id: "gpt-5.4", label: "GPT-5.4" },
   { id: "gpt-5.4-mini", label: "GPT-5.4-Mini" },
+  { id: "gpt-5.4", label: "GPT-5.4" },
   { id: "gpt-5.3-codex", label: "GPT-5.3-Codex" },
   { id: "gpt-5.3-codex-spark", label: "GPT-5.3-Codex-Spark" },
   { id: "gpt-5.2", label: "GPT-5.2" }
@@ -156,7 +156,7 @@ export function AISettingsPage() {
 
   const [oauthStatus, setOauthStatus] = useState<"idle" | "pending" | "connected" | "error">("idle");
   const [oauthError, setOauthError] = useState<string | null>(null);
-  const [oauthChatModel, setOauthChatModel] = useState("gpt-5.4");
+  const [oauthChatModel, setOauthChatModel] = useState("gpt-5.4-mini");
   const [oauthChatSaveStatus, setOauthChatSaveStatus] = useState<{ ok: boolean; error: string | null } | null>(
     null
   );
@@ -192,7 +192,7 @@ export function AISettingsPage() {
           ? "gpt-5.4-mini"
           : inferApiCategorizationModel(settings.categorization_base_url || settings.base_url, settings.model))
     );
-    setOauthChatModel(settings.oauth_model || "gpt-5.4");
+    setOauthChatModel(settings.oauth_model || "gpt-5.4-mini");
     setOauthStatus(settings.oauth_connected ? "connected" : "idle");
     setInitialized(true);
   }, [initialized, settingsQuery.data]);

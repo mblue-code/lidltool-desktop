@@ -36,6 +36,9 @@ class CreateTransactionPayload(BaseModel):
     purchased_at: datetime
     merchant_name: str = Field(min_length=1)
     total_gross_cents: int = Field(ge=0)
+    direction: Literal["outflow", "inflow"] = "outflow"
+    ledger_scope: Literal["household", "investment", "internal", "unknown"] = "household"
+    dashboard_include: bool = True
     currency: str = Field(default="EUR", min_length=3, max_length=8)
     source_id: str = Field(default="agent_ingest", min_length=1)
     source_display_name: str = Field(default="Agent Ingestion", min_length=1)
@@ -67,6 +70,15 @@ class NeedsReviewPayload(BaseModel):
     reason: str = Field(min_length=1)
     evidence: str | None = None
     confidence: float = Field(default=0, ge=0, le=1)
+    summary: str | None = None
+    raw_cells: list[str] = Field(default_factory=list)
+    row_index: int | None = None
+    direction: Literal["outflow", "inflow"] | None = None
+    ledger_scope: Literal["household", "investment", "internal", "unknown"] | None = None
+    amount_cents: int | None = None
+    currency: str | None = None
+    counterparty: str | None = None
+    occurred_at: str | None = None
 
 
 class IgnorePayload(BaseModel):
@@ -106,6 +118,8 @@ class CreateCashflowEntryPayload(BaseModel):
     type: Literal["create_cashflow_entry"] = "create_cashflow_entry"
     effective_date: date
     direction: Literal["inflow", "outflow"] = "outflow"
+    ledger_scope: Literal["household", "investment", "internal", "unknown"] = "household"
+    dashboard_include: bool = True
     category: str = Field(default="uncategorized", min_length=1)
     amount_cents: int = Field(ge=0)
     currency: str = Field(default="EUR", min_length=3, max_length=8)

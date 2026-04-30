@@ -40,6 +40,7 @@ def test_tool_runner_exposes_only_constrained_ingestion_tools(tmp_path: Path) ->
     runner = IngestionAgentToolRunner(session_factory=sessions)
     context = IngestionToolContext(user_id=user_id, actor_id=user_id)
 
+    assert "extract_document_proposals" in runner.tool_names
     assert "commit_ingestion_proposal" not in runner.tool_names
     assert "python" not in runner.tool_names
     with pytest.raises(ValueError, match="unsupported ingestion tool"):
@@ -67,8 +68,11 @@ def test_tool_runner_can_parse_preview_without_staging_or_writing(tmp_path: Path
         context=IngestionToolContext(user_id=user_id, actor_id=user_id),
     )
 
-    assert preview["count"] == 1
-    assert preview["items"][0]["payee"] == "Bakery"
+    assert preview["count"] == 2
+    assert preview["items"][0]["raw_json"]["cells"] == ["Date", "Payee", "Amount", "Currency"]
+    assert preview["items"][1]["raw_json"]["cells"] == ["2026-04-30", "Bakery", "-4.20", "EUR"]
+    assert preview["items"][1]["payee"] is None
+    assert preview["items"][1]["amount_cents"] is None
     with session_scope(sessions) as session:
         assert session.scalar(select(func.count(Transaction.id))) == 0
         assert session.scalar(select(func.count(IngestionProposal.id))) == 0

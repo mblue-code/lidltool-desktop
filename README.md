@@ -615,9 +615,11 @@ reviewable proposals, and matched against existing connector transactions before
 should be saved as CSV until the side repo ships a local backend spreadsheet parser. See
 `docs/ingestion-agent-sprint-3.md`.
 
-Sprints 4 through 9 add constrained YOLO Auto settings, PDF/image intake as review proposals, recurring bill
-candidates, batch review actions, safe undo for agent-created transactions, and final hardening checks. Review First
-remains the default approval mode; YOLO Auto is visible in `/ingestion` and only commits high-confidence safe actions.
+Sprints 4 through 9 add explicit Agent Review/YOLO Auto modes, PDF/image intake as review proposals, recurring bill
+candidates, batch review actions, safe undo for agent-created transactions, and final hardening checks. Agent Review
+remains the default approval mode: the agent interprets and matches, then the user approves and commits. YOLO Auto is
+visible in `/ingestion` and commits complete agent proposals automatically while still leaving incomplete rows and
+recurring bill candidates in review and avoiding duplicate writes against high-confidence existing matches.
 The model-facing agent surface is an allowlisted ingestion tool layer, not arbitrary Python, shell, SQL, filesystem, or
 direct ledger write access. See `docs/ingestion-agent-sprints-4-to-9.md`.
 

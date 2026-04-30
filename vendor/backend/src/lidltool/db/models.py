@@ -582,6 +582,7 @@ class IngestionAgentSettings(Base):
     auto_link_confidence_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.98)
     auto_ignore_confidence_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.98)
     auto_create_recurring_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    personal_system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -735,6 +736,9 @@ class Transaction(Base):
     purchased_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     merchant_name: Mapped[str | None] = mapped_column(String, nullable=True)
     total_gross_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False, default="outflow", index=True)
+    ledger_scope: Mapped[str] = mapped_column(String(32), nullable=False, default="household", index=True)
+    dashboard_include: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="EUR")
     discount_total_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)

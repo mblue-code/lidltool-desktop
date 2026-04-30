@@ -3343,18 +3343,18 @@ def _resolve_ai_bearer_token(config: AppConfig, config_path: Path | None = None)
 
 
 DEFAULT_LOCAL_CHAT_MODEL = "qwen3.5:0.8b"
-DEFAULT_CHATGPT_CHAT_MODEL = "gpt-5.4"
+DEFAULT_CHATGPT_CHAT_MODEL = "gpt-5.4-mini"
 DEFAULT_CATEGORIZATION_OAUTH_MODEL = "gpt-5.4-mini"
 CHATGPT_OAUTH_CHAT_MODELS: tuple[tuple[str, str, str], ...] = (
     (
-        "gpt-5.4",
-        "GPT-5.4",
-        "Current general ChatGPT/Codex subscription model.",
-    ),
-    (
         "gpt-5.4-mini",
         "GPT-5.4-Mini",
-        "Smaller and cheaper ChatGPT/Codex subscription model.",
+        "Default ChatGPT/Codex subscription model for Outlays: capable, fast, and cost-conscious.",
+    ),
+    (
+        "gpt-5.4",
+        "GPT-5.4",
+        "Larger ChatGPT/Codex subscription model. Use only when a mini model is insufficient.",
     ),
     (
         "gpt-5.3-codex",
@@ -3391,7 +3391,11 @@ def _configured_local_chat_model(app_config: AppConfig) -> str:
 
 def _configured_oauth_chat_model(app_config: AppConfig) -> str:
     configured = (getattr(app_config, "ai_oauth_model", None) or "").strip()
-    return configured or DEFAULT_CHATGPT_CHAT_MODEL
+    if not configured:
+        return DEFAULT_CHATGPT_CHAT_MODEL
+    if app_config.ai_oauth_provider == "openai-codex" and "mini" not in configured.casefold():
+        return DEFAULT_CHATGPT_CHAT_MODEL
+    return configured
 
 
 def _configured_api_chat_model(app_config: AppConfig) -> str | None:
@@ -3734,6 +3738,7 @@ class IngestionSessionCreateRequest(BaseModel):
 class IngestionSessionUpdateRequest(BaseModel):
     title: str | None = None
     status: str | None = None
+    approval_mode: str | None = None
 
 
 class IngestionMessageRequest(BaseModel):
@@ -3762,6 +3767,7 @@ class IngestionAgentSettingsUpdateRequest(BaseModel):
     auto_link_confidence_threshold: float | None = None
     auto_ignore_confidence_threshold: float | None = None
     auto_create_recurring_enabled: bool | None = None
+    personal_system_prompt: str | None = None
 
 
 class IngestionProposalBatchRequest(BaseModel):
@@ -6564,6 +6570,18 @@ def create_app(
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
+    def _resolve_ingestion_request_scope(
+        *,
+        request: Request,
+        app_config: AppConfig,
+        sessions: sessionmaker[Session],
+        scope: str,
+    ) -> tuple[str, str | None]:
+        with session_scope(sessions) as session:
+            current_user = _resolve_request_user(request=request, session=session, config=app_config)
+            visibility = _visibility_for_scope(current_user, scope)
+            return current_user.user_id, visibility.shared_group_id
+
     @app.post("/api/v1/ingestion/sessions")
     def create_ingestion_session(
         request: Request,
@@ -6575,13 +6593,16 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
-            service = IngestionAgentService(session_factory=sessions)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
+            service = IngestionAgentService(session_factory=sessions, config=app_config)
             result = service.create_session(
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
                 title=payload.title,
                 input_kind=payload.input_kind,
                 approval_mode=payload.approval_mode,
@@ -6597,13 +6618,16 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
-            service = IngestionAgentService(session_factory=sessions)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
+            service = IngestionAgentService(session_factory=sessions, config=app_config)
             result = service.get_settings(
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -6620,13 +6644,16 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
-            service = IngestionAgentService(session_factory=sessions)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
+            service = IngestionAgentService(session_factory=sessions, config=app_config)
             result = service.update_settings(
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
                 payload=payload.model_dump(exclude_none=True),
             )
             return _response(True, result=result, warnings=warnings, error=None)
@@ -6640,13 +6667,16 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
-            service = IngestionAgentService(session_factory=sessions)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
+            service = IngestionAgentService(session_factory=sessions, config=app_config)
             result = service.list_sessions(
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -6659,14 +6689,17 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.get_session(
                 session_id=session_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -6684,14 +6717,17 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.update_session(
                 session_id=session_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
                 payload=payload.model_dump(exclude_none=True),
             )
             return _response(True, result=result, warnings=warnings, error=None)
@@ -6705,14 +6741,17 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.archive_session(
                 session_id=session_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -6730,16 +6769,19 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.create_message_proposals(
                 session_id=session_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
                 message=payload.message,
-                actor_id=current_user.user_id,
+                actor_id=current_user_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -6752,14 +6794,17 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.get_session(
                 session_id=session_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -6772,14 +6817,17 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.list_proposals(
                 session_id=session_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -6790,6 +6838,7 @@ def create_app(
         request: Request,
         session_id: str,
         file: UploadFile = File(...),
+        context_text: str | None = Form(None),
         scope: str = "personal",
     ) -> Any:
         try:
@@ -6797,18 +6846,22 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             content = await file.read()
-            service = IngestionAgentService(session_factory=sessions)
+            service = IngestionAgentService(session_factory=sessions, config=app_config)
             result = service.create_file(
                 session_id=session_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
                 content=content,
                 file_name=file.filename,
                 mime_type=file.content_type,
+                user_context=context_text,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -6821,14 +6874,17 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
-            service = IngestionAgentService(session_factory=sessions)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
+            service = IngestionAgentService(session_factory=sessions, config=app_config)
             result = service.parse_file(
                 file_id=file_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -6846,14 +6902,17 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.parse_pasted_table(
                 session_id=session_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
                 text=payload.text,
             )
             return _response(True, result=result, warnings=warnings, error=None)
@@ -6867,14 +6926,17 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.list_rows(
                 session_id=session_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -6887,15 +6949,18 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
-            service = IngestionAgentService(session_factory=sessions)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
+            service = IngestionAgentService(session_factory=sessions, config=app_config)
             result = service.classify_rows(
                 session_id=session_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
-                actor_id=current_user.user_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
+                actor_id=current_user_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -6913,19 +6978,22 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.create_proposal(
                 session_id=session_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
                 payload=payload.payload,
                 statement_row_id=payload.statement_row_id,
                 explanation=payload.explanation,
                 model_metadata=payload.model_metadata,
-                actor_id=current_user.user_id,
+                actor_id=current_user_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -6943,14 +7011,17 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.update_proposal(
                 proposal_id=proposal_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
                 payload=payload.model_dump(exclude_none=True),
             )
             return _response(True, result=result, warnings=warnings, error=None)
@@ -6964,15 +7035,18 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.approve_proposal(
                 proposal_id=proposal_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
-                actor_id=current_user.user_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
+                actor_id=current_user_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -6985,15 +7059,18 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.reject_proposal(
                 proposal_id=proposal_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
-                actor_id=current_user.user_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
+                actor_id=current_user_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -7010,14 +7087,17 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.refresh_match_candidates(
                 proposal_id=proposal_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -7030,15 +7110,18 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.commit_proposal(
                 proposal_id=proposal_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
-                actor_id=current_user.user_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
+                actor_id=current_user_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -7051,15 +7134,18 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.undo_proposal_commit(
                 proposal_id=proposal_id,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
-                actor_id=current_user.user_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
+                actor_id=current_user_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -7076,15 +7162,18 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.batch_approve_proposals(
                 proposal_ids=payload.proposal_ids,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
-                actor_id=current_user.user_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
+                actor_id=current_user_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -7101,15 +7190,18 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.batch_reject_proposals(
                 proposal_ids=payload.proposal_ids,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
-                actor_id=current_user.user_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
+                actor_id=current_user_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -7126,15 +7218,18 @@ def create_app(
             app_config = context.config
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
-            with session_scope(sessions) as session:
-                current_user = _resolve_request_user(request=request, session=session, config=app_config)
-                visibility = _visibility_for_scope(current_user, scope)
+            current_user_id, shared_group_id = _resolve_ingestion_request_scope(
+                request=request,
+                app_config=app_config,
+                sessions=sessions,
+                scope=scope,
+            )
             service = IngestionAgentService(session_factory=sessions)
             result = service.batch_commit_proposals(
                 proposal_ids=payload.proposal_ids,
-                user_id=current_user.user_id,
-                shared_group_id=visibility.shared_group_id,
-                actor_id=current_user.user_id,
+                user_id=current_user_id,
+                shared_group_id=shared_group_id,
+                actor_id=current_user_id,
             )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
@@ -11685,6 +11780,8 @@ finally:
                 _require_admin_auth_context(request=request, session=session, config=app_config)
 
             normalized_oauth_model = (payload.oauth_model or "").strip() or DEFAULT_CHATGPT_CHAT_MODEL
+            if app_config.ai_oauth_provider == "openai-codex" and "mini" not in normalized_oauth_model.casefold():
+                normalized_oauth_model = DEFAULT_CHATGPT_CHAT_MODEL
             app_config.ai_oauth_model = normalized_oauth_model
             persist_ai_settings(context.config_path, app_config)
             _reload_request_context_config(context)

@@ -57,6 +57,9 @@ class ManualTransactionInput:
     purchased_at: datetime
     merchant_name: str
     total_gross_cents: int
+    direction: str = "outflow"
+    ledger_scope: str = "household"
+    dashboard_include: bool = True
     source_id: str = MANUAL_SOURCE_ID
     source_kind: str = "manual"
     source_display_name: str = "Manual Entries"
@@ -163,6 +166,9 @@ class ManualIngestService:
                 purchased_at=_to_utc(payload.purchased_at),
                 merchant_name=merchant_name,
                 total_gross_cents=payload.total_gross_cents,
+                direction=_normalize_direction(payload.direction),
+                ledger_scope=_normalize_ledger_scope(payload.ledger_scope),
+                dashboard_include=bool(payload.dashboard_include),
                 currency=payload.currency.upper().strip() or "EUR",
                 discount_total_cents=discount_total_cents,
                 confidence=_to_decimal(payload.confidence),
@@ -306,6 +312,16 @@ def _normalize_merchant_name(
     bundle = load_normalization_bundle(session, source=source_id)
     normalized = normalize_merchant_name(merchant_name, bundle)
     return (normalized or merchant_name).strip()
+
+
+def _normalize_direction(value: str | None) -> str:
+    normalized = (value or "outflow").strip().lower()
+    return normalized if normalized in {"outflow", "inflow"} else "outflow"
+
+
+def _normalize_ledger_scope(value: str | None) -> str:
+    normalized = (value or "household").strip().lower()
+    return normalized if normalized in {"household", "investment", "internal", "unknown"} else "unknown"
 
 
 def _ensure_source_account(

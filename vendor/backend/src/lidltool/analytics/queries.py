@@ -253,6 +253,14 @@ def _apply_source_filter(stmt: Any, source_ids: list[str] | None) -> Any:
     return stmt.where(Transaction.source_id.in_(source_ids))
 
 
+def _apply_household_spend_filter(stmt: Any) -> Any:
+    return stmt.where(
+        Transaction.direction == "outflow",
+        Transaction.ledger_scope == "household",
+        Transaction.dashboard_include.is_(True),
+    )
+
+
 def display_merchant_name(source_id: str | None, merchant_name: str | None) -> str:
     raw_name = (merchant_name or "").strip()
     raw_source = (source_id or "").strip()
@@ -549,6 +557,7 @@ def dashboard_totals(
         Transaction.purchased_at >= start,
         Transaction.purchased_at < end,
     )
+    gross_stmt = _apply_household_spend_filter(gross_stmt)
     gross_stmt = _apply_source_filter(gross_stmt, normalized_source_ids)
     gross_stmt = _apply_transaction_visibility(gross_stmt, visibility)
     gross_cents = int(session.execute(gross_stmt).scalar_one())
@@ -560,6 +569,7 @@ def dashboard_totals(
             Transaction.purchased_at < end,
         )
     )
+    discount_stmt = _apply_household_spend_filter(discount_stmt)
     discount_stmt = _apply_source_filter(discount_stmt, normalized_source_ids)
     discount_stmt = _apply_transaction_visibility(discount_stmt, visibility)
     discount_total_cents = int(session.execute(discount_stmt).scalar_one())
@@ -567,6 +577,7 @@ def dashboard_totals(
         Transaction.purchased_at >= start,
         Transaction.purchased_at < end,
     )
+    receipt_count_stmt = _apply_household_spend_filter(receipt_count_stmt)
     receipt_count_stmt = _apply_source_filter(receipt_count_stmt, normalized_source_ids)
     receipt_count_stmt = _apply_transaction_visibility(receipt_count_stmt, visibility)
     receipt_count = int(session.execute(receipt_count_stmt).scalar_one())
@@ -626,6 +637,7 @@ def dashboard_trends(
             func.strftime("%m", Transaction.purchased_at),
         )
     )
+    gross_stmt = _apply_household_spend_filter(gross_stmt)
     gross_stmt = _apply_source_filter(gross_stmt, normalized_source_ids)
     gross_stmt = _apply_transaction_visibility(gross_stmt, visibility)
     saved_stmt = (
@@ -641,6 +653,7 @@ def dashboard_trends(
             func.strftime("%m", Transaction.purchased_at),
         )
     )
+    saved_stmt = _apply_household_spend_filter(saved_stmt)
     saved_stmt = _apply_source_filter(saved_stmt, normalized_source_ids)
     saved_stmt = _apply_transaction_visibility(saved_stmt, visibility)
     gross_rows = session.execute(gross_stmt).all()
@@ -776,6 +789,7 @@ def dashboard_retailer_composition(
             func.coalesce(Source.display_name, Transaction.merchant_name, Transaction.source_id),
         )
     )
+    gross_stmt = _apply_household_spend_filter(gross_stmt)
     gross_stmt = _apply_source_filter(gross_stmt, normalized_source_ids)
     gross_stmt = _apply_transaction_visibility(gross_stmt, visibility)
     gross_rows = session.execute(gross_stmt).all()
@@ -785,6 +799,7 @@ def dashboard_retailer_composition(
         .where(Transaction.purchased_at >= start, Transaction.purchased_at < end)
         .group_by(Transaction.source_id)
     )
+    saved_stmt = _apply_household_spend_filter(saved_stmt)
     saved_stmt = _apply_source_filter(saved_stmt, normalized_source_ids)
     saved_stmt = _apply_transaction_visibility(saved_stmt, visibility)
     saved_rows = session.execute(saved_stmt).all()
@@ -877,6 +892,7 @@ def dashboard_window_totals(
         Transaction.purchased_at >= from_date,
         Transaction.purchased_at < end,
     )
+    stmt = _apply_household_spend_filter(stmt)
     stmt = _apply_source_filter(stmt, normalized_source_ids)
     stmt = _apply_transaction_visibility(stmt, visibility)
     receipt_count, gross_cents, discount_cents = session.execute(stmt).one()
@@ -911,6 +927,7 @@ def dashboard_category_spend_summary(
         .order_by(func.coalesce(func.sum(TransactionItem.line_total_cents), 0).desc())
         .limit(limit)
     )
+    stmt = _apply_household_spend_filter(stmt)
     stmt = _apply_source_filter(stmt, normalized_source_ids)
     stmt = _apply_transaction_visibility(stmt, visibility)
     rows = session.execute(stmt).all()
@@ -970,6 +987,7 @@ def dashboard_merchant_summary(
         .order_by(func.coalesce(func.sum(Transaction.total_gross_cents), 0).desc())
         .limit(limit)
     )
+    stmt = _apply_household_spend_filter(stmt)
     stmt = _apply_source_filter(stmt, normalized_source_ids)
     stmt = _apply_transaction_visibility(stmt, visibility)
     rows = session.execute(stmt).all()
@@ -1281,6 +1299,9 @@ def search_transactions(
             "shared_group_id": receipt.shared_group_id,
             "store_name": receipt.merchant_name,
             "total_gross_cents": receipt.total_gross_cents,
+            "direction": receipt.direction,
+            "ledger_scope": receipt.ledger_scope,
+            "dashboard_include": receipt.dashboard_include,
             "currency": receipt.currency,
             "discount_total_cents": receipt.discount_total_cents,
             "source_transaction_id": receipt.source_transaction_id,
@@ -1398,6 +1419,9 @@ def transaction_detail(
             "purchased_at": transaction.purchased_at.isoformat(),
             "merchant_name": transaction.merchant_name,
             "total_gross_cents": transaction.total_gross_cents,
+            "direction": transaction.direction,
+            "ledger_scope": transaction.ledger_scope,
+            "dashboard_include": transaction.dashboard_include,
             "currency": transaction.currency,
             "discount_total_cents": transaction.discount_total_cents,
             "allocation_mode": _transaction_allocation_mode(transaction, items=items),
