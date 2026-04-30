@@ -35,6 +35,7 @@ const SourcesPage = lazy(() => pageLoaders.sources().then((module) => ({ default
 const ManualImportPage = lazy(() =>
   pageLoaders.manualImport().then((module) => ({ default: module.ManualImportPage }))
 );
+const IngestionPage = lazy(() => pageLoaders.ingestion().then((module) => ({ default: module.IngestionPage })));
 const BudgetPage = lazy(() => pageLoaders.budget().then((module) => ({ default: module.BudgetPage })));
 const BillsPage = lazy(() => pageLoaders.bills().then((module) => ({ default: module.BillsPage })));
 const CashFlowPage = lazy(() => pageLoaders.cashFlow().then((module) => ({ default: module.CashFlowPage })));
@@ -121,6 +122,7 @@ async function bootstrap() {
                     <Route path="connectors" element={<ConnectorsPage />} />
                     <Route path="sources" element={<SourcesPage />} />
                     <Route path="add" element={<ManualImportPage />} />
+                    <Route path="ingestion" element={<IngestionPage />} />
                     <Route path="imports/manual" element={<ManualImportPage />} />
                     <Route path="imports/ocr" element={<DocumentsUploadPage />} />
                     <Route path="budget" element={<BudgetPage />} />

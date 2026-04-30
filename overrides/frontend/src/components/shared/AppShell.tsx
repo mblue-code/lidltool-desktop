@@ -5,6 +5,7 @@ import {
   Activity,
   AlertCircle,
   BellRing,
+  Bot,
   CalendarCheck,
   CheckCircle2,
   Database,
@@ -94,6 +95,7 @@ const PRIMARY_NAV_GROUPS: NavGroup[] = [
     items: [
       { to: "/", labelKey: "nav.item.dashboard", icon: LayoutDashboard },
       { to: "/transactions", labelKey: "nav.item.transactions", icon: ReceiptText },
+      { to: "/ingestion", labelKey: "nav.item.ingestion", icon: Bot },
       { to: "/groceries", labelKey: "nav.item.groceries", icon: Database },
       { to: "/budget", labelKey: "nav.item.budget", icon: Wallet },
       { to: "/bills", labelKey: "nav.item.bills", icon: CalendarCheck },

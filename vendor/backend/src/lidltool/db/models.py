@@ -540,6 +540,157 @@ class IngestionJob(Base):
     source_account: Mapped[SourceAccount | None] = relationship(back_populates="jobs")
 
 
+class IngestionSession(Base):
+    __tablename__ = "ingestion_sessions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"), nullable=True, index=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(String, nullable=False, default="Ingestion session")
+    input_kind: Mapped[str] = mapped_column(String, nullable=False, default="free_text", index=True)
+    approval_mode: Mapped[str] = mapped_column(String, nullable=False, default="review_first")
+    status: Mapped[str] = mapped_column(String, nullable=False, default="draft", index=True)
+    summary_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    files: Mapped[list[IngestionFile]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+    rows: Mapped[list[StatementRow]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+    proposals: Mapped[list[IngestionProposal]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+
+
+class IngestionAgentSettings(Base):
+    __tablename__ = "ingestion_agent_settings"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"), nullable=True, index=True)
+    shared_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("shared_groups.group_id"), nullable=True, index=True
+    )
+    approval_mode: Mapped[str] = mapped_column(String, nullable=False, default="review_first")
+    auto_commit_confidence_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.95)
+    auto_link_confidence_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.98)
+    auto_ignore_confidence_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.98)
+    auto_create_recurring_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class IngestionFile(Base):
+    __tablename__ = "ingestion_files"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("ingestion_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    file_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    mime_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    session: Mapped[IngestionSession] = relationship(back_populates="files")
+    rows: Mapped[list[StatementRow]] = relationship(back_populates="file")
+
+
+class StatementRow(Base):
+    __tablename__ = "statement_rows"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("ingestion_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    file_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ingestion_files.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    row_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    row_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    booked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    payee: Mapped[str | None] = mapped_column(String, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    amount_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="EUR")
+    raw_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="parsed", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    session: Mapped[IngestionSession] = relationship(back_populates="rows")
+    file: Mapped[IngestionFile | None] = relationship(back_populates="rows")
+    proposals: Mapped[list[IngestionProposal]] = relationship(back_populates="statement_row")
+
+
+class IngestionProposal(Base):
+    __tablename__ = "ingestion_proposals"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("ingestion_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    statement_row_id: Mapped[str | None] = mapped_column(
+        ForeignKey("statement_rows.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending_review", index=True)
+    confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
+    payload_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model_metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    commit_result_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    session: Mapped[IngestionSession] = relationship(back_populates="proposals")
+    statement_row: Mapped[StatementRow | None] = relationship(back_populates="proposals")
+    matches: Mapped[list[IngestionProposalMatch]] = relationship(
+        back_populates="proposal", cascade="all, delete-orphan"
+    )
+
+
+class IngestionProposalMatch(Base):
+    __tablename__ = "ingestion_proposal_matches"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    proposal_id: Mapped[str] = mapped_column(
+        ForeignKey("ingestion_proposals.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    transaction_id: Mapped[str] = mapped_column(ForeignKey("transactions.id"), nullable=False, index=True)
+    score: Mapped[Decimal] = mapped_column(Numeric(4, 3), nullable=False)
+    reason_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    selected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    proposal: Mapped[IngestionProposal] = relationship(back_populates="matches")
+    transaction: Mapped[Transaction] = relationship()
+
+
+Index("ix_ingestion_sessions_user_status", IngestionSession.user_id, IngestionSession.status)
+Index("ux_ingestion_agent_settings_scope", IngestionAgentSettings.user_id, IngestionAgentSettings.shared_group_id, unique=True)
+Index("ix_ingestion_files_session_sha", IngestionFile.session_id, IngestionFile.sha256)
+Index("ux_statement_rows_session_hash", StatementRow.session_id, StatementRow.row_hash, unique=True)
+Index("ix_ingestion_proposals_session_status", IngestionProposal.session_id, IngestionProposal.status)
+Index("ix_ingestion_proposals_session_type", IngestionProposal.session_id, IngestionProposal.type)
+
+
 class ConnectorPayloadQuarantine(Base):
     __tablename__ = "connector_payload_quarantine"
 

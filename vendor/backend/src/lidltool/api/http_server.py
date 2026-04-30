@@ -285,6 +285,7 @@ from lidltool.ingest.manual_ingest import (
     ManualItemInput,
     ManualTransactionInput,
 )
+from lidltool.ingestion_agent import IngestionAgentService
 from lidltool.ingest.ocr_source import OCR_SOURCE_ID, ensure_ocr_source
 from lidltool.ingest.overrides import OverrideService
 from lidltool.ops import backup_database
@@ -3724,6 +3725,49 @@ class ManualTransactionCreateRequest(BaseModel):
     reason: str | None = None
 
 
+class IngestionSessionCreateRequest(BaseModel):
+    title: str | None = None
+    input_kind: str = "free_text"
+    approval_mode: Literal["review_first", "yolo_auto"] = "review_first"
+
+
+class IngestionSessionUpdateRequest(BaseModel):
+    title: str | None = None
+    status: str | None = None
+
+
+class IngestionMessageRequest(BaseModel):
+    message: str
+
+
+class IngestionProposalCreateRequest(BaseModel):
+    statement_row_id: str | None = None
+    payload: dict[str, Any]
+    explanation: str | None = None
+    model_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class IngestionProposalUpdateRequest(BaseModel):
+    payload: dict[str, Any] | None = None
+    explanation: str | None = None
+
+
+class IngestionPastedTableRequest(BaseModel):
+    text: str
+
+
+class IngestionAgentSettingsUpdateRequest(BaseModel):
+    approval_mode: Literal["review_first", "yolo_auto"] | None = None
+    auto_commit_confidence_threshold: float | None = None
+    auto_link_confidence_threshold: float | None = None
+    auto_ignore_confidence_threshold: float | None = None
+    auto_create_recurring_enabled: bool | None = None
+
+
+class IngestionProposalBatchRequest(BaseModel):
+    proposal_ids: list[str]
+
+
 class AutomationRuleCreateRequest(BaseModel):
     name: str
     rule_type: str
@@ -6517,6 +6561,582 @@ def create_app(
                 )
             create_result["transaction"] = details["transaction"] if details else None
             return _response(True, result=create_result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/sessions")
+    def create_ingestion_session(
+        request: Request,
+        payload: IngestionSessionCreateRequest,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.create_session(
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                title=payload.title,
+                input_kind=payload.input_kind,
+                approval_mode=payload.approval_mode,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/settings/ingestion-agent")
+    def get_ingestion_agent_settings(request: Request, scope: str = "personal") -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.get_settings(
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/settings/ingestion-agent")
+    def update_ingestion_agent_settings(
+        request: Request,
+        payload: IngestionAgentSettingsUpdateRequest,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.update_settings(
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                payload=payload.model_dump(exclude_none=True),
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/ingestion/sessions")
+    def list_ingestion_sessions(request: Request, scope: str = "personal") -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.list_sessions(
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/ingestion/sessions/{session_id}")
+    def get_ingestion_session(request: Request, session_id: str, scope: str = "personal") -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.get_session(
+                session_id=session_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.patch("/api/v1/ingestion/sessions/{session_id}")
+    def update_ingestion_session(
+        request: Request,
+        session_id: str,
+        payload: IngestionSessionUpdateRequest,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.update_session(
+                session_id=session_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                payload=payload.model_dump(exclude_none=True),
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.delete("/api/v1/ingestion/sessions/{session_id}")
+    def archive_ingestion_session(request: Request, session_id: str, scope: str = "personal") -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.archive_session(
+                session_id=session_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/sessions/{session_id}/message")
+    def create_ingestion_message(
+        request: Request,
+        session_id: str,
+        payload: IngestionMessageRequest,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.create_message_proposals(
+                session_id=session_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                message=payload.message,
+                actor_id=current_user.user_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/sessions/{session_id}/run")
+    def run_ingestion_agent(request: Request, session_id: str, scope: str = "personal") -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.get_session(
+                session_id=session_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/ingestion/sessions/{session_id}/proposals")
+    def list_ingestion_proposals(request: Request, session_id: str, scope: str = "personal") -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.list_proposals(
+                session_id=session_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/sessions/{session_id}/files")
+    async def upload_ingestion_file(
+        request: Request,
+        session_id: str,
+        file: UploadFile = File(...),
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            content = await file.read()
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.create_file(
+                session_id=session_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                content=content,
+                file_name=file.filename,
+                mime_type=file.content_type,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/files/{file_id}/parse")
+    def parse_ingestion_file(request: Request, file_id: str, scope: str = "personal") -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.parse_file(
+                file_id=file_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/sessions/{session_id}/pasted-table")
+    def parse_ingestion_pasted_table(
+        request: Request,
+        session_id: str,
+        payload: IngestionPastedTableRequest,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.parse_pasted_table(
+                session_id=session_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                text=payload.text,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/ingestion/sessions/{session_id}/rows")
+    def list_ingestion_rows(request: Request, session_id: str, scope: str = "personal") -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.list_rows(
+                session_id=session_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/sessions/{session_id}/classify-rows")
+    def classify_ingestion_rows(request: Request, session_id: str, scope: str = "personal") -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.classify_rows(
+                session_id=session_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                actor_id=current_user.user_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/sessions/{session_id}/proposals")
+    def create_ingestion_proposal(
+        request: Request,
+        session_id: str,
+        payload: IngestionProposalCreateRequest,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.create_proposal(
+                session_id=session_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                payload=payload.payload,
+                statement_row_id=payload.statement_row_id,
+                explanation=payload.explanation,
+                model_metadata=payload.model_metadata,
+                actor_id=current_user.user_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.patch("/api/v1/ingestion/proposals/{proposal_id}")
+    def update_ingestion_proposal(
+        request: Request,
+        proposal_id: str,
+        payload: IngestionProposalUpdateRequest,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.update_proposal(
+                proposal_id=proposal_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                payload=payload.model_dump(exclude_none=True),
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/proposals/{proposal_id}/approve")
+    def approve_ingestion_proposal(request: Request, proposal_id: str, scope: str = "personal") -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.approve_proposal(
+                proposal_id=proposal_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                actor_id=current_user.user_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/proposals/{proposal_id}/reject")
+    def reject_ingestion_proposal(request: Request, proposal_id: str, scope: str = "personal") -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.reject_proposal(
+                proposal_id=proposal_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                actor_id=current_user.user_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/proposals/{proposal_id}/refresh-matches")
+    def refresh_ingestion_proposal_matches(
+        request: Request,
+        proposal_id: str,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.refresh_match_candidates(
+                proposal_id=proposal_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/proposals/{proposal_id}/commit")
+    def commit_ingestion_proposal(request: Request, proposal_id: str, scope: str = "personal") -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.commit_proposal(
+                proposal_id=proposal_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                actor_id=current_user.user_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/proposals/{proposal_id}/undo")
+    def undo_ingestion_proposal(request: Request, proposal_id: str, scope: str = "personal") -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.undo_proposal_commit(
+                proposal_id=proposal_id,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                actor_id=current_user.user_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/proposals/batch-approve")
+    def batch_approve_ingestion_proposals(
+        request: Request,
+        payload: IngestionProposalBatchRequest,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.batch_approve_proposals(
+                proposal_ids=payload.proposal_ids,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                actor_id=current_user.user_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/proposals/batch-reject")
+    def batch_reject_ingestion_proposals(
+        request: Request,
+        payload: IngestionProposalBatchRequest,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.batch_reject_proposals(
+                proposal_ids=payload.proposal_ids,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                actor_id=current_user.user_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/ingestion/proposals/batch-commit")
+    def batch_commit_ingestion_proposals(
+        request: Request,
+        payload: IngestionProposalBatchRequest,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+            service = IngestionAgentService(session_factory=sessions)
+            result = service.batch_commit_proposals(
+                proposal_ids=payload.proposal_ids,
+                user_id=current_user.user_id,
+                shared_group_id=visibility.shared_group_id,
+                actor_id=current_user.user_id,
+            )
+            return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 

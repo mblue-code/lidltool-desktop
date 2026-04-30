@@ -594,6 +594,32 @@ desktop OCR runtime is only treated as production-ready on that range today.
 If you intentionally need to bypass that guard, set `OUTLAYS_DESKTOP_ALLOW_UNSUPPORTED_PYTHON=1`, but that is not
 the recommended release path.
 
+### Ingestion agent development reset policy
+
+The ingestion agent is still pre-release and has no external desktop user base. Prefer simple additive Alembic
+migrations, but if local schema churn becomes awkward it is acceptable to delete the local development SQLite
+database and re-sync Amazon/Lidl. Before hardening or release, verify fresh database creation from the repo-local
+migrations. See `docs/ingestion-agent-sprint-0.md` for the current implementation decisions.
+
+The first ingestion workspace is available at `/ingestion`. Sprint 1 supports manual text intake in Review First
+mode: the agent creates a transaction proposal, the user can edit/approve/reject it, and approved proposals commit
+through the existing `ManualIngestService`. See `docs/ingestion-agent-sprint-1.md` for the current API and safety
+contract.
+
+Sprint 2 adds deterministic matching against existing transactions. Ingestion proposals can refresh match candidates,
+mark a row as already covered, or continue with a new transaction when the user chooses to override the match. See
+`docs/ingestion-agent-sprint-2.md`.
+
+Sprint 3 adds CSV and pasted-table statement intake. Bank rows are staged in `statement_rows`, classified into
+reviewable proposals, and matched against existing connector transactions before any canonical write. Excel exports
+should be saved as CSV until the side repo ships a local backend spreadsheet parser. See
+`docs/ingestion-agent-sprint-3.md`.
+
+Sprints 4 through 9 add constrained YOLO Auto settings, PDF/image intake as review proposals, recurring bill
+candidates, batch review actions, safe undo for agent-created transactions, and final hardening checks. Review First
+remains the default approval mode; YOLO Auto is visible in `/ingestion` and only commits high-confidence safe actions.
+See `docs/ingestion-agent-sprints-4-to-9.md`.
+
 Run the real desktop Electron E2E smoke suite:
 
 ```bash
