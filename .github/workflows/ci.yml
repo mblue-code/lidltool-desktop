@@ -14,6 +14,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run frontend:install
       - run: npm run test:diagnostics
       - run: npm run test:runtime-contracts
       - run: npm run test:updates
