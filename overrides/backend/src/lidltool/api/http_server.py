@@ -9254,6 +9254,7 @@ def create_app(
         request: Request,
         source_id: str,
         scope: str = "personal",
+        validate_session: bool = True,
     ) -> Any:
         try:
             context = _resolve_request_context(request)
@@ -9272,6 +9273,7 @@ def create_app(
                     auth_service=auth_service,
                     source_id=source_id,
                     include_diagnostics=False,
+                    validate_session=validate_session,
                 )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001

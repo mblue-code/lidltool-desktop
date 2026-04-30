@@ -129,7 +129,21 @@ function patchConnectorAuthStatusContract() {
 
   next = next.replaceAll("/api/v1/connectors/${sourceId}/auth/status", "/api/v1/sources/${sourceId}/auth");
 
-  if (!next.includes("export async function fetchConnectorAuthStatus(sourceId: string): Promise<ConnectorAuthStatus>")) {
+  next = next.replace(
+    "export async function fetchConnectorAuthStatus(sourceId: string): Promise<ConnectorAuthStatus> {\n" +
+      "  return apiClient.get(`/api/v1/sources/${sourceId}/auth`, ConnectorAuthStatusSchema);\n" +
+      "}\n",
+    "export async function fetchConnectorAuthStatus(\n" +
+      "  sourceId: string,\n" +
+      "  options?: { validateSession?: boolean }\n" +
+      "): Promise<ConnectorAuthStatus> {\n" +
+      "  return apiClient.get(`/api/v1/sources/${sourceId}/auth`, ConnectorAuthStatusSchema, {\n" +
+      "    validate_session: options?.validateSession\n" +
+      "  });\n" +
+      "}\n"
+  );
+
+  if (!next.includes("export async function fetchConnectorAuthStatus(")) {
     const cancelBootstrapMarker =
       "export async function cancelConnectorBootstrap(sourceId: string): Promise<ConnectorBootstrapCancelResult> {\n";
     const insertAt = next.indexOf(cancelBootstrapMarker);
@@ -138,8 +152,13 @@ function patchConnectorAuthStatusContract() {
     }
     next =
       `${next.slice(0, insertAt)}` +
-      "export async function fetchConnectorAuthStatus(sourceId: string): Promise<ConnectorAuthStatus> {\n" +
-      "  return apiClient.get(`/api/v1/sources/${sourceId}/auth`, ConnectorAuthStatusSchema);\n" +
+      "export async function fetchConnectorAuthStatus(\n" +
+      "  sourceId: string,\n" +
+      "  options?: { validateSession?: boolean }\n" +
+      "): Promise<ConnectorAuthStatus> {\n" +
+      "  return apiClient.get(`/api/v1/sources/${sourceId}/auth`, ConnectorAuthStatusSchema, {\n" +
+      "    validate_session: options?.validateSession\n" +
+      "  });\n" +
       "}\n\n" +
       `${next.slice(insertAt)}`;
   }

@@ -782,6 +782,16 @@ describe("ConnectorsPage", () => {
     expect((await screen.findAllByText("More options")).length).toBeGreaterThan(0);
   });
 
+  it("uses non-invasive auth status checks when the connector page loads", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(mocks.fetchConnectorAuthStatusMock).toHaveBeenCalledWith("amazon_de", {
+        validateSession: false
+      });
+    });
+  });
+
   it("keeps catalog-only external connectors out of the installed stores list", async () => {
     const payload = makeDefaultConnectorsPayload();
     payload.connectors.push({
@@ -1798,7 +1808,9 @@ describe("ConnectorsPage", () => {
     let dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByLabelText("Zu prüfende Jahre")).toBeInTheDocument();
     expect(
-      within(dialog).getByText("Optional. Für den ersten Desktop-Import wird standardmäßig 1 Jahr geprüft.")
+      within(dialog).getByText(
+        "Wie viele Amazon-Bestelljahre geprüft werden. Mehr Jahre dauern deutlich länger; rechnen Sie grob mit mehreren Minuten pro Jahr."
+      )
     ).toBeInTheDocument();
     expect(within(dialog).getByText("Import im Hintergrund ausführen")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: /^(Abbrechen|Cancel)$/ }));
@@ -2581,7 +2593,7 @@ describe("ConnectorsPage", () => {
     expect(await screen.findByText("Lidl sign-in saved")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Lidl handed the login back to the desktop app successfully. The browser may still stay on the SMS code page or show an error page after that. You can ignore the browser and continue here."
+        "Lidl sign-in was saved. The browser may still show the code page. That is normal."
       )
     ).toBeInTheDocument();
     expect(mocks.confirmConnectorBootstrapMock).not.toHaveBeenCalled();

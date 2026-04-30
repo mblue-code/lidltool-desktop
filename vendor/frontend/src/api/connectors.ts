@@ -376,8 +376,13 @@ export async function fetchConnectorBootstrapStatus(sourceId: string): Promise<C
   );
 }
 
-export async function fetchConnectorAuthStatus(sourceId: string): Promise<ConnectorAuthStatus> {
-  return apiClient.get(`/api/v1/sources/${sourceId}/auth`, ConnectorAuthStatusSchema);
+export async function fetchConnectorAuthStatus(
+  sourceId: string,
+  options?: { validateSession?: boolean }
+): Promise<ConnectorAuthStatus> {
+  return apiClient.get(`/api/v1/sources/${sourceId}/auth`, ConnectorAuthStatusSchema, {
+    validate_session: options?.validateSession
+  });
 }
 
 export async function cancelConnectorBootstrap(sourceId: string): Promise<ConnectorBootstrapCancelResult> {

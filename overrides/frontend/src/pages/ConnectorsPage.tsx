@@ -1938,7 +1938,7 @@ export function ConnectorsPage() {
   const connectorAuthStatusQueries = useQueries({
     queries: bootstrapCapableConnectors.map((connector) => ({
       queryKey: ["connectors", "auth-status", connector.source_id],
-      queryFn: () => fetchConnectorAuthStatus(connector.source_id),
+      queryFn: () => fetchConnectorAuthStatus(connector.source_id, { validateSession: false }),
       refetchInterval: (query: { state: { data?: ConnectorAuthStatus } }) =>
         query.state.data?.bootstrap?.status === "running" ? 1500 : false,
       retry: false

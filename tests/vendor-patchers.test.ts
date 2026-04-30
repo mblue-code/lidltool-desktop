@@ -207,7 +207,7 @@ test("frontend patcher repairs the connector auth-status contract drift", () => 
     );
     assert.match(
       patchedConnectorsApi,
-      /export async function fetchConnectorAuthStatus\(sourceId: string\): Promise<ConnectorAuthStatus>/
+      /export async function fetchConnectorAuthStatus\(\s*sourceId: string/
     );
     assert.match(patchedConnectorsApi, /\/api\/v1\/sources\/\$\{sourceId\}\/auth/);
     assert.doesNotMatch(patchedConnectorsApi, /\/api\/v1\/connectors\/\$\{sourceId\}\/auth\/status/);
