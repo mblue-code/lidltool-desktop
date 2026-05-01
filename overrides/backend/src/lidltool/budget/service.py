@@ -22,6 +22,10 @@ from lidltool.shared_groups.ownership import assign_owner, ownership_filter, res
 _VALID_DIRECTIONS = {"inflow", "outflow"}
 
 
+def _normalize_cashflow_text(value: str | None) -> str:
+    return (value or "").strip()
+
+
 def _utcnow() -> datetime:
     return datetime.now(tz=UTC)
 
@@ -296,25 +300,66 @@ def create_cashflow_entry(
     normalized_direction = _normalize_direction(direction)
     if amount_cents < 0:
         raise ValueError("amount_cents must be non-negative")
+    normalized_category = category.strip() or "uncategorized"
+    normalized_currency = currency.strip().upper()[:8] or "EUR"
+    normalized_description = _normalize_cashflow_text(description)
+    normalized_source_type = source_type.strip() or "manual"
+    normalized_notes = _normalize_cashflow_text(notes)
     linked_transaction = _resolve_linked_transaction(
         session,
         user_id=user_id,
         visibility=visibility,
         linked_transaction_id=linked_transaction_id,
     )
+    duplicate_stmt = select(CashflowEntry).where(
+        CashflowEntry.effective_date == effective_date,
+        CashflowEntry.direction == normalized_direction,
+        CashflowEntry.category == normalized_category,
+        CashflowEntry.amount_cents == int(amount_cents),
+        CashflowEntry.currency == normalized_currency,
+        CashflowEntry.source_type == normalized_source_type,
+    )
+    if visibility is not None:
+        duplicate_stmt = duplicate_stmt.where(ownership_filter(CashflowEntry, visibility=visibility))
+    else:
+        duplicate_stmt = duplicate_stmt.where(
+            CashflowEntry.user_id == user_id,
+            CashflowEntry.shared_group_id.is_(None),
+        )
+    if linked_transaction_id:
+        duplicate_stmt = duplicate_stmt.where(CashflowEntry.linked_transaction_id == linked_transaction_id)
+    else:
+        duplicate_stmt = duplicate_stmt.where(CashflowEntry.linked_transaction_id.is_(None))
+    if linked_recurring_occurrence_id:
+        duplicate_stmt = duplicate_stmt.where(
+            CashflowEntry.linked_recurring_occurrence_id == linked_recurring_occurrence_id
+        )
+    else:
+        duplicate_stmt = duplicate_stmt.where(CashflowEntry.linked_recurring_occurrence_id.is_(None))
+    duplicate_rows = (
+        session.execute(duplicate_stmt.order_by(CashflowEntry.created_at.desc()).limit(25))
+        .scalars()
+        .all()
+    )
+    for duplicate in duplicate_rows:
+        if _normalize_cashflow_text(duplicate.description) != normalized_description:
+            continue
+        if _normalize_cashflow_text(duplicate.notes) != normalized_notes:
+            continue
+        return _serialize_cashflow_entry(duplicate, linked_transaction=linked_transaction)
 
     entry = CashflowEntry(
         user_id=user_id,
         effective_date=effective_date,
         direction=normalized_direction,
-        category=category.strip() or "uncategorized",
+        category=normalized_category,
         amount_cents=int(amount_cents),
-        currency=currency.strip().upper()[:8] or "EUR",
-        description=description.strip() if description else None,
-        source_type=source_type.strip() or "manual",
+        currency=normalized_currency,
+        description=normalized_description or None,
+        source_type=normalized_source_type,
         linked_transaction_id=linked_transaction_id,
         linked_recurring_occurrence_id=linked_recurring_occurrence_id,
-        notes=notes.strip() if notes else None,
+        notes=normalized_notes or None,
     )
     if visibility is not None:
         assign_owner(entry, visibility=visibility, user_id=user_id)
