@@ -97,7 +97,7 @@ const BudgetSummarySchema = z.object({
     year: z.number(),
     month: z.number()
   }),
-  month: BudgetMonthSchema,
+  month: BudgetMonthSchema.nullable(),
   totals: z.object({
     planned_income_cents: z.number().nullable(),
     actual_income_cents: z.number(),
