@@ -144,6 +144,12 @@ export function TransactionsPage() {
   const total = items.reduce((sum, item) => sum + item.total_gross_cents, 0);
   const inflow = items.filter((item) => item.direction === "inflow").reduce((sum, item) => sum + item.total_gross_cents, 0);
   const outflow = items.filter((item) => (item.direction || "outflow") === "outflow").reduce((sum, item) => sum + item.total_gross_cents, 0);
+  const summary = transactionsQuery.data?.summary ?? {
+    count: items.length,
+    total_cents: total,
+    inflow_cents: inflow,
+    outflow_cents: outflow
+  };
   const categorizationReady = aiSettings.data?.categorization_enabled === true && aiSettings.data?.categorization_runtime_ready === true;
   const categorizationJob = categorizationStatus.data;
   const categorizationRunning = categorizationJob?.status === "queued" || categorizationJob?.status === "running";
@@ -278,7 +284,13 @@ export function TransactionsPage() {
         </CardContent>
       </Card>
 
-      <SummaryStrip totalCount={items.length} visibleCents={total} inflowCents={inflow} outflowCents={outflow} />
+      <SummaryStrip
+        key={`${summary.count}:${summary.total_cents}:${summary.inflow_cents}:${summary.outflow_cents}`}
+        totalCount={summary.count}
+        visibleCents={summary.total_cents}
+        inflowCents={summary.inflow_cents}
+        outflowCents={summary.outflow_cents}
+      />
 
       <Card className="app-dashboard-surface hidden border-border/60 md:block">
         <div className="overflow-x-auto">

@@ -35,6 +35,14 @@ const TransactionListResponseSchema = z.object({
   total: z.number(),
   limit: z.number(),
   offset: z.number(),
+  summary: z
+    .object({
+      count: z.number(),
+      total_cents: z.number(),
+      inflow_cents: z.number(),
+      outflow_cents: z.number()
+    })
+    .optional(),
   items: z.array(TransactionListItemSchema)
 });
 

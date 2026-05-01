@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
-from sqlalchemy import Integer, String, and_, cast, exists, func, or_, select
+from sqlalchemy import Integer, String, and_, case, cast, exists, func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from lidltool.analytics.scope import (
@@ -1378,7 +1378,31 @@ def search_transactions(
         tie_breaker,
     )
 
-    total = session.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
+    filtered_subquery = stmt.subquery()
+    total = session.execute(select(func.count()).select_from(filtered_subquery)).scalar_one()
+    summary_row = session.execute(
+        select(
+            func.coalesce(func.sum(filtered_subquery.c.total_gross_cents), 0),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (filtered_subquery.c.direction == "inflow", filtered_subquery.c.total_gross_cents),
+                        else_=0,
+                    )
+                ),
+                0,
+            ),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (filtered_subquery.c.direction == "outflow", filtered_subquery.c.total_gross_cents),
+                        else_=0,
+                    )
+                ),
+                0,
+            ),
+        )
+    ).one()
     rows = session.execute(ordered_stmt.offset(offset).limit(limit)).scalars().all()
 
     items = [
@@ -1449,6 +1473,12 @@ def search_transactions(
         "offset": offset,
         "count": len(rows),
         "total": int(total),
+        "summary": {
+            "count": int(total),
+            "total_cents": int(summary_row[0] or 0),
+            "inflow_cents": int(summary_row[1] or 0),
+            "outflow_cents": int(summary_row[2] or 0),
+        },
         "items": items,
         "transactions": items,
         "pagination": {
