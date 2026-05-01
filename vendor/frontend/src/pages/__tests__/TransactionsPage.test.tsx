@@ -163,11 +163,32 @@ describe("TransactionsPage", () => {
     expect(calls.some((url) => url.includes("/api/v1/transactions/facets?"))).toBe(true);
   });
 
+  it("defaults the transaction view to the current month instead of all-time", async () => {
+    renderTransactionsRoute("/transactions");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("transactions-location-search")).toHaveTextContent("purchased_from=");
+    });
+    const calls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
+    expect(calls.some((url) => url.includes("/api/v1/transactions?") && url.includes("purchased_from="))).toBe(true);
+  });
+
+  it("keeps all-time explicit when requested in the URL", async () => {
+    renderTransactionsRoute("/transactions?date_range=all");
+
+    expect(await screen.findByText("All time")).toBeInTheDocument();
+    expect(screen.getByTestId("transactions-location-search")).toHaveTextContent("date_range=all");
+    const calls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
+    expect(calls.some((url) => url.includes("/api/v1/transactions?") && !url.includes("purchased_from="))).toBe(true);
+  });
+
   it("keeps receipt wording for the receipt upload action only", async () => {
     renderTransactionsRoute("/transactions");
 
     expect(await screen.findByRole("link", { name: "Add Receipt" })).toHaveAttribute("href", "/add");
-    expect(screen.getByTestId("transactions-location-search")).toHaveTextContent("");
+    await waitFor(() => {
+      expect(screen.getByTestId("transactions-location-search")).toHaveTextContent("purchased_from=");
+    });
   });
 
   it("surfaces the categorization agent on the transactions page", async () => {

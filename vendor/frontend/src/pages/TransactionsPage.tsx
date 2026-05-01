@@ -50,7 +50,8 @@ type UrlFilterKey =
   | "max_total"
   | "uncategorized"
   | "min_category_confidence"
-  | "max_category_confidence";
+  | "max_category_confidence"
+  | "date_range";
 
 type FilterChip = {
   key: UrlFilterKey;
@@ -78,18 +79,25 @@ function readSortDirection(value: string | null): SortDirection {
   return value === "asc" ? "asc" : "desc";
 }
 
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function localDate(daysBack: number): string {
   const date = new Date();
   date.setHours(0, 0, 0, 0);
   date.setDate(date.getDate() - daysBack);
-  return date.toISOString().slice(0, 10);
+  return formatLocalDate(date);
 }
 
 function monthStart(): string {
   const date = new Date();
   date.setHours(0, 0, 0, 0);
   date.setDate(1);
-  return date.toISOString().slice(0, 10);
+  return formatLocalDate(date);
 }
 
 export function TransactionsPage() {
@@ -103,6 +111,10 @@ export function TransactionsPage() {
   const offset = Number(searchParams.get("offset") || 0);
   const sortBy = readSortField(searchParams.get("sort"));
   const sortDir = readSortDirection(searchParams.get("direction"));
+  const defaultPurchasedFrom = monthStart();
+  const explicitAllTime = searchParams.get("date_range") === "all";
+  const effectivePurchasedFrom = explicitAllTime ? undefined : searchParams.get("purchased_from") || defaultPurchasedFrom;
+  const effectivePurchasedTo = explicitAllTime ? undefined : searchParams.get("purchased_to") || undefined;
 
   const filters = useMemo<TransactionsFilters>(() => ({
     query: searchParams.get("query") || undefined,
@@ -113,8 +125,8 @@ export function TransactionsPage() {
     merchantName: searchParams.get("merchant_name") || undefined,
     sourceId: searchParams.get("source_id") || undefined,
     sourceAccountId: searchParams.get("source_account_id") || undefined,
-    purchasedFrom: searchParams.get("purchased_from") || undefined,
-    purchasedTo: searchParams.get("purchased_to") || undefined,
+    purchasedFrom: effectivePurchasedFrom,
+    purchasedTo: effectivePurchasedTo,
     minTotalCents: cents(searchParams.get("min_total")),
     maxTotalCents: cents(searchParams.get("max_total")),
     uncategorized: searchParams.get("uncategorized") === "true",
@@ -124,7 +136,7 @@ export function TransactionsPage() {
     sortDir,
     limit: PAGE_SIZE,
     offset
-  }), [offset, searchParams, sortBy, sortDir]);
+  }), [effectivePurchasedFrom, effectivePurchasedTo, offset, searchParams, sortBy, sortDir]);
 
   const transactionsQuery = useQuery(transactionsQueryOptions(filters));
   const facetsQuery = useQuery({ queryKey: ["transaction-facets", filters], queryFn: () => fetchTransactionFacets(filters) });
@@ -169,6 +181,7 @@ export function TransactionsPage() {
     const next = new URLSearchParams();
     next.set("sort", sortBy);
     next.set("direction", sortDir);
+    next.set("purchased_from", defaultPurchasedFrom);
     setSearchParams(next);
   }
 
@@ -176,10 +189,11 @@ export function TransactionsPage() {
     updateParams({ sort: field, direction: sortBy === field && sortDir === "desc" ? "asc" : "desc" }, { resetOffset: false });
   }
 
-  function applyQuickFilter(kind: "thisMonth" | "last7Days" | "highValue") {
-    if (kind === "thisMonth") updateParams({ purchased_from: monthStart(), purchased_to: undefined });
-    if (kind === "last7Days") updateParams({ purchased_from: localDate(6), purchased_to: undefined });
+  function applyQuickFilter(kind: "thisMonth" | "last7Days" | "highValue" | "allTime") {
+    if (kind === "thisMonth") updateParams({ purchased_from: monthStart(), purchased_to: undefined, date_range: undefined });
+    if (kind === "last7Days") updateParams({ purchased_from: localDate(6), purchased_to: undefined, date_range: undefined });
     if (kind === "highValue") updateParams({ min_total: "50" });
+    if (kind === "allTime") updateParams({ purchased_from: undefined, purchased_to: undefined, date_range: "all" });
     setAdvancedOpen(true);
   }
 
@@ -197,6 +211,14 @@ export function TransactionsPage() {
   useEffect(() => {
     setAdvancedOpen((current) => current || hasAdvancedFilters(searchParams));
   }, [searchParams]);
+
+  useEffect(() => {
+    if (searchParams.has("purchased_from") || searchParams.has("purchased_to") || searchParams.get("date_range") === "all") return;
+    const next = new URLSearchParams(searchParams);
+    next.set("purchased_from", defaultPurchasedFrom);
+    next.set("offset", "0");
+    setSearchParams(next, { replace: true });
+  }, [defaultPurchasedFrom, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (!categorizationJob) return;
@@ -241,6 +263,7 @@ export function TransactionsPage() {
               <Button type="button" variant="outline" onClick={() => applyQuickFilter("thisMonth")}><CalendarDays className="mr-2 h-4 w-4" />{t("pages.transactions.quickFilter.thisMonth")}</Button>
               <Button type="button" variant="outline" onClick={() => applyQuickFilter("last7Days")}>{t("pages.transactions.quickFilter.last7Days")}</Button>
               <Button type="button" variant="outline" onClick={() => applyQuickFilter("highValue")}>{t("pages.transactions.quickFilter.highValue")}</Button>
+              <Button type="button" variant={explicitAllTime ? "secondary" : "outline"} onClick={() => applyQuickFilter("allTime")}>{t("pages.transactions.quickFilter.allTime")}</Button>
               <Button type="button" variant={advancedOpen ? "secondary" : "outline"} onClick={() => setAdvancedOpen((value) => !value)}><SlidersHorizontal className="mr-2 h-4 w-4" />{advancedOpen ? t("pages.transactions.fewerFilters") : t("pages.transactions.moreFilters")}</Button>
             </div>
           </div>
@@ -264,8 +287,8 @@ export function TransactionsPage() {
               <SelectField label={t("pages.transactions.filter.tag")} value={searchParams.get("tag") || "all"} onChange={(value) => updateParams({ tag: value })} allLabel={t("pages.transactions.filter.tag")}>
                 {(facets?.tags ?? []).map((row) => <SelectItem key={row.value} value={row.value}>{row.value} ({row.count})</SelectItem>)}
               </SelectField>
-              <InputField label={t("pages.transactions.filter.purchasedFrom")} type="date" value={searchParams.get("purchased_from") || ""} onChange={(value) => updateParams({ purchased_from: value || undefined })} />
-              <InputField label={t("pages.transactions.filter.purchasedTo")} type="date" value={searchParams.get("purchased_to") || ""} onChange={(value) => updateParams({ purchased_to: value || undefined })} />
+              <InputField label={t("pages.transactions.filter.purchasedFrom")} type="date" value={effectivePurchasedFrom || ""} onChange={(value) => updateParams({ purchased_from: value || undefined, date_range: undefined })} />
+              <InputField label={t("pages.transactions.filter.purchasedTo")} type="date" value={effectivePurchasedTo || ""} onChange={(value) => updateParams({ purchased_to: value || undefined, date_range: undefined })} />
               <div className="grid grid-cols-2 gap-3">
                 <InputField label={t("pages.transactions.amountFrom")} value={euro(searchParams.get("min_total"))} onChange={(value) => updateParams({ min_total: value || undefined })} />
                 <InputField label={t("pages.transactions.amountTo")} value={euro(searchParams.get("max_total"))} onChange={(value) => updateParams({ max_total: value || undefined })} />
@@ -366,12 +389,13 @@ function buildActiveChips(searchParams: URLSearchParams, t: ReturnType<typeof us
     max_total: t("pages.transactions.chip.maxTotal"),
     uncategorized: t("pages.transactions.filter.uncategorized"),
     min_category_confidence: t("pages.transactions.filter.minConfidence"),
-    max_category_confidence: t("pages.transactions.filter.maxConfidence")
+    max_category_confidence: t("pages.transactions.filter.maxConfidence"),
+    date_range: t("pages.transactions.filter.dateRange")
   };
   return (Object.keys(labels) as UrlFilterKey[]).flatMap((key) => {
     const value = searchParams.get(key);
     if (!value) return [];
-    const display = key === "finance_category_id" || key === "parent_category" ? financeCategoryLabel(value, t) : value;
+    const display = key === "finance_category_id" || key === "parent_category" ? financeCategoryLabel(value, t) : key === "date_range" && value === "all" ? t("pages.transactions.quickFilter.allTime") : value;
     return [{ key, label: labels[key], value: key === "uncategorized" ? labels[key] : display }];
   });
 }
