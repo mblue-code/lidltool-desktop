@@ -278,7 +278,7 @@ export function TransactionsPage() {
         </CardContent>
       </Card>
 
-      <SummaryStrip totalCount={transactionsQuery.data?.total ?? 0} visibleCents={total} inflowCents={inflow} outflowCents={outflow} />
+      <SummaryStrip totalCount={items.length} visibleCents={total} inflowCents={inflow} outflowCents={outflow} />
 
       <Card className="app-dashboard-surface hidden border-border/60 md:block">
         <div className="overflow-x-auto">

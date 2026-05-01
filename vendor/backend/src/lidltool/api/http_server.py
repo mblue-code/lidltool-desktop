@@ -603,9 +603,16 @@ def _build_runtime_context(
 class SPAStaticFiles(StaticFiles):
     """Serve built frontend assets and fall back to index.html for SPA routes."""
 
+    @staticmethod
+    def _with_no_cache(response: Response) -> Response:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
     async def get_response(self, path: str, scope: Scope) -> Response:
         try:
-            return await super().get_response(path, scope)
+            return self._with_no_cache(await super().get_response(path, scope))
         except StarletteHTTPException as exc:
             if exc.status_code != 404:
                 raise
@@ -618,7 +625,7 @@ class SPAStaticFiles(StaticFiles):
             raise StarletteHTTPException(status_code=404)
         if "." in Path(path).name:
             raise StarletteHTTPException(status_code=404)
-        return await super().get_response("index.html", scope)
+        return self._with_no_cache(await super().get_response("index.html", scope))
 
 
 def _parse_source_ids(source_ids: str | None) -> list[str] | None:

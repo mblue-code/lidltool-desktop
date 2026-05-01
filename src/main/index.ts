@@ -503,6 +503,7 @@ async function openMainApp(window: BrowserWindow): Promise<void> {
     }
     await runtime.startBackend({ strictOverride: true });
     latestBootError = null;
+    await session.defaultSession.clearCache();
     await window.loadURL(runtime.getFullAppUrl());
     restoreWindowVisibility(window, "main-app-loaded");
     scheduleVisibilityRecovery(window, "main-app-loaded");
