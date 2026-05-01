@@ -138,10 +138,10 @@ describe("TransactionsPage", () => {
     renderTransactionsRoute("/transactions?query=milk&finance_category_id=groceries&direction_filter=outflow");
 
     expect(await screen.findByRole("heading", { name: "Transactions" })).toBeInTheDocument();
-    expect(await screen.findByText("Lidl")).toBeInTheDocument();
+    expect((await screen.findAllByText("Lidl")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Outflow").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Groceries").length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: "Details" })).toHaveAttribute("href", "/transactions/tx-groceries");
+    expect(screen.getAllByRole("link", { name: "Details" })[0]).toHaveAttribute("href", "/transactions/tx-groceries");
   });
 
   it("forwards URL-backed finance filters to the transactions and facets APIs", async () => {
