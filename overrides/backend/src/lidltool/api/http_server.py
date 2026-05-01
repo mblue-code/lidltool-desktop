@@ -11446,6 +11446,7 @@ finally:
         finance_category_id: str | None = None,
         direction: str | None = None,
         source_id: str | None = None,
+        source_ids: str | None = None,
         value_mode: str = "amount",
         scope: str = "personal",
     ) -> Any:
@@ -11455,7 +11456,8 @@ finally:
             sessions = context.sessions
             warnings = _apply_auth_guard(app_config, request=request)
             from_dt, to_dt = _normalize_dashboard_window(from_date, to_date)
-            merchant_names = [value.strip() for value in (merchants or "").split(",") if value.strip()][:2]
+            merchant_names = [value.strip() for value in (merchants or "").split(",") if value.strip()]
+            selected_source_ids = [value.strip() for value in (source_ids or "").split(",") if value.strip()]
             with session_scope(sessions) as session:
                 current_user = _resolve_request_user(request=request, session=session, config=app_config)
                 visibility = _visibility_for_scope(current_user, scope)
@@ -11468,6 +11470,7 @@ finally:
                     finance_category_id=finance_category_id,
                     direction=direction,
                     source_id=source_id,
+                    source_ids=selected_source_ids,
                     value_mode=value_mode,
                 )
             return _response(True, result=result, warnings=warnings, error=None)

@@ -20,6 +20,13 @@ const DashboardCardsResponseSchema = z.object({
   })
 });
 
+const DashboardYearsResponseSchema = z.object({
+  years: z.array(z.number()),
+  min_year: z.number().nullable(),
+  max_year: z.number().nullable(),
+  latest_year: z.number().nullable()
+});
+
 const DashboardTrendsResponseSchema = z.object({
   points: z.array(
     z.object({
@@ -250,6 +257,7 @@ export type DashboardTrendsResponse = z.infer<typeof DashboardTrendsResponseSche
 export type SavingsBreakdownResponse = z.infer<typeof SavingsBreakdownResponseSchema>;
 export type RetailerCompositionResponse = z.infer<typeof RetailerCompositionResponseSchema>;
 export type DashboardOverviewResponse = z.infer<typeof DashboardOverviewResponseSchema>;
+export type DashboardYearsResponse = z.infer<typeof DashboardYearsResponseSchema>;
 export type DashboardResponseWithWarnings<T> = {
   result: T;
   warnings: ApiWarning[];
@@ -361,6 +369,12 @@ export async function fetchDashboardOverview(
   return apiClient.get("/api/v1/dashboard/overview", DashboardOverviewResponseSchema, {
     from_date: fromDate,
     to_date: toDate,
+    source_ids: sourceIdsParam(sourceIds)
+  });
+}
+
+export async function fetchDashboardYears(sourceIds?: string[]): Promise<DashboardYearsResponse> {
+  return apiClient.get("/api/v1/dashboard/years", DashboardYearsResponseSchema, {
     source_ids: sourceIdsParam(sourceIds)
   });
 }

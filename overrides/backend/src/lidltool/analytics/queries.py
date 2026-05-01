@@ -1244,6 +1244,7 @@ def search_transactions(
     year: int | None = None,
     month: int | None = None,
     source_id: str | None = None,
+    source_ids: list[str] | None = None,
     source_kind: str | None = None,
     source_account_id: str | None = None,
     direction: str | None = None,
@@ -1304,8 +1305,11 @@ def search_transactions(
         stmt = stmt.where(Transaction.purchased_at >= purchased_from_utc)
     if purchased_to_utc is not None:
         stmt = stmt.where(Transaction.purchased_at < purchased_to_utc)
-    if source_id:
-        stmt = stmt.where(Transaction.source_id == source_id)
+    normalized_source_ids = _normalize_source_ids(
+        [*(source_ids or []), *([source_id] if source_id else [])]
+    )
+    if normalized_source_ids is not None:
+        stmt = _apply_source_filter(stmt, normalized_source_ids)
     if source_kind:
         stmt = stmt.where(Transaction.source.has(Source.kind == source_kind))
     if source_account_id:
@@ -1538,6 +1542,7 @@ def reports_pattern_summary(
     finance_category_id: str | None = None,
     direction: str | None = None,
     source_id: str | None = None,
+    source_ids: list[str] | None = None,
     value_mode: str = "amount",
 ) -> dict[str, Any]:
     result = search_transactions(
@@ -1548,6 +1553,7 @@ def reports_pattern_summary(
         finance_category_id=finance_category_id,
         direction=direction,
         source_id=source_id,
+        source_ids=source_ids,
         limit=10_000,
         offset=0,
         visibility=visibility,
@@ -1557,6 +1563,7 @@ def reports_pattern_summary(
         wanted = {name.casefold() for name in merchant_names}
         items = [item for item in items if str(item.get("store_name") or "").casefold() in wanted]
     daily: dict[str, dict[str, Any]] = defaultdict(lambda: {"date": "", "amount_cents": 0, "count": 0})
+    weekdays: dict[int, dict[str, Any]] = defaultdict(lambda: {"weekday": 0, "amount_cents": 0, "count": 0})
     matrix: dict[tuple[int, int], dict[str, Any]] = defaultdict(lambda: {"weekday": 0, "hour": 0, "amount_cents": 0, "count": 0})
     merchants: dict[str, dict[str, Any]] = defaultdict(lambda: {"merchant": "", "amount_cents": 0, "count": 0, "average_cents": 0})
     for item in items:
@@ -1567,6 +1574,9 @@ def reports_pattern_summary(
         daily[date_key]["amount_cents"] += amount
         daily[date_key]["count"] += 1
         key = (purchased.weekday(), purchased.hour)
+        weekdays[key[0]]["weekday"] = key[0]
+        weekdays[key[0]]["amount_cents"] += amount
+        weekdays[key[0]]["count"] += 1
         matrix[key]["weekday"] = key[0]
         matrix[key]["hour"] = key[1]
         matrix[key]["amount_cents"] += amount
@@ -1595,6 +1605,10 @@ def reports_pattern_summary(
         "period": {"from_date": from_date.date().isoformat(), "to_date": to_date.date().isoformat()},
         "value_mode": value_mode,
         "daily_heatmap": sorted(daily.values(), key=lambda row: row["date"]),
+        "weekday_heatmap": [
+            weekdays.get(weekday, {"weekday": weekday, "amount_cents": 0, "count": 0})
+            for weekday in range(7)
+        ],
         "weekday_hour_matrix": sorted(matrix.values(), key=lambda row: (row["weekday"], row["hour"])),
         "merchant_profiles": merchant_profiles[:20],
         "merchant_comparison": merchant_profiles[:2],

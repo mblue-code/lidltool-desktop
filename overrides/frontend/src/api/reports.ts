@@ -23,6 +23,7 @@ const ReportPatternsSchema = z.object({
   period: z.object({ from_date: z.string(), to_date: z.string() }),
   value_mode: z.string(),
   daily_heatmap: z.array(z.object({ date: z.string(), amount_cents: z.number(), count: z.number() })),
+  weekday_heatmap: z.array(z.object({ weekday: z.number(), amount_cents: z.number(), count: z.number() })),
   weekday_hour_matrix: z.array(z.object({ weekday: z.number(), hour: z.number(), amount_cents: z.number(), count: z.number() })),
   merchant_profiles: z.array(z.object({ merchant: z.string(), amount_cents: z.number(), count: z.number(), average_cents: z.number() })),
   merchant_comparison: z.array(z.object({ merchant: z.string(), amount_cents: z.number(), count: z.number(), average_cents: z.number() })),
@@ -50,15 +51,17 @@ export async function fetchReportPatterns(filters: {
   financeCategoryId?: string;
   direction?: string;
   sourceId?: string;
+  sourceIds?: string[];
   valueMode?: string;
 }): Promise<ReportPatternsResponse> {
   return apiClient.get("/api/v1/reports/patterns", ReportPatternsSchema, {
     from_date: filters.fromDate,
     to_date: filters.toDate,
-    merchants: filters.merchants && filters.merchants.length > 0 ? filters.merchants.slice(0, 2).join(",") : undefined,
+    merchants: filters.merchants && filters.merchants.length > 0 ? filters.merchants.join(",") : undefined,
     finance_category_id: filters.financeCategoryId,
     direction: filters.direction,
     source_id: filters.sourceId,
+    source_ids: filters.sourceIds && filters.sourceIds.length > 0 ? filters.sourceIds.join(",") : undefined,
     value_mode: filters.valueMode
   });
 }
