@@ -218,6 +218,7 @@ def _sync_result_payload(
         "cutoff_hit": result.cutoff_hit,
         "warnings": result.warnings,
         "validation": result.validation,
+        "sync_metadata": result.metadata,
         "runtime": runtime_identity,
     }
     if _is_amazon_source_id(source_id):

@@ -10,6 +10,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from lidltool.amazon.profiles import is_amazon_source_id
+from lidltool.amazon.recalc import run_scoped_amazon_financial_recalc_if_needed
 from lidltool.analytics.categorization import load_compiled_rules
 from lidltool.analytics.item_categorizer import (
     CategorizationRequest,
@@ -84,6 +86,7 @@ class SyncResult:
     cutoff_hit: bool
     warnings: list[str] = field(default_factory=list)
     validation: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class SyncService:
@@ -123,6 +126,7 @@ class SyncService:
             validation_outcomes: Counter[str] = Counter()
             validation_issue_codes: Counter[str] = Counter()
             blocked_outputs: list[dict[str, Any]] = []
+            metadata: dict[str, Any] = {}
             rules = load_compiled_rules(session)
             normalization_bundle = load_normalization_bundle(session, source=self._config.source)
             sync_state = session.get(SyncState, self._config.source)
@@ -490,6 +494,35 @@ class SyncService:
             sync_state.last_seen_receipt_at = newest_seen_at
             sync_state.last_seen_receipt_id = newest_seen_id
 
+            if is_amazon_source_id(source.id):
+                try:
+                    amazon_recalc = run_scoped_amazon_financial_recalc_if_needed(
+                        session,
+                        source_id=source.id,
+                        user_id=source.user_id,
+                        shared_group_id=source.shared_group_id,
+                    )
+                    metadata["amazon_financial_recalc"] = amazon_recalc
+                    LOGGER.info(
+                        "amazon.financial_recalc.completed source=%s user_id=%s scanned=%s updated=%s skipped=%s version=%s",
+                        source.id,
+                        source.user_id,
+                        amazon_recalc.get("scanned"),
+                        amazon_recalc.get("updated"),
+                        amazon_recalc.get("skipped"),
+                        amazon_recalc.get("version"),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    metadata["amazon_financial_recalc"] = {
+                        "error": str(exc),
+                    }
+                    LOGGER.warning(
+                        "amazon.financial_recalc.failed source=%s user_id=%s error=%s",
+                        source.id,
+                        source.user_id,
+                        exc,
+                    )
+
             try:
                 matched_count = auto_match_unmatched_items(session)
                 rebuilt_rows = rebuild_item_observations(session)
@@ -518,6 +551,7 @@ class SyncService:
                 validation_issue_codes=validation_issue_codes,
                 blocked_outputs=blocked_outputs,
             ),
+            metadata=metadata,
         )
 
 

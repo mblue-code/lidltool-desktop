@@ -11,7 +11,10 @@ from lidltool.amazon.order_money import (
     normalize_order_financials,
     to_int_cents,
 )
-from lidltool.db.models import Transaction
+from lidltool.db.models import ConnectorConfigState, Transaction
+
+AMAZON_FINANCIAL_RECALC_VERSION = "net-spend-v1"
+_RECALC_VERSION_KEY = "_amazon_financial_recalc_version"
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,19 +26,30 @@ class AmazonRecalcResult:
     warnings: tuple[str, ...] = ()
 
 
-def recalculate_amazon_transaction_financials(session: Session) -> AmazonRecalcResult:
+def recalculate_amazon_transaction_financials(
+    session: Session,
+    *,
+    source_id: str | None = None,
+    user_id: str | None = None,
+    shared_group_id: str | None = None,
+) -> AmazonRecalcResult:
     scanned = 0
     updated = 0
     unchanged = 0
     skipped = 0
     warnings: list[str] = []
 
+    stmt = select(Transaction)
+    if source_id:
+        stmt = stmt.where(Transaction.source_id == source_id)
+    else:
+        stmt = stmt.where(Transaction.source_id.like("amazon_%"))
+    if user_id is not None:
+        stmt = stmt.where(Transaction.user_id == user_id)
+    if shared_group_id is not None:
+        stmt = stmt.where(Transaction.shared_group_id == shared_group_id)
     transactions = (
-        session.execute(
-            select(Transaction)
-            .where(Transaction.source_id.like("amazon_%"))
-            .order_by(Transaction.purchased_at.asc(), Transaction.source_transaction_id.asc())
-        )
+        session.execute(stmt.order_by(Transaction.purchased_at.asc(), Transaction.source_transaction_id.asc()))
         .scalars()
         .all()
     )
@@ -74,6 +88,70 @@ def recalculate_amazon_transaction_financials(session: Session) -> AmazonRecalcR
         skipped=skipped,
         warnings=tuple(warnings),
     )
+
+
+def amazon_financial_recalc_marker_current(
+    session: Session,
+    *,
+    source_id: str,
+    version: str = AMAZON_FINANCIAL_RECALC_VERSION,
+) -> bool:
+    row = session.get(ConnectorConfigState, source_id)
+    public_config = row.public_config_json if row is not None else None
+    if not isinstance(public_config, dict):
+        return False
+    return public_config.get(_RECALC_VERSION_KEY) == version
+
+
+def mark_amazon_financial_recalc_current(
+    session: Session,
+    *,
+    source_id: str,
+    version: str = AMAZON_FINANCIAL_RECALC_VERSION,
+) -> None:
+    row = session.get(ConnectorConfigState, source_id)
+    if row is None:
+        row = ConnectorConfigState(source_id=source_id)
+        session.add(row)
+        session.flush()
+    public_config = dict(row.public_config_json or {})
+    public_config[_RECALC_VERSION_KEY] = version
+    row.public_config_json = public_config
+
+
+def run_scoped_amazon_financial_recalc_if_needed(
+    session: Session,
+    *,
+    source_id: str,
+    user_id: str | None,
+    shared_group_id: str | None = None,
+    version: str = AMAZON_FINANCIAL_RECALC_VERSION,
+) -> dict[str, Any]:
+    if amazon_financial_recalc_marker_current(session, source_id=source_id, version=version):
+        return {
+            "version": version,
+            "skipped_reason": "marker_current",
+            "scanned": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "skipped": 0,
+            "warning_count": 0,
+        }
+    result = recalculate_amazon_transaction_financials(
+        session,
+        source_id=source_id,
+        user_id=user_id,
+        shared_group_id=shared_group_id,
+    )
+    mark_amazon_financial_recalc_current(session, source_id=source_id, version=version)
+    return {
+        "version": version,
+        "scanned": result.scanned,
+        "updated": result.updated,
+        "unchanged": result.unchanged,
+        "skipped": result.skipped,
+        "warning_count": len(result.warnings),
+    }
 
 
 def _extract_order_payload(payload: dict[str, Any]) -> dict[str, Any] | None:

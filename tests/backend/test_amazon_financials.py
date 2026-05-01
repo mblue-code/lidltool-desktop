@@ -5,9 +5,14 @@ from decimal import Decimal
 from pathlib import Path
 
 from lidltool.amazon.order_money import normalize_order_financials
-from lidltool.amazon.recalc import recalculate_amazon_transaction_financials
+from lidltool.amazon.recalc import (
+    AMAZON_FINANCIAL_RECALC_VERSION,
+    recalculate_amazon_transaction_financials,
+)
+from lidltool.config import AppConfig
 from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
-from lidltool.db.models import Source, Transaction, TransactionItem
+from lidltool.db.models import ConnectorConfigState, Source, Transaction, TransactionItem, User
+from lidltool.ingest.sync import SyncService
 from sqlalchemy import func, select
 
 
@@ -26,6 +31,125 @@ def _order(*, gross: float, final: float | None, refunds: list[tuple[str, float]
     if final is not None:
         order["originalOrder"] = {"totalAmount": final}
     return order
+
+
+def _legacy_amazon_raw_payload(*, gross: float = 1639.52, final: float = 1621.57, refund: float = 62.0) -> dict:
+    return {
+        "source_record_ref": "306-4659501-3303528",
+        "source_record_detail": {
+            "totalGross": gross,
+            "subtotals": [
+                {"label": "Summe:", "amount": gross, "category": "order_total"},
+                {"label": "Gutschein eingelöst:", "amount": round(gross - final, 2), "category": "coupon"},
+                {"label": "Gesamtsumme:", "amount": final, "category": "order_total"},
+                {"label": "Summe der Erstattung", "amount": refund, "category": "refund_info"},
+            ],
+            "paymentAdjustments": [
+                {"type": "payment_adjustment", "subkind": "store_credit", "amount_cents": int(round((gross - final) * 100)), "label": "Gutschein eingelöst:"}
+            ],
+            "originalOrder": {"totalAmount": final},
+        },
+        "connector_normalized": {"id": "amazon-306-4659501-3303528", "total_gross_cents": int(round(gross * 100))},
+    }
+
+
+def _build_sessions(tmp_path: Path):
+    db_path = (tmp_path / "lidltool.sqlite").resolve()
+    db_url = f"sqlite:///{db_path}"
+    migrate_db(db_url)
+    engine = create_engine_for_url(db_url)
+    return engine, session_factory(engine)
+
+
+def _add_source(session, source_id: str, *, user_id: str = "user-a") -> Source:
+    _add_user(session, user_id)
+    source = Source(
+        id=source_id,
+        user_id=user_id,
+        kind="connector",
+        display_name="Amazon",
+        status="healthy",
+        enabled=True,
+        reporting_role="spending_only",
+    )
+    session.add(source)
+    return source
+
+
+def _add_user(session, user_id: str) -> User:
+    for pending in session.new:
+        if isinstance(pending, User) and pending.user_id == user_id:
+            return pending
+    existing = session.get(User, user_id)
+    if existing is not None:
+        return existing
+    user = User(
+        user_id=user_id,
+        username=user_id,
+        password_hash="test",
+        is_admin=False,
+    )
+    session.add(user)
+    return user
+
+
+def _add_amazon_transaction(
+    session,
+    *,
+    source_id: str = "amazon_de",
+    user_id: str = "user-a",
+    transaction_id: str = "tx-amazon",
+    source_transaction_id: str = "amazon-306-4659501-3303528",
+    total_gross_cents: int = 163952,
+    raw_payload: dict | None = None,
+) -> Transaction:
+    _add_user(session, user_id)
+    transaction = Transaction(
+        id=transaction_id,
+        source_id=source_id,
+        user_id=user_id,
+        source_transaction_id=source_transaction_id,
+        purchased_at=datetime(2020, 10, 29, tzinfo=UTC),
+        merchant_name="Amazon",
+        total_gross_cents=total_gross_cents,
+        discount_total_cents=0,
+        currency="EUR",
+        raw_payload=raw_payload if raw_payload is not None else _legacy_amazon_raw_payload(),
+    )
+    transaction.items.append(
+        TransactionItem(
+            line_no=1,
+            name="Camera",
+            qty=Decimal("1"),
+            line_total_cents=163952,
+            category="electronics",
+        )
+    )
+    session.add(transaction)
+    return transaction
+
+
+class _NoRecordAmazonConnector:
+    def authenticate(self) -> dict:
+        return {"authenticated": True}
+
+    def refresh_auth(self) -> dict:
+        return {"refreshed": True}
+
+    def healthcheck(self) -> dict:
+        return {"healthy": True}
+
+    def discover_new_records(self) -> list[str]:
+        return []
+
+    def fetch_record_detail(self, record_ref: str) -> dict:
+        raise AssertionError("no records should be fetched")
+
+    def normalize(self, record_detail: dict) -> dict:
+        raise AssertionError("no records should be normalized")
+
+    def extract_discounts(self, record_detail: dict) -> list[dict]:
+        raise AssertionError("no discounts should be extracted")
 
 
 def test_amazon_financials_partial_refund_uses_final_charged_total() -> None:
@@ -111,60 +235,11 @@ def test_amazon_financials_recognizes_german_and_english_refund_labels() -> None
 
 
 def test_amazon_recalc_updates_existing_transaction_in_place_and_preserves_items(tmp_path: Path) -> None:
-    db_path = (tmp_path / "lidltool.sqlite").resolve()
-    db_url = f"sqlite:///{db_path}"
-    migrate_db(db_url)
-    engine = create_engine_for_url(db_url)
-    sessions = session_factory(engine)
+    engine, sessions = _build_sessions(tmp_path)
 
     with session_scope(sessions) as session:
-        session.add(
-            Source(
-                id="amazon_de",
-                kind="connector",
-                display_name="Amazon",
-                status="healthy",
-                enabled=True,
-                reporting_role="spending_only",
-            )
-        )
-        transaction = Transaction(
-            id="tx-amazon",
-            source_id="amazon_de",
-            source_transaction_id="amazon-306-4659501-3303528",
-            purchased_at=datetime(2020, 10, 29, tzinfo=UTC),
-            merchant_name="Amazon",
-            total_gross_cents=163952,
-            discount_total_cents=0,
-            currency="EUR",
-            raw_payload={
-                "source_record_ref": "306-4659501-3303528",
-                "source_record_detail": {
-                    "totalGross": 1639.52,
-                    "subtotals": [
-                        {"label": "Summe:", "amount": 1639.52, "category": "order_total"},
-                        {"label": "Gutschein eingelöst:", "amount": -17.95, "category": "coupon"},
-                        {"label": "Gesamtsumme:", "amount": 1621.57, "category": "order_total"},
-                        {"label": "Summe der Erstattung", "amount": 62.0, "category": "refund_info"},
-                    ],
-                    "paymentAdjustments": [
-                        {"type": "payment_adjustment", "subkind": "store_credit", "amount_cents": 1795, "label": "Gutschein eingelöst:"}
-                    ],
-                    "originalOrder": {"totalAmount": 1621.57},
-                },
-                "connector_normalized": {"id": "amazon-306-4659501-3303528", "total_gross_cents": 163952},
-            },
-        )
-        transaction.items.append(
-            TransactionItem(
-                line_no=1,
-                name="Camera",
-                qty=Decimal("1"),
-                line_total_cents=163952,
-                category="electronics",
-            )
-        )
-        session.add(transaction)
+        _add_source(session, "amazon_de")
+        _add_amazon_transaction(session)
 
     with session_scope(sessions) as session:
         result = recalculate_amazon_transaction_financials(session)
@@ -184,3 +259,95 @@ def test_amazon_recalc_updates_existing_transaction_in_place_and_preserves_items
             )
         ).scalar_one()
         assert summary_total == 155957
+
+
+def test_amazon_recalc_scopes_by_source(tmp_path: Path) -> None:
+    engine, sessions = _build_sessions(tmp_path)
+    with session_scope(sessions) as session:
+        _add_source(session, "amazon_de")
+        _add_source(session, "amazon_fr")
+        _add_amazon_transaction(session, source_id="amazon_de", transaction_id="tx-de")
+        _add_amazon_transaction(
+            session,
+            source_id="amazon_fr",
+            transaction_id="tx-fr",
+            source_transaction_id="amazon-fr-1",
+        )
+
+    with session_scope(sessions) as session:
+        result = recalculate_amazon_transaction_financials(session, source_id="amazon_de")
+        assert result.updated == 1
+
+    with session_scope(sessions) as session:
+        assert session.get(Transaction, "tx-de").total_gross_cents == 155957
+        assert session.get(Transaction, "tx-fr").total_gross_cents == 163952
+
+
+def test_amazon_recalc_scopes_by_user(tmp_path: Path) -> None:
+    engine, sessions = _build_sessions(tmp_path)
+    with session_scope(sessions) as session:
+        _add_source(session, "amazon_de", user_id="user-a")
+        _add_amazon_transaction(session, transaction_id="tx-a", user_id="user-a")
+        _add_amazon_transaction(
+            session,
+            transaction_id="tx-b",
+            user_id="user-b",
+            source_transaction_id="amazon-user-b",
+        )
+
+    with session_scope(sessions) as session:
+        result = recalculate_amazon_transaction_financials(
+            session,
+            source_id="amazon_de",
+            user_id="user-a",
+        )
+        assert result.updated == 1
+
+    with session_scope(sessions) as session:
+        assert session.get(Transaction, "tx-a").total_gross_cents == 155957
+        assert session.get(Transaction, "tx-b").total_gross_cents == 163952
+
+
+def test_amazon_recalc_skips_missing_raw_payload_with_warning(tmp_path: Path) -> None:
+    engine, sessions = _build_sessions(tmp_path)
+    with session_scope(sessions) as session:
+        _add_source(session, "amazon_de")
+        _add_amazon_transaction(session, raw_payload={}, total_gross_cents=12345)
+
+    with session_scope(sessions) as session:
+        result = recalculate_amazon_transaction_financials(session, source_id="amazon_de")
+        assert result.skipped == 1
+        assert result.updated == 0
+        assert "missing Amazon raw payload" in result.warnings[0]
+        assert session.get(Transaction, "tx-amazon").total_gross_cents == 12345
+
+
+def test_amazon_sync_lifecycle_runs_scoped_recalc_and_sets_marker(tmp_path: Path) -> None:
+    engine, sessions = _build_sessions(tmp_path)
+    with session_scope(sessions) as session:
+        _add_source(session, "amazon_de", user_id="user-a")
+        _add_amazon_transaction(session, user_id="user-a")
+
+    service = SyncService(
+        client=None,
+        session_factory=sessions,
+        config=AppConfig(source="amazon_de", db_path=tmp_path / "lidltool.sqlite"),
+        connector=_NoRecordAmazonConnector(),
+        owner_user_id="user-a",
+    )
+    first = service.sync(full=True)
+    second = service.sync(full=True)
+
+    with session_scope(sessions) as session:
+        rows = session.query(Transaction).filter_by(source_id="amazon_de").all()
+        assert len(rows) == 1
+        assert rows[0].total_gross_cents == 155957
+        assert rows[0].items[0].line_total_cents == 163952
+        marker = session.get(ConnectorConfigState, "amazon_de")
+        assert marker is not None
+        assert marker.public_config_json["_amazon_financial_recalc_version"] == AMAZON_FINANCIAL_RECALC_VERSION
+
+    assert first.metadata["amazon_financial_recalc"]["updated"] == 1
+    assert first.metadata["amazon_financial_recalc"]["scanned"] == 1
+    assert second.metadata["amazon_financial_recalc"]["updated"] == 0
+    assert second.metadata["amazon_financial_recalc"]["skipped_reason"] == "marker_current"
