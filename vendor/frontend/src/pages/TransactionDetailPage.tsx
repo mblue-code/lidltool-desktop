@@ -38,6 +38,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/i18n";
 import { resolveApiErrorMessage } from "@/lib/backend-messages";
+import { FINANCE_CATEGORY_OPTIONS, financeCategoryLabel } from "@/lib/category-presentation";
 import {
   TransactionOverrideRequest,
   buildDocumentPreviewUrl,
@@ -55,6 +56,7 @@ const overrideFormSchema = z.object({
   actorId: z.string().trim().max(120),
   reason: z.string().trim().max(280),
   merchantName: z.string().trim().max(280),
+  financeCategoryId: z.string().trim().max(120),
   itemId: z.string(),
   itemCategory: z.string().trim().max(120)
 });
@@ -149,6 +151,7 @@ export function TransactionDetailPage() {
       actorId: "ledger-ui",
       reason: "",
       merchantName: "",
+      financeCategoryId: "",
       itemId: "",
       itemCategory: ""
     }
@@ -180,6 +183,7 @@ export function TransactionDetailPage() {
       actorId: "ledger-ui",
       reason: "",
       merchantName: detail.transaction.merchant_name ?? "",
+      financeCategoryId: detail.transaction.finance_category_id ?? "",
       itemId: "",
       itemCategory: ""
     });
@@ -211,6 +215,11 @@ export function TransactionDetailPage() {
     const previousMerchant = (detail.transaction.merchant_name ?? "").trim();
     if (normalizedMerchant !== previousMerchant) {
       transactionCorrections.merchant_name = normalizedMerchant || null;
+    }
+    const normalizedFinanceCategory = values.financeCategoryId.trim();
+    const previousFinanceCategory = (detail.transaction.finance_category_id ?? "").trim();
+    if (normalizedFinanceCategory !== previousFinanceCategory) {
+      transactionCorrections.finance_category_id = normalizedFinanceCategory || null;
     }
 
     const itemCorrections: Array<{ item_id: string; corrections: Record<string, unknown> }> = [];
@@ -397,6 +406,10 @@ export function TransactionDetailPage() {
                   </p>
                   <p>
                     <strong>{t("pages.transactionDetail.field.discountTotal")}:</strong> {formatEurFromCents(detail.transaction.discount_total_cents ?? 0)}
+                  </p>
+                  <p>
+                    <strong>{t("pages.transactionDetail.field.financeCategory")}:</strong>{" "}
+                    {financeCategoryLabel(detail.transaction.finance_category_id, t)}
                   </p>
                 </CardContent>
               </Card>
@@ -590,6 +603,34 @@ export function TransactionDetailPage() {
                     <Input id="merchant-name" {...form.register("merchantName")} />
                     {form.formState.errors.merchantName ? (
                       <p className="text-xs text-destructive">{form.formState.errors.merchantName.message}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="finance-category">{t("pages.transactionDetail.override.financeCategory")}</Label>
+                    <Select
+                      value={form.watch("financeCategoryId") || NO_CATEGORY_VALUE}
+                      onValueChange={(value) => {
+                        form.setValue("financeCategoryId", value === NO_CATEGORY_VALUE ? "" : value, {
+                          shouldDirty: true,
+                          shouldValidate: true
+                        });
+                      }}
+                    >
+                      <SelectTrigger id="finance-category" aria-label={t("pages.transactionDetail.override.financeCategory")}>
+                        <SelectValue placeholder={t("pages.transactionDetail.override.selectFinanceCategory")} />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-80">
+                        <SelectItem value={NO_CATEGORY_VALUE}>{t("pages.transactionDetail.override.clearFinanceCategory")}</SelectItem>
+                        {FINANCE_CATEGORY_OPTIONS.map((category) => (
+                          <SelectItem value={category} key={category}>
+                            {financeCategoryLabel(category, t)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {form.formState.errors.financeCategoryId ? (
+                      <p className="text-xs text-destructive">{form.formState.errors.financeCategoryId.message}</p>
                     ) : null}
                   </div>
 

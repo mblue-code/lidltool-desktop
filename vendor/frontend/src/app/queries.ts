@@ -9,28 +9,13 @@ import {
 import { fetchReliabilitySlo } from "@/api/reliability";
 import { fetchReviewQueue, fetchReviewQueueDetail } from "@/api/reviewQueue";
 import { fetchAutomationExecutions, fetchAutomationRules } from "@/api/automations";
-import { fetchTransactionDetail, fetchTransactionHistory, fetchTransactions } from "@/api/transactions";
+import { fetchTransactionDetail, fetchTransactionHistory, fetchTransactions, type TransactionsRequestFilters } from "@/api/transactions";
 import { warningCacheKey, type ApiWarning } from "@/lib/api-messages";
 
 export type DashboardDiscountView = "native" | "normalized";
 export type DashboardPeriodMode = "month" | "range" | "year";
 
-export type TransactionsFilters = {
-  query?: string;
-  sourceId?: string;
-  sourceKind?: string;
-  weekday?: number;
-  hour?: number;
-  tzOffsetMinutes?: number;
-  merchantName?: string;
-  year?: number;
-  month?: number;
-  purchasedFrom?: string;
-  purchasedTo?: string;
-  sortBy?: "purchased_at" | "store_name" | "source_id" | "total_gross_cents" | "discount_total_cents";
-  sortDir?: "asc" | "desc";
-  minTotalCents?: number;
-  maxTotalCents?: number;
+export type TransactionsFilters = TransactionsRequestFilters & {
   limit: number;
   offset: number;
 };

@@ -1,15 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReportsPage } from "../ReportsPage";
 
 const mocks = vi.hoisted(() => ({
+  fetchReportPatternsMock: vi.fn(),
   fetchReportTemplatesMock: vi.fn(),
   useDateRangeContextMock: vi.fn()
 }));
 
 vi.mock("@/api/reports", () => ({
+  fetchReportPatterns: mocks.fetchReportPatternsMock,
   fetchReportTemplates: mocks.fetchReportTemplatesMock
 }));
 
@@ -19,8 +21,13 @@ vi.mock("@/app/date-range-context", () => ({
 
 vi.mock("@/i18n", () => ({
   useI18n: () => ({
-    locale: "en" as const
+    locale: "en" as const,
+    t: (key: string, values?: Record<string, unknown>) =>
+      values
+        ? key.replace(/\{(\w+)\}/g, (_, name) => String(values[name] ?? ""))
+        : key
   }),
+  resolveIntlLocale: () => "en-US",
   localizeNode: (node: unknown) => node
 }));
 
@@ -42,13 +49,8 @@ describe("ReportsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.useDateRangeContextMock.mockReturnValue({
-      preset: "this_month",
       fromDate: "2026-04-01",
-      toDate: "2026-04-30",
-      comparisonFromDate: "2026-03-01",
-      comparisonToDate: "2026-03-31",
-      setPreset: vi.fn(),
-      setCustomRange: vi.fn()
+      toDate: "2026-04-30"
     });
     mocks.fetchReportTemplatesMock.mockResolvedValue({
       templates: [
@@ -56,12 +58,16 @@ describe("ReportsPage", () => {
           slug: "monthly-overview",
           title: "Monthly overview",
           description: "Summary",
-          payload: {
-            total_cents: 12345,
-            categories: [{ category: "groceries", amount_cents: 12345 }]
-          }
+          payload: { total_cents: 12345 }
         }
       ]
+    });
+    mocks.fetchReportPatternsMock.mockResolvedValue({
+      daily_heatmap: [{ date: "2026-04-10", amount_cents: 12345, count: 2 }],
+      weekday_hour_matrix: [{ weekday: 5, hour: 18, amount_cents: 12345, count: 2 }],
+      merchant_profiles: [],
+      merchant_comparison: [{ merchant: "Lidl", amount_cents: 12345, count: 2 }],
+      insights: [{ kind: "top_merchant", merchant: "Lidl", amount_cents: 12345 }]
     });
   });
 
@@ -69,40 +75,25 @@ describe("ReportsPage", () => {
     cleanup();
   });
 
-  it("foregrounds CSV export and keeps JSON as raw data", async () => {
-    const originalCreateObjectURL = URL.createObjectURL;
-    const originalRevokeObjectURL = URL.revokeObjectURL;
-    const createObjectURLMock = vi.fn((value: Blob | MediaSource) => {
-      void value;
-      return "blob:report-csv";
+  it("renders localized pattern recognition sections and keeps JSON export available", async () => {
+    renderPage();
+
+    expect(await screen.findByText("pages.reports.patterns.title")).toBeInTheDocument();
+    expect(screen.getByText("pages.reports.patterns.dailyHeatmap")).toBeInTheDocument();
+    expect(screen.getByText("pages.reports.patterns.weekdayHour")).toBeInTheDocument();
+    expect(screen.getByText("pages.reports.patterns.merchantComparison")).toBeInTheDocument();
+    expect(await screen.findByText("Lidl")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "pages.reports.exportJson" })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(mocks.fetchReportPatternsMock).toHaveBeenCalledWith({
+        fromDate: "2026-04-01",
+        toDate: "2026-04-30",
+        merchants: [],
+        financeCategoryId: undefined,
+        direction: undefined,
+        valueMode: "amount"
+      });
     });
-    const revokeObjectURLMock = vi.fn();
-    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURLMock });
-    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectURLMock });
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-
-    try {
-      renderPage();
-
-      const csvButton = await screen.findByRole("button", { name: "Export CSV" });
-      expect(screen.getByRole("button", { name: "Raw JSON" })).toBeInTheDocument();
-      expect(screen.getByText(/CSV is the user-facing export view/)).toBeInTheDocument();
-
-      fireEvent.click(csvButton);
-
-      await waitFor(() => {
-        expect(createObjectURLMock).toHaveBeenCalled();
-      });
-      const blob = createObjectURLMock.mock.calls[0]?.[0] as Blob;
-      expect(await blob.text()).toContain("category,amount_cents");
-      expect(clickSpy).toHaveBeenCalled();
-      await waitFor(() => {
-        expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:report-csv");
-      });
-    } finally {
-      clickSpy.mockRestore();
-      Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreateObjectURL });
-      Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: originalRevokeObjectURL });
-    }
   });
 });

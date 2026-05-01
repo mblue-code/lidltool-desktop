@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useI18n } from "@/i18n";
+import { financeCategoryLabel, groceryCategoryLabel } from "@/lib/category-presentation";
 import { formatDate, formatEurFromCents } from "@/utils/format";
 
 function sectionTitle(title: string, actionHref?: string, actionLabel?: string) {
@@ -143,11 +144,13 @@ function DeltaPill({ deltaPct, locale }: { deltaPct: number | null; locale: "en"
 function RingChart({
   categories,
   totalCents,
-  locale
+  locale,
+  labelForCategory
 }: {
   categories: Array<{ category: string; amount_cents: number; share: number }>;
   totalCents: number;
   locale: "en" | "de";
+  labelForCategory?: (category: string) => string;
 }) {
   const colors = ["#14b8a6", "#2563eb", "#7c3aed", "#fb923c", "#ec4899", "#cbd5e1"];
   const visibleCategories = categories.filter((item) => item.amount_cents > 0 && item.share > 0);
@@ -181,26 +184,28 @@ function RingChart({
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[280px_1fr]">
+    <div className="grid min-w-0 gap-6 2xl:grid-cols-[240px_minmax(0,1fr)]">
       <div className="flex items-center justify-center">
         <div
-          className="relative h-[240px] w-[240px] rounded-full"
+          className="relative h-[220px] w-[220px] rounded-full"
           style={{ background: `conic-gradient(${gradient || "#e2e8f0 0 100%"})` }}
         >
           <div className="absolute inset-[26px] flex flex-col items-center justify-center rounded-full border border-white/10 bg-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-            <span className="app-value text-3xl font-semibold text-slate-100">{formatEurFromCents(totalCents)}</span>
+            <span className="app-value max-w-[150px] truncate text-center text-3xl font-semibold text-slate-100">{formatEurFromCents(totalCents)}</span>
             <span className="mt-2 text-sm text-slate-300">{locale === "de" ? "Nettoausgaben" : "Net spend"}</span>
           </div>
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="min-w-0 space-y-3">
         {visibleCategories.map((item, index) => (
-          <div key={item.category} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 border-b border-border/60 py-3 last:border-b-0">
-            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
-            <span className="font-medium">{categoryLabel(item.category, locale)}</span>
-            <span className="text-sm text-muted-foreground">{(item.share * 100).toFixed(1)}%</span>
-            <span className="font-semibold">{formatEurFromCents(item.amount_cents)}</span>
+          <div key={item.category} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-border/60 py-3 last:border-b-0 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+            <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
+            <span className="min-w-0 truncate font-medium" title={labelForCategory ? labelForCategory(item.category) : categoryLabel(item.category, locale)}>
+              {labelForCategory ? labelForCategory(item.category) : categoryLabel(item.category, locale)}
+            </span>
+            <span className="text-sm tabular-nums text-muted-foreground">{(item.share * 100).toFixed(1)}%</span>
+            <span className="hidden whitespace-nowrap text-right font-semibold tabular-nums sm:block">{formatEurFromCents(item.amount_cents)}</span>
           </div>
         ))}
       </div>
@@ -276,7 +281,7 @@ function ProgressRow({
 
 export function DashboardPage() {
   const { fromDate, toDate } = useDateRangeContext();
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const [selectedSourceId, setSelectedSourceId] = useState("all");
   const selectedSourceIds = selectedSourceId === "all" ? undefined : [selectedSourceId];
   const dataKey = `${fromDate}:${toDate}:${selectedSourceId}`;
@@ -453,18 +458,33 @@ export function DashboardPage() {
 
       {overview ? (
         <>
-          <div key={`main:${dataKey}`} className="grid gap-4 xl:grid-cols-[1.15fr_1fr_0.82fr]">
+          <div key={`main:${dataKey}`} className="grid gap-4 xl:grid-cols-2">
             <Card className="app-dashboard-surface border-border/60">
-              <CardHeader>{sectionTitle(copy.spendingOverview, "/reports", locale === "de" ? "Berichte anzeigen" : "View reports")}</CardHeader>
+              <CardHeader>{sectionTitle(t("pages.dashboard.overallSpending"), "/transactions?direction_filter=outflow", t("pages.dashboard.viewTransactions"))}</CardHeader>
               <CardContent>
                 <RingChart
-                  categories={overview.spending_overview.categories}
-                  totalCents={overview.spending_overview.total_cents}
+                  categories={overview.overall_spending.categories}
+                  totalCents={overview.overall_spending.total_cents}
                   locale={locale}
+                  labelForCategory={(category) => financeCategoryLabel(category, t)}
                 />
               </CardContent>
             </Card>
 
+            <Card className="app-dashboard-surface border-border/60">
+              <CardHeader>{sectionTitle(t("pages.dashboard.grocerySpending"), "/groceries", t("pages.dashboard.viewGroceries"))}</CardHeader>
+              <CardContent>
+                <RingChart
+                  categories={overview.grocery_spending.categories}
+                  totalCents={overview.grocery_spending.total_cents}
+                  locale={locale}
+                  labelForCategory={(category) => groceryCategoryLabel(category, t)}
+                />
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1fr_0.82fr]">
             <Card className="app-dashboard-surface border-border/60">
               <CardHeader>{sectionTitle(copy.cashFlowSummary, "/cash-flow", locale === "de" ? "Cashflow anzeigen" : "View cash flow")}</CardHeader>
               <CardContent>

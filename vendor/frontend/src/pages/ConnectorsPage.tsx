@@ -14,11 +14,13 @@ import {
   startConnectorBootstrap,
   startConnectorSync,
   submitConnectorConfig,
+  updateSourceReportingRole,
   type ConnectorAuthStatus,
   type ConnectorBootstrapStatus,
   type ConnectorConfig,
   type ConnectorConfigField,
-  type ConnectorDiscoveryRow
+  type ConnectorDiscoveryRow,
+  type SourceReportingRole
 } from "@/api/connectors";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -111,6 +113,38 @@ type FirstRunPromptState = Record<
 
 type ManualCallbackState = Record<string, string>;
 type PendingConnectorCallbackState = DesktopConnectorCallbackEvent[];
+
+function reportingRoleLabel(role: SourceReportingRole, locale: SupportedLocale): string {
+  if (role === "spending_only") {
+    return byLocale(locale, "Spending only", "Nur Ausgaben");
+  }
+  if (role === "cashflow_only") {
+    return byLocale(locale, "Cash flow only", "Nur Cashflow");
+  }
+  return byLocale(locale, "Spending and cash flow", "Ausgaben und Cashflow");
+}
+
+function reportingRoleDescription(role: SourceReportingRole, locale: SupportedLocale): string {
+  if (role === "spending_only") {
+    return byLocale(
+      locale,
+      "Use this for receipts and purchase history. Purchases count in spending, but not in account cash flow.",
+      "Für Belege und Kaufhistorie. Käufe zählen zu Ausgaben, aber nicht zum Konto-Cashflow."
+    );
+  }
+  if (role === "cashflow_only") {
+    return byLocale(
+      locale,
+      "Use this for bank movements and settlements. Records count in cash flow, but not as purchase spending.",
+      "Für Kontobewegungen und Abrechnungen. Einträge zählen zum Cashflow, aber nicht als Kaufausgaben."
+    );
+  }
+  return byLocale(
+    locale,
+    "Use this only when the source itself is the purchase and account movement source.",
+    "Nur verwenden, wenn diese Quelle zugleich Kauf- und Kontobewegungsquelle ist."
+  );
+}
 
 const SHORT_SUCCESS_DISMISS_MS = 60_000;
 const OPTIMISTIC_SYNC_START_MS = 20_000;
@@ -1835,6 +1869,41 @@ export function ConnectorsPage() {
       });
     }
   });
+
+  const reportingRoleMutation = useMutation({
+    mutationFn: ({
+      sourceId,
+      reportingRole
+    }: {
+      sourceId: string;
+      reportingRole: SourceReportingRole;
+    }) => updateSourceReportingRole(sourceId, reportingRole),
+    onSuccess: async (result) => {
+      setFeedback({
+        variant: "default",
+        title: byLocale(locale, "Reporting role saved", "Auswertungsrolle gespeichert"),
+        message: byLocale(
+          locale,
+          "Dashboard reporting will use the new source role from now on.",
+          "Dashboard-Auswertungen verwenden ab jetzt die neue Quellenrolle."
+        ),
+        dismissAfterMs: 10_000
+      });
+      await queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
+      await queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      await queryClient.invalidateQueries({ queryKey: ["connectors", "config", result.source_id] });
+    },
+    onError: (error) => {
+      setFeedback({
+        variant: "destructive",
+        title: byLocale(locale, "Reporting role failed", "Auswertungsrolle fehlgeschlagen"),
+        message: resolveApiErrorMessage(error, t, t("pages.connectors.loadSourceErrorTitle"))
+      });
+    }
+  });
+
   const cancelBootstrapMutation = useMutation({
     mutationFn: (sourceId: string) => cancelConnectorBootstrap(sourceId),
     onSuccess: async (_result, sourceId) => {
@@ -2642,6 +2711,39 @@ export function ConnectorsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {secondarySummary ? <p className="text-sm text-muted-foreground">{secondarySummary}</p> : null}
+          <div className="rounded-lg border border-border/60 bg-background/40 p-3">
+            <div className="grid gap-3 md:grid-cols-[1fr_240px] md:items-center">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">
+                  {byLocale(locale, "Dashboard role", "Dashboard-Rolle")}
+                </p>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {reportingRoleDescription(connector.reporting_role, locale)}
+                </p>
+              </div>
+              <Select
+                value={connector.reporting_role}
+                onValueChange={(value) =>
+                  reportingRoleMutation.mutate({
+                    sourceId: connector.source_id,
+                    reportingRole: value as SourceReportingRole
+                  })
+                }
+                disabled={reportingRoleMutation.isPending}
+              >
+                <SelectTrigger aria-label={byLocale(locale, "Dashboard role", "Dashboard-Rolle")}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(["spending_only", "cashflow_only", "spending_and_cashflow"] as const).map((role) => (
+                    <SelectItem key={role} value={role}>
+                      {reportingRoleLabel(role, locale)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
           {connector.last_sync_summary ? (
             <p className="text-sm text-muted-foreground">
               <span className="font-medium text-foreground">{byLocale(locale, "Last result:", "Letztes Ergebnis:")}</span>{" "}

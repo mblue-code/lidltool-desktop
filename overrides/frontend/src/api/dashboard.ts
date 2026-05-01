@@ -120,6 +120,14 @@ const DashboardOverviewResponseSchema = z.object({
       })
     )
   }),
+  overall_spending: z.object({
+    total_cents: z.number(),
+    categories: z.array(z.object({ category: z.string(), amount_cents: z.number(), share: z.number() }))
+  }),
+  grocery_spending: z.object({
+    total_cents: z.number(),
+    categories: z.array(z.object({ category: z.string(), amount_cents: z.number(), share: z.number() }))
+  }),
   cash_flow_summary: z.object({
     totals: z.object({
       inflow_cents: z.number(),

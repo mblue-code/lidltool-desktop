@@ -45,10 +45,9 @@ def connector_discovery_payload(
         registry=resolved_registry,
         include_sensitive_details=viewer_is_admin,
     )
-    known_source_ids = {
-        str(source_id)
-        for source_id in session.execute(select(Source.id)).scalars().all()
-    }
+    source_rows = session.execute(select(Source)).scalars().all()
+    sources_by_id = {source.id: source for source in source_rows}
+    known_source_ids = set(sources_by_id)
 
     rows: list[dict[str, Any]] = []
     user_status_counts: dict[str, int] = defaultdict(int)
@@ -102,6 +101,11 @@ def connector_discovery_payload(
             sync_attention_reason=sync_attention_reason,
         )
         source_exists = source_id in known_source_ids
+        reporting_role = (
+            sources_by_id[source_id].reporting_role
+            if source_id in sources_by_id
+            else _default_reporting_role(source_id=source_id, manifest=manifest)
+        )
         actions = _actions_payload(
             source_id=source_id,
             source_exists=source_exists,
@@ -136,6 +140,7 @@ def connector_discovery_payload(
             "trust_class": _text(item.get("support", {}).get("trust_class"))
             or _text(item.get("trust_class")),
             "status_detail": status_detail,
+            "reporting_role": reporting_role,
             "last_sync_summary": _last_sync_summary(sync),
             "last_synced_at": _last_synced_at(sync),
             "ui": {
@@ -201,6 +206,12 @@ def _text(value: Any) -> str | None:
         candidate = value.strip()
         return candidate or None
     return None
+
+
+def _default_reporting_role(*, source_id: str, manifest: ConnectorManifest | None) -> str:
+    if manifest is not None or source_id.startswith(("amazon_", "lidl_plus_", "rewe_", "penny_", "dm_", "kaufland_")):
+        return "spending_only"
+    return "spending_and_cashflow"
 
 
 def _normalize_origin(value: Any) -> str:

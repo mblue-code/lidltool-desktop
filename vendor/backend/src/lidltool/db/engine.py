@@ -252,10 +252,14 @@ def _ensure_connector_state_schema(db_url: str, table_names: set[str]) -> None:
 def init_db(engine: Engine) -> None:
     Base.metadata.create_all(engine)
     from lidltool.analytics.item_categorizer import ensure_category_taxonomy
+    from lidltool.analytics.finance_taxonomy import ensure_finance_taxonomy
+    from lidltool.analytics.transaction_categorizer import register_transaction_categorizer_events
 
     with Session(engine) as session:
         ensure_category_taxonomy(session)
+        ensure_finance_taxonomy(session)
         session.commit()
+    register_transaction_categorizer_events()
 
 
 def _looks_like_concurrent_sqlite_migration(exc: OperationalError) -> bool:

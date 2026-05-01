@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import Counter
 from collections.abc import Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
@@ -77,9 +78,11 @@ from lidltool.analytics.advanced import (
 )
 from lidltool.analytics.item_categorizer import resolve_item_categorizer_runtime_client
 from lidltool.analytics.recategorization import recategorize_transactions
+from lidltool.analytics.transaction_categorizer import learn_finance_category_rule, recategorize_finance_transactions
 from lidltool.analytics.queries import (
     dashboard_available_years,
     dashboard_category_spend_summary,
+    dashboard_grocery_category_spend_summary,
     display_merchant_name,
     dashboard_merchant_summary,
     dashboard_retailer_composition,
@@ -91,9 +94,11 @@ from lidltool.analytics.queries import (
     dashboard_window_transactions,
     grocery_workspace_summary,
     merchant_workspace_summary,
+    reports_pattern_summary,
     review_queue,
     review_queue_detail,
     search_transactions,
+    transaction_facets,
     transaction_detail,
 )
 from lidltool.analytics.query_dsl import parse_dsl_to_query
@@ -1392,7 +1397,9 @@ def _dashboard_transaction_cashflow_outflows(
         .where(
             Transaction.purchased_at >= from_dt,
             Transaction.purchased_at < end,
+            Transaction.direction == "outflow",
             Transaction.id.in_(visible_transaction_ids_subquery(visibility)),
+            _source_contributes_to_cashflow(),
         )
         .group_by(purchased_day)
         .order_by(purchased_day.asc())
@@ -1408,6 +1415,19 @@ def _dashboard_transaction_cashflow_outflows(
             outflow_date = date.fromisoformat(str(raw_day))
         outflows.append((outflow_date, int(amount_cents or 0)))
     return outflows
+
+
+def _source_contributes_to_cashflow() -> Any:
+    return exists(
+        select(Source.id)
+        .where(Source.id == Transaction.source_id)
+        .where(
+            func.coalesce(Source.reporting_role, "spending_and_cashflow").in_(
+                ("cashflow_only", "spending_and_cashflow")
+            )
+        )
+        .correlate(Transaction)
+    )
 
 
 SHOPPING_MANUAL_CATEGORY_PREFIXES = ("groceries", "shopping")
@@ -1451,6 +1471,9 @@ def _shopping_purchase_filter() -> ColumnElement[bool]:
         ).correlate(Transaction)
     )
     return and_(
+        func.coalesce(Source.reporting_role, "spending_and_cashflow").in_(
+            ("spending_only", "spending_and_cashflow")
+        ),
         ~has_recurring_match,
         or_(
             Source.kind.in_(("connector", "ocr")),
@@ -1595,7 +1618,10 @@ def _dashboard_overview_payload(
     current_purchase_total_cents = current_purchase_totals["total_cents"]
     previous_purchase_total_cents = previous_purchase_totals["total_cents"]
     category_rows = dashboard_category_spend_summary(
-        session, from_date=from_dt, to_date=to_dt, visibility=visibility, source_ids=normalized_source_ids
+        session, from_date=from_dt, to_date=to_dt, visibility=visibility, source_ids=normalized_source_ids, limit=12
+    )
+    grocery_category_rows = dashboard_grocery_category_spend_summary(
+        session, from_date=from_dt, to_date=to_dt, visibility=visibility, source_ids=normalized_source_ids, limit=12
     )
     merchant_rows = dashboard_merchant_summary(
         session, from_date=from_dt, to_date=to_dt, visibility=visibility, source_ids=normalized_source_ids
@@ -1783,8 +1809,16 @@ def _dashboard_overview_payload(
             ),
         },
         "spending_overview": {
-            "total_cents": current_totals["net_cents"],
+            "total_cents": sum(row["amount_cents"] for row in category_rows),
             "categories": category_rows,
+        },
+        "overall_spending": {
+            "total_cents": sum(row["amount_cents"] for row in category_rows),
+            "categories": category_rows,
+        },
+        "grocery_spending": {
+            "total_cents": sum(row["amount_cents"] for row in grocery_category_rows),
+            "categories": grocery_category_rows,
         },
         "cash_flow_summary": {
             "totals": {
@@ -2180,6 +2214,7 @@ def _start_quality_recategorize_job(
     only_fallback_other: bool,
     include_suspect_model_items: bool,
     max_transactions: int | None,
+    include_finance_transactions: bool = False,
 ) -> QualityRecategorizeJobState:
     job = QualityRecategorizeJobState(
         job_id=str(uuid4()),
@@ -2213,6 +2248,27 @@ def _start_quality_recategorize_job(
             job.error = None
         try:
             with session_scope(sessions) as session:
+                finance_updated = 0
+                finance_method_counts: dict[str, int] = {}
+                if include_finance_transactions:
+                    finance_summary = recategorize_finance_transactions(
+                        session,
+                        config=config,
+                        only_uncategorized=True,
+                        transaction_ids=transaction_ids,
+                        require_model_runtime=True,
+                    )
+                    finance_updated = int(finance_summary.get("updated", 0) or 0)
+                    finance_model_updated = int(finance_summary.get("updated_by_model", 0) or 0)
+                    finance_rule_updated = max(0, finance_updated - finance_model_updated)
+                    if finance_rule_updated:
+                        finance_method_counts["finance_rule"] = finance_rule_updated
+                    if finance_model_updated:
+                        finance_method_counts["finance_model"] = finance_model_updated
+                    with lock:
+                        job.transaction_count = max(job.transaction_count, int(finance_summary.get("total", 0) or 0))
+                        job.updated_transaction_count = finance_updated
+                        job.method_counts = dict(finance_method_counts)
                 summary = recategorize_transactions(
                     session=session,
                     config=config,
@@ -2227,12 +2283,12 @@ def _start_quality_recategorize_job(
             with lock:
                 job.status = "completed"
                 job.finished_at = datetime.now(tz=UTC)
-                job.transaction_count = summary.transaction_count
+                job.transaction_count = max(summary.transaction_count, job.transaction_count)
                 job.candidate_item_count = summary.candidate_item_count
-                job.updated_transaction_count = summary.updated_transaction_count
+                job.updated_transaction_count = summary.updated_transaction_count + finance_updated
                 job.updated_item_count = summary.updated_item_count
                 job.skipped_transaction_count = summary.skipped_transaction_count
-                job.method_counts = dict(summary.method_counts or {})
+                job.method_counts = dict(Counter(finance_method_counts) + Counter(summary.method_counts or {}))
         except Exception as exc:  # noqa: BLE001
             with lock:
                 job.status = "error"
@@ -3722,6 +3778,10 @@ class ManualTransactionCreateRequest(BaseModel):
     discount_total_cents: int | None = None
     allocation_mode: Literal["personal", "shared_receipt", "split_items"] = "personal"
     confidence: float | None = None
+    direction: Literal["inflow", "outflow", "transfer", "neutral"] | None = None
+    finance_category_id: str | None = None
+    finance_category_method: str | None = None
+    finance_tags: list[str] = Field(default_factory=list)
     items: list[ManualTransactionItemRequest] = Field(default_factory=list)
     discounts: list[ManualTransactionDiscountRequest] = Field(default_factory=list)
     raw_payload: dict[str, Any] = Field(default_factory=dict)
@@ -4336,6 +4396,10 @@ class SourceWorkspaceUpdateRequest(BaseModel):
     shared_group_id: str | None = None
 
 
+class SourceReportingRoleUpdateRequest(BaseModel):
+    reporting_role: Literal["spending_only", "cashflow_only", "spending_and_cashflow"]
+
+
 class ConnectorCascadeStartRequest(BaseModel):
     source_ids: list[str] = Field(min_length=1)
     full: bool = False
@@ -4376,7 +4440,7 @@ class SystemBackupRequest(BaseModel):
 
 UploadFormFile = Annotated[UploadFile, File(...)]
 TransactionSortBy = Literal[
-    "purchased_at", "merchant_name", "source_id", "total_gross_cents", "discount_total_cents"
+    "purchased_at", "merchant_name", "source_id", "total_gross_cents", "discount_total_cents", "direction", "finance_category_id"
 ]
 TransactionSortDir = Literal["asc", "desc"]
 
@@ -6248,6 +6312,14 @@ def create_app(
         month: int | None = None,
         source_id: str | None = None,
         source_kind: str | None = None,
+        source_account_id: str | None = None,
+        direction: str | None = None,
+        finance_category_id: str | None = None,
+        parent_category: str | None = None,
+        tag: str | None = None,
+        uncategorized: bool = False,
+        min_category_confidence: float | None = None,
+        max_category_confidence: float | None = None,
         weekday: int | None = None,
         hour: int | None = None,
         tz_offset_minutes: int = 0,
@@ -6286,6 +6358,14 @@ def create_app(
                     month=month,
                     source_id=source_id,
                     source_kind=source_kind,
+                    source_account_id=source_account_id,
+                    direction=direction,
+                    finance_category_id=finance_category_id,
+                    parent_category=parent_category,
+                    tag=tag,
+                    uncategorized=uncategorized,
+                    min_category_confidence=min_category_confidence,
+                    max_category_confidence=max_category_confidence,
                     weekday=validated_weekday,
                     hour=validated_hour,
                     tz_offset_minutes=validated_tz_offset_minutes,
@@ -6303,6 +6383,128 @@ def create_app(
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
+
+    @app.get("/api/v1/transactions/facets")
+    def get_transaction_facets(
+        request: Request,
+        scope: str = "personal",
+        query: str | None = None,
+        year: int | None = None,
+        month: int | None = None,
+        source_id: str | None = None,
+        source_kind: str | None = None,
+        source_account_id: str | None = None,
+        direction: str | None = None,
+        finance_category_id: str | None = None,
+        parent_category: str | None = None,
+        tag: str | None = None,
+        uncategorized: bool = False,
+        merchant_name: str | None = None,
+        min_total_cents: int | None = None,
+        max_total_cents: int | None = None,
+        purchased_from: str | None = None,
+        purchased_to: str | None = None,
+        min_category_confidence: float | None = None,
+        max_category_confidence: float | None = None,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+                result = transaction_facets(
+                    session,
+                    query=query,
+                    year=year,
+                    month=month,
+                    source_id=source_id,
+                    source_kind=source_kind,
+                    source_account_id=source_account_id,
+                    direction=direction,
+                    finance_category_id=finance_category_id,
+                    parent_category=parent_category,
+                    tag=tag,
+                    uncategorized=uncategorized,
+                    merchant_name=merchant_name,
+                    min_total_cents=min_total_cents,
+                    max_total_cents=max_total_cents,
+                    purchased_from=_parse_optional_iso_datetime(purchased_from),
+                    purchased_to=_parse_to_date(purchased_to),
+                    min_category_confidence=min_category_confidence,
+                    max_category_confidence=max_category_confidence,
+                    visibility=visibility,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/transactions/recategorize")
+    def post_transaction_recategorize(request: Request, force: bool = False) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                _require_admin(current_user)
+                result = recategorize_finance_transactions(session, force=force)
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.post("/api/v1/transactions/categorization-agent")
+    def post_transaction_categorization_agent(
+        request: Request,
+        payload: QualityRecategorizeRequest,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            from lidltool.analytics.scope import visible_transaction_ids_subquery
+
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            normalized_source_id = (
+                payload.source_id.strip() if isinstance(payload.source_id, str) and payload.source_id.strip() else None
+            )
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+                visible_ids = visible_transaction_ids_subquery(visibility)
+                stmt = select(Transaction.id).where(Transaction.id.in_(visible_ids))
+                if normalized_source_id:
+                    stmt = stmt.where(Transaction.source_id == normalized_source_id)
+                stmt = stmt.order_by(Transaction.purchased_at.desc(), Transaction.id.desc())
+                if payload.max_transactions is not None:
+                    stmt = stmt.limit(payload.max_transactions)
+                transaction_ids = session.execute(stmt).scalars().all()
+                current_user_id = current_user.user_id
+            job = _start_quality_recategorize_job(
+                request.app,
+                sessions=sessions,
+                config=app_config,
+                requested_by_user_id=current_user_id,
+                transaction_ids=list(transaction_ids),
+                source_id=normalized_source_id,
+                only_fallback_other=True,
+                include_suspect_model_items=bool(payload.include_suspect_model_items),
+                max_transactions=payload.max_transactions,
+                include_finance_transactions=True,
+            )
+            return _response(
+                True,
+                result={"job": _serialize_quality_recategorize_job(job)},
+                warnings=warnings,
+                error=None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
 
     @app.get("/api/v1/items/search")
     def search_items(
@@ -6560,6 +6762,28 @@ def create_app(
                 reason=payload.reason,
             )
             with session_scope(sessions) as session:
+                if payload.direction or payload.finance_category_id or payload.finance_tags:
+                    transaction = session.get(Transaction, str(create_result["transaction_id"]))
+                    if transaction is not None:
+                        if payload.direction:
+                            transaction.direction = payload.direction
+                        if payload.finance_category_id:
+                            transaction.finance_category_id = payload.finance_category_id
+                            transaction.finance_category_method = payload.finance_category_method or "manual"
+                            transaction.finance_category_confidence = Decimal("1")
+                            transaction.finance_category_source_value = "manual"
+                            transaction.finance_category_version = "manual"
+                        if payload.finance_tags:
+                            transaction.finance_tags_json = payload.finance_tags
+                        if payload.finance_category_id:
+                            learn_finance_category_rule(
+                                session,
+                                transaction=transaction,
+                                source="manual",
+                                confidence=1,
+                                metadata={"origin": "manual_transaction"},
+                            )
+                        session.flush()
                 details = transaction_detail(
                     session,
                     transaction_id=str(create_result["transaction_id"]),
@@ -7370,6 +7594,17 @@ def create_app(
                         for item in payload.item_corrections
                     ],
                 )
+                finance_category = payload.transaction_corrections.get("finance_category_id")
+                if isinstance(finance_category, str) and finance_category.strip():
+                    transaction = session.get(Transaction, transaction_id)
+                    if transaction is not None:
+                        learn_finance_category_rule(
+                            session,
+                            transaction=transaction,
+                            source="manual",
+                            confidence=1,
+                            metadata={"origin": "transaction_override", "mode": mode},
+                        )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
@@ -9579,6 +9814,40 @@ def create_app(
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
 
+    @app.patch("/api/v1/sources/{source_id}/reporting-role")
+    def patch_source_reporting_role(
+        request: Request,
+        source_id: str,
+        payload: SourceReportingRoleUpdateRequest,
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            with session_scope(sessions) as session:
+                _require_admin_auth_context(request=request, session=session, config=app_config)
+                source = session.get(Source, source_id)
+                if source is None:
+                    source = Source(
+                        id=source_id,
+                        kind="connector",
+                        display_name=source_id.replace("_", " ").title(),
+                        status="healthy",
+                        enabled=True,
+                        reporting_role=payload.reporting_role,
+                    )
+                    session.add(source)
+                else:
+                    source.reporting_role = payload.reporting_role
+                session.flush()
+                result = {
+                    "source_id": source.id,
+                    "reporting_role": source.reporting_role,
+                }
+            return _response(True, result=result, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
     @app.post("/api/v1/plugin-management/rescan")
     def rescan_plugin_management(
         request: Request,
@@ -11160,6 +11429,44 @@ finally:
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001
             return _error_response(exc)
+
+    @app.get("/api/v1/reports/patterns")
+    def get_report_patterns(
+        request: Request,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        merchants: str | None = None,
+        finance_category_id: str | None = None,
+        direction: str | None = None,
+        source_id: str | None = None,
+        value_mode: str = "amount",
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            from_dt, to_dt = _normalize_dashboard_window(from_date, to_date)
+            merchant_names = [value.strip() for value in (merchants or "").split(",") if value.strip()][:2]
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+                result = reports_pattern_summary(
+                    session,
+                    from_date=from_dt,
+                    to_date=to_dt,
+                    visibility=visibility,
+                    merchant_names=merchant_names,
+                    finance_category_id=finance_category_id,
+                    direction=direction,
+                    source_id=source_id,
+                    value_mode=value_mode,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
 
     @app.get("/api/v1/goals/summary")
     def get_goals_summary(

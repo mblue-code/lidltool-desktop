@@ -200,6 +200,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.String(), nullable=True),
         sa.Column("kind", sa.String(), nullable=False),
         sa.Column("display_name", sa.String(), nullable=False),
+        sa.Column("reporting_role", sa.String(), nullable=False, server_default="spending_and_cashflow"),
         sa.Column("status", sa.String(), nullable=False),
         sa.Column("enabled", sa.Boolean(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),

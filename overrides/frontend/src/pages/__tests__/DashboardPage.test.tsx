@@ -21,6 +21,7 @@ vi.mock("@/app/date-range-context", () => ({
 vi.mock("@/i18n", () => ({
   useI18n: () => ({
     locale: "en" as const,
+    t: (key: string) => key,
     tText: (value: string) => value
   }),
   resolveIntlLocale: () => "en-US",
@@ -65,11 +66,26 @@ function dashboardOverview(overrides: Record<string, unknown> = {}) {
         { category: "groceries", amount_cents: 12345, share: 1 }
       ]
     },
+    overall_spending: {
+      total_cents: 12345,
+      categories: [
+        { category: "groceries", amount_cents: 12345, share: 1 }
+      ]
+    },
+    grocery_spending: {
+      total_cents: 9876,
+      categories: [
+        { category: "dairy", amount_cents: 9876, share: 1 }
+      ]
+    },
     cash_flow_summary: {
+      totals: { inflow_cents: 10000, outflow_cents: 4000, net_cents: 6000 },
       points: [
         { date: "2026-04-10", inflow_cents: 10000, outflow_cents: 4000, net_cents: 6000 }
       ]
     },
+    selected_source_ids: [],
+    source_filters: [],
     upcoming_bills: {
       count: 1,
       items: [
@@ -130,7 +146,7 @@ describe("DashboardPage", () => {
     renderDashboardRoute();
 
     await waitFor(() => {
-      expect(mocks.fetchDashboardOverviewMock).toHaveBeenCalledWith("2026-04-01", "2026-04-30");
+      expect(mocks.fetchDashboardOverviewMock).toHaveBeenCalledWith("2026-04-01", "2026-04-30", undefined);
     });
 
     expect(await screen.findByText("Your finance overview")).toBeInTheDocument();
@@ -176,7 +192,16 @@ describe("DashboardPage", () => {
         total_cents: 0,
         categories: []
       },
+      overall_spending: {
+        total_cents: 0,
+        categories: []
+      },
+      grocery_spending: {
+        total_cents: 0,
+        categories: []
+      },
       cash_flow_summary: {
+        totals: { inflow_cents: 0, outflow_cents: 0, net_cents: 0 },
         points: []
       },
       upcoming_bills: { count: 0, items: [] },
@@ -193,6 +218,6 @@ describe("DashboardPage", () => {
 
     renderDashboardRoute();
 
-    expect(await screen.findByText("No spending in the selected period yet")).toBeInTheDocument();
+    expect(await screen.findAllByText("No spending in the selected period yet")).toHaveLength(2);
   });
 });

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AccessScopeProvider } from "@/app/scope-provider";
 import { TransactionDetailPage } from "../TransactionDetailPage";
 
 function renderTransactionDetail(initialEntry = "/transactions/tx-1"): void {
@@ -14,11 +15,13 @@ function renderTransactionDetail(initialEntry = "/transactions/tx-1"): void {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[initialEntry]}>
-        <Routes>
-          <Route path="/transactions/:transactionId" element={<TransactionDetailPage />} />
-        </Routes>
-      </MemoryRouter>
+      <AccessScopeProvider>
+        <MemoryRouter initialEntries={[initialEntry]}>
+          <Routes>
+            <Route path="/transactions/:transactionId" element={<TransactionDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AccessScopeProvider>
     </QueryClientProvider>
   );
 }
@@ -156,7 +159,9 @@ describe("TransactionDetailPage", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("No changes detected. Update merchant or item category before applying.")
+        screen.getByText(
+          "No changes detected. Update merchant, overall category, or item category before applying."
+        )
       ).toBeInTheDocument();
     });
   });

@@ -11,10 +11,19 @@ const TransactionListItemSchema = z.object({
   shared_group_id: z.string().nullable().optional(),
   workspace_kind: z.string().nullable().optional(),
   source_transaction_id: z.string(),
+  source_account_id: z.string().nullable().optional(),
   store_name: z.string().nullable(),
   total_gross_cents: z.number(),
   discount_total_cents: z.number().nullable(),
   currency: z.string(),
+  direction: z.enum(["inflow", "outflow", "transfer", "neutral"]).optional(),
+  finance_category_id: z.string().nullable().optional(),
+  finance_category_parent_id: z.string().nullable().optional(),
+  finance_category_method: z.string().nullable().optional(),
+  finance_category_confidence: z.number().nullable().optional(),
+  finance_category_source_value: z.string().nullable().optional(),
+  finance_category_version: z.string().nullable().optional(),
+  finance_tags: z.array(z.string()).optional(),
   allocation_mode: z.enum(["personal", "shared_receipt", "split_items"]).optional(),
   owner_username: z.string().nullable().optional(),
   owner_display_name: z.string().nullable().optional(),
@@ -43,6 +52,14 @@ const TransactionDetailResponseSchema = z.object({
     total_gross_cents: z.number(),
     currency: z.string().optional(),
     discount_total_cents: z.number().nullable(),
+    direction: z.enum(["inflow", "outflow", "transfer", "neutral"]).optional(),
+    finance_category_id: z.string().nullable().optional(),
+    finance_category_parent_id: z.string().nullable().optional(),
+    finance_category_method: z.string().nullable().optional(),
+    finance_category_confidence: z.number().nullable().optional(),
+    finance_category_source_value: z.string().nullable().optional(),
+    finance_category_version: z.string().nullable().optional(),
+    finance_tags: z.array(z.string()).optional(),
     allocation_mode: z.enum(["personal", "shared_receipt", "split_items"]).optional(),
     owner_username: z.string().nullable().optional(),
     owner_display_name: z.string().nullable().optional(),
@@ -178,6 +195,40 @@ const ManualTransactionResponseSchema = z.object({
     .optional()
 });
 
+const TransactionFacetsResponseSchema = z.object({
+  merchants: z.array(z.object({ value: z.string(), count: z.number() })),
+  categories: z.array(z.object({ category_id: z.string(), parent_category_id: z.string().nullable(), count: z.number() })),
+  directions: z.array(z.object({ value: z.string(), count: z.number() })),
+  sources: z.array(z.object({ source_id: z.string(), count: z.number() })),
+  tags: z.array(z.object({ value: z.string(), count: z.number() })),
+  amount_bounds: z.object({ min_cents: z.number().nullable(), max_cents: z.number().nullable() }),
+  date_bounds: z.object({ from_date: z.string().nullable(), to_date: z.string().nullable() })
+});
+
+const TransactionCategorizationJobSchema = z.object({
+  job_id: z.string(),
+  status: z.string(),
+  requested_by_user_id: z.string(),
+  requested_at: z.string(),
+  started_at: z.string().nullable(),
+  finished_at: z.string().nullable(),
+  source_id: z.string().nullable(),
+  only_fallback_other: z.boolean(),
+  include_suspect_model_items: z.boolean(),
+  max_transactions: z.number().nullable(),
+  transaction_count: z.number(),
+  candidate_item_count: z.number(),
+  updated_transaction_count: z.number(),
+  updated_item_count: z.number(),
+  skipped_transaction_count: z.number(),
+  method_counts: z.record(z.string(), z.number()),
+  error: z.string().nullable()
+});
+
+const TransactionCategorizationStartResponseSchema = z.object({
+  job: TransactionCategorizationJobSchema
+});
+
 export type TransactionListResponse = z.infer<typeof TransactionListResponseSchema>;
 export type TransactionListItem = z.infer<typeof TransactionListItemSchema>;
 export type TransactionDetailResponse = z.infer<typeof TransactionDetailResponseSchema>;
@@ -186,6 +237,8 @@ export type TransactionOverrideResponse = z.infer<typeof TransactionOverrideResp
 export type TransactionWorkspaceResponse = z.infer<typeof TransactionWorkspaceResponseSchema>;
 export type TransactionItemAllocationResponse = z.infer<typeof TransactionItemAllocationResponseSchema>;
 export type ManualTransactionResponse = z.infer<typeof ManualTransactionResponseSchema>;
+export type TransactionFacetsResponse = z.infer<typeof TransactionFacetsResponseSchema>;
+export type TransactionCategorizationJob = z.infer<typeof TransactionCategorizationJobSchema>;
 
 export type TransactionOverrideRequest = {
   actor_id?: string;
@@ -208,6 +261,10 @@ export type ManualTransactionRequest = {
   discount_total_cents?: number;
   allocation_mode?: "personal" | "shared_receipt" | "split_items";
   confidence?: number;
+  direction?: "inflow" | "outflow" | "transfer" | "neutral";
+  finance_category_id?: string;
+  finance_category_method?: string;
+  finance_tags?: string[];
   reason?: string;
   actor_id?: string;
   raw_payload?: Record<string, unknown>;
@@ -237,10 +294,18 @@ export type ManualTransactionRequest = {
   }>;
 };
 
-export async function fetchTransactions(filters: {
+export type TransactionsRequestFilters = {
   query?: string;
   sourceId?: string;
   sourceKind?: string;
+  sourceAccountId?: string;
+  direction?: "inflow" | "outflow" | "transfer" | "neutral";
+  financeCategoryId?: string;
+  parentCategory?: string;
+  tag?: string;
+  uncategorized?: boolean;
+  minCategoryConfidence?: number;
+  maxCategoryConfidence?: number;
   weekday?: number;
   hour?: number;
   tzOffsetMinutes?: number;
@@ -249,32 +314,75 @@ export async function fetchTransactions(filters: {
   month?: number;
   purchasedFrom?: string;
   purchasedTo?: string;
-  sortBy?: "purchased_at" | "store_name" | "source_id" | "total_gross_cents" | "discount_total_cents";
+  sortBy?: "purchased_at" | "store_name" | "source_id" | "total_gross_cents" | "discount_total_cents" | "direction" | "finance_category_id";
   sortDir?: "asc" | "desc";
   minTotalCents?: number;
   maxTotalCents?: number;
   limit?: number;
   offset?: number;
-}): Promise<TransactionListResponse> {
-  return apiClient.get("/api/v1/transactions", TransactionListResponseSchema, {
+};
+
+function transactionFilterParams(filters: TransactionsRequestFilters): Record<string, string | undefined> {
+  return {
     query: filters.query,
     source_id: filters.sourceId,
     source_kind: filters.sourceKind,
+    source_account_id: filters.sourceAccountId,
+    direction: filters.direction,
+    finance_category_id: filters.financeCategoryId,
+    parent_category: filters.parentCategory,
+    tag: filters.tag,
+    uncategorized: filters.uncategorized ? "true" : undefined,
+    min_category_confidence: filters.minCategoryConfidence !== undefined ? String(filters.minCategoryConfidence) : undefined,
+    max_category_confidence: filters.maxCategoryConfidence !== undefined ? String(filters.maxCategoryConfidence) : undefined,
     weekday: filters.weekday !== undefined ? String(filters.weekday) : undefined,
     hour: filters.hour !== undefined ? String(filters.hour) : undefined,
-    tz_offset_minutes:
-      filters.tzOffsetMinutes !== undefined ? String(filters.tzOffsetMinutes) : undefined,
+    tz_offset_minutes: filters.tzOffsetMinutes !== undefined ? String(filters.tzOffsetMinutes) : undefined,
     merchant_name: filters.merchantName,
     year: filters.year ? String(filters.year) : undefined,
     month: filters.month ? String(filters.month) : undefined,
     purchased_from: filters.purchasedFrom,
     purchased_to: filters.purchasedTo,
+    min_total_cents: filters.minTotalCents !== undefined ? String(filters.minTotalCents) : undefined,
+    max_total_cents: filters.maxTotalCents !== undefined ? String(filters.maxTotalCents) : undefined
+  };
+}
+
+export async function fetchTransactions(filters: TransactionsRequestFilters): Promise<TransactionListResponse> {
+  return apiClient.get("/api/v1/transactions", TransactionListResponseSchema, {
+    ...transactionFilterParams(filters),
     sort_by: filters.sortBy === "store_name" ? "merchant_name" : filters.sortBy,
     sort_dir: filters.sortDir,
-    min_total_cents: filters.minTotalCents !== undefined ? String(filters.minTotalCents) : undefined,
-    max_total_cents: filters.maxTotalCents !== undefined ? String(filters.maxTotalCents) : undefined,
     limit: String(filters.limit ?? 50),
     offset: String(filters.offset ?? 0)
+  });
+}
+
+export async function fetchTransactionFacets(filters: TransactionsRequestFilters): Promise<TransactionFacetsResponse> {
+  return apiClient.get("/api/v1/transactions/facets", TransactionFacetsResponseSchema, transactionFilterParams(filters));
+}
+
+export async function startTransactionCategorizationAgent(payload?: {
+  source_id?: string;
+  include_suspect_model_items?: boolean;
+  max_transactions?: number;
+}): Promise<TransactionCategorizationJob> {
+  const response = await apiClient.post(
+    "/api/v1/transactions/categorization-agent",
+    TransactionCategorizationStartResponseSchema,
+    {
+      only_fallback_other: true,
+      include_suspect_model_items: false,
+      max_transactions: 500,
+      ...(payload ?? {})
+    }
+  );
+  return response.job;
+}
+
+export async function fetchTransactionCategorizationAgentStatus(jobId: string): Promise<TransactionCategorizationJob> {
+  return apiClient.get("/api/v1/quality/recategorize/status", TransactionCategorizationJobSchema, {
+    job_id: jobId
   });
 }
 

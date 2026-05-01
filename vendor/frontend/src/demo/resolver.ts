@@ -16,12 +16,15 @@ import {
   demoRecurringCalendar,
   demoRecurringForecast,
   demoRetailerComposition,
+  demoReportPatterns,
+  demoReportTemplates,
   demoReviewQueueDetails,
   demoReviewQueueList,
   demoSavingsBreakdown,
   demoSources,
   demoTransactionDetails,
   demoTransactionHistories,
+  demoTransactionFacets,
   demoTransactionsList
 } from "@/demo/fixtures";
 
@@ -84,6 +87,7 @@ export function resolveDemoRequest(method: string, url: URL): DemoResolvedRespon
   if (normalizedMethod === "GET" && pathname === "/api/v1/recurring-bills/analytics/forecast") return ok(demoRecurringForecast);
 
   if (normalizedMethod === "GET" && pathname === "/api/v1/transactions") return ok(demoTransactionsList);
+  if (normalizedMethod === "GET" && pathname === "/api/v1/transactions/facets") return ok(demoTransactionFacets);
   if (normalizedMethod === "GET" && pathname.startsWith("/api/v1/transactions/") && pathname.endsWith("/history")) {
     const transactionId = pathname.split("/")[4] ?? "";
     return ok(demoTransactionHistories[transactionId as keyof typeof demoTransactionHistories] ?? demoTransactionHistories["tx-demo-1"]);
@@ -118,6 +122,9 @@ export function resolveDemoRequest(method: string, url: URL): DemoResolvedRespon
     const threadId = pathname.split("/")[5] ?? "";
     return ok(demoChatMessages[threadId as keyof typeof demoChatMessages] ?? demoChatMessages["thread-spend"]);
   }
+
+  if (normalizedMethod === "GET" && pathname === "/api/v1/reports/templates") return ok(demoReportTemplates);
+  if (normalizedMethod === "GET" && pathname === "/api/v1/reports/patterns") return ok(demoReportPatterns);
 
   return null;
 }

@@ -101,6 +101,26 @@ class CategoryRule(Base):
     priority: Mapped[int] = mapped_column(Integer, default=100)
 
 
+class FinanceCategoryRule(Base):
+    __tablename__ = "finance_category_rules"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    rule_type: Mapped[str] = mapped_column(String, nullable=False, default="merchant")
+    pattern: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    normalized_pattern: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    category_id: Mapped[str] = mapped_column(ForeignKey("categories.category_id"), nullable=False, index=True)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False, default="outflow", index=True)
+    source: Mapped[str] = mapped_column(String, nullable=False, default="learned")
+    confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
+    hit_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class Category(Base):
     __tablename__ = "categories"
 
@@ -461,6 +481,7 @@ class Source(Base):
     )
     kind: Mapped[str] = mapped_column(String, nullable=False)
     display_name: Mapped[str] = mapped_column(String, nullable=False)
+    reporting_role: Mapped[str] = mapped_column(String, nullable=False, default="spending_and_cashflow")
     status: Mapped[str] = mapped_column(String, nullable=False, default="healthy")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -741,6 +762,17 @@ class Transaction(Base):
     dashboard_include: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="EUR")
     discount_total_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    direction: Mapped[str] = mapped_column(String, nullable=False, default="outflow", index=True)
+    finance_category_id: Mapped[str | None] = mapped_column(
+        ForeignKey("categories.category_id"), nullable=True, index=True
+    )
+    finance_category_method: Mapped[str | None] = mapped_column(String, nullable=True)
+    finance_category_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(4, 3), nullable=True
+    )
+    finance_category_source_value: Mapped[str | None] = mapped_column(String, nullable=True)
+    finance_category_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    finance_tags_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
     fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     raw_payload: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)

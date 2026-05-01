@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
-from sqlalchemy import Integer, and_, cast, exists, func, or_, select
+from sqlalchemy import Integer, String, and_, cast, exists, func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from lidltool.analytics.scope import (
@@ -17,9 +17,11 @@ from lidltool.db.models import (
     Document,
     RecurringBillMatch,
     Source,
+    SourceAccount,
     Transaction,
     TransactionItem,
 )
+from lidltool.analytics.finance_taxonomy import finance_parent_category
 
 
 def _period_bounds(year: int, month: int | None = None) -> tuple[datetime, datetime]:
@@ -107,6 +109,9 @@ def _shopping_purchase_filter():
         ).correlate(Transaction)
     )
     return and_(
+        func.coalesce(Source.reporting_role, "spending_and_cashflow").in_(
+            ("spending_only", "spending_and_cashflow")
+        ),
         ~has_recurring_match,
         or_(
             Source.kind.in_(("connector", "ocr")),
@@ -258,6 +263,20 @@ def _apply_household_spend_filter(stmt: Any) -> Any:
         Transaction.direction == "outflow",
         Transaction.ledger_scope == "household",
         Transaction.dashboard_include.is_(True),
+        _source_contributes_to_spending(),
+    )
+
+
+def _source_contributes_to_spending() -> Any:
+    return exists(
+        select(Source.id)
+        .where(Source.id == Transaction.source_id)
+        .where(
+            func.coalesce(Source.reporting_role, "spending_and_cashflow").in_(
+                ("spending_only", "spending_and_cashflow")
+            )
+        )
+        .correlate(Transaction)
     )
 
 
@@ -918,11 +937,55 @@ def dashboard_category_spend_summary(
     normalized_source_ids = _normalize_source_ids(source_ids)
     stmt = (
         select(
+            func.coalesce(Transaction.finance_category_id, "uncategorized"),
+            func.coalesce(func.sum(Transaction.total_gross_cents), 0),
+        )
+        .where(
+            Transaction.purchased_at >= from_date,
+            Transaction.purchased_at < end,
+            Transaction.direction == "outflow",
+            _source_contributes_to_spending(),
+        )
+        .group_by(func.coalesce(Transaction.finance_category_id, "uncategorized"))
+        .order_by(func.coalesce(func.sum(Transaction.total_gross_cents), 0).desc())
+        .limit(limit)
+    )
+    stmt = _apply_source_filter(stmt, normalized_source_ids)
+    stmt = _apply_transaction_visibility(stmt, visibility)
+    rows = session.execute(stmt).all()
+    total_cents = sum(int(amount or 0) for _, amount in rows)
+    return [
+        {
+            "category": str(category or "uncategorized"),
+            "amount_cents": int(amount or 0),
+            "share": _safe_ratio(int(amount or 0), total_cents),
+        }
+        for category, amount in rows
+    ]
+
+
+def dashboard_grocery_category_spend_summary(
+    session: Session,
+    *,
+    from_date: datetime,
+    to_date: datetime,
+    visibility: VisibilityContext | None = None,
+    source_ids: list[str] | None = None,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    end = _exclusive_window_end(to_date)
+    normalized_source_ids = _normalize_source_ids(source_ids)
+    stmt = (
+        select(
             func.coalesce(TransactionItem.category, "uncategorized"),
             func.coalesce(func.sum(TransactionItem.line_total_cents), 0),
         )
         .join(Transaction, Transaction.id == TransactionItem.transaction_id)
-        .where(Transaction.purchased_at >= from_date, Transaction.purchased_at < end)
+        .where(
+            Transaction.purchased_at >= from_date,
+            Transaction.purchased_at < end,
+            or_(Transaction.finance_category_id == "groceries", TransactionItem.category.like("groceries%")),
+        )
         .group_by(func.coalesce(TransactionItem.category, "uncategorized"))
         .order_by(func.coalesce(func.sum(TransactionItem.line_total_cents), 0).desc())
         .limit(limit)
@@ -1182,6 +1245,14 @@ def search_transactions(
     month: int | None = None,
     source_id: str | None = None,
     source_kind: str | None = None,
+    source_account_id: str | None = None,
+    direction: str | None = None,
+    finance_category_id: str | None = None,
+    parent_category: str | None = None,
+    tag: str | None = None,
+    uncategorized: bool = False,
+    min_category_confidence: float | None = None,
+    max_category_confidence: float | None = None,
     weekday: int | None = None,
     hour: int | None = None,
     tz_offset_minutes: int = 0,
@@ -1191,7 +1262,7 @@ def search_transactions(
     purchased_from: datetime | None = None,
     purchased_to: datetime | None = None,
     sort_by: Literal[
-        "purchased_at", "merchant_name", "source_id", "total_gross_cents", "discount_total_cents"
+        "purchased_at", "merchant_name", "source_id", "total_gross_cents", "discount_total_cents", "direction", "finance_category_id"
     ] = "purchased_at",
     sort_dir: Literal["asc", "desc"] = "desc",
     limit: int = 50,
@@ -1237,6 +1308,22 @@ def search_transactions(
         stmt = stmt.where(Transaction.source_id == source_id)
     if source_kind:
         stmt = stmt.where(Transaction.source.has(Source.kind == source_kind))
+    if source_account_id:
+        stmt = stmt.where(Transaction.source_account_id == source_account_id)
+    if direction:
+        stmt = stmt.where(Transaction.direction == direction)
+    if finance_category_id:
+        stmt = stmt.where(Transaction.finance_category_id == finance_category_id)
+    if parent_category:
+        stmt = stmt.where(or_(Transaction.finance_category_id == parent_category, Transaction.finance_category_id.like(f"{parent_category}:%")))
+    if tag:
+        stmt = stmt.where(cast(Transaction.finance_tags_json, String).like(f"%{tag}%"))
+    if uncategorized:
+        stmt = stmt.where(or_(Transaction.finance_category_id.is_(None), Transaction.finance_category_id == "uncategorized"))
+    if min_category_confidence is not None:
+        stmt = stmt.where(Transaction.finance_category_confidence >= min_category_confidence)
+    if max_category_confidence is not None:
+        stmt = stmt.where(Transaction.finance_category_confidence <= max_category_confidence)
     if timing_filters_enabled:
         shifted_purchased_at = _shifted_datetime_expr(Transaction.purchased_at, tz_offset_minutes)
         if weekday is not None:
@@ -1265,10 +1352,12 @@ def search_transactions(
         "source_id",
         "total_gross_cents",
         "discount_total_cents",
+        "direction",
+        "finance_category_id",
     }
     if sort_by not in allowed_sort_by:
         raise ValueError(
-            "sort_by must be one of: purchased_at, merchant_name, source_id, total_gross_cents, discount_total_cents"
+            "sort_by must be one of: purchased_at, merchant_name, source_id, total_gross_cents, discount_total_cents, direction, finance_category_id"
         )
     if sort_dir not in {"asc", "desc"}:
         raise ValueError("sort_dir must be one of: asc, desc")
@@ -1279,6 +1368,8 @@ def search_transactions(
         "source_id": func.lower(Transaction.source_id),
         "total_gross_cents": Transaction.total_gross_cents,
         "discount_total_cents": func.coalesce(Transaction.discount_total_cents, 0),
+        "direction": func.lower(Transaction.direction),
+        "finance_category_id": func.lower(func.coalesce(Transaction.finance_category_id, "")),
     }
     sort_expr = sort_expr_map[sort_by]
     tie_breaker = Transaction.id.asc() if sort_dir == "asc" else Transaction.id.desc()
@@ -1305,6 +1396,19 @@ def search_transactions(
             "currency": receipt.currency,
             "discount_total_cents": receipt.discount_total_cents,
             "source_transaction_id": receipt.source_transaction_id,
+            "source_account_id": receipt.source_account_id,
+            "direction": receipt.direction,
+            "finance_category_id": receipt.finance_category_id,
+            "finance_category_parent_id": finance_parent_category(receipt.finance_category_id),
+            "finance_category_method": receipt.finance_category_method,
+            "finance_category_confidence": (
+                float(receipt.finance_category_confidence)
+                if receipt.finance_category_confidence is not None
+                else None
+            ),
+            "finance_category_source_value": receipt.finance_category_source_value,
+            "finance_category_version": receipt.finance_category_version,
+            "finance_tags": receipt.finance_tags_json or [],
             "allocation_mode": "shared_receipt" if receipt.shared_group_id else "personal",
             "owner_username": receipt.user.username if receipt.user is not None else None,
             "owner_display_name": (
@@ -1322,6 +1426,14 @@ def search_transactions(
             "month": month,
             "source_id": source_id,
             "source_kind": source_kind,
+            "source_account_id": source_account_id,
+            "direction": direction,
+            "finance_category_id": finance_category_id,
+            "parent_category": parent_category,
+            "tag": tag,
+            "uncategorized": uncategorized,
+            "min_category_confidence": min_category_confidence,
+            "max_category_confidence": max_category_confidence,
             "weekday": weekday,
             "hour": hour,
             "tz_offset_minutes": tz_offset_minutes,
@@ -1346,6 +1458,119 @@ def search_transactions(
             "total": int(total),
         },
     }
+
+
+def transaction_facets(
+    session: Session,
+    *,
+    visibility: VisibilityContext | None = None,
+    **filters: Any,
+) -> dict[str, Any]:
+    result = search_transactions(session, limit=10_000, offset=0, visibility=visibility, **filters)
+    merchant_counts: dict[str, int] = defaultdict(int)
+    category_counts: dict[str, int] = defaultdict(int)
+    direction_counts: dict[str, int] = defaultdict(int)
+    source_counts: dict[str, int] = defaultdict(int)
+    tag_counts: dict[str, int] = defaultdict(int)
+    amounts: list[int] = []
+    dates: list[str] = []
+    for item in result["items"]:
+        merchant = str(item.get("store_name") or item.get("source_id") or "").strip()
+        if merchant:
+            merchant_counts[merchant] += 1
+        category = str(item.get("finance_category_id") or "uncategorized")
+        category_counts[category] += 1
+        direction_counts[str(item.get("direction") or "outflow")] += 1
+        source_counts[str(item.get("source_id") or "")] += 1
+        for tag_value in item.get("finance_tags") or []:
+            tag_counts[str(tag_value)] += 1
+        amounts.append(int(item.get("total_gross_cents") or 0))
+        if item.get("purchased_at"):
+            dates.append(str(item["purchased_at"])[:10])
+    return {
+        "merchants": [{"value": key, "count": value} for key, value in sorted(merchant_counts.items())],
+        "categories": [{"category_id": key, "parent_category_id": finance_parent_category(key), "count": value} for key, value in sorted(category_counts.items())],
+        "directions": [{"value": key, "count": value} for key, value in sorted(direction_counts.items())],
+        "sources": [{"source_id": key, "count": value} for key, value in sorted(source_counts.items())],
+        "tags": [{"value": key, "count": value} for key, value in sorted(tag_counts.items())],
+        "amount_bounds": {"min_cents": min(amounts) if amounts else None, "max_cents": max(amounts) if amounts else None},
+        "date_bounds": {"from_date": min(dates) if dates else None, "to_date": max(dates) if dates else None},
+    }
+
+
+def reports_pattern_summary(
+    session: Session,
+    *,
+    from_date: datetime,
+    to_date: datetime,
+    visibility: VisibilityContext | None = None,
+    merchant_names: list[str] | None = None,
+    finance_category_id: str | None = None,
+    direction: str | None = None,
+    source_id: str | None = None,
+    value_mode: str = "amount",
+) -> dict[str, Any]:
+    result = search_transactions(
+        session,
+        purchased_from=from_date,
+        purchased_to=to_date,
+        merchant_name=merchant_names[0] if merchant_names and len(merchant_names) == 1 else None,
+        finance_category_id=finance_category_id,
+        direction=direction,
+        source_id=source_id,
+        limit=10_000,
+        offset=0,
+        visibility=visibility,
+    )
+    items = result["items"]
+    if merchant_names and len(merchant_names) > 1:
+        wanted = {name.casefold() for name in merchant_names}
+        items = [item for item in items if str(item.get("store_name") or "").casefold() in wanted]
+    daily: dict[str, dict[str, Any]] = defaultdict(lambda: {"date": "", "amount_cents": 0, "count": 0})
+    matrix: dict[tuple[int, int], dict[str, Any]] = defaultdict(lambda: {"weekday": 0, "hour": 0, "amount_cents": 0, "count": 0})
+    merchants: dict[str, dict[str, Any]] = defaultdict(lambda: {"merchant": "", "amount_cents": 0, "count": 0, "average_cents": 0})
+    for item in items:
+        purchased = datetime.fromisoformat(str(item["purchased_at"]).replace("Z", "+00:00"))
+        date_key = purchased.date().isoformat()
+        amount = int(item.get("total_gross_cents") or 0)
+        daily[date_key]["date"] = date_key
+        daily[date_key]["amount_cents"] += amount
+        daily[date_key]["count"] += 1
+        key = (purchased.weekday(), purchased.hour)
+        matrix[key]["weekday"] = key[0]
+        matrix[key]["hour"] = key[1]
+        matrix[key]["amount_cents"] += amount
+        matrix[key]["count"] += 1
+        merchant = str(item.get("store_name") or item.get("source_id") or "unknown")
+        merchants[merchant]["merchant"] = merchant
+        merchants[merchant]["amount_cents"] += amount
+        merchants[merchant]["count"] += 1
+    merchant_profiles = []
+    for profile in merchants.values():
+        count = int(profile["count"])
+        profile["average_cents"] = round(int(profile["amount_cents"]) / count) if count else 0
+        merchant_profiles.append(profile)
+    merchant_profiles.sort(key=lambda row: int(row["amount_cents"]), reverse=True)
+    top_day = max(daily.values(), key=lambda row: int(row["amount_cents"]), default=None)
+    top_merchant = merchant_profiles[0] if merchant_profiles else None
+    insights = []
+    if top_day:
+        insights.append({"kind": "top_day", "date": top_day["date"], "amount_cents": top_day["amount_cents"], "count": top_day["count"]})
+    if top_merchant:
+        insights.append({"kind": "top_merchant", "merchant": top_merchant["merchant"], "amount_cents": top_merchant["amount_cents"], "count": top_merchant["count"]})
+    if len(merchant_profiles) >= 2:
+        first, second = merchant_profiles[0], merchant_profiles[1]
+        insights.append({"kind": "merchant_gap", "merchant": first["merchant"], "comparison_merchant": second["merchant"], "amount_cents": int(first["amount_cents"]) - int(second["amount_cents"])})
+    return {
+        "period": {"from_date": from_date.date().isoformat(), "to_date": to_date.date().isoformat()},
+        "value_mode": value_mode,
+        "daily_heatmap": sorted(daily.values(), key=lambda row: row["date"]),
+        "weekday_hour_matrix": sorted(matrix.values(), key=lambda row: (row["weekday"], row["hour"])),
+        "merchant_profiles": merchant_profiles[:20],
+        "merchant_comparison": merchant_profiles[:2],
+        "insights": insights,
+    }
+
 
 
 def transaction_detail(
@@ -1424,6 +1649,18 @@ def transaction_detail(
             "dashboard_include": transaction.dashboard_include,
             "currency": transaction.currency,
             "discount_total_cents": transaction.discount_total_cents,
+            "direction": transaction.direction,
+            "finance_category_id": transaction.finance_category_id,
+            "finance_category_parent_id": finance_parent_category(transaction.finance_category_id),
+            "finance_category_method": transaction.finance_category_method,
+            "finance_category_confidence": (
+                float(transaction.finance_category_confidence)
+                if transaction.finance_category_confidence is not None
+                else None
+            ),
+            "finance_category_source_value": transaction.finance_category_source_value,
+            "finance_category_version": transaction.finance_category_version,
+            "finance_tags": transaction.finance_tags_json or [],
             "allocation_mode": _transaction_allocation_mode(transaction, items=items),
             "owner_username": transaction.user.username if transaction.user is not None else None,
             "owner_display_name": (

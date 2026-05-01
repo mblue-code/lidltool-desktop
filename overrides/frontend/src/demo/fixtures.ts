@@ -270,6 +270,36 @@ export const demoTransactionsList = ok({
   ]
 });
 
+export const demoTransactionFacets = ok({
+  merchants: [{ value: "Lidl Wasbuettel Nord", count: 2 }, { value: "REWE Braunschweig", count: 2 }, { value: "Getsafe Digital GmbH", count: 1 }, { value: "Kreditbank", count: 1 }],
+  categories: [{ category_id: "groceries", parent_category_id: "groceries", count: 4 }, { category_id: "insurance:liability", parent_category_id: "insurance", count: 1 }, { category_id: "credit:repayment", parent_category_id: "credit", count: 1 }, { category_id: "investment:broker_transfer", parent_category_id: "investment", count: 1 }],
+  directions: [{ value: "outflow", count: 6 }, { value: "transfer", count: 1 }, { value: "inflow", count: 1 }],
+  sources: [{ source_id: "lidl_plus_de", count: 2 }, { source_id: "rewe_de", count: 2 }, { source_id: "bank_import", count: 4 }],
+  tags: [{ value: "grocery", count: 4 }, { value: "insurance", count: 1 }, { value: "investment", count: 1 }],
+  amount_bounds: { min_cents: 1799, max_cents: 120000 },
+  date_bounds: { from_date: "2026-03-01", to_date: "2026-03-28" }
+});
+
+export const demoReportTemplates = ok({
+  period: { from_date: "2026-03-01", to_date: "2026-03-31" },
+  count: 3,
+  templates: [
+    { slug: "monthly-overview", title: "monthly-overview", description: "monthly-overview", format: "json", payload: { total_cents: 42860 } },
+    { slug: "grocery-review", title: "grocery-review", description: "grocery-review", format: "json", payload: { grocery_cents: 18434 } },
+    { slug: "budget-health", title: "budget-health", description: "budget-health", format: "json", payload: { status: "on_track" } }
+  ]
+});
+
+export const demoReportPatterns = ok({
+  period: { from_date: "2026-03-01", to_date: "2026-03-31" },
+  value_mode: "amount",
+  daily_heatmap: [{ date: "2026-03-03", amount_cents: 4180, count: 1 }, { date: "2026-03-08", amount_cents: 5644, count: 1 }],
+  weekday_hour_matrix: [{ weekday: 1, hour: 19, amount_cents: 4180, count: 1 }, { weekday: 5, hour: 10, amount_cents: 5644, count: 1 }],
+  merchant_profiles: [{ merchant: "Lidl Wasbuettel Nord", amount_cents: 10536, count: 2, average_cents: 5268 }, { merchant: "REWE Braunschweig", amount_cents: 7898, count: 2, average_cents: 3949 }],
+  merchant_comparison: [{ merchant: "Lidl Wasbuettel Nord", amount_cents: 10536, count: 2, average_cents: 5268 }, { merchant: "REWE Braunschweig", amount_cents: 7898, count: 2, average_cents: 3949 }],
+  insights: [{ kind: "top_day", date: "2026-03-08", amount_cents: 5644, count: 1 }, { kind: "top_merchant", merchant: "Lidl Wasbuettel Nord", amount_cents: 10536, count: 2 }, { kind: "merchant_gap", merchant: "Lidl Wasbuettel Nord", comparison_merchant: "REWE Braunschweig", amount_cents: 2638 }]
+});
+
 export const demoTransactionDetails = {
   "tx-demo-1": ok({
     transaction: {

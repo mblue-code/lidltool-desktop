@@ -8,6 +8,7 @@
       "api/notifications.ts",
       "api/reports.ts",
       "api/dashboard.ts",
+      "api/connectors.ts",
       "api/documents.ts",
       "api/systemBackup.ts",
       "app/date-range-context.tsx",
@@ -26,6 +27,7 @@
     ],
     "runtimeOverrideFiles": [
       "api/dashboard.ts",
+      "api/connectors.ts",
       "api/documents.ts",
       "api/goals.ts",
       "api/groceries.ts",
@@ -53,6 +55,7 @@
       "i18n/messages.ts",
       "lib/api-client.ts",
       "lib/backend-messages.ts",
+      "lib/category-presentation.ts",
       "lib/desktop-api.ts",
       "lib/desktop-capabilities.tsx",
       "lib/desktop-shell.ts",
