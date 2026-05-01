@@ -79,6 +79,60 @@ function workspaceLabel(workspaceKind?: string | null, sharedGroupId?: string | 
   return "Personal";
 }
 
+type AmazonFinancialBreakdown = {
+  gross_total_cents: number;
+  final_order_total_cents: number;
+  refund_total_cents: number;
+  net_spending_total_cents: number;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function numberField(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function extractAmazonFinancialBreakdown(rawPayload: unknown): AmazonFinancialBreakdown | null {
+  if (!isRecord(rawPayload)) {
+    return null;
+  }
+  const sourceRecordDetail = rawPayload.source_record_detail;
+  const connectorNormalized = rawPayload.connector_normalized;
+  const candidates: unknown[] = [];
+  if (isRecord(sourceRecordDetail)) {
+    candidates.push(sourceRecordDetail.amazonFinancials);
+  }
+  if (isRecord(connectorNormalized)) {
+    const rawJson = connectorNormalized.raw_json;
+    if (isRecord(rawJson)) {
+      candidates.push(rawJson.amazonFinancials);
+    }
+  }
+  candidates.push(rawPayload.amazonFinancials);
+
+  for (const candidate of candidates) {
+    if (!isRecord(candidate)) {
+      continue;
+    }
+    const gross = numberField(candidate.gross_total_cents);
+    const finalTotal = numberField(candidate.final_order_total_cents);
+    const refund = numberField(candidate.refund_total_cents);
+    const net = numberField(candidate.net_spending_total_cents);
+    if (gross === null || finalTotal === null || refund === null || net === null) {
+      continue;
+    }
+    return {
+      gross_total_cents: gross,
+      final_order_total_cents: finalTotal,
+      refund_total_cents: refund,
+      net_spending_total_cents: net
+    };
+  }
+  return null;
+}
+
 export function TransactionDetailPage() {
   const { transactionId } = useParams();
   const { locale, t } = useI18n();
@@ -168,6 +222,12 @@ export function TransactionDetailPage() {
   const canPreviewInline = documentMimeType ? supportsInlinePreview(documentMimeType) : false;
   const useImagePreview = documentMimeType.toLowerCase().startsWith("image/");
   const selectedItem = detail?.items.find((candidate) => candidate.id === selectedItemId) ?? null;
+  const amazonFinancialBreakdown = useMemo(() => {
+    if (!detail?.transaction.source_id.startsWith("amazon_")) {
+      return null;
+    }
+    return extractAmazonFinancialBreakdown(detail.transaction.raw_payload);
+  }, [detail?.transaction.raw_payload, detail?.transaction.source_id]);
 
   useEffect(() => {
     setPreviewFailed(false);
@@ -411,6 +471,29 @@ export function TransactionDetailPage() {
                     <strong>{t("pages.transactionDetail.field.financeCategory")}:</strong>{" "}
                     {financeCategoryLabel(detail.transaction.finance_category_id, t)}
                   </p>
+                  {amazonFinancialBreakdown ? (
+                    <div className="mt-3 rounded-md border bg-muted/30 p-3">
+                      <p className="mb-2 font-medium">{t("pages.transactionDetail.amazonFinancials.title")}</p>
+                      <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div>
+                          <dt className="text-xs text-muted-foreground">{t("pages.transactionDetail.amazonFinancials.netSpending")}</dt>
+                          <dd className="font-medium">{formatEurFromCents(amazonFinancialBreakdown.net_spending_total_cents)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-muted-foreground">{t("pages.transactionDetail.amazonFinancials.grossOrder")}</dt>
+                          <dd className="font-medium">{formatEurFromCents(amazonFinancialBreakdown.gross_total_cents)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-muted-foreground">{t("pages.transactionDetail.amazonFinancials.finalCharged")}</dt>
+                          <dd className="font-medium">{formatEurFromCents(amazonFinancialBreakdown.final_order_total_cents)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-muted-foreground">{t("pages.transactionDetail.amazonFinancials.refunds")}</dt>
+                          <dd className="font-medium">{formatEurFromCents(amazonFinancialBreakdown.refund_total_cents)}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  ) : null}
                 </CardContent>
               </Card>
 

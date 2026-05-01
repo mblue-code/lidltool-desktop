@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from lidltool.analytics.categorization import load_compiled_rules
 from lidltool.amazon.profiles import get_country_profile, is_amazon_source_id
 from lidltool.amazon.order_money import (
+    amazon_financials_payload,
+    normalize_order_financials,
     payment_adjustment_subkind,
     resolve_discount_total_cents,
     resolve_total_gross_cents,
@@ -274,6 +276,11 @@ def _map_order_to_receipt_payload(
         basket_discount_total_cents=basket_discounts_total,
         payment_adjustment_total_cents=payment_adjustments_total,
     )
+    financials = normalize_order_financials(
+        order,
+        gross_total_cents=total_amount_cents,
+        payment_adjustment_total_cents=payment_adjustments_total,
+    )
 
     discount_total = resolve_discount_total_cents(
         order=order,
@@ -295,7 +302,7 @@ def _map_order_to_receipt_payload(
         "storeId": store_id,
         "storeName": default_store_name,
         "storeAddress": store_address,
-        "totalGross": total_amount_cents / 100.0,
+        "totalGross": financials.net_spending_total_cents / 100.0,
         "currency": currency,
         "discountTotal": discount_total / 100.0 if discount_total is not None else None,
         "items": mapped_items,
@@ -303,6 +310,7 @@ def _map_order_to_receipt_payload(
         "rawOrderId": order_id or None,
         "detailsUrl": details_url or None,
         "orderStatus": order.get("orderStatus"),
+        "amazonFinancials": amazon_financials_payload(financials),
         "paymentAdjustments": payment_adjustments,
         "originalOrder": order,
     }

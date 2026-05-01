@@ -79,6 +79,13 @@ describe("i18n plumbing", () => {
     expect(tForLocale("de", "pages.chatWorkspace.send")).toBe("Senden");
   });
 
+  it("localizes Amazon financial breakdown labels in both locales", () => {
+    expect(tForLocale("en", "pages.transactionDetail.amazonFinancials.netSpending")).toBe("Net spending");
+    expect(tForLocale("de", "pages.transactionDetail.amazonFinancials.netSpending")).toBe("Nettoausgabe");
+    expect(tForLocale("en", "pages.transactionDetail.amazonFinancials.refunds")).toBe("Refunds");
+    expect(tForLocale("de", "pages.transactionDetail.amazonFinancials.refunds")).toBe("Erstattungen");
+  });
+
   it("keeps unknown literal text unchanged and translates known literals", () => {
     expect(localizeNode(" Close ", "de")).toBe(" Schließen ");
     expect(localizeNode("Custom merchant", "de")).toBe("Custom merchant");

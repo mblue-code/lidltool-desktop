@@ -28,6 +28,7 @@ function renderTransactionDetail(initialEntry = "/transactions/tx-1"): void {
 
 describe("TransactionDetailPage", () => {
   let overrideResultPayload: Record<string, unknown>;
+  let transactionPayload: Record<string, unknown>;
 
   afterEach(() => {
     cleanup();
@@ -47,6 +48,16 @@ describe("TransactionDetailPage", () => {
       global: {
         created: []
       }
+    };
+    transactionPayload = {
+      id: "tx-1",
+      source_id: "lidl",
+      source_transaction_id: "abc",
+      purchased_at: "2026-01-05T10:00:00Z",
+      merchant_name: "Lidl Central",
+      total_gross_cents: 1999,
+      discount_total_cents: 200,
+      raw_payload: { id: "raw-1" }
     };
 
     vi.stubGlobal(
@@ -97,16 +108,7 @@ describe("TransactionDetailPage", () => {
           json: async () => ({
             ok: true,
             result: {
-              transaction: {
-                id: "tx-1",
-                source_id: "lidl",
-                source_transaction_id: "abc",
-                purchased_at: "2026-01-05T10:00:00Z",
-                merchant_name: "Lidl Central",
-                total_gross_cents: 1999,
-                discount_total_cents: 200,
-                raw_payload: { id: "raw-1" }
-              },
+              transaction: transactionPayload,
               items: [
                 {
                   id: "item-1",
@@ -191,6 +193,40 @@ describe("TransactionDetailPage", () => {
       transaction_corrections?: { merchant_name?: string };
     };
     expect(body.transaction_corrections?.merchant_name).toBe("Lidl Updated");
+  });
+
+  it("renders the Amazon financial breakdown when normalized money metadata exists", async () => {
+    transactionPayload = {
+      ...transactionPayload,
+      source_id: "amazon_de",
+      source_transaction_id: "amazon-306-4659501-3303528",
+      merchant_name: "Amazon",
+      total_gross_cents: 155957,
+      raw_payload: {
+        source_record_detail: {
+          amazonFinancials: {
+            gross_total_cents: 163952,
+            final_order_total_cents: 162157,
+            refund_total_cents: 6200,
+            net_spending_total_cents: 155957
+          }
+        }
+      }
+    };
+
+    renderTransactionDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText("Amazon order finance")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Net spending")).toBeInTheDocument();
+    expect(screen.getByText("Gross order/items")).toBeInTheDocument();
+    expect(screen.getByText("Final charged total")).toBeInTheDocument();
+    expect(screen.getByText("Refunds")).toBeInTheDocument();
+    expect(screen.getAllByText("€1,559.57").length).toBeGreaterThan(0);
+    expect(screen.getByText("€1,639.52")).toBeInTheDocument();
+    expect(screen.getByText("€1,621.57")).toBeInTheDocument();
+    expect(screen.getByText("€62.00")).toBeInTheDocument();
   });
 
   it("submits item category corrections from the dropdown using canonical category ids", async () => {

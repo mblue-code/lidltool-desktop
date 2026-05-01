@@ -10,6 +10,8 @@ from lidltool.amazon.client_playwright import (
     AmazonPlaywrightClient,
 )
 from lidltool.amazon.order_money import (
+    amazon_financials_payload,
+    normalize_order_financials,
     payment_adjustment_subkind,
     resolve_discount_total_cents,
     resolve_total_gross_cents,
@@ -563,6 +565,11 @@ class AmazonConnectorAdapter(BaseConnectorAdapter):
             basket_discount_total_cents=promo_discount_total,
             payment_adjustment_total_cents=payment_adjustment_total,
         )
+        financials = normalize_order_financials(
+            order,
+            gross_total_cents=total_gross_cents,
+            payment_adjustment_total_cents=payment_adjustment_total,
+        )
         _reallocate_single_item_total(
             mapped_items=mapped_items,
             total_gross_cents=total_gross_cents,
@@ -596,7 +603,7 @@ class AmazonConnectorAdapter(BaseConnectorAdapter):
         purchased, date_source = _resolve_order_purchase_datetime(order, profile=self._profile)
         fp = compute_fingerprint(
             purchased_at=purchased.isoformat(),
-            total_cents=total_gross_cents,
+            total_cents=financials.net_spending_total_cents,
             item_names=[str(it.get("name") or "") for it in mapped_items],
         )
 
@@ -610,7 +617,7 @@ class AmazonConnectorAdapter(BaseConnectorAdapter):
             "storeId": store_id,
             "storeName": self._store_name,
             "storeAddress": host,
-            "totalGross": total_gross_cents / 100.0,
+            "totalGross": financials.net_spending_total_cents / 100.0,
             "currency": currency,
             "discountTotal": (discount_total / 100.0) if discount_total is not None else None,
             "items": mapped_items,
@@ -622,6 +629,7 @@ class AmazonConnectorAdapter(BaseConnectorAdapter):
             "parseWarnings": order.get("parseWarnings"),
             "unsupportedReason": order.get("unsupportedReason"),
             "subtotals": order.get("subtotals"),
+            "amazonFinancials": amazon_financials_payload(financials),
             "paymentAdjustments": payment_adjustments,
             "originalOrder": order,
         }
