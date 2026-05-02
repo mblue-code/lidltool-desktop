@@ -216,6 +216,7 @@ HTTP_ROUTE_AUTH_MATRIX: tuple[RouteAuthPolicy, ...] = (
     RouteAuthPolicy("GET", "/api/v1/merchants/summary", "authenticated_principal"),
     RouteAuthPolicy("GET", "/api/v1/reports/templates", "authenticated_principal"),
     RouteAuthPolicy("GET", "/api/v1/reports/patterns", "authenticated_principal"),
+    RouteAuthPolicy("GET", "/api/v1/reports/sankey", "authenticated_principal"),
     RouteAuthPolicy("GET", "/api/v1/goals/summary", "authenticated_principal"),
     RouteAuthPolicy("GET", "/api/v1/goals", "authenticated_principal"),
     RouteAuthPolicy("POST", "/api/v1/goals", "authenticated_principal"),

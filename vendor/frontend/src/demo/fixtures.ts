@@ -294,9 +294,25 @@ export const demoReportPatterns = ok({
   period: { from_date: "2026-03-01", to_date: "2026-03-31" },
   value_mode: "amount",
   daily_heatmap: [{ date: "2026-03-03", amount_cents: 4180, count: 1 }, { date: "2026-03-08", amount_cents: 5644, count: 1 }],
+  weekday_heatmap: [{ weekday: 1, amount_cents: 4180, count: 1 }, { weekday: 5, amount_cents: 5644, count: 1 }],
   weekday_hour_matrix: [{ weekday: 1, hour: 19, amount_cents: 4180, count: 1 }, { weekday: 5, hour: 10, amount_cents: 5644, count: 1 }],
   merchant_profiles: [{ merchant: "Lidl Wasbuettel Nord", amount_cents: 10536, count: 2, average_cents: 5268 }, { merchant: "REWE Braunschweig", amount_cents: 7898, count: 2, average_cents: 3949 }],
   merchant_comparison: [{ merchant: "Lidl Wasbuettel Nord", amount_cents: 10536, count: 2, average_cents: 5268 }, { merchant: "REWE Braunschweig", amount_cents: 7898, count: 2, average_cents: 3949 }],
+  sankey: {
+    nodes: [
+      { id: "source:lidl_plus_de", kind: "source", value: "lidl_plus_de" },
+      { id: "source:rewe_de", kind: "source", value: "rewe_de" },
+      { id: "category:groceries", kind: "category", value: "groceries" },
+      { id: "merchant:Lidl Wasbuettel Nord", kind: "merchant", value: "Lidl Wasbuettel Nord" },
+      { id: "merchant:REWE Braunschweig", kind: "merchant", value: "REWE Braunschweig" }
+    ],
+    links: [
+      { source: "source:lidl_plus_de", target: "category:groceries", value: 10536 },
+      { source: "source:rewe_de", target: "category:groceries", value: 7898 },
+      { source: "category:groceries", target: "merchant:Lidl Wasbuettel Nord", value: 10536 },
+      { source: "category:groceries", target: "merchant:REWE Braunschweig", value: 7898 }
+    ]
+  },
   insights: [{ kind: "top_day", date: "2026-03-08", amount_cents: 5644, count: 1 }, { kind: "top_merchant", merchant: "Lidl Wasbuettel Nord", amount_cents: 10536, count: 2 }, { kind: "merchant_gap", merchant: "Lidl Wasbuettel Nord", comparison_merchant: "REWE Braunschweig", amount_cents: 2638 }]
 });
 

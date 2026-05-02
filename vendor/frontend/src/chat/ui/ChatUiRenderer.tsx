@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { ChatUiSpec } from "@/chat/ui/spec";
 import { readChatThemeColors } from "@/chat/ui/themeColors";
+import { SankeyFlowChart, type SankeyFlowLink, type SankeyFlowNode } from "@/components/charts/SankeyFlowChart";
 import { cn } from "@/lib/utils";
 
 type ChartPoint = {
@@ -759,26 +760,6 @@ function PieChart({
   );
 }
 
-type SankeyNode = {
-  id: string;
-  label?: string;
-};
-
-type SankeyLink = {
-  source: string;
-  target: string;
-  value: number;
-};
-
-type SankeyNodeLayout = SankeyNode & {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  value: number;
-  scale: number;
-};
-
 function SankeyChart({
   title,
   nodes,
@@ -786,175 +767,18 @@ function SankeyChart({
   variant = "inline"
 }: {
   title?: string;
-  nodes: SankeyNode[];
-  links: SankeyLink[];
+  nodes: SankeyFlowNode[];
+  links: SankeyFlowLink[];
   variant?: RenderVariant;
 }) {
-  const palette = readChatThemeColors();
-  const expanded = variant !== "inline";
-  const exportMode = variant === "export";
-  const paddingX = expanded ? 56 : 36;
-  const paddingY = expanded ? 24 : 16;
-  const nodeWidth = expanded ? 22 : 18;
-  const verticalGap = expanded ? 18 : 14;
-
-  const incomingByNode = new Map<string, number>();
-  const outgoingByNode = new Map<string, number>();
-
-  for (const node of nodes) {
-    incomingByNode.set(node.id, 0);
-    outgoingByNode.set(node.id, 0);
-  }
-  for (const link of links) {
-    incomingByNode.set(link.target, (incomingByNode.get(link.target) ?? 0) + link.value);
-    outgoingByNode.set(link.source, (outgoingByNode.get(link.source) ?? 0) + link.value);
-  }
-
-  const layerByNode = new Map<string, number>();
-  for (const node of nodes) {
-    if ((incomingByNode.get(node.id) ?? 0) === 0) {
-      layerByNode.set(node.id, 0);
-    } else {
-      layerByNode.set(node.id, 0);
-    }
-  }
-
-  for (let step = 0; step < nodes.length; step += 1) {
-    let changed = false;
-    for (const link of links) {
-      const sourceLayer = layerByNode.get(link.source) ?? 0;
-      const targetLayer = layerByNode.get(link.target) ?? 0;
-      if (targetLayer < sourceLayer + 1) {
-        layerByNode.set(link.target, sourceLayer + 1);
-        changed = true;
-      }
-    }
-    if (!changed) {
-      break;
-    }
-  }
-
-  const maxLayer = Math.max(...Array.from(layerByNode.values()), 0);
-  const columns: SankeyNode[][] = Array.from({ length: maxLayer + 1 }, () => []);
-  for (const node of nodes) {
-    columns[layerByNode.get(node.id) ?? 0].push(node);
-  }
-
-  const width = Math.max(expanded ? 1320 : 920, (maxLayer + 1) * (expanded ? 290 : 230));
-  const maxColumnSize = Math.max(...columns.map((column) => column.length), 1);
-  const height = Math.max(expanded ? 620 : 380, maxColumnSize * (expanded ? 64 : 52) + paddingY * 2);
-  const availableHeight = height - paddingY * 2;
-  const nodeLayouts = new Map<string, SankeyNodeLayout>();
-
-  for (let layerIndex = 0; layerIndex < columns.length; layerIndex += 1) {
-    const layerNodes = columns[layerIndex];
-    const totalLayerValue = layerNodes.reduce((sum, node) => {
-      const incoming = incomingByNode.get(node.id) ?? 0;
-      const outgoing = outgoingByNode.get(node.id) ?? 0;
-      return sum + Math.max(incoming, outgoing, 1);
-    }, 0);
-    const totalGap = Math.max(0, layerNodes.length - 1) * verticalGap;
-    const scale = (availableHeight - totalGap) / Math.max(totalLayerValue, 1);
-    const x = paddingX + (maxLayer === 0 ? 0 : (layerIndex / maxLayer) * (width - paddingX * 2 - nodeWidth));
-
-    let yCursor = paddingY;
-    for (const node of layerNodes) {
-      const incoming = incomingByNode.get(node.id) ?? 0;
-      const outgoing = outgoingByNode.get(node.id) ?? 0;
-      const value = Math.max(incoming, outgoing, 1);
-      const nodeHeight = Math.max(8, value * scale);
-      nodeLayouts.set(node.id, {
-        id: node.id,
-        label: node.label ?? node.id,
-        x,
-        y: yCursor,
-        width: nodeWidth,
-        height: nodeHeight,
-        value,
-        scale
-      });
-      yCursor += nodeHeight + verticalGap;
-    }
-  }
-
-  if (nodeLayouts.size === 0) {
-    return chartFrame(title, emptyChartState("No sankey layout data available."));
-  }
-
-  const sourceOffset = new Map<string, number>();
-  const targetOffset = new Map<string, number>();
-
   return chartFrame(
     title,
-    <div
-      className={cn(exportMode ? "inline-block pb-2" : "overflow-x-auto pb-2")}
-      style={exportMode ? { width: `${width}px` } : undefined}
-    >
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        className={cn("block", expanded ? "h-[38rem]" : "h-80")}
-        style={exportMode ? { width: `${width}px` } : { width: `${width}px`, minWidth: "100%" }}
-      >
-        {links.map((link, index) => {
-          const source = nodeLayouts.get(link.source);
-          const target = nodeLayouts.get(link.target);
-          if (!source || !target) {
-            return null;
-          }
-          const fromScale = source.height / Math.max(source.value, 1);
-          const toScale = target.height / Math.max(target.value, 1);
-          const thickness = Math.max(2, link.value * Math.min(fromScale, toScale));
-
-          const sourceProgress = sourceOffset.get(source.id) ?? 0;
-          const targetProgress = targetOffset.get(target.id) ?? 0;
-          const sourceY = source.y + sourceProgress + thickness / 2;
-          const targetY = target.y + targetProgress + thickness / 2;
-          sourceOffset.set(source.id, sourceProgress + thickness);
-          targetOffset.set(target.id, targetProgress + thickness);
-
-          const startX = source.x + source.width;
-          const endX = target.x;
-          const curve = Math.max(18, Math.abs(endX - startX) * 0.35);
-          const path = `M ${startX} ${sourceY} C ${startX + curve} ${sourceY}, ${endX - curve} ${targetY}, ${endX} ${targetY}`;
-
-          return (
-            <path
-              key={`link-${link.source}-${link.target}-${index}`}
-              d={path}
-              fill="none"
-              stroke={palette.chartColors[index % palette.chartColors.length]}
-              strokeOpacity={expanded ? 0.55 : 0.4}
-              strokeWidth={thickness}
-              strokeLinecap="butt"
-            />
-          );
-        })}
-
-        {Array.from(nodeLayouts.values()).map((node, index) => (
-          <g key={`node-${node.id}`}>
-            <rect
-              x={node.x}
-              y={node.y}
-              width={node.width}
-              height={node.height}
-              rx={4}
-              fill={palette.chartColors[index % palette.chartColors.length]}
-              fillOpacity={0.9}
-            />
-            <text
-              x={node.x + node.width + 8}
-              y={node.y + node.height / 2}
-              dominantBaseline="middle"
-              fill={palette.foreground}
-              fontSize={expanded ? 14 : 11}
-              fontWeight={500}
-            >
-              {truncateAxisLabel(node.label ?? node.id, expanded ? 40 : 28)}
-            </text>
-          </g>
-        ))}
-      </svg>
-    </div>
+    <SankeyFlowChart
+      emptyText="No sankey layout data available."
+      links={links.map((link) => ({ ...link, value: link.value }))}
+      nodes={nodes}
+      variant={variant === "inline" ? "compact" : variant === "export" ? "export" : "comfortable"}
+    />
   );
 }
 

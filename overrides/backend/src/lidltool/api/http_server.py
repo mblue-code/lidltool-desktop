@@ -351,7 +351,7 @@ from lidltool.notifications.service import (
 )
 from lidltool.recurring.service import RecurringBillsService
 from lidltool.reliability.metrics import compute_endpoint_slo_summary, record_endpoint_metric
-from lidltool.reports.service import build_report_templates
+from lidltool.reports.service import build_report_sankey, build_report_templates
 from lidltool.shared_groups import (
     add_shared_group_member,
     create_shared_group,
@@ -11472,6 +11472,51 @@ finally:
                     source_id=source_id,
                     source_ids=selected_source_ids,
                     value_mode=value_mode,
+                )
+            return _response(True, result=result, warnings=warnings, error=None)
+        except Exception as exc:  # noqa: BLE001
+            return _error_response(exc)
+
+    @app.get("/api/v1/reports/sankey")
+    def get_report_sankey(
+        request: Request,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        merchants: str | None = None,
+        finance_category_id: str | None = None,
+        direction: str | None = None,
+        source_id: str | None = None,
+        source_ids: str | None = None,
+        mode: str = "combined",
+        breakdown: str = "merchant",
+        top_n: int = 8,
+        scope: str = "personal",
+    ) -> Any:
+        try:
+            context = _resolve_request_context(request)
+            app_config = context.config
+            sessions = context.sessions
+            warnings = _apply_auth_guard(app_config, request=request)
+            from_dt, to_dt = _normalize_dashboard_window(from_date, to_date)
+            merchant_names = [value.strip() for value in (merchants or "").split(",") if value.strip()]
+            selected_source_ids = [value.strip() for value in (source_ids or "").split(",") if value.strip()]
+            with session_scope(sessions) as session:
+                current_user = _resolve_request_user(request=request, session=session, config=app_config)
+                visibility = _visibility_for_scope(current_user, scope)
+                result = build_report_sankey(
+                    session,
+                    user_id=current_user.user_id,
+                    visibility=visibility,
+                    from_date=from_dt.date(),
+                    to_date=to_dt.date(),
+                    merchant_names=merchant_names,
+                    finance_category_id=finance_category_id,
+                    direction=direction,
+                    source_id=source_id,
+                    source_ids=selected_source_ids,
+                    mode=mode,
+                    breakdown=breakdown,
+                    top_n=max(3, min(top_n, 12)),
                 )
             return _response(True, result=result, warnings=warnings, error=None)
         except Exception as exc:  # noqa: BLE001

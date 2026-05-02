@@ -15,6 +15,7 @@ type QueryParamValue = string | number | boolean | undefined | null;
 type RequestOptions<T> = {
   path: string;
   query?: Record<string, QueryParamValue>;
+  scopeOverride?: string;
   init?: RequestInit;
   schema: z.ZodType<T>;
 };
@@ -24,7 +25,7 @@ type ApiResultWithWarnings<T> = {
   warnings: ApiWarning[];
 };
 
-function buildUrl(path: string, query?: Record<string, QueryParamValue>): URL {
+function buildUrl(path: string, query?: Record<string, QueryParamValue>, scopeOverride?: string): URL {
   const url = new URL(path, API_BASE);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
@@ -36,7 +37,7 @@ function buildUrl(path: string, query?: Record<string, QueryParamValue>): URL {
       }
     }
   }
-  const scopeParam = getRequestScopeQueryParam();
+  const scopeParam = scopeOverride ?? getRequestScopeQueryParam();
   if (scopeParam !== undefined) {
     url.searchParams.set("scope", scopeParam);
   }
@@ -77,8 +78,8 @@ async function parseDomainErrorFromResponse<T>(
   return null;
 }
 
-async function request<T>({ path, query, init, schema }: RequestOptions<T>): Promise<{ result: T; warnings: ApiWarning[] }> {
-  const url = buildUrl(path, query);
+async function request<T>({ path, query, scopeOverride, init, schema }: RequestOptions<T>): Promise<{ result: T; warnings: ApiWarning[] }> {
+  const url = buildUrl(path, query, scopeOverride);
   const response = await fetch(url.toString(), {
     credentials: "include",
     ...init,
@@ -112,12 +113,13 @@ export const apiClient = {
   async getWithWarnings<T>(
     path: string,
     schema: z.ZodType<T>,
-    query?: Record<string, QueryParamValue>
+    query?: Record<string, QueryParamValue>,
+    scopeOverride?: string,
   ): Promise<ApiResultWithWarnings<T>> {
-    return request({ path, query, schema });
+    return request({ path, query, scopeOverride, schema });
   },
-  async get<T>(path: string, schema: z.ZodType<T>, query?: Record<string, QueryParamValue>): Promise<T> {
-    const { result } = await request({ path, query, schema });
+  async get<T>(path: string, schema: z.ZodType<T>, query?: Record<string, QueryParamValue>, scopeOverride?: string): Promise<T> {
+    const { result } = await request({ path, query, scopeOverride, schema });
     return result;
   },
   async patch<T, B = unknown>(path: string, schema: z.ZodType<T>, body: B): Promise<T> {

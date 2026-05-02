@@ -87,6 +87,13 @@ SHOPPING_MANUAL_CATEGORIES = {
     "supermarket",
 }
 
+REPORT_SANKEY_SOURCE_LIMIT = 6
+REPORT_SANKEY_CATEGORY_LIMIT = 8
+REPORT_SANKEY_MERCHANT_LIMIT = 12
+REPORT_SANKEY_OTHER_SOURCE = "__other_source__"
+REPORT_SANKEY_OTHER_CATEGORY = "__other_category__"
+REPORT_SANKEY_OTHER_MERCHANT = "__other_merchant__"
+
 
 def _shopping_purchase_filter():
     category_item = aliased(TransactionItem)
@@ -118,6 +125,142 @@ def _shopping_purchase_filter():
             and_(Source.kind == "manual", has_shopping_manual_category),
         ),
     )
+
+
+def _report_sankey_metric(item: dict[str, Any], value_mode: str) -> int:
+    if value_mode == "count":
+        return 1
+    return max(int(item.get("total_gross_cents") or 0), 0)
+
+
+def _report_sankey_bucket(value: object, fallback: str) -> str:
+    normalized = str(value or "").strip()
+    return normalized or fallback
+
+
+def _top_report_sankey_keys(
+    totals: dict[str, int], limit: int
+) -> tuple[set[str], bool]:
+    ordered = sorted(totals.items(), key=lambda item: (-item[1], item[0]))
+    return {key for key, _ in ordered[:limit]}, len(ordered) > limit
+
+
+def build_report_sankey(
+    items: list[dict[str, Any]], *, value_mode: str
+) -> dict[str, list[dict[str, Any]]]:
+    source_totals: dict[str, int] = defaultdict(int)
+    category_totals: dict[str, int] = defaultdict(int)
+    merchant_totals: dict[str, int] = defaultdict(int)
+
+    for item in items:
+        metric = _report_sankey_metric(item, value_mode)
+        if metric <= 0:
+            continue
+        source_key = _report_sankey_bucket(item.get("source_id"), "unknown")
+        category_key = _report_sankey_bucket(
+            item.get("finance_category_parent_id")
+            or item.get("finance_category_id"),
+            "uncategorized",
+        )
+        merchant_key = _report_sankey_bucket(
+            item.get("store_name") or item.get("source_id"),
+            "unknown",
+        )
+        source_totals[source_key] += metric
+        category_totals[category_key] += metric
+        merchant_totals[merchant_key] += metric
+
+    kept_sources, has_other_sources = _top_report_sankey_keys(
+        source_totals, REPORT_SANKEY_SOURCE_LIMIT
+    )
+    kept_categories, has_other_categories = _top_report_sankey_keys(
+        category_totals, REPORT_SANKEY_CATEGORY_LIMIT
+    )
+    kept_merchants, has_other_merchants = _top_report_sankey_keys(
+        merchant_totals, REPORT_SANKEY_MERCHANT_LIMIT
+    )
+
+    source_bucket_totals: dict[str, int] = defaultdict(int)
+    category_bucket_totals: dict[str, int] = defaultdict(int)
+    merchant_bucket_totals: dict[str, int] = defaultdict(int)
+    link_totals: dict[tuple[str, str], int] = defaultdict(int)
+
+    for item in items:
+        metric = _report_sankey_metric(item, value_mode)
+        if metric <= 0:
+            continue
+        source_key = _report_sankey_bucket(item.get("source_id"), "unknown")
+        category_key = _report_sankey_bucket(
+            item.get("finance_category_parent_id")
+            or item.get("finance_category_id"),
+            "uncategorized",
+        )
+        merchant_key = _report_sankey_bucket(
+            item.get("store_name") or item.get("source_id"),
+            "unknown",
+        )
+
+        source_bucket = (
+            source_key
+            if source_key in kept_sources
+            else REPORT_SANKEY_OTHER_SOURCE
+        )
+        category_bucket = (
+            category_key
+            if category_key in kept_categories
+            else REPORT_SANKEY_OTHER_CATEGORY
+        )
+        merchant_bucket = (
+            merchant_key
+            if merchant_key in kept_merchants
+            else REPORT_SANKEY_OTHER_MERCHANT
+        )
+
+        source_bucket_totals[source_bucket] += metric
+        category_bucket_totals[category_bucket] += metric
+        merchant_bucket_totals[merchant_bucket] += metric
+        link_totals[(f"source:{source_bucket}", f"category:{category_bucket}")] += metric
+        link_totals[(f"category:{category_bucket}", f"merchant:{merchant_bucket}")] += metric
+
+    def sort_bucket(value: str, totals: dict[str, int]) -> tuple[int, int, str]:
+        other_bucket = value.startswith("__other_")
+        return (1 if other_bucket else 0, -totals.get(value, 0), value)
+
+    source_nodes = sorted(source_bucket_totals, key=lambda value: sort_bucket(value, source_bucket_totals))
+    category_nodes = sorted(category_bucket_totals, key=lambda value: sort_bucket(value, category_bucket_totals))
+    merchant_nodes = sorted(merchant_bucket_totals, key=lambda value: sort_bucket(value, merchant_bucket_totals))
+
+    if has_other_sources and REPORT_SANKEY_OTHER_SOURCE not in source_nodes:
+        source_nodes.append(REPORT_SANKEY_OTHER_SOURCE)
+    if has_other_categories and REPORT_SANKEY_OTHER_CATEGORY not in category_nodes:
+        category_nodes.append(REPORT_SANKEY_OTHER_CATEGORY)
+    if has_other_merchants and REPORT_SANKEY_OTHER_MERCHANT not in merchant_nodes:
+        merchant_nodes.append(REPORT_SANKEY_OTHER_MERCHANT)
+
+    return {
+        "nodes": [
+            *[
+                {"id": f"source:{value}", "kind": "source", "value": value}
+                for value in source_nodes
+            ],
+            *[
+                {"id": f"category:{value}", "kind": "category", "value": value}
+                for value in category_nodes
+            ],
+            *[
+                {"id": f"merchant:{value}", "kind": "merchant", "value": value}
+                for value in merchant_nodes
+            ],
+        ],
+        "links": [
+            {"source": source, "target": target, "value": value}
+            for (source, target), value in sorted(
+                link_totals.items(),
+                key=lambda item: (-item[1], item[0][0], item[0][1]),
+            )
+            if value > 0
+        ],
+    }
 
 
 def _shopping_window_transactions(
@@ -1601,6 +1744,7 @@ def reports_pattern_summary(
     if len(merchant_profiles) >= 2:
         first, second = merchant_profiles[0], merchant_profiles[1]
         insights.append({"kind": "merchant_gap", "merchant": first["merchant"], "comparison_merchant": second["merchant"], "amount_cents": int(first["amount_cents"]) - int(second["amount_cents"])})
+    sankey = build_report_sankey(items, value_mode=value_mode)
     return {
         "period": {"from_date": from_date.date().isoformat(), "to_date": to_date.date().isoformat()},
         "value_mode": value_mode,
@@ -1612,6 +1756,7 @@ def reports_pattern_summary(
         "weekday_hour_matrix": sorted(matrix.values(), key=lambda row: (row["weekday"], row["hour"])),
         "merchant_profiles": merchant_profiles[:20],
         "merchant_comparison": merchant_profiles[:2],
+        "sankey": sankey,
         "insights": insights,
     }
 

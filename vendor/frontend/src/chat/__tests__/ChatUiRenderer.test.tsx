@@ -85,7 +85,7 @@ describe("ChatUiRenderer", () => {
     expect(screen.getByText("Category Mix")).toBeInTheDocument();
     expect(screen.getByText("Budget Flow")).toBeInTheDocument();
     expect(screen.getByText("Top Items")).toBeInTheDocument();
-    expect(container.querySelectorAll('path[stroke-linecap="butt"]')).toHaveLength(2);
+    expect(screen.getByText("2 links")).toBeInTheDocument();
   });
 
   it("renders multi-series line charts from a y-array spec", () => {

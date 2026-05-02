@@ -47,6 +47,7 @@
       "app/scope-provider.tsx",
       "assets/logo-mark.svg",
       "components/ChatPanel.tsx",
+      "components/charts/SankeyFlowChart.tsx",
       "components/shared/AppShell.tsx",
       "demo/fixtures.ts",
       "i18n/index.tsx",
