@@ -2,14 +2,10 @@
 
 Run all commands from the repo root.
 
-## 1. Build pipeline
+## 1. Baseline Build Pipeline
 
-- [ ] `npm install`
+- [ ] `npm ci`
   - Expected: installs desktop dependencies successfully.
-- [ ] `npm run vendor:sync`
-  - Expected: set `LIDLTOOL_UPSTREAM_REPO=/path/to/lidl-receipts-cli` or pass `-- --source-repo /path/to/lidl-receipts-cli` when the upstream checkout is not a sibling directory.
-  - Expected: logs `Vendored frontend -> .../vendor/frontend` and `Vendored backend -> .../vendor/backend`.
-  - Expected: logs `Patched vendored frontend Vite config with browser shim alias for @mariozechner/pi-ai.`
 - [ ] `npm run frontend:install`
   - Expected: completes successfully (warnings are acceptable).
 - [ ] `npm run frontend:build`
@@ -32,7 +28,14 @@ Run all commands from the repo root.
   - Expected: run only with explicit `CSC_NAME`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`.
   - Expected: signed `.app` is notarized by `scripts/notarize.mjs`.
 
-## 2. Packaged resource inclusion
+## 2. Optional Vendor Refresh
+
+- [ ] Refresh vendored code only when intentionally updating from the upstream app:
+  - `LIDLTOOL_UPSTREAM_REPO=/path/to/upstream-checkout npm run vendor:sync`
+  - Expected: logs `Vendored frontend -> .../vendor/frontend` and `Vendored backend -> .../vendor/backend`.
+  - Expected: desktop still builds from local copied files only after sync.
+
+## 3. Packaged Resource Inclusion
 
 - [ ] Verify packaged resource directories exist:
   - `frontend-dist`
@@ -45,7 +48,7 @@ Run all commands from the repo root.
 - [ ] Verify Playwright browser payload is not bundled in package:
   - `backend-venv/lib/python*/site-packages/playwright/driver/package/.local-browsers` should be absent
 
-## 3. Boot-flow validation
+## 4. Boot-Flow Validation
 
 - [ ] Success path: launch packaged app normally.
   - Expected: backend auto-starts and full app UI opens directly.
@@ -70,7 +73,7 @@ Run all commands from the repo root.
   - Run one data export action (optional quick check).
   - Expected: command logs stream in UI and command result shows exit status/output.
 
-## 4. Final release outputs
+## 5. Final Release Outputs
 
 - [ ] Attach/ship only artifacts from `dist_electron/`.
 - [ ] For local QA builds, keep signing disabled via the default `dist*` scripts.

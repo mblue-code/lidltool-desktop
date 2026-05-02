@@ -1,44 +1,65 @@
-# Diagnostics and Bug Reporting
+# Diagnostics And Bug Reporting
 
-Outlays uses two bug-reporting paths:
+Outlays Desktop supports two reporting paths:
 
-- GitHub Issues for user-visible bug reports and beta feedback.
-- Optional Sentry-compatible error reporting for automatic crash/error diagnostics. The intended self-hosted target is GlitchTip.
+- GitHub Issues for user-visible bugs and feedback
+- optional Sentry-compatible crash and error reporting for release builds
 
-Automatic error reporting is disabled unless a release is configured with `OUTLAYS_DESKTOP_GLITCHTIP_DSN` or `OUTLAYS_DESKTOP_SENTRY_DSN` and `OUTLAYS_DESKTOP_TELEMETRY=errors` or `errors_with_logs`.
+The intended self-hosted telemetry target is GlitchTip, but the integration is Sentry-compatible rather than vendor-locked.
 
-See `docs/public-repo-boundary.md` for what belongs in the public repository and what must stay in private release configuration.
+## Default Behavior
 
-## Environment
+Automatic error reporting is disabled by default.
+
+It becomes active only when:
+
+- a release is configured with `OUTLAYS_DESKTOP_GLITCHTIP_DSN` or `OUTLAYS_DESKTOP_SENTRY_DSN`
+- `OUTLAYS_DESKTOP_TELEMETRY` is set to `errors` or `errors_with_logs`
+- the user enables error reporting in the desktop privacy preferences
+
+See [public-repo-boundary.md](public-repo-boundary.md) for which values must stay out of the public repo.
+
+## Example Release-Time Configuration
 
 ```bash
 OUTLAYS_DESKTOP_GLITCHTIP_DSN=https://public-key@example.com/1
 OUTLAYS_DESKTOP_TELEMETRY=errors
 OUTLAYS_DESKTOP_RELEASE_CHANNEL=beta
-OUTLAYS_DESKTOP_ISSUES_URL=https://github.com/mblue-code/outlays-desktop/issues/new
+OUTLAYS_DESKTOP_ISSUES_URL=https://github.com/example/outlays-desktop/issues/new
 ```
 
-Telemetry modes:
+## Telemetry Modes
 
-- `off`: no automatic error reporting.
-- `errors`: capture sanitized main/renderer exceptions and crash-like renderer failures.
-- `errors_with_logs`: reserved for later log forwarding; diagnostics bundles are still user-created.
+- `off`: no automatic error reporting
+- `errors`: capture sanitized main-process and renderer exceptions
+- `errors_with_logs`: reserved for future log-forwarding behavior; diagnostics bundles remain user-created
 
-## Diagnostics Bundle
+## Diagnostics Bundles
 
-Users can create a diagnostics zip from the Diagnostics card or Help menu. The bundle includes:
+Users can create a diagnostics bundle from the Diagnostics card or Help menu.
+
+Current bundle contents:
 
 - `diagnostics.json`
 - redacted `window-lifecycle.log`, when present
 
-The bundle does not include receipt databases, receipt exports, document storage, credentials, tokens, scraped retailer HTML, screenshots, or AI chat content.
+The bundle must not include:
 
-## Release Checklist
+- receipt databases or exports
+- document storage
+- credentials or tokens
+- scraped retailer HTML
+- screenshots
+- AI chat content
 
-For beta and production releases:
+The user decides whether to attach the generated bundle to a GitHub issue or share it privately.
+
+## Release Validation
+
+Before publishing a release:
 
 1. Confirm `OUTLAYS_DESKTOP_RELEASE_CHANNEL` is set correctly.
-2. Confirm the GlitchTip DSN points to the right project.
+2. Confirm the telemetry DSN points to the intended project.
 3. Run `npm run typecheck`.
 4. Run `npm run build`.
-5. Create a test diagnostics bundle and inspect it before publishing.
+5. Generate a test diagnostics bundle and inspect it manually.

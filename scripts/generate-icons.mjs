@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, statSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, existsSync } from "node:fs";
 import os from "node:os";
 import { dirname, resolve, join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -39,26 +39,35 @@ function run(command, args) {
   execFileSync(command, args, { stdio: "inherit" });
 }
 
-function findPythonWithPillow() {
-  const candidates = [
-    process.env.PYTHON,
-    "python3",
-    "/opt/homebrew/bin/python3",
-    "/usr/local/bin/python3",
-    "/opt/homebrew/opt/python@3.14/bin/python3.14",
-    "/usr/bin/python3",
-  ].filter(Boolean);
+function writeIcoFromPngs(outputPath, entries) {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2);
+  header.writeUInt16LE(entries.length, 4);
 
-  for (const candidate of candidates) {
-    try {
-      execFileSync(candidate, ["-c", "import PIL"], { stdio: "ignore" });
-      return candidate;
-    } catch {
-      // Try the next interpreter until one can write .ico output via Pillow.
-    }
-  }
+  const directory = Buffer.alloc(entries.length * 16);
+  let offset = header.length + directory.length;
 
-  throw new Error("Could not find a Python interpreter with Pillow installed to generate build/icon.ico.");
+  entries.forEach((entry, index) => {
+    const png = readFileSync(entry.path);
+    const widthByte = entry.size >= 256 ? 0 : entry.size;
+    const heightByte = entry.size >= 256 ? 0 : entry.size;
+    const directoryOffset = index * 16;
+
+    directory.writeUInt8(widthByte, directoryOffset);
+    directory.writeUInt8(heightByte, directoryOffset + 1);
+    directory.writeUInt8(0, directoryOffset + 2);
+    directory.writeUInt8(0, directoryOffset + 3);
+    directory.writeUInt16LE(1, directoryOffset + 4);
+    directory.writeUInt16LE(32, directoryOffset + 6);
+    directory.writeUInt32LE(png.length, directoryOffset + 8);
+    directory.writeUInt32LE(offset, directoryOffset + 12);
+
+    entry.png = png;
+    offset += png.length;
+  });
+
+  writeFileSync(outputPath, Buffer.concat([header, directory, ...entries.map((entry) => entry.png)]));
 }
 
 try {
@@ -78,15 +87,13 @@ try {
     throw new Error("iconutil did not produce build/icon.icns.");
   }
 
-  run(findPythonWithPillow(), [
-    "-c",
-    [
-      "from PIL import Image",
-      `src = Image.open(${JSON.stringify(pngOut)}).convert('RGBA')`,
-      "sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]",
-      `src.save(${JSON.stringify(icoOut)}, format='ICO', sizes=sizes)`,
-    ].join("; "),
-  ]);
+  const icoSizes = [16, 24, 32, 48, 64, 128, 256];
+  const icoEntries = icoSizes.map((size) => {
+    const pngPath = join(iconsetDir, `ico_${size}.png`);
+    run("sips", ["-s", "format", "png", "-z", String(size), String(size), sourceSvg, "--out", pngPath]);
+    return { size, path: pngPath, png: null };
+  });
+  writeIcoFromPngs(icoOut, icoEntries);
 
   const svgMtime = statSync(sourceSvg).mtimeMs;
   const generatedIcons = [pngOut, icoOut, icnsOut];

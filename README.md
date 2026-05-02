@@ -1,1123 +1,179 @@
-# Outlays (Electron)
+# Outlays Desktop
 
-Outlays is the standalone occasional-use desktop product. It is local-first, receipt-oriented, and
-plugin-capable, but it is intentionally narrower than the self-hosted server deployment.
+Outlays Desktop is a local-first Electron app for one-time receipt sync, review, export, backup, and light connector management on a single machine.
 
-This project is independent and is not affiliated with Lidl or any retailer.
+The project is being prepared for a public open-source release on GitHub and a separate commercial distribution model for paid prebuilt installers and convenience support. The source repository is intended to remain self-buildable and self-host friendly.
 
-Planning note:
-- Multi-user personal + household finance direction is tracked in `docs/multi-user-household-finance-vision.md`.
-- Mobile companion product direction is tracked in `docs/mobile-companion-vision.md`.
-- Concrete native iOS/Android implementation planning is tracked in `docs/mobile-native-implementation-plan.md`.
-- Local mobile pairing security hardening is tracked in `docs/mobile-local-pairing-security-hardening-plan.md`.
-- Agent execution guidance for the native mobile build is tracked in `docs/mobile-agent-runbook.md`.
-- Long-form orchestration prompt for a full native mobile implementation pass is tracked in `docs/mobile-native-orchestration-prompt.md`.
-- Desktop diagnostics and beta bug-reporting setup is tracked in `docs/diagnostics.md`.
-- Desktop update flow is tracked in `docs/update-flow.md`.
-- Release process and production QA are tracked in `docs/release-process.md` and `docs/production-qa-checklist.md`.
-- Public/private commit boundaries for diagnostics, telemetry, and release secrets are tracked in `docs/public-repo-boundary.md`.
+This project is independent and is not affiliated with Lidl, Amazon, or any other retailer.
 
-## Maintenance rules
+## Status
 
-Desktop-specific docs live in `README.md` plus `docs/`.
+Outlays Desktop is still pre-release software.
 
-Retention:
-- durable product, packaging, and implementation docs stay in `docs/`
-- dated QA/task artifacts are archived under `docs/archive/`
-- local one-off audit outputs such as `i18n-audit-report.md` should stay out of git unless there is an explicit reason to preserve them
-- the current full manual desktop QA prompt and runbook live in `docs/desktop-qa-agent-prompt.md` and `docs/desktop-qa-runbook.md`
+Current release blockers before a public production launch:
 
-Vendored frontend policy:
-- the allowed frontend override surface is declared in `vendor/vendor-manifest.json`
-- only `frontend.runtimeOverrideFiles` are overlaid into `vendor/frontend` during sync/patch
-- test-only overrides remain under `overrides/frontend/src` and are validated, but they are no longer copied into the vendored app during build flows
+- choose and add a root `LICENSE`
+- finish signed macOS and Windows release distribution
+- complete clean-machine install, upgrade, and update validation on both target platforms
 
-Mobile foundation fork:
-- the old native mobile harnesses are now vendored under `vendor/mobile/` as local native companion foundations for a future desktop-paired phone product
-- sync them from the old upstream checkout with `npm run vendor:sync:mobile`
-- the current mobile fork status and reuse boundaries are documented in `docs/mobile-foundation.md`
+See [docs/publication-checklist.md](docs/publication-checklist.md) for the publication pass and [docs/signing-and-notarization.md](docs/signing-and-notarization.md) for code-signing status.
 
-Diagnostics and bug reporting:
-- GitHub Issues are the user-facing tracker for desktop bugs, beta feedback, and connector-specific reports.
-- Optional automatic error reporting is Sentry-compatible and intended for a self-hosted GlitchTip project.
-- Error reporting is disabled unless `OUTLAYS_DESKTOP_GLITCHTIP_DSN` or `OUTLAYS_DESKTOP_SENTRY_DSN` is set, `OUTLAYS_DESKTOP_TELEMETRY` is `errors` or `errors_with_logs`, and the local privacy preference enables error reporting.
-- Users can create a redacted diagnostics bundle or open the logs folder from the control center or Help menu. The bundle intentionally excludes receipt databases, receipt exports, document storage, credentials, tokens, scraped retailer HTML, screenshots, and AI chat content.
-- Commit diagnostics code and docs publicly, but keep real DSNs, auth tokens, source-map upload tokens, VPS credentials, and real user diagnostics out of git; see `docs/public-repo-boundary.md`.
+## What It Does
 
-Updates and releases:
-- Desktop uses `electron-updater` with a configurable generic update feed.
-- Set `OUTLAYS_DESKTOP_RELEASE_CHANNEL=beta` or `stable` and inject `OUTLAYS_DESKTOP_UPDATE_BASE_URL` during release.
-- Updates are disabled in development unless `OUTLAYS_DESKTOP_ALLOW_DEV_UPDATES=1`.
-- Updates are disabled when no update base URL is configured.
-- The first update flow is manual: check, download, restart.
-- Final macOS Developer ID signing, notarization, and Windows Authenticode signing remain intentionally deferred; see `docs/signing-and-notarization.md`.
+- Runs a bundled desktop shell with a local Python backend.
+- Imports receipts from supported connectors and optional connector packs.
+- Keeps receipt data, backups, and OCR processing on the local machine by default.
+- Supports local export, restore, diagnostics bundle creation, and optional update checks.
+- Packages frontend, backend source, and backend runtime from this repo only.
 
-## Desktop product scope
+## Product Boundaries
 
-Desktop is for:
-- opening the app when you want a local sync
-- reviewing receipts and finance summaries on the same machine
-- exporting normalized receipt data
-- creating or restoring local backups
-- enabling a small number of receipt plugin packs
+Outlays Desktop is built for occasional local use:
 
-Desktop is not for:
-- running as an always-on household server
-- offer/watchlist/alert parity
-- recurring background scraping
-- hosted/backend service workflows
-- on-device plugin authoring
+- run a sync when you want it
+- review and export data on the same computer
+- create or restore local backups
+- manage a small number of optional receipt connector packs
 
-Current mobile direction:
-- mobile is being explored as a paired local companion, not as a cloud or self-hosted client
-- the forked iOS/Android foundations now use the first local pairing/sync protocol and still need product-depth work beyond the foundation
-- LAN pairing must remain opt-in, temporary, and limited to mobile endpoints; see `docs/mobile-local-pairing-security-hardening-plan.md`.
+It is intentionally not the always-on server product:
 
-Current native mobile companion implementation:
-- Android and iOS live under `vendor/mobile/` and are now pairing-first native companion foundations rather than backend URL login harnesses.
-- Mobile pairing and sync are local-first and foreground-oriented: pair by desktop-generated payload, sync only when both apps are open and reachable.
-- Desktop exposes the first versioned local protocol:
-  - `POST /api/mobile-pair/v1/sessions`
-  - `POST /api/mobile-pair/v1/handshake`
-  - `POST /api/mobile-captures/v1`
-  - `GET /api/mobile-sync/v1/changes`
-- Wi-Fi phone pairing uses an Electron-owned temporary LAN bridge that is opened only from Settings after an explicit risk confirmation. The main backend remains bound to `127.0.0.1`; the bridge binds to one private IPv4 interface and forwards only mobile protocol routes.
-- The QR payload includes the LAN bridge endpoint plus `transport` and `listener_expires_at`. Android and iOS can scan the QR directly, while manual paste remains available.
-- Mobile receipt captures upload to desktop as OCR documents; desktop remains the OCR and ingestion authority.
-- Synced mobile read models currently include capture status, recent transactions, transaction items, and current budget summary.
+- no long-running background sync service
+- no hosted SaaS dependency
+- no assumption of a separate self-hosted operator workflow
+- no requirement to keep a browser automation session running continuously
 
-## Sprint 16 summary
+## Repository Principles
 
-Sprint 16 focuses on product polish instead of new parity scope.
+This repo is intentionally isolated from the main application repo:
 
-- first-run and control-center copy now frames desktop as a local occasional-use product
-- the control center now explains whether you are in full-app-ready mode, reduced fallback mode, or control-center-only mode
-- desktop now boots directly into the finance app on the healthy success path
-- the control center remains available as a fallback surface and explicit local-tools surface
-- receipt pack management is organized around installed packs, trusted optional packs, explicit enable/disable/remove actions, and clearer trust/support labels
-- backup, export, and restore flows now explain what is included, what stays out of scope, and where misunderstandings are most likely
-- regional edition and market profile context is surfaced more clearly from the existing release metadata
-- partial-runtime states now stay actionable when full frontend assets are missing or release metadata falls back to a safe local shell profile
+- no runtime or build-time `../../` dependencies
+- no importing executable code from the main repo at runtime
+- everything required for desktop packaging must live in this repo
+- vendoring from an upstream repo is allowed only through explicit sync scripts that copy files into `vendor/`
 
-## Finance workspace shell
+That isolation rule matters because the same repo needs to work both as a public source release and as the basis for a paid packaged desktop product.
 
-The desktop main app now uses a finance-first shell as the default success-path surface.
+## Architecture
 
-Current shared-finance foundation inside desktop:
-- the shell shows the active workspace explicitly and can switch between `Personal` and named shared groups
-- the preferences menu shows the signed-in user and current workspace together instead of hiding scope changes
-- main finance APIs now resolve ownership by workspace using `user_id` for personal data and `shared_group_id` for shared-group-owned data
-- core planning domains (`budget`, `cash flow`, `recurring bills`, `goals`, `notifications`, `reports`) now bind to the active workspace instead of personal-only service filters
-- source, transaction, item, document, review-queue, saved-query, and chat-thread flows now carry workspace ownership metadata in the desktop runtime
-- `Settings -> Users` now acts as the desktop account center for:
-  - current account/session management
-  - shared-group creation and membership management
-  - local user administration
-  - agent keys
-  - desktop backup/restore
+At a high level the desktop app consists of:
 
-Primary navigation:
-- `Dashboard`
-- `Transactions`
-- `Groceries`
-- `Budget`
-- `Bills`
-- `Cash Flow`
-- `Reports`
-- `Goals`
-- `Merchants`
-- `Settings`
+- Electron main process in `src/main/`
+- React renderer shell in `src/renderer/`
+- vendored frontend in `vendor/frontend/`
+- vendored Python backend in `vendor/backend/`
+- local managed backend virtualenv in `.backend/venv/`
+- packaged assets staged into `build/` before `electron-builder`
 
-Desktop shortcuts stay available without taking over the finance IA:
-- `Add Receipt`
-- `Connectors`
-- `Chat`
+For the fuller runtime overview, see [docs/architecture.md](docs/architecture.md).
 
-Canonical upload routing:
-- `/imports/ocr` is the desktop OCR upload route.
-- `/documents/upload` is retained as a compatibility alias and redirects to `/imports/ocr`.
+## Quick Start
 
-Preview routes:
-- `/sources`, `/explore`, `/products`, `/compare`, `/quality`, and `/patterns` remain compiled for diagnostics and follow-on analysis, but are intentionally not primary-navigation entries in the packaged finance IA.
+### Prerequisites
 
-Compatibility routing:
-- `/` is the canonical dashboard route
-- `/dashboard` redirects to `/`
-- `/transactions` is the canonical history route
-- `/receipts` redirects to `/transactions`
-
-The new shell keeps the desktop-specific capability policy in place:
-- unsupported self-hosted/operator routes still redirect away inside Electron
-- connectors and desktop tools remain available, but they no longer define the primary product hierarchy
-
-Delivered finance workspace modules:
-- `Dashboard` now includes KPI deltas, spending overview, cash-flow summary, upcoming bills, recent groceries, budget progress, recent activity, merchant summary, insight banner, and top goals.
-- `Groceries`, `Cash Flow`, `Reports`, `Goals`, and `Merchants` are real routes backed by upstream APIs instead of placeholder pages.
-- the top bar notification bell is backed by persisted unread/read state with derived alerts for sync outcomes, bill timing, budget risk, goal risk, and connector attention.
-- report exports now ship from dedicated template payloads rather than ad-hoc page-local fixtures.
-
-## Intentional desktop deltas after parity
-
-These desktop-specific differences are still intentional after the parity program and are expected to remain until the
-main app offers a clean upstream equivalent.
-
-- Route capability policy is owned by Electron in `src/shared/desktop-route-policy.ts` and consumed by
-  `overrides/frontend/src/lib/desktop-capabilities.tsx` plus `overrides/frontend/src/main.tsx`.
-  Unsupported routes stay hidden in navigation and direct requests to `/offers`, `/automations`, `/automation-inbox`,
-  and `/reliability` redirect back to `/` with desktop-specific handoff messaging.
-- Bills euro-input flow stays on the vendored `vendor/frontend/src/pages/BillsPage.tsx` plus
-  `vendor/frontend/src/utils/money-input.ts` parsing path.
-  Desktop keeps this stricter euro-input handling because the packaged app still targets local manual entry with
-  comma-or-dot decimal input rather than introducing a separate desktop-only amount widget.
-- Connector lifecycle UI stays close to main, and desktop-owned pack install, trust, and update actions are surfaced
-  directly on the desktop connectors page in `overrides/frontend/src/pages/ConnectorsPage.tsx`.
-  The full app remains the place for one-off setup and sync, while desktop-specific pack management stays available on
-  the same connectors surface.
-  Desktop sync-status banners and connector actions now follow the backend connector discovery payload instead of a
-  hardcoded retailer list, so newly imported pluginized merchants do not require Electron UI source edits just to show
-  status or sync affordances.
-- AI settings stay on a desktop-safe fork of the vendored page and tests.
-  The current desktop page keeps chat-oriented provider controls while continuing to hide OCR-provider management and
-  other self-hosted runtime assumptions.
-- Setup and users settings remain intentional overrides in
-  `overrides/frontend/src/pages/SetupPage.tsx` and `overrides/frontend/src/pages/UsersSettingsPage.tsx`.
-  Those files keep packaged backup/restore flows and desktop runtime affordances that do not exist in the self-hosted
-  product.
-- Backend parity still requires two narrow patch-time desktop adjustments instead of broad file forks:
-  `scripts/patch-vendored-backend.mjs` adds the authenticated system-backup endpoint used by the full UI and aligns
-  desktop-managed `local_path` receipt packs with the connector lifecycle model.
-- Frontend parity still requires one narrow build patch in `scripts/patch-vendored-frontend.mjs` for the
-  `@mariozechner/pi-ai` browser shim and for syncing the Electron-owned route policy into the vendored frontend before
-  build/test.
-
-Residual debt after Sprint 6:
-
-- The route capability contract is now single-sourced inside `apps/desktop`, but the vendored frontend still receives it
-  via patch-time file sync rather than a shared package.
-- Desktop AI settings remain a maintained fork until the upstream app exposes the same desktop-safe provider gating
-  without reintroducing OCR/runtime assumptions.
-- The authenticated system-backup endpoint still lands through a narrow backend patch because it is desktop packaging
-  behavior, not self-hosted server behavior.
-- Deferred parity remains deferred on purpose: offers parity, automations parity, reliability/ops parity, and
-  self-hosted operator workflows.
-
-Future backlog note:
-
-- A future desktop PR may add broader non-EUR currency support such as `USD` and `GBP`, but this is not a small
-  symbol-only change.
-- Current desktop budgeting, dashboard, recurring, and analytics flows still contain EUR-centric parsing/formatting and
-  often sum raw cents across records, which is only safe for effectively single-currency views.
-- If mixed-currency overviews are ever supported, the product will need an explicit policy such as base-currency
-  conversion with stored FX-rate snapshots, separate per-currency totals, or hard limits on combining currencies in the
-  same overview.
-
-## User journey
-
-Typical desktop flow:
-1. Open the app.
-2. Land in the finance shell on `/setup`, `/login`, or `/` depending on local profile state.
-3. Use `Dashboard`, `Transactions`, `Groceries`, `Budget`, `Bills`, `Cash Flow`, `Reports`, `Goals`, `Merchants`, or `Settings` depending on the task.
-4. Install, update, enable, disable, or remove receipt packs if needed from the connectors flow.
-5. Run a one-off sync from the main app using the connector `source_id` entries that the current desktop build exposes.
-6. Review results locally, then export or back up if you want a portable copy.
-7. Open the Control Center only when you explicitly want fallback diagnostics or local-tools flows outside the main app.
-
-Release validation performed for the finance shell:
-- packaged mac desktop artifact rebuilt with `npm run dist:mac`
-- fresh-profile packaged smoke passed with `npm run test:e2e:packaged` against the built `.app` executable
-
-## Runtime model
-
-- Desktop launches into the finance app on the healthy success path.
-- The Python backend is started automatically for the healthy full-app path.
-- Full-app startup runs the backend in desktop-minimal mode, which disables server-style background work such as the automation scheduler and connector live-sync thread.
-- OCR processing is handled by a second Python worker process, separate from the Electron main process and the HTTP server process.
-- The OCR worker is started on demand when the user triggers document OCR, not during normal backend startup.
-- The desktop OCR worker exits after an idle timeout so the bundled OCR runtime does not stay resident in RAM between imports.
-- The Control Center remains available for fallback diagnostics and short-lived local tool actions that do not require the full app to own the primary experience.
-- Preferred backend executable order:
-  1. `LIDLTOOL_EXECUTABLE` env override
-  2. bundled backend venv inside packaged app (`resources/backend-venv/...`)
-  3. local managed backend venv (`apps/desktop/.backend/venv/...`)
-  4. system PATH (`lidltool` / `lidltool.exe`)
-- Frontend assets for packaged builds are copied to `resources/frontend-dist`.
-- Vendored backend source is copied to `resources/backend-src`.
-- Desktop shell brand assets and packaged app icons live entirely inside `apps/desktop` (`src/renderer/assets`, `vendor/frontend/src/assets`, and generated `build/icon.*` files).
-- `npm run icons:generate` rebuilds `build/icon.png`, `build/icon.ico`, and `build/icon.icns` from `src/renderer/assets/logo-mark.svg` so packaged builds do not fall back to Electron defaults.
-- Backend receives:
-  - `OUTLAYS_DESKTOP_FRONTEND_DIST`
-  - `OUTLAYS_DESKTOP_REPO_ROOT`
-  - `OUTLAYS_DESKTOP_CONFIG_DIR` rooted inside the Electron `userData` profile
-  - `OUTLAYS_DESKTOP_DOCUMENT_STORAGE_PATH` rooted inside the Electron `userData` profile
-  - `OUTLAYS_DESKTOP_MODE=true`
-  - `LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY`
-  - desktop-managed connector plugin env vars for explicitly enabled receipt plugin packs
-  - `PLAYWRIGHT_BROWSERS_PATH=<profile>/playwright-browsers` for bundled or managed venv backends
-- Desktop defaults `config.toml`/`token.json` and document storage to the app profile instead of shared
-  `~/.config/lidltool` or `~/.local/share/lidltool` paths, so packaged runs stay isolated from self-hosted state.
-- Local mac packaging is intentionally unsigned by default even when a signing identity exists in the keychain.
-- Signed mac release builds use `npm run dist:mac:signed` together with explicit `CSC_NAME`, `APPLE_ID`,
-  `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` environment variables.
-- Playwright browser binaries are kept outside the signed app bundle so Electron Builder does not try to recursively sign
-  a nested Chromium tree inside `Resources/backend-venv`.
-
-## Desktop OCR
-
-Desktop OCR now ships as a local packaged workflow instead of depending on an external OCR service.
-
-- The bundled backend venv includes `rapidocr_onnxruntime` and its ONNX model assets on disk.
-- Electron keeps OCR out of the main app process by spawning a dedicated Python worker when OCR work is actually queued.
-- The HTTP backend only enqueues OCR jobs. The durable worker consumes the queue and updates document/job state.
-- The bundled desktop OCR provider is `glm_ocr_local`.
-- Image uploads and scanned PDFs are OCRed locally in the worker process. PDFs that already contain a text layer still use direct text extraction first.
-- The renderer wakes the worker after `POST /api/v1/documents/{document_id}/process` so the user does not get stuck in `queued`.
-- If the worker cannot be started, desktop reports that startup failure back to the backend so the document/job move to `failed` instead of remaining queued forever.
-
-User-visible OCR states:
-
-- `queued`
-- `starting_engine`
-- `processing`
-- `completed`
-- `failed`
-
-Idle lifecycle:
-
-- The OCR worker stays warm briefly after work completes, then exits automatically.
-- Tune the idle timeout with `OUTLAYS_DESKTOP_OCR_IDLE_TIMEOUT_S`.
-- Default idle timeout is `600` seconds.
-
-Control-center states:
-- full-app-ready: bundled frontend pages are present and the main app can open normally
-- reduced fallback mode: desktop keeps the control center open because the local runtime did not start cleanly
-- control-center-only: desktop keeps the shell open because the bundled frontend pages are missing, while local sync/export/backup tasks still remain available
-
-Release metadata fallback:
-- if the vendored market metadata is missing or incomplete, desktop falls back to a safe local shell profile
-- manual receipt pack import remains available with conservative trust labeling
-- trusted catalog installs only appear when verified metadata is present
-
-## Receipt plugin packs
-
-Desktop supports user-installed receipt connector packs without mutating the signed app bundle.
-
-Scope:
-- receipt plugins only
-- manual local file import remains supported
-- trusted URL install/update is supported only for signed catalog entries
-- offer/deal plugins remain out of desktop scope
-- recurring offer scraping and alerts remain out of desktop scope
-- `dm_de` is now one of these optional receipt plugins rather than a built-in desktop connector
-- `lidl_plus_de` now uses a real-browser OAuth handoff instead of the old embedded Playwright login path; desktop opens Lidl in the user's selected browser target (system default by default, with optional Arc, Atlas, or Google Chrome override), captures `com.lidlplus.app://callback` in Electron, shows an in-app success prompt as soon as the callback is confirmed, and keeps a pasted callback fallback if the browser completes but the app does not reconnect automatically
-- packaged mac builds now declare `com.lidlplus.app` in the app bundle `Info.plist` through Electron Builder `protocols`, so Launch Services can bind Lidl callbacks to `com.gluecherlab.outlays.desktop` instead of falling back to stale generic Electron registrations
-- `rewe_de` is an imported receipt pack in desktop rather than a built-in connector, so the desktop auth flow can reuse a normal Chrome session instead of depending on packaged CAPTCHA automation
-- `penny_de` is a local optional receipt pack under `fixtures/plugin-sources/penny_de`; it now supports direct Penny eBon discovery and PDF-backed receipt parsing through stored OAuth state, and desktop exposes the PENNY PKCE login URL for the user's normal browser, auto-captures supported Chromium callbacks when possible, and falls back to a pasted final callback URL when browser observation is not reliable
-
-Management surface:
-- use the connectors page inside the desktop app for local pack import, trusted pack install, enable/disable, and removal
-- the Electron control center still reflects the same pack state, but it is no longer required for basic pack management
-- built-in browser-session connectors such as Amazon now finish setup by validating the saved session automatically; the desktop flow no longer depends on pressing Enter in a terminal window
-
-Activation model:
-- imported packs install disabled by default
-- enable/disable is explicit
-- manual unsigned packs are never presented as official or project-supported
-- trusted catalog downloads must verify before install
-- revoked, invalid, or incompatible packs stay visible but blocked from activation
-- enabling, disabling, updating, or removing a pack restarts the local backend when needed
-
-Support and trust labels shown in the desktop pack UI:
-- `official`: project-maintained desktop path
-- `community_verified`: signed community pack allowed by trusted desktop distribution
-- `community_unsigned`: manual import only, kept under conservative trust labeling
-- `local_custom`: operator-supplied local pack with no upstream support promise
-
-Desktop workflow:
-1. Open the connectors page in the desktop app.
-2. Use `Import .zip connector` for a ZIP file, or choose `Install trusted pack` for a verified catalog entry.
-3. Review the status, trust, support, and market-profile messaging.
-4. Enable the pack explicitly if you want desktop to load it into the next backend run.
-5. For built-in browser connectors such as Amazon, use `Connector settings` to tune saved defaults like scan depth, headless mode, and optional HTML debug dumps before running a real-account test.
-6. For imported REWE packs, log into the REWE website in normal Chrome first, then use the connector auth/setup flow so the pack can import that authenticated Chrome session into its own saved state.
-7. For Lidl Plus, complete login and SMS confirmation in the real browser, allow the browser to open the desktop app, then continue from the in-app success prompt. The Lidl browser tab may still remain on the code screen or a final error page; that does not block the desktop sync once the callback has been confirmed.
-8. Use the same connectors page to install a trusted update, disable a pack, or remove it from local storage.
-
-### Amazon multicountry
-
-Desktop now exposes separate built-in Amazon marketplace connectors:
-- `amazon_de` for `amazon.de`
-- `amazon_fr` for `amazon.fr`
-- `amazon_gb` for `amazon.co.uk`
-
-Operator controls shared by both marketplaces:
-- `years`: how many recent order-history years to scan
-- `max_pages_per_year`: page limit per year
-- `headless`: run sync without showing the browser
-- `dump_html`: optional directory for list/detail/auth debug HTML
-
-Saved browser-session state remains the auth model:
-- `amazon_de` keeps the legacy state file name `amazon_storage_state.json`
-- `amazon_fr` uses `amazon_fr_storage_state.json`
-- `amazon_gb` uses `amazon_gb_storage_state.json`
-- each marketplace validates the saved session against its own order-history URL before sync
-
-Manual smoke-test steps from `apps/desktop`:
-1. Start the desktop app and choose either `Amazon (DE)` or `Amazon (FR)` in the sync source picker.
-2. Open connector bootstrap/auth for that marketplace and complete sign-in in the browser window, including MFA or CAPTCHA if Amazon requires it.
-3. Set `headless=false` if you want to watch the browser during sync, then optionally set `years=1`, `max_pages_per_year=1`, and `dump_html=/absolute/path/to/amazon-debug`.
-4. Run a sync and confirm that at least one order imports without a reauth error.
-5. Inspect the debug HTML folder if a sync returns `partial` or `unsupported` Amazon parse metadata.
-
-Manual CLI smoke-test commands from `apps/desktop`:
-
-```bash
-./.backend/venv/bin/python -m lidltool.cli --db "$PWD/.desktop-smoke.sqlite" connectors auth bootstrap --source-id amazon_de
-./.backend/venv/bin/python -m lidltool.cli --db "$PWD/.desktop-smoke.sqlite" connectors sync --source-id amazon_de --option headless=false --option years=1 --option max_pages_per_year=1 --option dump_html=$PWD/.amazon-debug/de
-
-./.backend/venv/bin/python -m lidltool.cli --db "$PWD/.desktop-smoke.sqlite" connectors auth bootstrap --source-id amazon_fr
-./.backend/venv/bin/python -m lidltool.cli --db "$PWD/.desktop-smoke.sqlite" connectors sync --source-id amazon_fr --option headless=false --option years=1 --option max_pages_per_year=1 --option dump_html=$PWD/.amazon-debug/fr
-
-./.backend/venv/bin/python -m lidltool.cli --db "$PWD/.desktop-smoke.sqlite" connectors auth bootstrap --source-id amazon_gb
-./.backend/venv/bin/python -m lidltool.cli --db "$PWD/.desktop-smoke.sqlite" connectors sync --source-id amazon_gb --option headless=false --option years=1 --option max_pages_per_year=1 --option dump_html=$PWD/.amazon-debug/gb
-```
-
-CLI debug scrape commands:
-
-```bash
-./.backend/venv/bin/python -m lidltool.cli amazon scrape --source-id amazon_de --headless --years 1 --max-pages-per-year 1 --dump-html $PWD/.amazon-debug/de
-./.backend/venv/bin/python -m lidltool.cli amazon scrape --source-id amazon_fr --domain amazon.fr --headless --years 1 --max-pages-per-year 1 --dump-html $PWD/.amazon-debug/fr
-./.backend/venv/bin/python -m lidltool.cli amazon scrape --source-id amazon_gb --domain amazon.co.uk --headless --years 1 --max-pages-per-year 1 --dump-html $PWD/.amazon-debug/gb
-```
-
-Third-party authoring reference:
-- the clean-break template lives in `examples/reference_receipt_plugin_template`
-- build a manual-import ZIP with `python examples/reference_receipt_plugin_template/build_desktop_pack.py`
-- use the checklist in that template README to verify import, enable, bootstrap, sync, and uninstall behavior
-
-Local optional pack build examples:
-
-```bash
-python3 fixtures/plugin-sources/rewe_de/build_desktop_pack.py --output-dir build/plugin-packs
-python3 fixtures/plugin-sources/kaufland_de/build_desktop_pack.py --output-dir build/plugin-packs
-python3 fixtures/plugin-sources/netto_plus_de/build_desktop_pack.py --output-dir build/plugin-packs
-python3 fixtures/plugin-sources/penny_de/build_desktop_pack.py --output-dir build/plugin-packs
-```
-
-### Pack format
-
-Desktop uses a ZIP-based receipt plugin pack with this layout:
-
-```text
-plugin-pack.json
-manifest.json
-integrity.json
-signature.json          # optional for manual import, required for trusted URL install
-payload/...
-```
-
-Desktop validates:
-- ZIP structure and safe paths
-- required files and runtime payload presence
-- per-file SHA-256 hashes
-- backend manifest compatibility for host kind `electron`
-- imported trust-class policy
-- detached Ed25519 signatures against the pack envelope + payload hash manifest for trusted installs
-- trusted distribution revocations by key id, plugin id/version, or archive hash
-
-Desktop also reads optional connector onboarding content from the plugin `manifest.json`.
-Plugin authors can provide an `onboarding` block there with:
-- `title`
-- `summary`
-- `expected_speed`
-- `caution`
-- `steps`: array of `{ "title", "description" }`
-
-The desktop connectors page uses that manifest-owned onboarding to explain connector-specific behavior such as slower scraping or first-run expectations.
-Connector status summaries are user-facing rather than quarantine-facing: successful first-run auth can immediately switch to `Connected` / `Starting first sync`, and retailer-side historical gaps such as Lidl receipts with no returned detail HTML are surfaced as `unavailable from retailer` instead of a generic sync failure.
-
-### Storage layout
-
-Imported packs live under user-writable Electron app-data, never under packaged app resources.
-
-- macOS:
-  - `~/Library/Application Support/Outlays/plugins/receipt-packs/`
-- Windows:
-  - `%APPDATA%/Outlays/plugins/receipt-packs/`
-
-Desktop-managed layout:
-
-```text
-plugins/receipt-packs/
-  state.json
-  installs/
-    <plugin-id>/
-      <plugin-version>/
-        plugin-pack.json
-        manifest.json
-        integrity.json
-        signature.json
-        payload/...
-  staging/
-```
-
-## Backup, export, and restore
-
-Backup:
-- creates a local backup directory for this desktop profile
-- always includes the database
-- can include document storage and a JSON export snapshot
-- does not include receipt pack archives or any hosted service state
-- requires an empty output directory
-
-Export:
-- writes normalized receipts to a single local JSON file
-- does not include credentials, tokens, plugin packs, or document storage
-- is the better choice when you want portable data without restoring a full desktop profile
-
-Restore:
-- restores the local database from a backup directory
-- can restore credential key, token, and document storage when present
-- does not reinstall receipt packs automatically
-- can restart the local backend after restore
-
-## Release variants and regional editions
-
-Desktop source of truth:
-- official bundle/profile catalog is vendored under `apps/desktop/vendor/backend/src/lidltool/connectors/official_market_catalog.json`
-- Electron resolves release metadata from that vendored catalog at runtime/build time
-
-Current desktop release variants:
-- `desktop_universal_shell`
-  - stable default
-  - neutral/global shell
-  - still supports optional imported receipt plugin packs
-  - bundled Lidl Plus source entries currently include DE plus preview GB/FR
-- `desktop_dach_edition`
-  - stable regional preset
-  - preselects the `dach_starter` profile
-- `desktop_us_shell`
-  - preview preset for future rollout
-  - intentionally does not imply official US connector support yet
-
-Set the active desktop release preset with:
-- `OUTLAYS_DESKTOP_RELEASE_VARIANT`
-
-Notes:
-- universal shell and regional editions share the same plugin/runtime model
-- official bundle metadata is separate from imported community/local receipt packs
-- desktop uses the market profile to explain why some connectors are preselected while others are optional
-- desktop offer/deal parity remains intentionally out of scope
-
-## Curated connector catalog
-
-Desktop consumes a signed connector catalog envelope and can optionally fetch a newer signed remote catalog when
-`OUTLAYS_DESKTOP_CATALOG_URL` is set.
-
-Desktop catalog source of truth:
-- bundled signed envelope: `apps/desktop/src/main/trusted-distribution/bundled-connector-catalog.json`
-- bundled trust roots: `apps/desktop/src/main/trusted-distribution/trust-roots.json`
-- parsed desktop catalog logic: `apps/desktop/src/main/connector-catalog.ts`
-
-Current behavior:
-- invalid or unverifiable remote catalog metadata fails closed and is ignored
-- the bundled signed catalog remains the trust anchor fallback
-- catalog entries never auto-install or auto-enable anything
-- trusted desktop-pack entries may expose explicit `Install trusted pack` and `Install trusted update` actions
-- revoked catalog entries stay visible with block reasons and cannot be installed through the trusted flow
-- local ZIP import remains the first-class path for community and local receipt packs
-- official versus community trust labeling stays explicit in the control center
-
-Current desktop deferrals still remain:
-- no full hosted marketplace flow
-- no multi-hop signature chain beyond bundled trust roots and detached signatures
-- no offer/deal plugin-pack parity
-
-## Vendor sync (required)
-
-Desktop uses local vendored sources under `vendor/`.
-
-```bash
-npm run vendor:sync
-```
-
-This is the only script that reads from the main repo to refresh local copies.
-When the upstream checkout is not a sibling directory, set `LIDLTOOL_UPSTREAM_REPO=/path/to/lidl-receipts-cli`
-or run `npm run vendor:sync -- --source-repo /path/to/lidl-receipts-cli`.
-
-`vendor:sync` now does three explicit things for i18n:
-- copies the canonical web frontend, including `frontend/src/i18n/*`, into `vendor/frontend`
-- reapplies documented desktop-only overlays from `overrides/frontend`
-- regenerates the Electron shell catalog under `src/i18n/generated.ts` from the canonical web message source plus desktop-shell-only additions
-
-After every sync/build, desktop applies a local vendored frontend compatibility patch:
-- `scripts/patch-vendored-frontend.mjs`
-- Injects a Vite alias for `@mariozechner/pi-ai` -> `src/shims/pi-ai.ts`
-- Prevents browser Rollup failures caused by Node-only Smithy/stream imports
-- Reapplies desktop-only renderer overrides such as packaged backup/restore flows
-- `overrides/frontend` reapplies the intentional desktop-only frontend surface after each vendor sync so the vendored app stays current with main
-- `scripts/patch-vendored-backend.mjs` reapplies the desktop-only system-backup endpoint after each vendor sync
-- `npm run frontend:install` uses `npm ci` against `vendor/frontend/package-lock.json` so desktop keeps the same React/JSON-renderer dependency graph as the vendored app
-
-## Prerequisites
-
-- Node.js 20+
+- Node.js 22
 - npm
-- Python 3.11 to 3.12 for desktop backend preparation and release builds
+- Python 3.11 or 3.12
+- macOS or Windows for the target packaged experience
 
-## Local development
+### First-Time Setup
 
-Build frontend + start Electron:
-
-```bash
-npm install
-npm run vendor:sync
-npm run frontend:install
-npm run frontend:build
-npm run dev
-```
-
-If you want the backend fully managed inside this repo (recommended):
+Run from the repo root:
 
 ```bash
-npm run vendor:sync
+npm ci
 npm run frontend:install
 npm run backend:prepare
-npm run frontend:build
-npm run dev
-```
-
-`npm run backend:prepare` now builds a standalone desktop backend venv instead of an editable checkout-linked install.
-That venv is what later gets copied into `build/backend-venv` for packaged desktop runs.
-
-Desktop intentionally prefers Python `3.12`, then `3.11` for backend preparation because the bundled
-desktop OCR runtime is only treated as production-ready on that range today.
-If you intentionally need to bypass that guard, set `OUTLAYS_DESKTOP_ALLOW_UNSUPPORTED_PYTHON=1`, but that is not
-the recommended release path.
-
-### Ingestion agent development reset policy
-
-The ingestion agent is still pre-release and has no external desktop user base. Prefer simple additive Alembic
-migrations, but if local schema churn becomes awkward it is acceptable to delete the local development SQLite
-database and re-sync Amazon/Lidl. Before hardening or release, verify fresh database creation from the repo-local
-migrations. See `docs/ingestion-agent-sprint-0.md` for the current implementation decisions.
-
-The first ingestion workspace is available at `/ingestion`. Sprint 1 supports manual text intake in Review First
-mode: the agent creates a transaction proposal, the user can edit/approve/reject it, and approved proposals commit
-through the existing `ManualIngestService`. See `docs/ingestion-agent-sprint-1.md` for the current API and safety
-contract.
-
-Sprint 2 adds deterministic matching against existing transactions. Ingestion proposals can refresh match candidates,
-mark a row as already covered, or continue with a new transaction when the user chooses to override the match. See
-`docs/ingestion-agent-sprint-2.md`.
-
-Sprint 3 adds CSV and pasted-table statement intake. Bank rows are staged in `statement_rows`, classified into
-reviewable proposals, and matched against existing connector transactions before any canonical write. Excel exports
-should be saved as CSV until the side repo ships a local backend spreadsheet parser. See
-`docs/ingestion-agent-sprint-3.md`.
-
-Sprints 4 through 9 add explicit Agent Review/YOLO Auto modes, PDF/image intake as review proposals, recurring bill
-candidates, batch review actions, safe undo for agent-created transactions, and final hardening checks. Agent Review
-remains the default approval mode: the agent interprets and matches, then the user approves and commits. YOLO Auto is
-visible in `/ingestion` and commits complete agent proposals automatically while still leaving incomplete rows and
-recurring bill candidates in review and avoiding duplicate writes against high-confidence existing matches.
-The model-facing agent surface is an allowlisted ingestion tool layer, not arbitrary Python, shell, SQL, filesystem, or
-direct ledger write access. See `docs/ingestion-agent-sprints-4-to-9.md`.
-
-Run the real desktop Electron E2E smoke suite:
-
-```bash
-cd apps/desktop
-npm run test:e2e:prepare
-npm run test:e2e
-```
-
-## Desktop profiling
-
-Use the built-in profiler to capture the full desktop process tree as JSON.
-
-Idle control center:
-
-```bash
-cd apps/desktop
-npm run profile:desktop -- --scenario idle-control-center
-```
-
-Idle full app:
-
-```bash
-cd apps/desktop
-npm run profile:desktop -- --scenario idle-full-app
-```
-
-Custom active workflow profiling:
-
-```bash
-cd apps/desktop
-npm run profile:desktop -- --scenario export --action-shell 'echo "drive the export flow here"'
-```
-
-Notes:
-- Reports are written under `apps/desktop/output/desktop-profiles/.../profile.json`.
-- The profiler launches Electron with an isolated desktop profile so measurements do not reuse your normal local state.
-- `idle-full-app` has a built-in **Open main app** transition.
-- `sync`, `export`, and `backup` are named profiling slots; drive the active step with `--action-shell` when you want a repeatable workflow-specific sample.
-
-## Exact release workflow
-
-Run from `apps/desktop` on the target OS you are releasing for.
-
-```bash
-npm install
-npm run vendor:sync
-npm run frontend:install
-npm run frontend:build
-npm run backend:prepare
-npm run test:ocr-packaged
-npm run test:e2e
-npm run test:plugin-packs
-npm run test:release-metadata
 npm run typecheck
 npm run build
-npm run dist:full
 ```
 
-Expected high-level outcomes:
-- `frontend:build` succeeds and writes `vendor/frontend/dist`
-- `backend:prepare` succeeds and installs Chromium outside the venv, by default under `.cache/playwright-browsers`
-- `test:ocr-packaged` proves the built `build/backend-venv` + `build/backend-src` payload can upload a scanned PDF,
-  start the separate OCR worker, reach `queued -> starting_engine -> processing -> completed`, create a receipt, and
-  let the worker exit after idle timeout
-- `build` syncs `build/frontend-dist`, `build/backend-src`, `build/backend-venv`
-- `dist:full` produces packaged artifacts in `dist_electron/` without attempting automatic mac signing
-
-For a Windows release, run the same workflow on Windows (or Windows CI runner).  
-For a macOS release, run it on macOS.
-
-## Packaging commands
-
-Build app bundles (fallback control center always included; full UI bundle included only if `vendor/frontend/dist` exists):
+Start the desktop app in development mode:
 
 ```bash
-cd apps/desktop
-npm run vendor:sync
+npm run dev
+```
+
+Notes:
+
+- `vendor/frontend/` and `vendor/backend/` are already committed to this repo. You do not need an external upstream checkout for normal builds.
+- `npm run backend:prepare` creates the local desktop backend runtime under `.backend/venv/`.
+- `npm run build` stages packaged frontend and backend assets into `build/` and compiles the Electron app into `out/`.
+
+## Common Commands
+
+```bash
+npm run dev
+npm run build
 npm run dist:mac
 npm run dist:win
+npm run typecheck
+npm run test:diagnostics
+npm run test:runtime-contracts
+npm run test:updates
+npm run test:release-preflight
 ```
 
-Build with bundled backend runtime + scrapers:
+Additional release and QA flows are documented in [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md), [docs/release-process.md](docs/release-process.md), and [docs/production-qa-checklist.md](docs/production-qa-checklist.md).
+
+## Refreshing Vendored Code
+
+Refreshing `vendor/frontend/` or `vendor/backend/` from the upstream app is optional and should only be done intentionally.
 
 ```bash
-cd apps/desktop
+LIDLTOOL_UPSTREAM_REPO=/path/to/upstream-checkout npm run vendor:sync
+```
+
+That flow copies files into this repo. The desktop app must continue to build from the local vendored copies after sync.
+
+## Packaging
+
+Local packaging commands:
+
+```bash
+npm run dist:mac
+npm run dist:win
 npm run dist:with-backend
 ```
 
-Build fully bundled UI + backend runtime:
+Release builds should also run:
 
 ```bash
-cd apps/desktop
-npm run dist:full
+OUTLAYS_DESKTOP_RELEASE_CHANNEL=beta \
+OUTLAYS_DESKTOP_UPDATE_BASE_URL=https://updates.example.invalid/outlays-desktop \
+npm run release:preflight
 ```
 
-Build an explicitly signed/notarized mac release:
+Current packaging notes:
 
-```bash
-cd apps/desktop
-CSC_NAME="Developer ID Application: <name> (<team>)" \
-APPLE_ID="..." \
-APPLE_APP_SPECIFIC_PASSWORD="..." \
-APPLE_TEAM_ID="..." \
-npm run dist:mac:signed
-```
+- unsigned local builds are supported
+- signed production builds are not fully finalized yet
+- update feeds are configured at release time, not committed into the repo
 
-See `RELEASE_CHECKLIST.md` for concrete verification commands and expected outputs.
+See [docs/release-process.md](docs/release-process.md), [docs/update-flow.md](docs/update-flow.md), and [docs/signing-and-notarization.md](docs/signing-and-notarization.md).
 
-## Notes
+## Privacy And Diagnostics
 
-- First packaged run still depends on OS-level browser/sandbox compatibility for Playwright.
-- Default mac packaging scripts are intentionally unsigned so Electron Builder does not auto-discover a local development identity.
-- Signed/notarized mac releases go through the explicit `dist:mac:signed` lane.
+Outlays Desktop is local-first:
 
-## Manual Verification Results
+- receipt data, exports, backups, documents, and retailer sessions stay on the local machine unless you explicitly move them elsewhere
+- automatic error reporting is off by default
+- diagnostics bundles are created locally and intentionally redacted
 
-Date: 2026-03-02  
-Environment: macOS arm64, commands run from `apps/desktop`
+See [PRIVACY.md](PRIVACY.md), [docs/diagnostics.md](docs/diagnostics.md), and [docs/public-repo-boundary.md](docs/public-repo-boundary.md).
 
-### Checklist command execution
+## Documentation Map
 
-Executed these release-checklist build commands in order:
+- [docs/README.md](docs/README.md): documentation index
+- [docs/development.md](docs/development.md): local development and build workflows
+- [docs/architecture.md](docs/architecture.md): runtime and packaging architecture
+- [CONTRIBUTING.md](CONTRIBUTING.md): contribution rules
+- [SECURITY.md](SECURITY.md): security reporting guidance
+- [docs/publication-checklist.md](docs/publication-checklist.md): open-source publication and commercial release readiness checklist
 
-```bash
-npm install
-npm run vendor:sync
-npm run frontend:install
-npm run frontend:build
-npm run backend:prepare
-npm run typecheck
-npm run build
-npm run dist:full
-```
+## Contributing
 
-Desktop isolation rule check (no new desktop runtime/build `../..` references):
+Contributions should preserve desktop-side isolation and keep public-facing docs aligned with behavior. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
-```bash
-rg -n "\\.\\./\\.\\." src scripts package.json electron.vite.config.ts RELEASE_CHECKLIST.md README.md AGENTS.md
-```
+## License
 
-Outcome:
-- Only documentation mentions in `AGENTS.md`; no runtime/build script `../..` path dependencies introduced.
-
-Outcome summary:
-- `npm install`: pass
-- `npm run vendor:sync`: pass (`Vendored frontend -> .../apps/desktop/vendor/frontend`, `Vendored backend -> .../apps/desktop/vendor/backend`, frontend patch log present)
-- `npm run frontend:install`: pass (npm peer/deprecation warnings only)
-- `npm run frontend:build`: pass (`vite build` wrote `vendor/frontend/dist`)
-- `npm run backend:prepare`: pass (`Prepared desktop backend runtime at .../apps/desktop/.backend/venv`)
-- `npm run typecheck`: pass (`tsc --noEmit` exit 0)
-- `npm run build`: pass (`Synced frontend assets`, `Synced backend source`, `Synced backend runtime`)
-- `npm run dist:full`: pass (`dist_electron/` contains `.dmg`, `.zip`, and blockmaps)
-
-### Packaged resource inclusion checks
-
-Executed:
-
-```bash
-APP="dist_electron/mac-arm64/Outlays.app/Contents/Resources"
-for d in frontend-dist backend-src backend-venv; do test -d "$APP/$d" && echo "OK dir: $d"; done
-for f in frontend-dist/index.html backend-src/pyproject.toml backend-venv/bin/lidltool; do test -f "$APP/$f" && echo "OK file: $f"; done
-find "$APP/backend-venv/lib" -type d -path "*/site-packages/playwright/driver/package/.local-browsers"
-```
-
-Outcome:
-- `frontend-dist`, `backend-src`, `backend-venv`: present
-- `frontend-dist/index.html`: present
-- `backend-src/pyproject.toml`: present
-- `backend-venv/bin/lidltool`: present
-- No Playwright browser payload bundled under `.local-browsers`
-
-### Boot-flow validation (packaged app)
-
-Success path command:
-
-```bash
-APP="$PWD/dist_electron/mac-arm64/Outlays.app/Contents/MacOS/Outlays"
-"$APP" --remote-debugging-port=9333
-```
-
-Verified via DevTools target + health probe:
-- desktop launched directly into the full UI on `http://127.0.0.1:18765/setup`
-- backend health endpoint `GET /api/v1/health` returned `200`
-
-Failure fallback command:
-
-```bash
-APP="$PWD/dist_electron/mac-arm64/Outlays.app/Contents/MacOS/Outlays"
-LIDLTOOL_EXECUTABLE=/does/not/exist "$APP" --remote-debugging-port=9334
-```
-
-Verified from fallback control center (automated UI interaction against packaged renderer):
-- fallback page loaded (`file://.../out/renderer/index.html`)
-- boot error text shown:
-  - `Automatic full-app boot failed: Error: Failed to launch backend executable '/does/not/exist' ...`
-- clicked **Start backend** from fallback: status became `running (pid ...)`
-- clicked **Run one-time scrape** from fallback:
-  - `Command Result` panel updated with JSON command result (`exitCode: 1` in this environment)
-  - runtime log stream populated with sync stderr/stdout lines
-
-Note on one-time sync result:
-- The one-time sync action executed correctly through fallback controls.
-- In this local environment, sync returned `exitCode: 1` with `CredentialCryptoError: unable to decrypt credential envelope` (existing local credential state), but log/result behavior matched release checklist expectations.
-
-### Failures found during verification and fixes applied
-
-1) Forced-failure fallback could not recover for manual actions  
-- Symptom: with `LIDLTOOL_EXECUTABLE=/does/not/exist`, fallback loaded but manual sync/start used the same bad path (`spawn ... ENOENT`) and backend status could remain stale.
-- Fix:
-  - `src/main/runtime.ts`: recover stale process state on spawn error, fail fast on invalid spawn, use strict override only for auto-boot, and use executable fallback chain for manual fallback actions (`start backend`, `open full app`, one-time sync).
-  - `src/main/index.ts`: auto-boot now calls `startBackend({ strictOverride: true })` so the forced failure path still triggers fallback.
-
-2) Boot error text could be missed in fallback UI  
-- Symptom: fallback sometimes showed without the boot error message due event timing.
-- Fix:
-  - Added boot-error getter IPC + preload API and consume it during renderer boot.
-  - Updated files: `src/main/ipc.ts`, `src/preload/index.ts`, `src/renderer/env.d.ts`, `src/renderer/App.tsx`, `src/main/index.ts`.
-
-After each fix, `npm run typecheck` and `npm run dist:full` were rerun, then the affected boot-flow checks were rerun against the new packaged app.
-
-### Final release-output check
-
-Verified release artifacts are produced under `dist_electron/` and only these packaged outputs are intended for shipping.
-
-### 2026-03-02 Full-App Backup Verification (Desktop-Only)
-
-Goal: ensure desktop-only users can trigger a backup from the fully functional app UI (not only fallback).
-
-Commands executed (from `apps/desktop`):
-
-```bash
-./.backend/venv/bin/python -m py_compile vendor/backend/src/lidltool/api/http_server.py vendor/backend/src/lidltool/ops/backup_restore.py
-npm run typecheck
-npm run frontend:build
-npm run build
-```
-
-Outcome:
-- Python compile check: pass
-- `npm run typecheck`: pass
-- `npm run frontend:build`: pass
-- `npm run build`: pass
-
-Authenticated backup API smoke (new backend route used by full UI settings page):
-
-```bash
-set -euo pipefail
-PORT=18895
-DB=/tmp/lidltool-system-backup-login.sqlite
-CFG=/tmp/lidltool-system-backup-login-config
-OUT=/tmp/lidltool-system-backup-login-output
-COOKIE=/tmp/lidltool-system-backup-login-cookie.txt
-LOG=/tmp/lidltool-system-backup-login.log
-rm -rf "$CFG" "$OUT" "$COOKIE" "$DB" "$LOG"
-mkdir -p "$CFG"
-OUTLAYS_DESKTOP_CONFIG_DIR="$CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="smoke-smoke-smoke-smoke-smoke-smoke-smoke-smoke" \
-  ./.backend/venv/bin/python - <<'PY'
-from pathlib import Path
-from lidltool.auth.users import create_local_user
-from lidltool.config import build_config, database_url
-from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
-
-cfg = build_config(db_override=Path("/tmp/lidltool-system-backup-login.sqlite"))
-db_url = database_url(cfg)
-migrate_db(db_url)
-engine = create_engine_for_url(db_url)
-sessions = session_factory(engine)
-with session_scope(sessions) as session:
-    create_local_user(
-        session,
-        username="admin",
-        password="admin1234",
-        display_name="Admin",
-        is_admin=True,
-    )
-PY
-OUTLAYS_DESKTOP_CONFIG_DIR="$CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="smoke-smoke-smoke-smoke-smoke-smoke-smoke-smoke" \
-  ./.backend/venv/bin/lidltool --db "$DB" serve --host 127.0.0.1 --port "$PORT" >"$LOG" 2>&1 &
-PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true' EXIT
-for i in $(seq 1 60); do
-  curl -fsS "http://127.0.0.1:$PORT/api/v1/health" >/dev/null && break
-  sleep 0.25
-done
-curl -fsS -c "$COOKIE" -b "$COOKIE" -H 'content-type: application/json' \
-  -d '{"username":"admin","password":"admin1234"}' \
-  "http://127.0.0.1:$PORT/api/v1/auth/login" > /tmp/lidltool-system-backup-login-auth.json
-curl -fsS -c "$COOKIE" -b "$COOKIE" -H 'content-type: application/json' \
-  -d '{"output_dir":"'"$OUT"'","include_documents":false,"include_export_json":true}' \
-  "http://127.0.0.1:$PORT/api/v1/system/backup" > /tmp/lidltool-system-backup-login-response.json
-ls -1 "$OUT"
-```
-
-Observed result:
-- Endpoint response `ok: true`
-- Output directory created and contained:
-  - `backup-manifest.json`
-  - `credential_encryption_key.txt`
-  - `db-backup-<timestamp>.sqlite`
-  - `receipts-export.json`
-- `skipped` field correctly reported unavailable/disabled artifacts (`token file not found`, `documents excluded by request`)
-
-Full UI verification (login + click through `System -> Users` backup card):
-
-```bash
-set -euo pipefail
-PORT=18896
-DB=/tmp/lidltool-ui-backup-login.sqlite
-CFG=/tmp/lidltool-ui-backup-login-config
-OUT=/tmp/lidltool-ui-backup-login-output
-LOG=/tmp/lidltool-ui-backup-login.log
-rm -rf "$CFG" "$OUT" "$DB" "$LOG"
-mkdir -p "$CFG"
-OUTLAYS_DESKTOP_CONFIG_DIR="$CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="smoke-smoke-smoke-smoke-smoke-smoke-smoke-smoke" \
-  ./.backend/venv/bin/python - <<'PY'
-from pathlib import Path
-from lidltool.auth.users import create_local_user
-from lidltool.config import build_config, database_url
-from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
-
-cfg = build_config(db_override=Path("/tmp/lidltool-ui-backup-login.sqlite"))
-db_url = database_url(cfg)
-migrate_db(db_url)
-engine = create_engine_for_url(db_url)
-sessions = session_factory(engine)
-with session_scope(sessions) as session:
-    create_local_user(
-        session,
-        username="admin",
-        password="admin1234",
-        display_name="Admin",
-        is_admin=True,
-    )
-PY
-OUTLAYS_DESKTOP_CONFIG_DIR="$CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="smoke-smoke-smoke-smoke-smoke-smoke-smoke-smoke" \
-OUTLAYS_DESKTOP_FRONTEND_DIST="$PWD/vendor/frontend/dist" OUTLAYS_DESKTOP_REPO_ROOT="$PWD/vendor/backend" \
-  ./.backend/venv/bin/lidltool --db "$DB" serve --host 127.0.0.1 --port "$PORT" >"$LOG" 2>&1 &
-PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true' EXIT
-for i in $(seq 1 60); do
-  curl -fsS "http://127.0.0.1:$PORT/api/v1/health" >/dev/null && break
-  sleep 0.25
-done
-./.backend/venv/bin/python - <<'PY'
-from pathlib import Path
-from playwright.sync_api import sync_playwright
-
-out = Path("/tmp/lidltool-ui-backup-login-output")
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True)
-    page = browser.new_page()
-    page.goto("http://127.0.0.1:18896/login", wait_until="networkidle")
-    page.fill("#username", "admin")
-    page.fill("#password", "admin1234")
-    page.get_by_role("button", name="Sign in").click()
-    page.wait_for_url("http://127.0.0.1:18896/")
-    page.goto("http://127.0.0.1:18896/settings/users", wait_until="networkidle")
-    page.fill("#backup-output-dir", str(out))
-    page.get_by_label("Include document storage").uncheck()
-    page.get_by_role("button", name="Create backup bundle").click()
-    page.get_by_text("Backup created at", exact=False).wait_for(timeout=20000)
-    browser.close()
-PY
-ls -1 "$OUT"
-```
-
-Observed result:
-- Backup card executed successfully from full UI.
-- Output directory contained `backup-manifest.json`, `credential_encryption_key.txt`, `db-backup-<timestamp>.sqlite`, and `receipts-export.json`.
-
-### 2026-03-02 Backup Import Verification (Fresh Desktop Environment)
-
-Goal: verify desktop users can restore a backup bundle into a fresh local desktop runtime, then sign in with restored data.
-
-Build/type checks rerun after restore feature implementation:
-
-```bash
-npm run typecheck
-npm run frontend:build
-npm run build
-```
-
-Outcome:
-- `npm run typecheck`: pass
-- `npm run frontend:build`: pass
-- `npm run build`: pass
-
-Fresh-environment restore smoke (Electron + setup-page restore flow):
-
-```bash
-set -euo pipefail
-cd /Users/max/projekte/lidltool/apps/desktop
-SOURCE_BACKUP=/tmp/lidltool-import-source-backup
-SOURCE_DB=/tmp/lidltool-import-source.sqlite
-SOURCE_CFG=/tmp/lidltool-import-source-config
-RESTORE_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-rm -rf "$SOURCE_BACKUP" "$SOURCE_DB" "$SOURCE_CFG"
-mkdir -p "$SOURCE_BACKUP" "$SOURCE_CFG"
-
-OUTLAYS_DESKTOP_CONFIG_DIR="$SOURCE_CFG" LIDLTOOL_CREDENTIAL_ENCRYPTION_KEY="$RESTORE_KEY" \
-  ./.backend/venv/bin/python - <<'PY'
-from pathlib import Path
-from lidltool.auth.users import create_local_user
-from lidltool.config import build_config, database_url
-from lidltool.db.engine import create_engine_for_url, migrate_db, session_factory, session_scope
-
-db_path = Path("/tmp/lidltool-import-source.sqlite")
-cfg = build_config(db_override=db_path)
-db_url = database_url(cfg)
-migrate_db(db_url)
-engine = create_engine_for_url(db_url)
-sessions = session_factory(engine)
-with session_scope(sessions) as session:
-    create_local_user(
-        session,
-        username="restoreadmin",
-        password="restorepass123",
-        display_name="Restore Admin",
-        is_admin=True,
-    )
-PY
-
-cp "$SOURCE_DB" "$SOURCE_BACKUP/lidltool.sqlite"
-printf '%s\n' "$RESTORE_KEY" > "$SOURCE_BACKUP/credential_encryption_key.txt"
-printf '{"refresh_token":"sample-token"}\n' > "$SOURCE_BACKUP/token.json"
-mkdir -p "$SOURCE_BACKUP/documents"
-printf 'restored doc\n' > "$SOURCE_BACKUP/documents/example.txt"
-
-USER_DATA_DIR=/tmp/lidltool-import-fresh-userdata
-CONFIG_DIR=/tmp/lidltool-import-fresh-config
-DOCS_DIR=/tmp/lidltool-import-fresh-docs
-E_LOG=/tmp/lidltool-import-electron-fresh.log
-rm -rf "$USER_DATA_DIR" "$CONFIG_DIR" "$DOCS_DIR" "$E_LOG"
-mkdir -p "$USER_DATA_DIR" "$CONFIG_DIR" "$DOCS_DIR"
-
-OUTLAYS_DESKTOP_CONFIG_DIR="$CONFIG_DIR" OUTLAYS_DESKTOP_DOCUMENT_STORAGE_PATH="$DOCS_DIR" \
-  ./node_modules/.bin/electron . --user-data-dir="$USER_DATA_DIR" --remote-debugging-port=9461 >"$E_LOG" 2>&1 &
-EPID=$!
-trap 'kill "$EPID" >/dev/null 2>&1 || true' EXIT
-for i in $(seq 1 120); do
-  curl -fsS "http://127.0.0.1:9461/json/version" >/dev/null && break
-  sleep 0.25
-done
-
-BACKUP_DIR="$SOURCE_BACKUP" ./.backend/venv/bin/python - <<'PY'
-import os
-import time
-from playwright.sync_api import sync_playwright
-
-backup_dir = os.environ["BACKUP_DIR"]
-with sync_playwright() as p:
-    browser = p.chromium.connect_over_cdp("http://127.0.0.1:9461")
-    page = None
-    for _ in range(120):
-        for ctx in browser.contexts:
-            for candidate in ctx.pages:
-                if candidate.url.startswith("http://127.0.0.1:18765"):
-                    page = candidate
-                    break
-            if page:
-                break
-        if page:
-            break
-        time.sleep(0.25)
-    if page is None:
-        raise SystemExit("no app page found")
-    for _ in range(120):
-        if page.locator("#restore-dir").count() > 0:
-            break
-        time.sleep(0.25)
-    page.fill("#restore-dir", backup_dir)
-    page.get_by_role("button", name="Restore backup and sign in").click()
-    page.wait_for_url("http://127.0.0.1:18765/login", timeout=30000)
-    page.fill("#username", "restoreadmin")
-    page.fill("#password", "restorepass123")
-    page.get_by_role("button", name="Sign in").click()
-    page.wait_for_url("http://127.0.0.1:18765/", timeout=30000)
-    browser.close()
-PY
-
-python3 - <<'PY'
-import sqlite3
-db = "/tmp/lidltool-import-fresh-userdata/lidltool.sqlite"
-conn = sqlite3.connect(db)
-row = conn.execute("select username from users where username='restoreadmin'").fetchone()
-print("db_has_restore_user", bool(row))
-conn.close()
-PY
-```
-
-Observed result:
-- Setup page restore action executed successfully via **Restore backup and sign in**.
-- Login with restored user succeeded.
-- Restored artifacts existed in fresh runtime paths:
-  - DB: `/tmp/lidltool-import-fresh-userdata/lidltool.sqlite`
-  - token: `/tmp/lidltool-import-fresh-config/token.json`
-  - documents: `/tmp/lidltool-import-fresh-docs/example.txt`
-  - credential key: `/tmp/lidltool-import-fresh-userdata/credential_encryption_key.txt`
+A final open-source license has not been added yet. This must be resolved before the public GitHub launch.
